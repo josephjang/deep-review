@@ -100,7 +100,8 @@ export type RestoredFile = TreeRestored['files'][number];
  * back after a check a kill cut short records them (R7 of resumable
  * runs): each one's bytes in the tree frozen, which keeps them as
  * evidence, and its expected state; `only` keeps to the paths a drift
- * named. Reads only the expected files.
+ * named. Bytes too large to freeze keep only their hash, and `writeBack`
+ * leaves such a file as it is. Reads only the expected files.
  */
 export function restoredFiles(state: RunState, worktree: string, match: ExpectedMatch, evidence: Pick<EvidenceStore, 'put'>, only: ReadonlySet<string> | null = null): RestoredFile[] {
   const expected = expectedTreeOf(state);
@@ -125,8 +126,9 @@ export interface LeftFile {
  * written where none was takes the executable bit git's index records for
  * it, since the frozen bytes record no mode. Each file is
  * written back on its own, and one it cannot write is left as the tree
- * holds it and returned with the reason: its expected bytes were too
- * large to keep, a directory or another entry whose bytes were not
+ * holds it and returned with the reason: its bytes in the tree were too
+ * large to keep as evidence, so writing over them would lose them, its
+ * expected bytes were too large to keep, a directory or another entry whose bytes were not
  * frozen is where the file is expected, a file is where a parent
  * directory is expected, or the write failed, such as a symlink on
  * Windows without the privilege. The check of the tree after the write
@@ -143,6 +145,7 @@ export function writeBack(worktree: string, files: readonly RestoredFile[], read
 
 /** Write back one file, or say why it is left as the tree holds it. */
 function writeBackFile(worktree: string, file: RestoredFile, read: (reference: ArtifactReference) => Buffer): string | null {
+  if (file.before !== null && !('blob' in file.before)) return 'its bytes in the tree were too large to have been kept';
   if (file.expected !== null && !('blob' in file.expected)) return 'its expected bytes were too large to have been kept';
   const bytes = file.expected === null ? null : read(file.expected.blob);
   const absolute = join(worktree, ...file.path.split('/'));

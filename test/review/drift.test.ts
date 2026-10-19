@@ -99,6 +99,16 @@ describe('writeBack', () => {
     }
   });
 
+  it('leaves a file whose bytes in the tree were too large to keep, written over or removed', () => {
+    write(repo, 'src/a.ts', 'large\n');
+    write(repo, 'src/new.ts', 'large\n');
+    const oversized: FrozenFile = { oversized: { sha256: '0'.repeat(64), size: 9 * 1024 * 1024 } };
+    const reason = 'its bytes in the tree were too large to have been kept';
+    assert.deepEqual(writeBackIn([{ ...restored('src/a.ts', null, 'a\n'), before: oversized }, { ...restored('src/new.ts', null, null), before: oversized }]), [{ path: 'src/a.ts', reason }, { path: 'src/new.ts', reason }]);
+    assert.equal(read('src/a.ts'), 'large\n');
+    assert.equal(read('src/new.ts'), 'large\n');
+  });
+
   it('leaves a file whose expected bytes were too large to keep', () => {
     write(repo, 'src/a.ts', 'cut\n');
     const file: RestoredFile = { ...restored('src/a.ts', 'cut\n', null), expected: { oversized: { sha256: '0'.repeat(64), size: 9 * 1024 * 1024 } } };
