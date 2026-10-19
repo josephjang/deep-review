@@ -403,6 +403,14 @@ Sometimes one revision holds the edits of more than one finding, because no snap
 
 The subject now starts with a type when each subject of the fixer starts with one. When all the types are the same, the subject takes that type, and the scope too when all the scopes are the same. When the types are different, the subject takes the type `fix`. An example: `fix(checkpoint): Apply RIPPLE-2, DESIGN-3`. When a subject of the fixer has no type, the repository does not write conventional commits, and the subject stays `Apply` with the findings.
 
+#### The message of a tree kill that failed on Windows
+
+When `taskkill /T` cannot end each process of a tree, `killTreeNow` in `process.ts` ends the root alone. It records why, with the message of `taskkill`. That message is in the code page of the console, which is 949 on a Korean system. The engine read it as UTF-8, so the log, the ledger and the report kept the message with each Korean letter replaced. The gate showed this three times.
+
+The engine now reads the bytes of the message. If they are valid UTF-8, it uses them as they are, as for a console set to code page 65001.
+
+Else the engine reads the OEM code page of the system from the registry, with `reg query`. It does not ask the console, because a process with no console has no console code page. Then it decodes the bytes with that code page. For a code page that `TextDecoder` does not know, the engine reads the bytes as UTF-8, as today. These steps run only when a tree kill fails.
+
 ## Technical Decisions
 
 ### TD1: The test stops the engine from a preload, not from a hook in the engine
