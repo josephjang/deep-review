@@ -22,7 +22,7 @@ import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../confi
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { batchPosition, budgetStoppedUnits, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
+import { batchPosition, budgetStoppedUnits, killedRun, revisionMessageOf, routeOf, type CutShortCheck } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
@@ -31,7 +31,7 @@ import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { withPathFirst } from '../runtime/environment.ts';
 import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
-import { endedByKill, killMarkWords } from '../runtime/process.ts';
+import { killMarkWords } from '../runtime/process.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
@@ -636,8 +636,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces };
       const recorded: NewEvent = { kind: 'check.ran', version: 3, payload: ran };
-      // A run a kill ended, the engine's at the timeout or one from outside with a kill mark or no result from its guard, records no revision: what it wrote is written back instead, read from the process result rather than the outcome, so a second cut, recorded failed, is written back too.
-      if (result.termination === 'killed' || endedByKill(result)) {
+      // A run a kill ended, the engine's at the timeout or one from outside with a kill mark or no result from its guard, a second cut recorded failed among them, records no revision: what it wrote is written back instead. The run as recorded decides it, through the predicate the replay reads (`killedRun`), so the write back here and the one after a stop cannot disagree on a kill.
+      if (killedRun(ran)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options.worktree, content.match, checkpoint.evidence), [recorded]);
         return;
       }
