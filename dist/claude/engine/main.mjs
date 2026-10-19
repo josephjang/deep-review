@@ -85,9 +85,12 @@ async function runProcess(request) {
     return await new Promise((resolve13) => {
       let started = false;
       let kill;
-      const timer = setTimeout(() => {
-        kill = existsSync(resultFile) ? { status: "not-running" } : killTreeNow(guard2);
-      }, request.timeoutMs);
+      const expire = (graceLeftMs) => {
+        if (existsSync(resultFile)) kill = { status: "not-running" };
+        else if (graceLeftMs > 0) timer = setTimeout(() => expire(graceLeftMs - resultPollMs), resultPollMs);
+        else kill = killTreeNow(guard2);
+      };
+      let timer = setTimeout(() => expire(resultGraceMs), request.timeoutMs);
       guard2.once("spawn", () => {
         started = true;
       });
@@ -164,7 +167,7 @@ function killRoot(child, error62) {
   child.kill("SIGKILL");
   return { status: "root-only", error: error62 };
 }
-var killMarkCodes, detachedChild, guardResultFile, guardEntry, interruptions, LiveProcesses, live;
+var killMarkCodes, detachedChild, guardResultFile, guardEntry, resultGraceMs, resultPollMs, interruptions, LiveProcesses, live;
 var init_process = __esm({
   "src/runtime/process.ts"() {
     "use strict";
@@ -172,6 +175,8 @@ var init_process = __esm({
     detachedChild = process.platform !== "win32";
     guardResultFile = (requestFile) => `${requestFile}.result`;
     guardEntry = import.meta.filename.endsWith(".ts") ? join(import.meta.dirname, "..", "cli.ts") : import.meta.filename;
+    resultGraceMs = 250;
+    resultPollMs = 25;
     interruptions = process.platform === "win32" ? [] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
     LiveProcesses = class {
       #children = /* @__PURE__ */ new Set();
@@ -22327,7 +22332,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, repairUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, repairUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22411,6 +22416,10 @@ var init_vocabulary = __esm({
     };
     continuedCheckUnavailableAction = "install the missing tool and run the command again, or run it again with --no-check <kind> to go without that check, or with --check <kind>=<command> to name one that runs";
     surveyWorkerFailedAction = "run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without surveying again, with the convention sources of an earlier survey of this run if one answered, and with none otherwise, or abandon the run";
+    surveyWorkerFailedActions = [
+      surveyWorkerFailedAction,
+      "run the command again, which surveys the repository afresh, or run it again with --check <kind>=<command> or --no-check <kind> for each of build, typecheck, lint and test, which goes on without the survey and its convention sources, or abandon the run"
+    ];
     checkKinds = ["build", "typecheck", "lint", "test"];
     checkKindSchema = external_exports.enum(checkKinds);
     checkOrigins = ["flag", "survey", "none"];
@@ -22537,13 +22546,15 @@ function lastRun(fix, phase, kind, after = 0) {
 function lastRecordedRun(fix, phase, kind, after = 0) {
   return fix.checks.runs[phase].findLast((run2) => run2.kind === kind && run2.attempt > after) ?? null;
 }
+function revisionAfter(fix, run2, editing) {
+  const phases2 = editing;
+  return fix.revisions.slice(run2.revisionsBefore).find((revision) => phases2.includes(revision.phase))?.phase ?? null;
+}
 function earlierTreeEdit(fix, phase, run2) {
-  const marking = markingPhases[phase];
-  return fix.revisions.slice(run2.revisionsBefore).find((revision) => marking.includes(revision.phase))?.phase ?? null;
+  return revisionAfter(fix, run2, markingPhases[phase]);
 }
 function isOldRun(fix, phase, run2) {
-  const staling = stalingPhases[phase];
-  return fix.revisions.slice(run2.revisionsBefore).some((revision) => staling.includes(revision.phase));
+  return revisionAfter(fix, run2, stalingPhases[phase]) !== null;
 }
 function lastCurrentRun(review2, phase, kind) {
   return lastRun(review2.fix, phase, kind, checksFloor(review2, phase));
@@ -22836,7 +22847,7 @@ var init_fix_state = __esm({
       "repair-checks": ["fixes", "repair", "answer"],
       "answer-checks": ["fixes", "repair"]
     };
-    markingPhases = { "baseline-checks": [], checks: ["fixes"], "repair-checks": ["fixes", "repair"], "answer-checks": ["fixes", "repair"] };
+    markingPhases = Object.fromEntries(checkPhases.map((phase) => [phase, stalingPhases[phase].filter((editing) => editing !== "answer")]));
     killedRun = (run2) => run2.outcome === "cut" || run2.termination === "killed" || run2.outcome === "failed" && endedByKill(run2);
     batchSettled = (fix, key) => Object.hasOwn(fix.answers.fixes, key) || isNotAttempted(fix, "fixes", key);
     exactPath = (path) => path;
@@ -29020,7 +29031,7 @@ function surveyStep(review2, live2, attempt) {
   if (unsettledKinds(live2.checkSettings).length > 0) return null;
   const unit = { phase: "survey", key, role: "surveyor" };
   const state = review2.units.survey[key];
-  const failed2 = survey.lastBlock?.code === "worker-failed" && survey.lastBlock.action === surveyWorkerFailedAction ? `the survey blocked, ${survey.lastBlock.detail}` : exhausted(review2, unit, state) && !interrupted(state) ? workerFailedBlocker(review2, unit, state).detail : null;
+  const failed2 = survey.lastBlock?.code === "worker-failed" && surveyWorkerFailedActions.includes(survey.lastBlock.action) ? `the survey blocked, ${survey.lastBlock.detail}` : exhausted(review2, unit, state) && !interrupted(state) ? workerFailedBlocker(review2, unit, state).detail : null;
   if (failed2 === null) return null;
   const settledBy = settledByFlagsOnly(live2.checkSettings) ? "the --check and --no-check flags settle" : "the check settings settle";
   const without = truncated(`${failed2}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
@@ -29062,14 +29073,14 @@ function nextStep(review2, live2) {
   const units = unitsOf(review2, phase);
   const states = review2.units[phase];
   const running = units.filter((unit) => live2.running.has(unitName(phase, unit.key)));
-  const limited = units.find((unit) => !settled(review2, unit) && (states[unit.key]?.failures.some((failure2) => failure2.cause === "limit") ?? false));
-  if (limited !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(review2, limited, states[limited.key]) };
   const spent = units.filter((unit) => exhausted(review2, unit, states[unit.key]) && !degraded(review2, unit));
   const degradations = spent.flatMap((unit) => {
     const target = exhaustedOutcome(review2, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
   if (degradations.length > 0) return { kind: "degrade", phase, degradations };
+  const limited = units.find((unit) => !settled(review2, unit) && (states[unit.key]?.failures.some((failure2) => failure2.cause === "limit") ?? false));
+  if (limited !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(review2, limited, states[limited.key]) };
   const blocking = spent.find((unit) => exhaustedOutcome(review2, unit, states[unit.key]) === null);
   if (blocking !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(review2, blocking, states[blocking.key]) };
   const launchable = units.filter((unit) => launchableUnit(review2, unit, states[unit.key]) && !live2.running.has(unitName(phase, unit.key)));
@@ -29325,10 +29336,15 @@ function restoredFiles(state, worktree, match, evidence, only = null) {
   const entries = /* @__PURE__ */ new Map();
   const read = (path) => {
     const entry = readTreeEntry(worktree, path);
-    entries.set(path, entry);
+    if (only === null || only.has(path)) entries.set(path, entry);
     return entry;
   };
-  return compareExpected(expected, read, /* @__PURE__ */ new Set(), match).filter((file2) => only === null || only.has(file2.path)).map((file2) => {
+  const matches = (path, want, now) => {
+    if (!match(path, want, now)) return false;
+    entries.delete(path);
+    return true;
+  };
+  return compareExpected(expected, read, /* @__PURE__ */ new Set(), matches).filter((file2) => only === null || only.has(file2.path)).map((file2) => {
     const now = entries.get(file2.path) ?? null;
     const want = expected.get(file2.path) ?? null;
     return { path: file2.path, before: now === null ? null : freezeBytes(evidence, now.bytes), beforeSymlink: now?.symlink ?? false, expected: want?.frozen ?? null, expectedSymlink: want?.symlink ?? false };
@@ -29345,7 +29361,12 @@ function writeBack(worktree, files, read) {
 function writeBackFile(worktree, file2, read) {
   if (file2.before !== null && !("blob" in file2.before)) return "its bytes in the tree were too large to have been kept";
   if (file2.expected !== null && !("blob" in file2.expected)) return "its expected bytes were too large to have been kept";
-  const bytes = file2.expected === null ? null : read(file2.expected.blob);
+  let bytes;
+  try {
+    bytes = file2.expected === null ? null : read(file2.expected.blob);
+  } catch (error62) {
+    return `reading its expected bytes failed: ${error62.message}`;
+  }
   const absolute = join17(worktree, ...file2.path.split("/"));
   try {
     const parent = parentInTheWay(worktree, file2.path);
@@ -30610,7 +30631,7 @@ function build(run2, options2) {
       if (failure2 instanceof ReviewRefusedError) checkpoint.append(run2.id, prepared.lastSequence, [{ kind: "commits.dropped", version: 1, payload: { from: payload.from, to: payload.to } }]);
       throw failure2;
     }
-    git2(worktree, ["reset", "-q"], { timeout: 0 });
+    resetIndex(worktree);
     checkpoint.append(run2.id, prepared.lastSequence, [{ kind: "commits.created", version: 1, payload }]);
     return { runId: run2.id, commits: made.map((entry) => ({ sha: entry.sha, subject: entry.subject })), unstaged: staged };
   } finally {
@@ -32007,16 +32028,16 @@ var init_shell = __esm({
 // src/review/continue-command.ts
 function scopeFlags(scope) {
   const { request } = scope;
-  const paths = request.paths.flatMap((path) => ["--path", word(path)]);
+  const paths = request.paths.flatMap((path) => flagWords("--path", path));
   switch (scope.mode) {
     case "last-commit":
       return ["--last-commit", ...paths];
     case "worktree":
       return ["--worktree", ...paths];
     case "ref":
-      return ["--ref", word(request.ref), ...paths];
+      return [...flagWords("--ref", request.ref), ...paths];
     case "range":
-      return ["--from", word(request.range.from), "--to", word(request.range.to), ...request.range.mergeBase ? ["--merge-base"] : [], ...paths];
+      return [...flagWords("--from", request.range.from), ...flagWords("--to", request.range.to), ...request.range.mergeBase ? ["--merge-base"] : [], ...paths];
   }
 }
 function continueCommand(run2, engineEntry, rolesRoot, spendUsd) {
@@ -32024,7 +32045,7 @@ function continueCommand(run2, engineEntry, rolesRoot, spendUsd) {
   const args = ["review", "--repo", terminalQuoted(run2.worktree), "--runtime", run2.review.configuration.runtime, ...scopeFlags(run2.scope), "--fix", "--budget-usd", String(budgetAbove(spendUsd)), ...rolesRoot === null ? [] : ["--roles", terminalQuoted(rolesRoot)]];
   return `node ${terminalQuoted(engineEntry)} ${args.join(" ")}`;
 }
-var word, namedRoles, budgetAbove;
+var word, flagWords, namedRoles, budgetAbove;
 var init_continue_command = __esm({
   "src/review/continue-command.ts"() {
     "use strict";
@@ -32032,6 +32053,7 @@ var init_continue_command = __esm({
     init_paths();
     init_shell();
     word = (text2) => /^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text2) && !/[=:]~/.test(text2) ? text2 : terminalQuoted(text2);
+    flagWords = (flag, value) => value.startsWith("-") ? [word(`${flag}=${value}`)] : [flag, word(value)];
     namedRoles = (rolesRoot) => sameDirectory(rolesRoot, engineRolesRoot()) ? null : rolesRoot;
     budgetAbove = (spendUsd) => Math.floor(spendUsd) + 1;
   }
@@ -33359,7 +33381,7 @@ function stopLimitations(review2, evidencePath) {
     }
   });
   if (fix.openSeries !== null) lines.push(`A stop cut \`deep-review commit\` short: its series from ${fix.openSeries.from} to ${fix.openSeries.to} is not recorded yet, and the next command completes it or drops it by where HEAD is.`);
-  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to} that a stop cut short before the branch moved; a later \`deep-review commit\` builds it again.`);
+  for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to}, which the branch never moved to, after a stop or a refused move; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
 function answerLines(fix) {
@@ -34010,30 +34032,27 @@ async function runReview(options2) {
   const record2 = (settled3, startedAt) => {
     const name = unitName(settled3.unit.phase, settled3.unit.key);
     if ("error" in settled3) throw settled3.error;
-    const summary = adapter.summarizeUsage(settled3.receipt.runtime.usage);
-    log(`worker ${settled3.unit.role} ${name}: ${settled3.receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${settled3.receipt.error === null ? "" : `: ${settled3.receipt.error}`}`);
+    const { receipt } = settled3;
+    const summary = adapter.summarizeUsage(receipt.runtime.usage);
+    log(`worker ${settled3.unit.role} ${name}: ${receipt.outcome} in ${seconds(Date.now() - startedAt)}${usd3(summary.costUsd)}${receipt.error === null ? "" : `: ${receipt.error}`}`);
     const { phase } = settled3.unit;
-    const { finish } = settled3.receipt;
-    const withFinish = (events) => [...finish === null ? [] : [finish], ...events];
-    try {
-      state = checkpoint.fold(runId);
-      if (settled3.receipt.outcome === "completed" && !isEditingPhase(phase)) {
+    const { finish } = receipt;
+    const contribution = () => {
+      if (receipt.outcome === "completed" && !isEditingPhase(phase)) {
         const attempt = state.review.phases[phase].attempt;
         const recorded = state.review.checks.find((check2) => check2.phase === phase && check2.attempt === attempt && check2.drifted);
         if (recorded !== void 0) {
           log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(recorded)}`);
-          if (finish !== null) state = append(checkpoint, state, [finish]);
-          return;
+          return [];
         }
         const found = findDrift(state, options2.worktree, content.match);
         if (drifted(found)) {
           log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-          state = append(checkpoint, state, withFinish([{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }]));
-          return;
+          return [{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }];
         }
       }
       const settling = phase === "fixes" ? directories.settleReading(settled3.unit.key) : { access: claims, lost: false };
-      const events = contributionOf(settled3.unit, settled3.receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      const events = contributionOf(settled3.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
       for (const event of events) {
         for (const line of claimLines(event)) log(line);
         if (event.kind === "attempt.failed") log(`worker ${settled3.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
@@ -34041,7 +34060,12 @@ async function runReview(options2) {
         if (event.kind === "survey.recorded") for (const line of surveyLines(runId, event.payload)) log(line);
         if (event.kind === "decisions.recorded") log(`worker ${settled3.unit.role} ${name}: decided ${decisionCountWords(decisionCounts(event.payload.decisions))}`);
       }
-      state = append(checkpoint, state, withFinish(events));
+      return events;
+    };
+    try {
+      state = checkpoint.fold(runId);
+      const events = contribution();
+      if (finish !== null || events.length > 0) state = append(checkpoint, state, [...finish === null ? [] : [finish], ...events]);
     } catch (error62) {
       if (finish !== null) {
         try {
