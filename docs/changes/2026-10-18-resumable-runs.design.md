@@ -354,6 +354,8 @@ The command names `--roles` too, when the run did not use the default roles. In 
 
 After `fix.reopened`, the header gets one line, as an answer pass does: `Reopened: the fix pass past the run budget on <time>, after the report at <path>`. A run that reopened more than one time names the last one and the count. The Changed files section names the phase of each revision after a committed series: the reopened fix pass, or an answer pass. `committedWords` and the comment of `whyNotCommittable` in `commit.ts` change with it.
 
+The line of the run budget in Limitations names the spend that the budget check counted when it is not the reported spend. The check counts a worker that reported no cost at its per-worker cap, and it leaves out a worker lost with an earlier engine. An example: `- Run budget: 55.00 USD, checked before every launch; spent 42.78 USD; the budget check counted 66.78 USD, counting 3 workers that reported no cost at their per-worker caps.` In the gate, the report of a run that the budget stopped said `spent 42.78 USD` of 55 USD, so the stop did not look necessary. On 2026-10-19, the author chose to name both amounts, as `status` does.
+
 `status` gives the same facts and an open or dropped series of commits. For a complete run that the budget stopped, it names the command that continues it. At the end of such a run, after the line of the report, the controller logs that command too.
 
 ### Skills and README (R17)
