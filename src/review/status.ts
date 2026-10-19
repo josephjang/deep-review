@@ -25,7 +25,6 @@ import { unitLabel } from './labels.ts';
 import { currentPhase, reviewStatus } from './state.ts';
 import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
-/** What `status` prints about a run, as text lines and as a JSON value. */
 /**
  * What `status` names a complete fix run the run budget stopped with
  * (R11, R15 of resumable runs): the engine that runs the command that
@@ -51,6 +50,7 @@ function continueLine(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeU
   return { command, line: `Continue: ${command}, which continues the fix pass the run budget stopped and reviews nothing again${own ? '' : `, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`}` };
 }
 
+/** What `status` prints about a run, as text lines and as a JSON value. */
 export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string, continuation: StatusContinuation | null = null): { lines: string[]; json: Record<string, unknown> } {
   const status = reviewStatus(state);
   const review = state.review;
