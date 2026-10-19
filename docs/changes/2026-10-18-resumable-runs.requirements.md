@@ -190,13 +190,19 @@ The timeout of a worker or a check counts the time that the machine is awake, an
 
 Baseline: the first run of the test of R2 on the engine before this change counts the points that break R1. Target: 0 points. Measure: the script of R2.
 
+Result: at `62f0714`, on the engine before the change, 107 of 494 cases broke the contract on Windows. At `7c41aea` and at `17e9906`, 0 of 437 cases broke it. The set has fewer cases because R6 makes two appends one.
+
 ### What a continuation saves
 
 Baseline: on the change of run `0d63437e`, the new run `0586b85f` paid 30.10 USD of reported cost for the phases before the fixes. Target: a continuation pays 0 USD for those phases. Measure: the sum of the reported cost of each worker of those phases after the continuation, from the ledger.
 
+Result: run `beaef8b8` of the gate continued three times. After the first continuation, the ledger has 23 launches, and each one is a fixer. Thus the continuations paid 0 USD for the phases before the fixes.
+
 ### A false baseline
 
 Baseline: the report of run `8dbe23ad` names one check that failed before the fixes, and that check passes on that tree. Target: no report names a check as failed because a stop killed it. Measure: the first run of R18 compares the outcome of the killed check with the outcome of its rerun.
+
+Result: in run `16ed26e1`, the killed `test` check was cut by exit code 143, a kill mark. Its rerun at attempt 2 passed in 361.3 seconds. The report names no check as failed before the fixes.
 
 ## Product Decisions
 
@@ -330,7 +336,9 @@ A run that the budget stopped names the work that it did not do and the command 
 
 ### Principle 11, recovery without a person
 
-The proposal departs from this principle for the stops of the engine (PD1). It builds recovery for the points that a test shows, before a run meets them. It keeps the principle for the limits of the environment (PD2), and it builds recovery for the two limits that runs showed. It also departs for a check that timed out, which runs again once (PD7). No run showed a timeout from a slow moment or a sleep. The proposal suggests new words for the principle in the next vision note.
+The proposal departs from this principle for the stops of the engine (PD1). It builds recovery for the points that a test shows, before a run meets them. It keeps the principle for the limits of the environment (PD2). It builds recovery for the two limits that runs showed, and for the sleep that the gate showed (R19).
+
+It also departs for a check that timed out, which runs again once (PD7). No run showed a timeout from a slow moment. The gate showed timeouts from a sleep, which R19 now leaves out. The proposal suggests new words for the principle in the next vision note.
 
 ### Principle 12, a real run is the gate
 

@@ -570,7 +570,53 @@ A test in `test/runtime/process.test.ts` uses an awake clock that does not move.
 
 ## Verification
 
-No check ran yet.
+### Implementation
+
+The proposal and the work are the 63 commits from `424b2d3` to `b1e5ec6`, on `97ecac0`, in the steps of the design. `npm run check` passed at each commit as it was made, on Windows. At `b1e5ec6`, `npm run check` passed, with 2446 tests that passed, and `npm run verify` passed. CI passed there on Linux in 393 seconds, on macOS in 747 seconds and on Windows in 1335 seconds.
+
+The first CI run of the guard failed on Linux and macOS: the grandchild of a killed child outlived the engine. Commits `c1ad254` and `4de89c6` made the guard end its process group on POSIX, and the next run passed.
+
+The guard makes the suite longer by approximately 55 seconds on Windows. The runs were made one after the other on one machine. Before the guard, the suite took 274 to 292 seconds, and after it 336 to 343 seconds.
+
+### The contract test (R2, PD1)
+
+At `62f0714`, on the engine before the change, `npm run resume-test` ran 494 cases on Windows, and 107 of them broke the contract. Each way that PD1 puts under its condition showed at some point: W1, W3, W4, W5, W6 and W8, and the check with no end of #25. Thus no requirement left the proposal.
+
+At the head of the gate, `7c41aea`, the script ran 437 cases in 19.6 minutes. 0 cases broke the contract, and 0 cases had a result that the marks did not expect. At `17e9906`, the result was the same, in 21.0 minutes.
+
+The set has fewer cases than at the start, because R6 makes the end of a worker and its answer one append (`0172649`). Each append is a point, so the run has fewer points.
+
+### The gate (R18)
+
+The engine of the gate was a copy of `dist/claude` at `b1e5ec6`. It ran from outside the worktree of the gate, because the build check rewrites `dist/`. Each run used the settings of the repository.
+
+Run `16ed26e1` reviewed 84 files of the change with `--branch --fix`. Three stops came during the run:
+
+- While the baseline `test` check ran, a script killed the check with the `kill` of Git for Windows. Then it killed the engine, 1.5 seconds later. Before it ended, the engine recorded the check as cut by exit code 143, a kill mark, and it started the rerun. The same command then ran the check again at attempt 2, and the check passed in 361.3 seconds.
+- The command of Claude Code that stops a background command ended only the shells of that command. The engine and its fixers continued, so this stop leaves no mark.
+- A hard kill of the engine alone stopped it while four fixers ran. Two seconds later, none of the 41 processes of its tree was alive. The same command recorded the four fixers as lost. It kept the edits of three of them in revisions of their unfinished attempts, and it launched the four batches again.
+
+The plan put the hard kill in a second run, but it was made in the first run. No second run was made.
+
+Run `16ed26e1` then wrote its report. It had 40 findings: the fixers applied 24, and 6 were already applied. The reported spend was 57.22 USD. The budget check counted 89.22 USD, because it counts four timeouts at their caps. `deep-review commit` made 38 commits.
+
+Run `beaef8b8` had a run budget of 55 USD. In its verification, the session limit of the provider blocked it. After the reset, the same command continued the run from that phase.
+
+Then the budget stopped the fix pass of `beaef8b8`, with 16 batches not started. The same command with a higher `--budget-usd` continued it three times, at 120, 130 and 145 USD. After the first continuation, the run launched only fixers. The header of the report names the continuations: `Reopened: the fix pass past the run budget 3 times`.
+
+The machine slept two times during the fixes of `beaef8b8`, which showed W9 (R19). The reported spend was 59.49 USD, and the budget check counted 131.49 USD. `deep-review commit` made 42 commits.
+
+A Ctrl-C by hand in a console stopped a run on the fakes while its baseline `test` check ran. The engine ended with exit code 130. The ledger held the start of the check and no end of it. Thus the Ctrl-C reached the engine first, and no check recorded a failure from it. The same command then ran to the report, which says `Cut by a stop: test in baseline-checks at attempt 1, with no end on record`.
+
+After each run, `npm run check` and `npm run verify` passed at its head. At `7c41aea`, the head of the commits of both runs, the suite had 2533 tests: 2509 passed, 0 failed, and 24 were skipped. `npm run golden` at `7c41aea` wrote the bytes of `schema-1-13`.
+
+An audit read a copy of the ledger. No commit of either run holds a path that its cluster did not own or claim. Typecheck and lint passed at each commit alone, except at 5 commits of run 1. Their partial edits do not build until the next commit of their unit (#63).
+
+The gate found eight findings that its fixers did not see. The section "The findings of the gate" and R19 say what the author decided for each one. The fixes are the 15 commits from `37c0928` to `17e9906`, in pull request #64.
+
+At `17e9906`, the suite had 2549 tests: 2525 passed, 0 failed, and 24 were skipped. `npm run verify` passed, and typecheck and lint passed at each of the 15 commits alone.
+
+CI passed at `17e9906` on the three systems: Linux in 595 seconds, macOS in 956 seconds and Windows in 1460 seconds. Then `feat/resumable-runs` moved to `17e9906` by a fast-forward, which merged #64 with the same hashes.
 
 ## Risks & Migration
 
