@@ -81,8 +81,18 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
 });
 
 describe('the check a kill cut short before the current attempt (R7 of resumable runs)', () => {
-  const review = (fix: FixState, attempt: number): Parameters<typeof cutShortBefore>[0] => ({ phases: { 'baseline-checks': { status: 'running', attempt } } as never, checks: [], fix });
+  type WorktreeCheck = Parameters<typeof cutShortBefore>[0]['checks'][number];
+  const review = (fix: FixState, attempt: number, checks: readonly WorktreeCheck[] = []): Parameters<typeof cutShortBefore>[0] => ({ phases: { 'baseline-checks': { status: 'running', attempt } } as never, checks, fix });
   const start = (kind: CheckKind, attempt: number, runsBefore: number) => ({ phase: 'baseline-checks' as const, attempt, kind, command: `npm run ${kind}`, runsBefore });
+  /** A worktree check of `phase` at `attempt`, drifted by an edit of `src/a.ts` or clean. */
+  const worktreeCheck = (attempt: number, moment: WorktreeCheck['moment'], drifted: boolean, phase: CheckPhase = 'baseline-checks'): WorktreeCheck => ({
+    phase, attempt, moment, drifted, head: null, strays: [], files: drifted ? [{ path: 'src/a.ts', outcome: 'modified', expected: null }] : [],
+  });
+  // test@1 is cut with no run after its start; test@2 starts and passes.
+  const cutThenPassed = ((): FixState => {
+    const fix = emptyFixState();
+    return { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 0), start('test', 2, 0)] }, runs: { ...fix.checks.runs, 'baseline-checks': [run('baseline-checks', 'test', 'passed', 2, 0)] } } };
+  })();
 
   it('finds a start no run came after, a cut run, or one killed at its timeout, in an earlier attempt, the last of them', () => {
     const fix = emptyFixState();
@@ -103,6 +113,25 @@ describe('the check a kill cut short before the current attempt (R7 of resumable
       const startedAfter = { ...fix, checks: { ...fix.checks, starts: { ...fix.checks.starts, 'baseline-checks': [start('test', 1, 1)] }, runs: { ...fix.checks.runs, 'baseline-checks': [legacy, run('baseline-checks', 'test', 'passed', 1, 0)] } } };
       assert.equal(cutShortBefore(review(startedAfter, 2), 'baseline-checks'), null, `${legacy.outcome}, started after`);
     }
+  });
+
+  it('retires a cut check once a later attempt found the tree clean, so a drift after it is a person\'s edit that blocks', () => {
+    const cleanAtTwo = [worktreeCheck(1, 'start', false), worktreeCheck(2, 'start', false), worktreeCheck(3, 'start', true)];
+    assert.equal(cutShortBefore(review(cutThenPassed, 3, cleanAtTwo), 'baseline-checks'), null);
+  });
+
+  it('keeps a cut check while no attempt after it and before the current one found the tree clean', () => {
+    assert.deepEqual(cutShortBefore(review(cutThenPassed, 3, [worktreeCheck(1, 'start', false)]), 'baseline-checks'), { kind: 'test', attempt: 1 }, 'a clean check before the cut explains nothing');
+    assert.deepEqual(cutShortBefore(review(cutThenPassed, 3, [worktreeCheck(2, 'start', true)]), 'baseline-checks'), { kind: 'test', attempt: 1 }, 'a drift at the next attempt that blocked');
+    assert.deepEqual(cutShortBefore(review(cutThenPassed, 3, [worktreeCheck(2, 'start', false, 'checks')]), 'baseline-checks'), { kind: 'test', attempt: 1 }, 'another phase\'s clean check');
+    assert.deepEqual(cutShortBefore(review(cutThenPassed, 2, [worktreeCheck(2, 'start', false)]), 'baseline-checks'), { kind: 'test', attempt: 1 }, 'the current attempt\'s own check');
+  });
+
+  it('retires a cut check once its write back finished, and keeps one a stop cut before the tree was checked again', () => {
+    const restoration: RestorationState = { phase: 'baseline-checks', attempt: 2, check: { kind: 'test', attempt: 1 }, files: [], checksBefore: 1 };
+    const fix = { ...cutThenPassed, restorations: [restoration] };
+    assert.equal(cutShortBefore(review(fix, 3, [worktreeCheck(2, 'start', true), worktreeCheck(2, 'restored', false)]), 'baseline-checks'), null);
+    assert.deepEqual(cutShortBefore(review(fix, 3, [worktreeCheck(2, 'start', true)]), 'baseline-checks'), { kind: 'test', attempt: 1 });
   });
 });
 

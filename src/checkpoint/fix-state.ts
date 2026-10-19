@@ -308,13 +308,15 @@ export function cutShortChecks(fix: FixState, phase: CheckPhase): readonly (Chec
 /**
  * The last check of a checks phase that a kill cut short in an attempt
  * before the current one (R7 of resumable runs), whatever its kind
- * (`cutShortChecks`), whose write back did not finish; null when there is
- * none. A drift its writes explain is written back, not blocked on. A
- * write back finished once the tree was checked again after its record
- * (the moment `restored`); one a stop cut between its record and its
- * writes is made again. After a finished one, a drift is no longer the
- * check's, but an edit of a person while no engine ran, which blocks as
- * any drift does.
+ * (`cutShortChecks`), whose writes are not resolved; null when there is
+ * none. A drift its writes explain is written back, not blocked on. Its
+ * writes are resolved once its write back finished, the tree checked again
+ * after the write back's record (the moment `restored`), or once a later
+ * attempt before the current one checked the tree and found no drift,
+ * the check having left nothing to write back; a write back a stop cut
+ * between its record and its writes is made again. After either, a drift
+ * is no longer the check's, but an edit of a person while no engine ran,
+ * which blocks as any drift does.
  */
 export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & { readonly fix: FixState }, phase: CheckPhase): CutShortCheck | null {
   const { fix } = review;
@@ -324,7 +326,9 @@ export function cutShortBefore(review: Pick<ReviewState, 'phases' | 'checks'> & 
     const last = fix.restorations.findLast((restoration) => restoration.phase === phase && restoration.check.kind === kind && restoration.check.attempt === attempt);
     return last !== undefined && review.checks.slice(last.checksBefore).some((check) => check.phase === phase && check.attempt === last.attempt && check.moment === 'restored');
   };
-  const last = cutShortChecks(fix, phase).findLast((check) => check.attempt < current && !writtenBack(check.kind, check.attempt));
+  // A worktree check with no drift at an attempt between the cut one and the current one: the tree then held what the run expects.
+  const foundClean = (attempt: number): boolean => review.checks.some((check) => check.phase === phase && check.attempt > attempt && check.attempt < current && !check.drifted);
+  const last = cutShortChecks(fix, phase).findLast((check) => check.attempt < current && !writtenBack(check.kind, check.attempt) && !foundClean(check.attempt));
   return last === undefined ? null : { kind: last.kind, attempt: last.attempt };
 }
 
