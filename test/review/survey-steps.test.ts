@@ -203,6 +203,25 @@ describe('nextStep in the survey', () => {
     assert.deepEqual(nextStep(planned, live({ checkSettings: allFour })), { kind: 'finish-phase', phase: 'survey', attempt: 3, outcome: 'completed', blocker: null });
   });
 
+  it('surveys a fix run\'s survey afresh after the provider\'s usage limit blocked it, though the flags settle all four kinds (R14 of resumable runs)', () => {
+    const reason = 'failed: Claude Code reported a usage limit of the provider, which resets 12:10pm (Asia/Seoul): You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    const limitedOnce = (history: History, n: number): History => history.worker(n, 'surveyor survey:survey', { outcome: 'failed', output: null, error: 'limit' }).add('attempt.failed', { phase: 'survey', key: 'survey', workerId: worker(n), reason, fault: 'limit' }, 7);
+    const limited = limitedOnce(surveyConfiguredFix().start('survey'), 1);
+    const step = nextStep(limited.review(), live({ checkSettings: allFour }));
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'worker-failed', JSON.stringify(step));
+    assert.match(step.blocker!.detail, /stopped at the provider's usage limit/);
+    assert.equal(step.blocker!.action, blockerActions['worker-failed'], 'the block promises no going on without the survey');
+    // The same command after the reset, its flags settling every kind, launches the surveyor again and records no failure of the survey.
+    const reentered = limited.finish('survey', 'blocked', 1, step.blocker).start('survey', 2);
+    assert.deepEqual(nextStep(reentered.review(), live({ checkSettings: allFour })), { kind: 'launch', units: [surveyor] });
+    // So does a limit that blocked an attempt after the survey failed twice: the block the flags read is the last one.
+    const twice = failedOnce(failedOnce(surveyConfiguredFix().start('survey'), 1), 2);
+    const limitedAfter = limitedOnce(twice.finish('survey', 'blocked', 1, workerFailedBlocker(twice.review(), surveyor, twice.review().units.survey.survey)).start('survey', 2), 3);
+    const blocked = nextStep(limitedAfter.review(), idle);
+    assert.ok(blocked.kind === 'finish-phase' && blocked.blocker?.action === blockerActions['worker-failed'], JSON.stringify(blocked));
+    assert.deepEqual(nextStep(limitedAfter.finish('survey', 'blocked', 2, blocked.blocker).start('survey', 3).review(), live({ checkSettings: allFour })), { kind: 'launch', units: [surveyor] });
+  });
+
   it('launches the surveyor of a fix run whose flags settle all four kinds, on its first attempt, for the conventions', () => {
     assert.deepEqual(nextStep(surveyConfiguredFix().start('survey').review(), live({ checkSettings: allFour })), { kind: 'launch', units: [surveyor] });
     assert.equal(nextStep(answered([]).review(), live({ checkSettings: allFour })).kind, 'plan-checks');

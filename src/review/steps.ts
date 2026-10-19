@@ -354,7 +354,9 @@ const usd = (value: number): string => value.toFixed(2);
  * of a fix run (`degradationOf`), names the flags that let the run go on
  * without it (R9 of the repository survey); an interrupted read-only
  * survey, which only blocks for the interruption, does not, since flags
- * settle nothing there.
+ * settle nothing there, and neither does a survey the limit stopped, which
+ * the same command surveys afresh after the reset, since no unit degrades
+ * for the limit (R14 of resumable runs).
  */
 export function workerFailedBlocker(review: ReviewState, unit: Unit, state: UnitState | undefined): Blocker {
   const causes = new Set(state?.failures.map((failure) => failure.cause));
@@ -362,7 +364,7 @@ export function workerFailedBlocker(review: ReviewState, unit: Unit, state: Unit
   // The provider's limit blocks at its first failure, and names the limit and its reset in the reason (R14 of resumable runs).
   const limit = state?.failures.some((failure) => failure.cause === 'limit') ?? false;
   const prefix = limit ? `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} stopped at the provider's usage limit: ` : `the ${unit.role} worker for ${unitName(unit.phase, unit.key)} failed twice${interruption}: `;
-  const action = unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
+  const action = !limit && unit.phase === 'survey' && degradationOf(review, unit) === null ? surveyWorkerFailedAction : blockerActions['worker-failed'];
   return { code: 'worker-failed', detail: truncated(`${prefix}${failureReason(state, maxRecordedTextLength - prefix.length)}`, maxRecordedTextLength), action };
 }
 
@@ -523,7 +525,8 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * does not settle every kind is surveyed again. Flags that settle all
  * four kinds let the run go on without a survey that never answered once
  * it failed twice in this attempt with no worker lost among the failures,
- * and once it blocked on its failures, even when a drift or the budget
+ * and once it blocked on its failures, not at the provider's usage limit,
+ * which it is surveyed afresh after (R14 of resumable runs), even when a drift or the budget
  * blocked a later attempt or a stopped engine left a failure in this one;
  * flags that leave a kind unsettled block the first and survey the second
  * afresh, and a lost worker blocks as for any unit. The failure and
@@ -554,9 +557,9 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
   if (unsettledKinds(live.checkSettings).length > 0) return null;
   const unit: Unit = { phase: 'survey', key, role: 'surveyor' };
   const state = review.units.survey[key];
-  // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on.
+  // The survey blocked on its failures and never answered, whatever blocked the phase since or failed in this attempt: that block's action promised these flags would let the run go on. A block for the provider's limit promised no such thing, so the survey runs afresh after it (R14 of resumable runs).
   // Or it failed twice in this attempt, no worker lost among the failures: blocking would only ask for check settings the run already has.
-  const failed = survey.lastBlock?.code === 'worker-failed'
+  const failed = survey.lastBlock?.code === 'worker-failed' && survey.lastBlock.action === surveyWorkerFailedAction
     ? `the survey blocked, ${survey.lastBlock.detail}`
     : exhausted(review, unit, state) && !interrupted(state) ? workerFailedBlocker(review, unit, state).detail : null;
   if (failed === null) return null;
