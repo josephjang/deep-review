@@ -119,9 +119,9 @@ export interface RunWorkerOptions {
  * the launch is appended, a finish is appended for it whatever happens to
  * the process, here or by the caller that asked for it, so the ledger
  * holds no launched worker without a finish; the one exception is a run
- * abandoned while its worker ran, which accepts no finish and makes this
- * function throw `RunClosedError` with the worker's evidence already
- * frozen.
+ * abandoned while its worker ran, which accepts no finish: this function
+ * then throws `RunClosedError` with the worker's evidence already frozen,
+ * or, with `deferFinish`, the caller's append of the finish does.
  *
  * A refused launch leaves no process files, and removes the scratch
  * directory it created for the worker; the roots above it may be shared
