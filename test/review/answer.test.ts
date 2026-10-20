@@ -10,6 +10,7 @@ import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { spendBound } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { reportCopyPath } from '../../src/review/report-copy.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -161,7 +162,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.deepEqual(passed.review!.answers.at(-1)!.appliedBy, { phase: 'answer', key: 'pass-1' });
     assert.ok(box.checkRuns().length > checksBefore, 'the checks ran again');
     assert.ok(passed.review!.fix!.checks.runs['answer-checks'].length > 0);
-    const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)! });
+    const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)!, copyPath: null });
     assert.match(report, new RegExp(`^- \\d\\\\\\. ${question}: answered option `, 'm'));
     assert.match(report, /^Answered: the last pass on /m);
 
@@ -180,6 +181,18 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), ruledA, 'the second pass followed the rule');
   });
 
+  it('writes the copy of the report again with the answer, on a run that only reviewed and when the pass is refused (R14 of the brief of a run)', async (t) => {
+    const box = ReviewSandbox.forTest(t, answerable);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    const { question } = findingsOf(finished);
+    const copy = reportCopyPath(box.checkpoint.root, finished);
+    assert.doesNotMatch(readFileSync(copy, 'utf8'), /^Answered: /m, 'review wrote the copy before any answer');
+    const recorded = await run(box, '--finding', question, '--option', '2');
+    assert.equal(recorded.status, 0, recorded.stderr);
+    assert.match(readFileSync(copy, 'utf8'), /^Answered: option 2 on [^;]+; not yet applied\.$/m);
+  });
+
   it('records the answer but refuses the pass when the tree moved, naming what moved and what the answer says; the same answer applies it once restored (R6)', async (t) => {
     const box = ReviewSandbox.forTest(t, answerable);
     reportText(await box.fix('claude'));
@@ -187,7 +200,12 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const { question } = findingsOf(finished);
     box.script({ ...answerable, ...passFixer(1, [['src/b.ts', otherB]]) });
     write(box.repo, 'src/a.ts', 'edited by hand\n');
-    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 })), refused(new RegExp(`^the tree is not where run ${finished.id} left it: src/a\\.ts \\(modified\\); the answer is recorded; restore the tree and run deep-review answer again with the same answer to apply it, or apply it by hand: ${question} option 2, "fake other way"; a review of the changed tree is a new run and does not carry this answer$`)));
+    const copied: RunState[] = [];
+    await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { refreshCopy: (state) => copied.push(state) })), refused(new RegExp(`^the tree is not where run ${finished.id} left it: src/a\\.ts \\(modified\\); the answer is recorded; restore the tree and run deep-review answer again with the same answer to apply it, or apply it by hand: ${question} option 2, "fake other way"; a review of the changed tree is a new run and does not carry this answer$`)));
+    // The copy of the report is written again with the answer, though the pass was refused (R14 of the brief of a run).
+    assert.equal(copied.length, 1);
+    assert.equal(copied[0]!.review!.answers.length, 1);
+    assert.notEqual(copied[0]!.review!.report, null);
     const after = box.run();
     assert.equal(after.review!.answers.length, 1, 'the answer is recorded');
     assert.equal(after.review!.answerPasses.length, 0);

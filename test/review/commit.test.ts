@@ -7,6 +7,7 @@ import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import type { CommitsPrepared } from '../../src/checkpoint/events.ts';
 import { runHead } from '../../src/checkpoint/fix-state.ts';
 import { commitRun, currentBranch, moveFailure, settleOpenSeries } from '../../src/review/commit.ts';
+import { reportCopyPath } from '../../src/review/report-copy.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
@@ -376,6 +377,11 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       assert.equal(made.status, 0, made.stderr);
       assert.match(made.stdout, /^[0-9a-f]{12} fix\(a\): Return 0 for a null text\n[0-9a-f]{12} fix\(b\): Import parse\n$/);
       assert.match(made.stderr, /2 commits created; no commit hook ran/);
+      // The copy of the report says the edits are committed now, which the record of its moment does not (R14 of the brief of a run).
+      const committed = box.checkpoint.fold(runId);
+      const copy = readFileSync(reportCopyPath(box.checkpoint.root, committed), 'utf8');
+      assert.match(copy, new RegExp(`They are in ${String(committed.review!.fix!.commits.flatMap((series) => series.commits).length)} commits\\.`));
+      assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(committed.review!.report!.report), 'utf8'), /They are in \d+ commits/, 'the record keeps its moment');
       assert.equal((await run()).status, 2, 'a second invocation is refused');
     });
 

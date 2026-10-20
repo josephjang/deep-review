@@ -49,6 +49,7 @@ import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
+import { refreshReportCopy, type CopyContext } from './review/report-copy.ts';
 import { describeRun } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
@@ -391,6 +392,9 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
       ...(values['change-message'] === undefined ? {} : { changeMessage: values['change-message'] }),
     });
     for (const made of outcome.commits) io.stdout(`${made.sha.slice(0, 12)} ${made.subject}\n`);
+    // The copy of the report names the commits now, which the record of its moment does not (R14 of the brief of a run).
+    const run = checkpoint.fold(outcome.runId);
+    refreshReportCopy(checkpoint, run, copyContextOf(io, run), (line) => io.stderr(`${line}\n`));
     io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? '' : 's'} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit\n`);
     if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(', ')}\n`);
     return 0;
@@ -429,6 +433,21 @@ export function noteOf(values: Values): string | null {
     throw new UsageError(`--note holds at most ${String(answerNoteLengthV1)} UTF-16 code units (an emoji or other character outside the Basic Multilingual Plane counts as two), not ${String(note.length)}`);
   }
   return note;
+}
+
+/**
+ * What a command renders the copy of a run's report with (R14 of the
+ * brief of a run): the engine that writes it, the adapter of the run's
+ * runtime, and the digest of the engine's own roles, read once, when the
+ * copy names the command that continues a stopped fix pass.
+ */
+function copyContextOf(io: CommandIo, run: RunState): CopyContext {
+  let own: string | undefined;
+  return {
+    engineEntry: io.engineEntry ?? sourceEntry,
+    adapter: defaultRuntimes().get(run.review?.configuration.runtime ?? 'claude'),
+    ownRolesDigest: () => (own ??= rolesDigest(assembleRoles(engineRolesRoot()))),
+  };
 }
 
 /** Print how a run the command ran ended: the report's path last on stdout, exit 0, or the blocker and its action on stderr, exit 2. */
@@ -478,6 +497,9 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       adapter: (runtime) => runtimes.get(runtime),
       match: gitContent(worktree, (reference) => checkpoint.evidence.read(reference)).match,
       log: (line) => io.stderr(`${line}\n`),
+      refreshCopy: (state) => {
+        refreshReportCopy(checkpoint, state, copyContextOf(io, state), (line) => io.stderr(`${line}\n`));
+      },
     });
     io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${finding} ${answerWords(given)}\n`);
     switch (outcome.next) {

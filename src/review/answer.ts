@@ -48,6 +48,8 @@ export interface AnswerOptions extends Pick<PinnedOptions, 'rolesRoot' | 'platfo
   readonly match: ExpectedMatch;
   /** Where a line for each run passed over is written. */
   readonly log: (line: string) => void;
+  /** Write the copy of the run's report again from the run as it is once the answer is recorded, however the command then ends (R14 of the brief of a run); none for a caller that keeps no copy. */
+  readonly refreshCopy?: (state: RunState) => void;
 }
 
 /** What the command did: the answer it recorded, or found already recorded and still owed, and whether it opened a pass the caller now runs. */
@@ -198,7 +200,8 @@ function settled(checkpoint: Checkpoint, run: RunState, worktree: string, log: (
  * the tree, the checkpoint's other runs and what the run pinned are
  * checked (`requirePassable`) and `answer.pass` is appended. A refused
  * answer, or one recorded only, reads no head, so it leaves an open series
- * and the index as they were.
+ * and the index as they were. Once the answer is appended, the copy of the
+ * report is written again however the command ends (`refreshCopy`).
  */
 export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> {
   const { checkpoint, worktree } = options;
@@ -222,20 +225,25 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
         throw new ReviewRefusedError(`${options.finding} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
       }
       if (!retry) run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id: options.finding, answer: options.answer, note: options.note } }]);
-      const recorded = standingAnswer(run.review!, options.finding)!;
-      const outcome = (next: AnswerOutcome['next'], state: RunState): AnswerOutcome => ({ runId: run.id, recorded: !retry, standing: recorded, next, state });
-      if (!fixes) return outcome('read-only', run);
-      const owed = owedAnswers(run.review!);
-      // An answer the tree already holds is applied by no later pass, so recording it only says so as a pass would.
-      if (options.recordOnly) return outcome(owed.some((answer) => answer.id === options.finding) ? 'record-only' : 'nothing-owed', run);
-      // In rank order, as the pass's fixer works them.
-      const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
-      const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
-      if (ids.length === 0) return outcome('nothing-owed', run);
-      // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
-      run = settled(checkpoint, run, worktree, options.log);
-      await requirePassable(run, options, owed);
-      return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
+      try {
+        const recorded = standingAnswer(run.review!, options.finding)!;
+        const outcome = (next: AnswerOutcome['next'], state: RunState): AnswerOutcome => ({ runId: run.id, recorded: !retry, standing: recorded, next, state });
+        if (!fixes) return outcome('read-only', run);
+        const owed = owedAnswers(run.review!);
+        // An answer the tree already holds is applied by no later pass, so recording it only says so as a pass would.
+        if (options.recordOnly) return outcome(owed.some((answer) => answer.id === options.finding) ? 'record-only' : 'nothing-owed', run);
+        // In rank order, as the pass's fixer works them.
+        const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
+        const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        if (ids.length === 0) return outcome('nothing-owed', run);
+        // The pass is held to the run's head, which a series of commits a stop left open has not moved yet (R9 of resumable runs).
+        run = settled(checkpoint, run, worktree, options.log);
+        await requirePassable(run, options, owed);
+        return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
+      } finally {
+        // The copy of the report shows the answer, also when the pass is then refused; an opened pass clears the report, so no copy is written until the pass writes its own (R14 of the brief of a run).
+        options.refreshCopy?.(checkpoint.fold(run.id));
+      }
     } finally {
       release();
     }

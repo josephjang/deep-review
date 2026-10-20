@@ -46,6 +46,9 @@ function scopeFlags(scope: Pick<ScopeState, 'mode' | 'request'>): string[] {
   }
 }
 
+/** The placeholder the continue command of `status` and of a copy of the report gives for roles that are not the engine's own, whose directory the run does not record. */
+export const rolesPlaceholder = '<roles>';
+
 /** The roles a command reviews with as the continue command names them: null for the engine's own, which it need not name. */
 export const namedRoles = (rolesRoot: string): string | null => (sameDirectory(rolesRoot, engineRolesRoot()) ? null : rolesRoot);
 

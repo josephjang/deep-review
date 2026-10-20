@@ -64,6 +64,7 @@ import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { renderReport } from './report.ts';
+import { refreshReportCopy, reportCopyPath, writeReportCopy } from './report-copy.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
 import { shellQuoted } from './shell.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName } from './snapshot.ts';
@@ -182,7 +183,8 @@ export interface ReviewOptions {
 }
 
 export type ReviewOutcome =
-  | { readonly kind: 'report'; readonly runId: string; readonly reportPath: string }
+  /** The run wrote its report: the record's path, and the copy's, or null when it could not be written (R14 of the brief of a run). */
+  | { readonly kind: 'report'; readonly runId: string; readonly reportPath: string; readonly copyPath: string | null }
   | { readonly kind: 'blocked'; readonly runId: string; readonly blocker: Blocker & { readonly phase: Phase } };
 
 /** How a launched worker settles: with its receipt, or with the error the launcher threw instead of one. */
@@ -710,6 +712,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       state = append(checkpoint, state, [recorded, ...(revision === null ? [] : [revision])]);
     };
 
+    // The copy the step write-report wrote in this invocation, which the outcome names (R14 of the brief of a run).
+    let copied: { readonly path: string | null } | null = null;
     for (;;) {
       const review = state.review!;
       const live: Live = { running: new Set(inFlight.keys()), spend: budgetSpendOf(state, adapter), evidencePath: (reference) => checkpoint.evidence.pathOf(reference), checkSettings: runCheckSettings(), claimsLost: directories.lost() };
@@ -718,8 +722,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'blocked':
           log(`run ${runId}: blocked in ${step.blocker.phase} (${step.blocker.code}): ${step.blocker.detail}`);
           return { kind: 'blocked', runId, blocker: step.blocker };
-        case 'complete':
-          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report) };
+        case 'complete': {
+          // A run complete before this invocation wrote nothing now; its copy is rendered from the ledger, as a later command renders it.
+          const own = namedRoles(options.rolesRoot) === null;
+          copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, ownRolesDigest: () => (own ? configuration.rolesDigest : ''), ...(options.home === undefined ? {} : { home: options.home }) }, log) };
+          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path };
+        }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
           state = append(checkpoint, state, [{ kind: 'phase.started', version: 5, payload: { phase: step.phase, attempt: step.attempt } }]);
@@ -843,12 +851,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
           const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options.rolesRoot), stoppedSpend);
           const fix = state.review!.fix === null ? {} : { fix: { patches, continueCommand: continuing } };
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options.home ?? homedir(), ...fix }));
+          const text = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options.home ?? homedir(), ...fix });
+          const report = checkpoint.evidence.put(text);
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 5, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
+          // The copy is the string the store holds, after the record, so the copy that review writes equals its record (R14 of the brief of a run).
+          copied = { path: writeReportCopy(reportCopyPath(checkpoint.root, state), text, runId, log) };
           if (continuing !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continuing} continues it`);
           break;
         }

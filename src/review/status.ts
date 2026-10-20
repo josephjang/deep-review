@@ -16,7 +16,7 @@ import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedR
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { continueCommand } from './continue-command.ts';
+import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines } from './report.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
@@ -36,8 +36,7 @@ export interface StatusContinuation {
   readonly ownRolesDigest: () => string;
 }
 
-/** The placeholder the continue command of `status` gives for roles that are not the engine's own, whose directory the run does not record. */
-export const rolesPlaceholder = '<roles>';
+export { rolesPlaceholder };
 
 /** The line that names how to continue a fix pass the run budget stopped, or none for any other run. */
 function continueLine(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, continuation: StatusContinuation | null): { line: string; command: string } | null {
