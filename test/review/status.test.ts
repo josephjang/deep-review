@@ -19,7 +19,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], continueCommand: null, review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, reportCopy: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], continueCommand: null, review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {
@@ -101,6 +101,17 @@ describe('describeRun', () => {
     assert.equal(described.json.report, `/evidence/${'e'.repeat(8)}-2048`);
     assert.ok(!described.lines.some((line) => line.startsWith('Decisions: ')), 'a run configured before the decision step decided nothing');
     assert.equal(described.json.decisions, null);
+  });
+
+  it('names the copy of the report beside the ledger with the record, and only beside a current report (R16 of the brief of a run)', () => {
+    const copy = '/w/.git/deep-review-checkpoint/reports/2026-09-27-run-1.md';
+    const described = describeRun(reported().fold(), claudeAdapter, evidencePath, null, copy);
+    assert.ok(described.lines.includes(`Report: ${copy}, a copy of the record /evidence/${'e'.repeat(8)}-2048`), described.lines.join('\n'));
+    assert.equal(described.json.reportCopy, copy);
+    assert.equal(describeRun(reported().fold(), claudeAdapter, evidencePath).json.reportCopy, null, 'no copy given');
+    const working = describeRun(continuedRun().fold(), claudeAdapter, evidencePath, null, copy);
+    assert.equal(working.json.reportCopy, null, 'the copy holds the report before while the run works again');
+    assert.ok(!working.lines.some((line) => line.startsWith('Report: ')));
   });
 
   it('counts the decisions of a read-only run once they are recorded, after its report (R8 of the decision step)', () => {

@@ -3,7 +3,8 @@
  * review): its status, worktree, runtime and models, the phase it is in,
  * its workers, its spend against the run budget in force, what the budget
  * check counts when that differs from the reported spend, its blocker with
- * the operator's action, its report and for a run continued into the fix
+ * the operator's action, its report and the copy of it beside the ledger
+ * (R16 of the brief of a run) and for a run continued into the fix
  * pass its read-only report (R7 of fix pass continuation), what its
  * decision step decided
  * (R8 of the decision step), and for a fix run (R13 of the fix
@@ -49,8 +50,13 @@ function continueLine(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeU
   return { command, line: `Continue: ${command}, which continues the fix pass the run budget stopped and reviews nothing again${own ? '' : `, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`}` };
 }
 
-/** What `status` prints about a run, as text lines and as a JSON value. */
-export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string, continuation: StatusContinuation | null = null): { lines: string[]; json: Record<string, unknown> } {
+/**
+ * What `status` prints about a run, as text lines and as a JSON value.
+ * `reportCopy` is the path of the copy of its report beside the ledger,
+ * when one exists, which the line of the report names (R16 of the brief
+ * of a run).
+ */
+export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>, evidencePath: (reference: { sha256: string; bytes: number }) => string, continuation: StatusContinuation | null = null, reportCopy: string | null = null): { lines: string[]; json: Record<string, unknown> } {
   const status = reviewStatus(state);
   const review = state.review;
   const workers = Object.values(state.workers);
@@ -64,6 +70,8 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   const checkedUsd = budgetSpend?.usd ?? null;
   const budgetCheckLine = budgetUsd === null || checkedUsd === null || budgetNote === null ? null : `Budget check: ${checkedUsd.toFixed(2)} USD of ${budgetUsd.toFixed(2)} USD, ${budgetNote}`;
   const reportPath = review?.report === null || review?.report === undefined ? null : evidencePath(review.report.report);
+  // The copy is named only beside a current report: while the run works again, the copy holds the report before.
+  const copy = reportPath === null ? null : reportCopy;
   // A run continued into the fix pass keeps its read-only report beside the one it writes next (R7 of fix pass continuation).
   const continuedFrom = review?.continuedFrom === null || review?.continuedFrom === undefined ? null : { report: evidencePath(review.continuedFrom.report.report), at: review.continuedFrom.at };
   const patches = (review?.report?.patches ?? []).map(evidencePath);
@@ -88,7 +96,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(budgetCheckLine === null ? [] : [budgetCheckLine]),
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(continuedFrom === null ? [] : [`Continued from: ${continuedFrom.report}, into the fix pass on ${continuedFrom.at}`]),
-    ...(reportPath === null ? [] : [`Report: ${reportPath}`]),
+    ...(reportPath === null ? [] : [copy === null ? `Report: ${reportPath}` : `Report: ${copy}, a copy of the record ${reportPath}`]),
     ...(continuing === null ? [] : [continuing.line]),
     ...stops,
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
@@ -97,7 +105,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...patches.map((path, index) => `Patch ${String(index + 1)}: ${path}`),
     ...(review?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`),
   ];
-  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review };
+  const json = { runId: state.id, status, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, reportCopy: copy, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review };
   return { lines, json };
 }
 

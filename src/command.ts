@@ -1,7 +1,8 @@
 /**
  * The `deep-review` command (R1, R13 of the read-only review): `review` runs
  * a review to its report in the foreground and is resumable, `status` prints
- * the fold of a run, `abandon` closes one, `commit` turns a completed fix
+ * the fold of a run, `report` the brief of a finished one (R16 of the brief
+ * of a run), `abandon` closes one, `commit` turns a completed fix
  * run's revisions into commits (R17 of the fix pass), `answer` records a
  * person's answer to a question or a departure and applies it (R1 of
  * answers), `snapshot` is what
@@ -43,15 +44,20 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
-import { reviewStatus } from './review/state.ts';
+import { budgetStoppedRun, reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
-import { refreshReportCopy, type CopyContext } from './review/report-copy.ts';
+import { briefOf, briefShortForm } from './review/brief.ts';
+import { briefJson } from './review/brief-json.ts';
+import { continueCommand, rolesPlaceholder } from './review/continue-command.ts';
+import { refreshReportCopy, reportCopyPath, type CopyContext } from './review/report-copy.ts';
+import { readableRuns } from './review/runs.ts';
+import { budgetSpendOf } from './review/spend.ts';
 import { describeRun } from './review/status.ts';
-import { canonicalPath, isInside } from './paths.ts';
+import { canonicalPath, isInside, sameDirectory } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
@@ -71,6 +77,7 @@ export const usage = `usage:
   deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
+  deep-review report  [--run <id>] [--json] [--repo <dir>]   (the brief of a finished run; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
@@ -79,7 +86,7 @@ export const usage = `usage:
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
   deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
-exit codes: 0 a report (the short form of its brief, then the path of its copy, the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (the short form of its brief, then the path of its copy, the last line of stdout), a status, a brief, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -157,6 +164,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
+  report: ['run', 'json', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
   hook: ['help'],
@@ -348,6 +356,8 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
       return commit(values, io, location.root, location.worktree);
     case 'answer':
       return answer(values, io, location.root, location.worktree);
+    case 'report':
+      return report(values, io, location.root, location.worktree);
     default:
       return abandon(values, io, location.root);
   }
@@ -804,8 +814,48 @@ function status(values: Values, io: CommandIo, root: string): number {
     }
     const adapter = defaultRuntimes().get(state.review?.configuration.runtime ?? 'claude');
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
-    const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference), { engineEntry: io.engineEntry ?? sourceEntry, ownRolesDigest: () => rolesDigest(assembleRoles(engineRolesRoot())) });
+    const copy = reportCopyPath(checkpoint.root, state);
+    const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference), { engineEntry: io.engineEntry ?? sourceEntry, ownRolesDigest: () => rolesDigest(assembleRoles(engineRolesRoot())) }, existsSync(copy) ? copy : null);
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
+    return 0;
+  } finally {
+    checkpoint.close();
+  }
+}
+
+/**
+ * `deep-review report` (R16, PD11 of the brief of a run): the brief of a
+ * run, the one `--run` names or else the newest run of this worktree by
+ * the time it started. It writes the copy of the report again, then prints
+ * the short form and the path of the copy last, or with `--json` version 1
+ * of the JSON form. A worktree with no run, and a run with no current
+ * report, are refused with exit 2, naming `status`: such a run is not done,
+ * or works again in an answer pass, a continuation or a reopened fix pass.
+ */
+function report(values: Values, io: CommandIo, root: string, worktree: string): number {
+  const checkpoint = openCheckpoint(root, false);
+  if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a report; deep-review status says so too');
+  try {
+    const log = (line: string): void => io.stderr(`${line}\n`);
+    const state = values.run !== undefined
+      ? resolveRun(checkpoint, values.run, io)!
+      : readableRuns(checkpoint, log).filter((run) => sameDirectory(run.worktree, worktree)).reduce<RunState | null>((newest, run) => (newest === null || run.createdAt > newest.createdAt ? run : newest), null);
+    if (state === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+    const review = state.review;
+    if (review === null || review.report === null) {
+      throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
+    }
+    const copy = refreshReportCopy(checkpoint, state, copyContextOf(io, state), log);
+    const record = checkpoint.evidence.pathOf(review.report.report);
+    const brief = briefOf(state);
+    if (values.json === true) {
+      const own = review.configuration.rolesDigest === rolesDigest(assembleRoles(engineRolesRoot()));
+      const spend = budgetStoppedRun(state) ? budgetSpendOf(state, defaultRuntimes().get(review.configuration.runtime)).usd : null;
+      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, io.engineEntry ?? sourceEntry, own ? null : rolesPlaceholder, spend) };
+      io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
+      return 0;
+    }
+    io.stdout(`${[...briefShortForm(brief), copy ?? record].join('\n')}\n`);
     return 0;
   } finally {
     checkpoint.close();

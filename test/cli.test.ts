@@ -6,6 +6,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
+import { briefJsonV1 } from '../src/review/brief-json.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
@@ -197,6 +198,58 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const abandon = await run(box, 'abandon', '--reason', 'nothing');
     assert.equal(abandon.status, 1);
     assert.match(abandon.stderr, /no checkpoint, so there is no run to abandon/);
+  });
+
+  it('shows the brief of the newest run of the worktree with report, or of the run --run names, as text and as JSON, and writes its copy (R16 of the brief of a run)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({});
+    const none = await run(box, 'report');
+    assert.equal(none.status, 2, 'no checkpoint yet');
+    assert.match(none.stderr, /refused: [^\n]*no run has a report; deep-review status/);
+    const first = await run(box, ...claudeFlags(box, '--last-commit'));
+    assert.equal(first.status, 0, first.stderr);
+    const firstId = /run ([0-9a-f-]+): created/.exec(first.stderr)![1]!;
+    write(box.repo, 'src/b.ts', 'export const b = 2;\n');
+    const second = await run(box, ...claudeFlags(box, '--worktree'));
+    assert.equal(second.status, 0, second.stderr);
+    const secondId = /run ([0-9a-f-]+): created/.exec(second.stderr)![1]!;
+
+    // The newest run by the time it started, its short form and the path of its copy last.
+    const newest = await run(box, 'report');
+    assert.equal(newest.status, 0, newest.stderr);
+    const lines = newest.stdout.trim().split('\n');
+    assert.equal(lines.length, 8);
+    assert.match(lines[0]!, new RegExp(`\\(run ${secondId.slice(0, 8)}\\)$`));
+    assert.match(lines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${secondId.slice(0, 8)}\\.md$`));
+    assert.ok(existsSync(lines.at(-1)!));
+    rmSync(lines.at(-1)!);
+    await run(box, 'report');
+    assert.ok(existsSync(lines.at(-1)!), 'report writes the copy again');
+
+    // --run names an older run; --json gives version 1 of the JSON form, with the local facts.
+    const named = await run(box, 'report', '--run', firstId, '--json');
+    assert.equal(named.status, 0, named.stderr);
+    const json = briefJsonV1.parse(JSON.parse(named.stdout));
+    assert.equal(json.run, firstId);
+    assert.equal(json.version, 1);
+    assert.match(json.local.copy!, new RegExp(`${firstId.slice(0, 8)}\\.md$`));
+    assert.match(json.local.record, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
+    assert.equal(json.local.continueCommand, null);
+    assert.equal(json.changeState, 'none', 'the fake triage gave no account');
+
+    // A run with no current report is refused, naming status.
+    const checkpoint = Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test' });
+    try {
+      const active = checkpoint.createRun({ worktree: box.repo });
+      const refused = await run(box, 'report', '--run', active.id);
+      assert.equal(refused.status, 2);
+      assert.match(refused.stderr, new RegExp(`refused: run ${active.id} has no current report: [^\\n]*deep-review status --run ${active.id} shows where it is`));
+      const newestNow = await run(box, 'report');
+      assert.equal(newestNow.status, 2, 'the newest run of the worktree is the one without a report');
+    } finally {
+      checkpoint.close();
+    }
+    assert.match((await run(box, 'report', '--fix')).stderr, /--fix does not apply to report/);
   });
 
   it('ends with the path of the record when the copy cannot be written, and says why on stderr (R13, TD6 of the brief of a run)', async (t) => {
