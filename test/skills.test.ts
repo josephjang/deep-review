@@ -28,7 +28,9 @@ describe('the skill texts', () => {
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}`), 'the bundle path');
       assert.ok(text.includes(`review --runtime ${runtime}`), 'the runtime flag');
       for (const flag of ['--worktree', '--last-commit', '--branch', '--base <rev>', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
-      assert.match(text, /Exit code 0: the last line of stdout is the report's path/);
+      // The short form of the brief as printed, then the path (R13, R17 of the brief of a run).
+      assert.match(text, /Exit code 0: stdout ends with the short form of the run's brief, one\s+line for each part, and its last line is the report's path\. Show the\s+lines before the path to the user in a code block, as printed, then\s+show the path and say the report is theirs to read: it starts with\s+the brief, and the evidence follows\./);
+      assert.match(text, /When the user asks what a finished run found, run the `main\.mjs` of\s+step 3 with only `report`, adding `--run <id>` when they name a run,\s+and show what it prints as step 4 says\./);
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
       // The blocker as printed and nothing more: the interactive smoke showed a model that retold a budget block wrongly.
       assert.match(text, /Show both verbatim in a code\s+block and stop, with no account of your own of what the run did,\s+spent or left undone\./);
@@ -54,7 +56,7 @@ describe('the skill texts', () => {
       // A finished read-only run of the unchanged change is continued, not reviewed again (R11 of fix pass continuation); the warning still comes before the command.
       assert.match(text, /When a read-only run of the same\s+change has finished and the change is unchanged since, the same\s+command with `--fix` continues that run and reviews nothing again,\s+so the fixes are of the findings the user read\./);
       assert.ok(text.indexOf('continues that run') < text.indexOf('Before you run it, tell the'), 'the continuation is said before the warning, which still precedes the command');
-      assert.match(text, /the fixes are in the working tree, uncommitted, one\s+patch per finding/);
+      assert.match(text, /the fixes are in the working tree,\s+uncommitted, one\s+patch per finding/);
       assert.match(text, /offer\s+to commit them/);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
       assert.match(text, /adding `--change-message <message>` when the scope was `--worktree`/);
@@ -63,11 +65,11 @@ describe('the skill texts', () => {
 
     it(`${name}: runs deep-review answer when the user answers a question or a departure, and says what each outcome means (R12 of answers)`, () => {
       const text = read(path);
-      assert.match(text, /The report's Decisions section lists the questions the run asked and\s+the fixes that depart from a rule, each ending with the\s+`deep-review answer` command that answers it\./);
+      assert.match(text, /The brief at the top of the report lists the questions the run asked\s+and the fixes that go against a written rule, each with the\s+`deep-review answer` command that answers it\./);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --finding <id> --option <n>`), 'the answer subcommand of the same bundle');
       assert.match(text, /`--accept` or `--reject` in place of `--option <n>` for a\s+departure, and `--note <text>` with what the user said beyond the\s+choice/);
       assert.match(text, /as a background shell command with\s+the longest timeout you can/);
-      assert.match(text, /the last line of stdout is the new report's\s+path: show it as in step 4 and offer to commit the new edits as in\s+step 5/);
+      assert.match(text, /stdout ends with the short form of the brief\s+and the new report's path: show them as in step 4 and offer to commit\s+the new edits as in step 5/);
       assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run step 3 again with `--fix`/);
       assert.match(text, /When it says the tree already holds the answer, tell the user nothing\s+was applied/);
       assert.match(text, /Exit code 2: show stderr verbatim and stop; when it says\s+the answer is recorded, the same command applies it once the cause\s+it names is gone/);
@@ -91,7 +93,7 @@ describe('the skill texts', () => {
       const text = read(path);
       assert.match(text, /When the user asks how deep-review is configured, or what a run would\s+take now, run the `config show` command of step 3 with the same scope\s+flags and no `--fix`, and show all that it prints\./);
       // A question about a run is answered from that run's record: config show reads today's files and flags, which may differ from those the run recorded or a resume ignored.
-      assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of its report's header\s+and its `## Limitations` section exactly as the report prints them\./);
+      assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of the facts of the run,\s+the section `## The run` at the end of its report, and the list of what\s+the review did not cover in its brief, exactly as the report prints\s+them\./);
       assert.doesNotMatch(text, /why a run reviewed\s+what it did, run the `config show`/);
       // The record the skill names holds the run's settings: status and the report give the same settings lines.
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(') && read('src/review/status.ts').includes('settingsLimitations('), 'status prints the run\'s recorded settings');
