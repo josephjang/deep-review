@@ -169,6 +169,10 @@ describe('golden checkpoints', () => {
             assert.deepEqual(review.answerPasses, [], `${name} run ${String(index)} answerPasses`);
             for (const phase of answerPhases) assert.equal(review.phases[phase].status, 'skipped', `${name} run ${String(index)} ${phase}`);
           }
+          // A review recorded before the triage's account of the change reads as one whose account is unrecorded (R18 of the brief of a run).
+          if (review !== null && !('change' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.deepEqual(review.change, { kind: 'unrecorded' }, `${name} run ${String(index)} change`);
+          }
           // A configuration recorded before the Codex Windows sandbox was pinned reads as unelevated for a Codex run on Windows, the only sandbox the engine used there then, and as none for a Codex run whose worktree is rooted at / or for another runtime (R3 of the Codex sandbox).
           const recordedConfiguration = (recorded as { review?: { configuration?: object } | null }).review?.configuration;
           if (review !== null && recordedConfiguration !== undefined && !('codex' in recordedConfiguration)) {
@@ -284,6 +288,26 @@ describe('golden checkpoints', () => {
       assert.deepEqual(repinned.review.configuration.fixSettings?.values['tools.path'], ['/fixture/repinned/.venv/bin']);
       assert.ok(repinned.review.fix?.checks.planned?.checks.every((check) => check.origin === 'setting'), 'the settings planned every check with the pin');
       assert.deepEqual(repinned.review.phases.survey, { status: 'completed', attempt: 1 }, 'the survey is not asked again');
+    });
+  }
+
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); every other run's triage recorded version 1.
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
+    it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const resumed = runs.find((candidate) => candidate.worktree === '/fixture/resumed');
+      assert.ok(resumed?.review !== null && resumed?.review !== undefined, 'the fixture holds the resumed run');
+      const { change } = resumed.review;
+      assert.equal(change.kind, 'given');
+      assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
+      assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
+      for (const run of runs.filter((candidate) => candidate !== resumed && candidate.review !== null && candidate.review.leads !== null)) {
+        assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
+      }
     });
   }
 

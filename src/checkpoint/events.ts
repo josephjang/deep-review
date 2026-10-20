@@ -379,20 +379,89 @@ export type Lead = z.infer<typeof leadSchema>;
  * key is `SCAN` for the triage, the angle for a finder and `sweep` for the
  * sweep; the triage alone carries one lead per finder angle.
  */
-export const candidatesRecordedV1 = z.strictObject({
+const candidatesRecordedFields = {
   phase: candidatePhaseSchema,
   key: unitKeySchema,
   workerId: z.uuid(),
   candidates: z.array(recordedCandidateSchema).max(12),
   leads: z.array(leadSchema).length(vocabulary.finderAngles.length).nullable(),
-}).superRefine((recorded, context) => {
+};
+
+/** The rules of version 1 that every later version keeps: the triage alone has leads, one per finder angle, and ids are unique. */
+function checkCandidatesRecorded(recorded: z.infer<z.ZodObject<typeof candidatesRecordedFields>>, context: z.RefinementCtx): void {
   if ((recorded.phase === 'triage') !== (recorded.leads !== null)) context.addIssue({ code: 'custom', message: 'the triage alone returns leads', path: ['leads'] });
   if (recorded.leads !== null && new Set(recorded.leads.map((lead) => lead.angle)).size !== vocabulary.finderAngles.length) {
     context.addIssue({ code: 'custom', message: 'one lead per finder angle', path: ['leads'] });
   }
   if (new Set(recorded.candidates.map((candidate) => candidate.id)).size !== recorded.candidates.length) context.addIssue({ code: 'custom', message: 'candidate ids are unique', path: ['candidates'] });
+}
+
+export const candidatesRecordedV1 = z.strictObject(candidatesRecordedFields).superRefine(checkCandidatesRecorded);
+export type CandidatesRecordedV1 = z.infer<typeof candidatesRecordedV1>;
+
+/**
+ * The longest text of the triage's account of the change that the ledger
+ * records: the wide limit the triage's output schema holds each text to
+ * (R3 of the brief of a run). The task asks for less, and the brief cuts
+ * what it shows; the evidence shows the whole text.
+ */
+export const changeTextLengthV1 = 2000;
+const changeTextSchema = z.string().min(1).max(changeTextLengthV1);
+/** A commit or a repository path the account rests on, as the triage named it. */
+const changeSourceSchema = z.string().min(1).max(1000);
+
+/**
+ * One condition of principle 8 that the triage judges (R4 of the brief of
+ * a run): whether it holds, and when it does, one sentence that says what
+ * and the files that show it. A condition that does not hold has neither,
+ * which `normalizeTriageChange` makes so before the record.
+ */
+export const changeConditionSchema = z.strictObject({
+  holds: z.boolean(),
+  what: changeTextSchema.nullable(),
+  files: z.array(changeSourceSchema).max(30),
+}).refine((condition) => condition.holds || (condition.what === null && condition.files.length === 0), {
+  message: 'a condition that does not hold has no sentence and no files',
+  path: ['holds'],
 });
-export type CandidatesRecorded = z.infer<typeof candidatesRecordedV1>;
+export type ChangeCondition = z.infer<typeof changeConditionSchema>;
+
+/**
+ * The triage's account of the change (R3, R4 of the brief of a run): a
+ * title, what the change does, why in the change's own words with where
+ * those words are, what the account rests on, and the two conditions of
+ * principle 8 that only a judgment of the code finds. `why` is null when
+ * the change states no reason, and then has no sources. No verifier
+ * examines the account; the brief marks it so.
+ */
+export const changeReadingSchema = z.strictObject({
+  title: changeTextSchema,
+  what: changeTextSchema,
+  why: changeTextSchema.nullable(),
+  whyFrom: z.array(changeSourceSchema).max(20),
+  restsOn: z.array(changeSourceSchema).max(30),
+  publicInterface: changeConditionSchema,
+  wideEffect: changeConditionSchema,
+}).refine((reading) => reading.why !== null || reading.whyFrom.length === 0, {
+  message: 'a reason the change does not state has no sources',
+  path: ['whyFrom'],
+});
+export type ChangeReading = z.infer<typeof changeReadingSchema>;
+
+/**
+ * `candidates.recorded` with the triage's account of the change (R3, TD1
+ * of the brief of a run): the account, or null when the triage gave none,
+ * on the triage's record, and null on a finder's and the sweep's, which
+ * give none.
+ */
+export const candidatesRecordedV2 = z.strictObject({
+  ...candidatesRecordedFields,
+  change: changeReadingSchema.nullable(),
+}).superRefine((recorded, context) => {
+  checkCandidatesRecorded(recorded, context);
+  if (recorded.phase !== 'triage' && recorded.change !== null) context.addIssue({ code: 'custom', message: 'the triage alone gives an account of the change', path: ['change'] });
+});
+export type CandidatesRecorded = z.infer<typeof candidatesRecordedV2>;
 
 /** A unit's worker did not contribute: it failed, timed out, hit its budget, or answered something the structural checks refused (R5). */
 export const attemptFailedV1 = z.strictObject({
@@ -1948,7 +2017,7 @@ export const eventRegistry = defineRegistry({
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 } },
   'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 } },
-  'candidates.recorded': { 1: { schema: candidatesRecordedV1 } },
+  'candidates.recorded': { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
   'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },

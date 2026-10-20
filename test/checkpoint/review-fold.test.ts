@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, askDecision, baselined, candidate, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, askDecision, baselined, candidate, changeReading, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -68,6 +68,34 @@ describe('the review fold', () => {
     assert.deepEqual(review.candidates['SCAN-1'], { ...candidate('SCAN-1', 'SCAN'), phase: 'triage', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false });
     assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(1), failures: [] } });
     assert.deepEqual(review.checks, [{ phase: 'triage', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }]);
+  });
+
+  describe('the triage\'s account of the change (R3, R18 of the brief of a run)', () => {
+    const triagedV2 = (change: unknown): History => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change }, 2);
+
+    it('leaves the account unrecorded until the triage answers', () => {
+      assert.deepEqual(configured().review().change, { kind: 'unrecorded' });
+      assert.deepEqual(configured().start('triage').review().change, { kind: 'unrecorded' });
+    });
+
+    it('folds a version 2 triage\'s account as given, and keeps it through the finders and the sweep, whose records give none', () => {
+      const review = triagedV2(changeReading).finish('triage').start('finders')
+        .add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null, change: null }, 2)
+        .review();
+      assert.deepEqual(review.change, { kind: 'given', reading: changeReading });
+      assert.deepEqual(review.leads, leads, 'the leads fold as at version 1');
+      assert.deepEqual(review.units.triage, { SCAN: { answeredBy: worker(1), failures: [] } });
+    });
+
+    it('folds a version 2 triage that gave no account as none, which differs from a run recorded before the account', () => {
+      assert.deepEqual(triagedV2(null).review().change, { kind: 'none' });
+      assert.deepEqual(triaged().review().change, { kind: 'unrecorded' }, 'a version 1 triage recorded no account');
+    });
+
+    it('takes a reason with no source, and a condition that holds with no sentence', () => {
+      const reading = { ...changeReading, whyFrom: [], wideEffect: { holds: true, what: null, files: [] } };
+      assert.deepEqual(triagedV2(reading).review().change, { kind: 'given', reading });
+    });
   });
 
   it('counts failed attempts and a lost worker against their unit, marking which failure was a loss, and marks the angle that failed twice not run', () => {
@@ -418,6 +446,15 @@ describe('the review fold', () => {
     ['triage candidates without leads', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads: null }), /the triage alone returns leads/],
     ['finder candidates with leads', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads }), /the triage alone returns leads/],
     ['leads that miss an angle', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads: [...leads.slice(1), leads[1]] }), /one lead per finder angle/],
+    ['an account of the change on a finder\'s record', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [], leads: null, change: changeReading }, 2), /the triage alone gives an account of the change/],
+    ['an account of the change on the sweep\'s record', () => verified().start('sweep').add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: worker(30), candidates: [], leads: null, change: changeReading }, 2), /the triage alone gives an account of the change/],
+    ['a version 2 triage record without its account', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads }, 2), /change/],
+    ['a version 2 triage record without its leads', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads: null, change: null }, 2), /the triage alone returns leads/],
+    ['a condition that does not hold but has a sentence', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change: { ...changeReading, wideEffect: { holds: false, what: 'many callers', files: [] } } }, 2), /a condition that does not hold has no sentence and no files/],
+    ['a condition that does not hold but has files', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change: { ...changeReading, publicInterface: { holds: false, what: null, files: ['src/a.ts'] } } }, 2), /a condition that does not hold has no sentence and no files/],
+    ['a reason the change does not state, with sources', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change: { ...changeReading, why: null } }, 2), /a reason the change does not state has no sources/],
+    ['an account with an empty title', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change: { ...changeReading, title: '' } }, 2), /title/],
+    ['an account whose text passes the wide limit', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: worker(1), candidates: [], leads, change: { ...changeReading, what: 'x'.repeat(2001) } }, 2), /what/],
     ['triage candidates under another key', () => configured().start('triage').add('candidates.recorded', { phase: 'triage', key: 'RIPPLE', workerId: worker(1), candidates: [], leads }), /under unit RIPPLE, not SCAN/],
     ['finder candidates under a key that is not an angle', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'SCAN', workerId: worker(2), candidates: [], leads: null }), /not a finder angle/],
     ['a candidate whose id names another angle', () => triaged().start('finders').add('candidates.recorded', { phase: 'finders', key: 'RIPPLE', workerId: worker(2), candidates: [candidate('DESIGN-1', 'RIPPLE')], leads: null }), /whose ids start with RIPPLE-/],

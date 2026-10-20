@@ -94,6 +94,17 @@ export const unlocated = (id: string, angle: string): Record<string, unknown> =>
 
 export const leads = finderAngles.map((angle) => ({ angle, lead: angle === 'RIPPLE' ? 'the callers of parse()' : null }));
 
+/** A triage's account of the change as version 2 of `candidates.recorded` records it (R3 of the brief of a run). */
+export const changeReading = {
+  title: 'Parse an empty input',
+  what: 'The parser returns no value for an empty input, where it threw before. Its callers check for that.',
+  why: 'An empty file is a valid input, as the commit says.',
+  whyFrom: ['a'.repeat(40)],
+  restsOn: ['src/a.ts', 'a'.repeat(40)],
+  publicInterface: { holds: true, what: 'parse() can now return null.', files: ['src/a.ts'] },
+  wideEffect: { holds: false, what: null, files: [] },
+} as const;
+
 /** The lowest version of `phase.started` and `worktree.checked` that can name a phase: 5 for the answer pass's, 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
 const phaseVersion = (phase: string): 1 | 2 | 3 | 4 | 5 => ((answerPhases as readonly string[]).includes(phase) ? 5 : phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 

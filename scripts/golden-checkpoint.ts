@@ -1628,7 +1628,9 @@ try {
   // in one append with the new limits (R11, TD8), whose fixer applies the
   // fix; the checks after it run, and a second report is written. Its first
   // series of commits is prepared, dropped since the branch did not move,
-  // prepared again and created (R9).
+  // prepared again and created (R9). Its triage, its finders and its sweep
+  // record their candidates at version 2, the triage with its account of
+  // the change (R3 of the brief of a run).
   const resumedRun = checkpoint.createRun({ worktree: '/fixture/resumed' });
   const resumed = new ReviewHistory(checkpoint, resumedRun.id, checkpoint.append(resumedRun.id, resumedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
   const resumedChecks = { build: 'npm run build', test: 'npm test' };
@@ -1685,7 +1687,22 @@ try {
   resumed.phaseV6('triage', () => {
     resumed.launch('a02', 'triage triage:SCAN');
     resumed.finishWorker('a02');
-    resumed.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: resumed.id('a02'), candidates: [resumed.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })) });
+    resumed.add('candidates.recorded', {
+      phase: 'triage',
+      key: 'SCAN',
+      workerId: resumed.id('a02'),
+      candidates: [resumed.candidate('SCAN-1', 'SCAN', 1)],
+      leads: finderAngles.map((angle) => ({ angle, lead: null })),
+      change: {
+        title: 'Accept an empty input',
+        what: 'The parser accepts an empty input and returns no value for it, where it threw before.',
+        why: 'An empty file is a valid input, the commit message says.',
+        whyFrom: ['a'.repeat(40)],
+        restsOn: ['src/changed.ts', 'a'.repeat(40)],
+        publicInterface: { holds: true, what: 'changed() can now return null, which its callers read.', files: ['src/changed.ts'] },
+        wideEffect: { holds: false, what: null, files: [] },
+      },
+    }, 2);
   });
   // The finders' first attempt: RIPPLE's worker ends with exit code 143, a kill mark, and DESIGN's is in flight when a stop cuts the engine.
   resumed.startedAt('finders', 1);
@@ -1699,7 +1716,7 @@ try {
       continue;
     }
     resumed.finishWorker(tag);
-    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null });
+    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null, change: null }, 2);
   }
   // The next engine records DESIGN lost and starts the finders again, each unit with fresh attempts.
   resumed.add('worker.lost', { workerId: resumed.id(`a${String(10 + finderAngles.indexOf('DESIGN'))}`), phase: 'finders', key: 'DESIGN', reason: 'the engine exited while the worker ran' }, 5);
@@ -1708,7 +1725,7 @@ try {
     const tag = `a${String(20 + finderAngles.indexOf(angle))}`;
     resumed.launch(tag, `finder-${angle} finders:${angle}`);
     resumed.finishWorker(tag);
-    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null });
+    resumed.add('candidates.recorded', { phase: 'finders', key: angle, workerId: resumed.id(tag), candidates: [], leads: null, change: null }, 2);
   }
   resumed.finishedAt('finders');
   resumed.phaseV6('deduplication', () => {});
@@ -1721,7 +1738,7 @@ try {
   resumed.phaseV6('sweep', () => {
     resumed.launch('a32', 'sweep sweep:sweep');
     resumed.finishWorker('a32');
-    resumed.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: resumed.id('a32'), candidates: [], leads: null });
+    resumed.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: resumed.id('a32'), candidates: [], leads: null, change: null }, 2);
   });
   resumed.phaseV6('sweep-deduplication', () => {});
   resumed.phaseV6('sweep-verification', () => resumed.add('verification.planned', { phase: 'sweep-verification', groups: [] }));

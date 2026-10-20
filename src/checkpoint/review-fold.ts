@@ -30,6 +30,8 @@ import type {
   AttemptFailed,
   Blocker,
   CandidatesRecorded,
+  CandidatesRecordedV1,
+  ChangeReading,
   DecisionsRecorded,
   DeduplicationRecorded,
   FrozenFile,
@@ -119,6 +121,22 @@ export interface LimitBlock {
   readonly detail: string;
 }
 
+/**
+ * The triage's account of the change as the fold holds it (R3, R18 of the
+ * brief of a run): `unrecorded` until the triage answers, and for good in
+ * a run whose triage an engine before the account recorded; `none` when
+ * the triage gave no account; else the account it gave.
+ */
+export type TriageAccount =
+  | { readonly kind: 'unrecorded' }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'given'; readonly reading: ChangeReading };
+
+/** The account the triage gave, or null when it gave none or none was recorded. */
+export function changeReadingOf(account: TriageAccount): ChangeReading | null {
+  return account.kind === 'given' ? account.reading : null;
+}
+
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
 export interface CandidateState extends RecordedCandidate {
   readonly phase: CandidatePhase;
@@ -174,6 +192,8 @@ export interface ReviewState extends AnswerState {
   readonly checks: readonly WorktreeCheckState[];
   /** The triage's one lead per finder angle, or null until the triage answers. */
   readonly leads: readonly Lead[] | null;
+  /** The triage's account of the change; `unrecorded` until the triage answers. */
+  readonly change: TriageAccount;
   /** Every candidate by id, in the order recorded. */
   readonly candidates: Readonly<Record<string, CandidateState>>;
   /** Every unit that contributed or failed, by phase and then by unit key. */
@@ -316,6 +336,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     limitBlocks: [],
     checks: [],
     leads: null,
+    change: { kind: 'unrecorded' },
     candidates: {},
     units: Object.fromEntries(phases.map((phase) => [phase, {}])) as Record<Phase, Record<string, UnitState>>,
     anglesNotRun: {},
@@ -460,7 +481,7 @@ const worktreeCheckedV1: Reducer<WorktreeCheckV1> = (state, payload, event, draf
 };
 
 /** The unit, which must be one its candidate phase has: the triage's or the sweep's one unit, or a finder angle. */
-function requireCandidateUnit(payload: CandidatesRecorded, event: DecodedEvent): void {
+function requireCandidateUnit(payload: CandidatesRecordedV1, event: DecodedEvent): void {
   if (payload.phase === 'finders') {
     if (!(finderAngles as readonly string[]).includes(payload.key)) throw invalid(event, `records finder candidates under ${payload.key}, which is not a finder angle`);
     return;
@@ -469,7 +490,8 @@ function requireCandidateUnit(payload: CandidatesRecorded, event: DecodedEvent):
   if (payload.key !== key) throw invalid(event, `records ${payload.phase} candidates under unit ${payload.key}, not ${key}`);
 }
 
-const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, drafts) => {
+/** A unit's candidates, and for the triage its leads and `account`, the account of the change that its version records. */
+function recordCandidates(state: RunState | undefined, payload: CandidatesRecordedV1, account: TriageAccount, event: DecodedEvent, drafts: FoldDrafts): RunState {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
   requireCandidateUnit(payload, event);
@@ -491,8 +513,16 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, payload, event, 
     candidates[candidate.id] = { ...candidate, phase: payload.phase, workerId: payload.workerId, duplicateOf: null, verdict: null, unverified: false };
   }
   const leads = payload.leads ?? review.leads;
-  return withReview(current, { ...review, candidates, leads, units: answered(review, drafts, unit, payload.workerId) }, event);
-};
+  const change = payload.phase === 'triage' ? account : review.change;
+  return withReview(current, { ...review, candidates, leads, change, units: answered(review, drafts, unit, payload.workerId) }, event);
+}
+
+/** Version 2: the triage's record holds its account of the change, or null when it gave none (R3 of the brief of a run). */
+const candidatesRecorded: Reducer<CandidatesRecorded> = (state, { change, ...payload }, event, drafts) =>
+  recordCandidates(state, payload, change === null ? { kind: 'none' } : { kind: 'given', reading: change }, event, drafts);
+
+/** Version 1, recorded before the triage gave an account of the change, which stays unrecorded (R18 of the brief of a run). */
+const candidatesRecordedV1: Reducer<CandidatesRecordedV1> = (state, payload, event, drafts) => recordCandidates(state, payload, { kind: 'unrecorded' }, event, drafts);
 
 /** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5, and version 7 its faults, with `cut` and `limit` (R4, R14 of resumable runs). */
 const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: AttemptFailed['fault'] }> = (state, payload, event, drafts) => {
@@ -674,7 +704,8 @@ export const reviewReducers = {
   'worktree.checked@4': worktreeChecked,
   'worktree.checked@5': worktreeChecked,
   'worktree.checked@6': worktreeChecked,
-  'candidates.recorded@1': candidatesRecorded,
+  'candidates.recorded@1': candidatesRecordedV1,
+  'candidates.recorded@2': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
   'attempt.failed@2': attemptFailed,
   'attempt.failed@3': attemptFailed,

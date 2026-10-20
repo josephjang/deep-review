@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
+import { recordedDecisionSchema, type CandidatesRecordedV1, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -628,7 +628,7 @@ function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, con
 /** The events a unit's contribution is recorded as, each kind with its own payload. */
 type ContributionEvent =
   | { readonly kind: 'survey.recorded'; readonly version: 1; readonly payload: SurveyRecorded }
-  | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecorded }
+  | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecordedV1 }
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
