@@ -1,14 +1,15 @@
 /**
  * The report's and `status`'s account of the settings (R7 of the
  * configuration), rendered from the fold alone like the rest of the
- * report: the header line that names the files a run read, and the lines
- * of what the run did not examine or follow because of a setting, the
- * paths `scope.exclude` left out, each repository value a higher layer
- * replaced, the repository's file skipped or edited by the change, and
- * each setting ignored. A run whose values are all defaults and flags
- * adds only the header line. A run configured before the settings has a
- * header line that says so, and no other, unless a continuation recorded
- * its fix side since.
+ * report: the `Settings:` line that names the files a run read, among the
+ * facts of the run in the report, and the lines of what the run did not
+ * examine or follow because of a setting, the paths `scope.exclude` left
+ * out, which the report's brief names as a gap, each repository value a
+ * higher layer replaced, the repository's file skipped or edited by the
+ * change, and each setting ignored. A run whose values are all defaults
+ * and flags adds only the `Settings:` line. For a run configured before
+ * the settings, `status` gives a `Settings:` line that says so and the
+ * report none, unless a continuation recorded its fix side since.
  */
 import type { ReviewConfiguration, ScopeState } from '../checkpoint/events.ts';
 import { repositoryConfigPath } from '../config/files.ts';
@@ -32,7 +33,7 @@ function sourcesWords(sources: Sources): string {
 }
 
 /**
- * The header's line of the settings: the files the run read, each with its
+ * The `Settings:` line: the files the run read, each with its
  * layer and, for the repository's, the commit it was read at; whether the
  * repository's file was skipped, or edited by the change, whose edit
  * applies to later changes; or, for a run configured before the settings,

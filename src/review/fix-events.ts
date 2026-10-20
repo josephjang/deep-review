@@ -260,7 +260,8 @@ export type AttemptEnd = 'failed' | 'lost';
  * listed, which the attempt did not make, the files git ignores, and the
  * tracked files outside the change it neither owns nor claimed: those are
  * a tool's leftovers, such as a build's `dist/`, which the tail check
- * revision takes if a check rewrites them and Limitations names otherwise
+ * revision takes if a check rewrites them and the notes of the run name
+ * otherwise
  * (PD9 of commit series integrity, amended after the gate). So a
  * sibling's edit of a file the sibling claimed is never this attempt's
  * while that claim is on the ledger or in the round's directory, even once

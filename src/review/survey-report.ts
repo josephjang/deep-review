@@ -161,7 +161,7 @@ function continuedSurveyLines(survey: SurveyState): string[] {
   return lines;
 }
 
-/** The line the survey adds to Limitations: a survey that failed; a check the run went without is among the checks not available (fix-report.ts). */
+/** The line the survey adds to the notes of the run: a survey that failed; a check the run went without is a gap of the brief (brief.ts). */
 export function surveyLimitations(review: ReviewState): string[] {
   const failure = review.survey?.failure ?? null;
   if (failure === null) return [];

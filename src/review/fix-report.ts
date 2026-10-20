@@ -4,8 +4,7 @@
  * ranked finding, what each check said before the fixes, after them and
  * after the repair, every file a revision changed, who changed it and
  * which cluster held it (R3 of commit series integrity), and the lines
- * Limitations gains. A run without the fix pass has none
- * of these, and its report renders as it did before the fix pass existed.
+ * the notes of the run gain. A run without the fix pass has none of these.
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
@@ -157,8 +156,8 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
 
 /**
  * What a stop did to the checks and to the tree, and what the resumed run
- * did about it (R15 of resumable runs), as bare sentences that Limitations
- * and `status` each prefix, in the order of the checks phases: each run that replaced one, with both
+ * did about it (R15 of resumable runs), as bare sentences that the notes
+ * of the run and `status` each prefix, in the order of the checks phases: each run that replaced one, with both
  * outcomes, by why it ran again (a cut, a first timeout, or a stop of its
  * attempt); each start with no end on record; each file written back,
  * with where the bytes it overwrote are; and a series of commits a stop
@@ -413,7 +412,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
 }
 
 /**
- * The header's line for a fix run: how many findings each outcome took,
+ * The line of the facts of the run for a fix run: how many findings each outcome took,
  * and that the edits are uncommitted. A run with the decision step counts
  * the findings its decisions kept from every fixer; one configured before
  * the step counts those it held for the author, as its report did then.
@@ -442,7 +441,7 @@ function strayedInRun(review: ReviewState, revisions: FixState['revisions']): st
   return (review.checks.at(-1)?.strays ?? []).filter((path) => !before.has(path) && !revised.has(path)).sort();
 }
 
-/** A fixer as Limitations names it at the start of a line, by its phase, so a new editing phase must be named here. */
+/** A fixer as the notes of the run name it at the start of a line, by its phase, so a new editing phase must be named here. */
 function fixerTitle(phase: EditingPhase, key: string): string {
   switch (phase) {
     case 'fixes':

@@ -34,7 +34,7 @@ import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabul
 /** A Codex Windows sandbox as the ledger records it, which the report renders from rather than from the adapter's vocabulary. */
 type PinnedWindowsSandbox = NonNullable<ReviewConfiguration['codex']>['windowsSandbox'];
 
-/** How the header names the Codex Windows sandbox a run pinned; `none` says what it means for each kind of worker, since it differs. */
+/** How the facts of the run name the Codex Windows sandbox a run pinned; `none` says what it means for each kind of worker, since it differs. */
 const codexSandboxWords: Readonly<Record<PinnedWindowsSandbox, string>> = {
   unelevated: 'unelevated',
   elevated: 'elevated',
@@ -191,8 +191,8 @@ function whyUnlocated(scope: ScopeState, candidate: CandidateState): UnlocatedRe
 /**
  * Each worker a kill from outside the engine ended with a kill mark, or
  * whose guard left no result, and whether its unit ran again (R15 of
- * resumable runs), as bare sentences that Limitations and `status` each
- * prefix: its failure uses an attempt but never degrades its unit, so a
+ * resumable runs), as bare sentences that the notes of the run and
+ * `status` each prefix: its failure uses an attempt but never degrades its unit, so a
  * later worker of the same label is its rerun.
  */
 export function cutWorkerLines(workers: RunState['workers']): string[] {
@@ -206,8 +206,8 @@ export function cutWorkerLines(workers: RunState['workers']): string[] {
 /**
  * Each worker a stop of the engine lost, whether its unit ran again, and
  * whether its edits are in a revision of its unfinished attempt (R10, R15
- * of resumable runs), as bare sentences that Limitations and `status` each
- * prefix. A loss uses an attempt but never degrades its unit, so a later
+ * of resumable runs), as bare sentences that the notes of the run and
+ * `status` each prefix. A loss uses an attempt but never degrades its unit, so a later
  * worker of the same label is its rerun.
  */
 export function lostWorkerLines(workers: RunState['workers'], revisions: readonly TreeRevised[]): string[] {
@@ -232,8 +232,8 @@ function ranAgainWords(all: readonly WorkerState[], worker: WorkerState): string
 
 /**
  * Each block for the provider's usage limit that the run resumed after
- * (R14, R15 of resumable runs), as bare sentences that Limitations and
- * `status` each prefix: the re-entry that resumed the phase cleared the
+ * (R14, R15 of resumable runs), as bare sentences that the notes of the
+ * run and `status` each prefix: the re-entry that resumed the phase cleared the
  * failure and the blocker that named it, so only these lines still do.
  */
 export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): string[] {

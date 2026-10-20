@@ -79,7 +79,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
   // How many findings the decision step decided each way (R8 of the decision step), or null while it has recorded none.
   const decisions = review?.decisions === null || review?.decisions === undefined ? null : decisionCounts(review.decisions);
   const continuing = continueLine(state, adapter, continuation);
-  // What a stop did, as the report's Limitations names it (R15 of resumable runs).
+  // What a stop did, as the notes of the run in the report name it (R15 of resumable runs).
   const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review?.fix?.revisions ?? []), ...(review === null ? [] : [...limitBlockLines(review), ...stopLimitations(review, evidencePath)])].map((line) => `Stop: ${line}`);
   const lines = [
     `Run ${state.id}: ${status}${state.abandonReason === null ? '' : ` (${state.abandonReason})`}`,

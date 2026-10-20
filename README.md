@@ -201,12 +201,29 @@ earlier engine. Every way a run stops short of a report names the
 operator's action: run again, raise the budget, restore the tree,
 settle a check the machine cannot run, or abandon.
 
-The report is Markdown rendered by the engine into the evidence store;
-the command prints its path as the last line of stdout and exits 0. Its
-sections are the header, Decisions, Angles, Conventions, Findings (most severe first, with the
+The report is Markdown rendered by the engine into the evidence store,
+and a copy of it beside the ledger, under `reports/` in the checkpoint,
+named by the day the run started and the run, is what a person opens.
+`review`, `answer`, `commit` and `report` write the copy again, so it
+shows each answer and commit; the record in the store stays the report
+of its moment. The report starts with the brief of the run: what the
+change does and why, as the triage read it from the change's own words;
+the questions only a person can answer, each with the option in place
+now and deep-review's choice; the fixes that go against a written rule;
+what the run did not cover; where a person must look; and what
+deep-review changed. The evidence follows: the change in full,
+Decisions, Findings (most severe first, each with its anchor, the
 merged ids, verdict, evidence, the outside-the-change, unlocated and
-unverified marks, and the decision made), Refuted at verification,
-Statistics per phase and Limitations. A finding's location is matched to a file of the
+unverified marks, and the decision made), the fix pass's sections,
+Angles, Conventions, Refuted at verification, Statistics per phase and
+the notes of the run. The facts of the run come last: its repository,
+commits, engine, runtime, models and settings, the one section that
+names a local path. The command prints the short form of the brief,
+seven lines that each name their subject first, then the copy's path as
+the last line of stdout, and exits 0. `deep-review report` shows the
+brief of a finished run again, or as JSON with `--json`. See
+`docs/changes/2026-10-20-run-brief.requirements.md` and its design.
+A finding's location is matched to a file of the
 repository: one the change touches, or an unchanged file such as a
 caller, marked outside the change; a location that names no such file
 and line is kept and marked unlocated, never dropped. A blocked
@@ -258,10 +275,11 @@ presumption the decider may rebut, with the rule's own reason found
 first and a fact, not a preference, against it, and a departure is
 named on the decision. A run with no finding launches no decider; a
 decider that fails twice blocks the run with `worker-failed`, since no
-fixer may act on a finding nobody decided. The report opens with a
-Decisions section: the questions as a checklist, the findings to fix
-with their approach and any rule departed from, and the findings left
-with their reason. A run configured before the decision step records
+fixer may act on a finding nobody decided. The brief at the top of the
+report asks the questions and names the fixes that depart from a rule;
+its Decisions section lists how each question stands, the findings to
+fix with their approach and any rule departed from, and the findings
+left with their reason. A run configured before the decision step records
 the phase as skipped and reads as it did. See
 `docs/changes/2026-10-08-decision-step.requirements.md` and its design.
 
@@ -360,7 +378,7 @@ a list of every tracked file taken just before it, so the rebuilt
 tracked files are the series' last commit rather than a change left in
 the worktree. A file the check creates, such as a new file a build
 writes under `dist/`, is not tracked, so it stays a stray, named in
-Limitations and in no commit.
+the notes of the run and in no commit.
 
 The checks are the repository's own `build`, `typecheck`, `lint` and
 `test` commands, as the survey chose them or a `--check <kind>=<command>`
@@ -383,7 +401,7 @@ On Windows a Codex run chooses how its workers are confined with
 `runtimes.codex.windowsSandbox`, shipped as `none`, the one value under
 which a gate on zod reached its report untouched with editors that ran
 the build and the tests. The value is pinned on the run and named in
-the report's header; on another platform the flag is ignored with a
+the facts of the run at the end of the report; on another platform the flag is ignored with a
 warning. Each value needs and gives up something:
 
 - `unelevated` needs no setup, but a Node process there cannot start a
@@ -442,11 +460,12 @@ no file and running no hook. See
 A person answers a question the decision step asked, or accepts or
 rejects a fix's departure from a rule, with `deep-review answer
 --finding <id>` and one of `--option <n>`, `--accept` or `--reject`,
-after the run has written its report. The report's Decisions section
-ends each question and each departure with the command that answers
-it, and says once how a person at a terminal types it: no `deep-review`
-executable is installed, so it names `node "<entry>" answer ...` with
-the path of the engine that wrote the report. The answer is recorded on the run's ledger first, with an optional
+after the run has written its report. The brief at the top of the
+report gives each question and each departure with the command that
+answers it, and the facts of the run at its end say once how a person
+at a terminal types it: no `deep-review` executable is installed, so
+they name `node "<entry>" answer ...` with the path of the engine that
+wrote the report. The answer is recorded on the run's ledger first, with an optional
 `--note`. On a run that only reviewed, `review --fix` then continues
 the run and gives the answered finding to a fixer, which is told the
 answer. On a run that fixed, the command opens an answer pass: one
@@ -485,8 +504,8 @@ Each worker and check runs under a small guard process, the engine's own
 `guard` command, which ends the child's tree when the engine is gone, so
 no child outlives a killed engine. A `deep-review commit` cut short
 records its series before the branch moves, and the next command
-completes it or drops it by where `HEAD` is. The report's Limitations
-and `status` name what each stop did. `npm run resume-test` stops a run
+completes it or drops it by where `HEAD` is. The notes of the run in
+the report and `status` name what each stop did. `npm run resume-test` stops a run
 on the fakes at every point, in each way, and checks this contract; the
 suite runs a fixed set of those points.
 
@@ -642,9 +661,10 @@ A run records each value with the layer it came from, and every file
 it read with its hash, in `review.configured`, before its first worker.
 A resumed run keeps those values, and says on stderr which file or
 setting changed since and is not applied; the concurrency and the run
-budget still change per invocation by flag. The report's header names
-the files a run read, and its limitations name the paths left out, each
-repository value a higher layer replaced, and each setting ignored.
+budget still change per invocation by flag. The facts of the run in the
+report name the files a run read, its brief names the paths left out,
+and the notes of the run name each repository value a higher layer
+replaced and each setting ignored.
 `deep-review config show` prints what a run would use, without starting
 one: the change, as `Scope: <mode>, the change from <base> to <end>`
 with the end a commit or the working tree, and each value with its
@@ -829,8 +849,9 @@ runs the check commands it chose from the repository, and afterwards
 offers to commit the edits with `deep-review commit`. Asked for a
 configuration file, it writes it with `config init --repository`,
 `--operator` or `--clone`. Asked why a run reviewed what it did, it
-answers from that run's record, `status` for the active run and the
-report's `Settings:` line and Limitations for a finished one, since
+answers from that run's record, `status` for the active run and, for a
+finished one, the `Settings:` line of the report's facts of the run and
+the gaps its brief lists, since
 `config show` says only what a run would take now. The skill's `allowed-tools` approves the
 engine's own command with any of its arguments, and nothing else, in
 the Bash tool and in the PowerShell tool alike, for the turn in which
