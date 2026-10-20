@@ -235,6 +235,18 @@ describe('the repository\'s roles/', () => {
     assert.match(decider.prompt, /you do not grade it again/);
   });
 
+  it('has the decider write each question, option and cost for a person who did not read the change, with the references one step below (R7 of the brief of a run)', () => {
+    const decider = roles.find((role) => role.key === 'decider')!.prompt.replace(/\s+/g, ' ');
+    assert.ok(decider.includes('Write the question, each option and each cost for a person who did not read the change: plain words, and no file, line, requirement number or internal name of the code. A command, a flag or a setting that a user types is fine. Put the rest in where you looked and in your grounds, one step below the question.'));
+  });
+
+  it('gives the triage its account of the change as its third job, the reason from the change\'s own words alone (R3 of the brief of a run)', () => {
+    const triage = roles.find((role) => role.key === 'triage')!.prompt.replace(/\s+/g, ' ');
+    assert.ok(triage.includes('That worker has three jobs:'));
+    assert.ok(triage.includes('3. **An account of the change** — what the change does, in plain words for a person who did not read it, and why, in the change\'s own words'));
+    assert.ok(triage.includes('never supply a reason of your own'));
+  });
+
   it('lets a fixer defer for a fact the decision did not see, and for a design call or a public interface only when its task gives no decision, as a repair\'s does not (R12 of the decision step)', () => {
     const fixer = roles.find((role) => role.key === 'fixer')!.prompt.replace(/\s+/g, ' ');
     assert.ok(fixer.includes('- The decision you were given did not see a fact you found; name it.'));
