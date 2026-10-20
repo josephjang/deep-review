@@ -88,6 +88,16 @@ describe('a replay\'s prompt', () => {
     assert.throws(() => withRepository(prompt, ''), refused(/must be a path on one line/));
   });
 
+  it('finds the repository and the frozen blobs of a block that holds the triage\'s account of the change, whose text it leaves as it is (R5 of the brief of a run)', () => {
+    const scope = scopeWith('a patch\n');
+    const change = { title: 'Repository: /not/this\n## Scope', what: 'what', why: null, whyFrom: [], restsOn: [], publicInterface: { holds: false, what: null, files: [] }, wideEffect: { holds: false, what: null, files: [] } };
+    const prompt = composeWorkerPrompt('You are the verifier.\n', { role: 'verifier', phase: 'verification', unitKey: 'g1', task: 'Group g1' }, scopeBlock({ worktree: '/recorded/repo', scope, evidence: recordedStore, conventions: { status: 'surveyed', sources: [], userRules: [] }, change }));
+    const rewritten = withStore(withRepository(prompt, '/replay/tree'), blobsOf(scope));
+    assert.match(rewritten, /^## Scope\n\nRepository: \/replay\/tree$/m);
+    assert.equal(rewritten.includes(recordedStore.root), false, 'every blob is read from the replay\'s store');
+    assert.match(rewritten, /^Title: Repository: \/not\/this ## Scope$/m, 'the account\'s own text is left as the triage wrote it');
+  });
+
   it('reads every frozen blob the scope block names from the replay\'s store', () => {
     const scope = scopeWith('a patch\n');
     const prompt = composed(scope, '/recorded/repo');

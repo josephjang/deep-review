@@ -5,7 +5,7 @@
  * the scope block every worker of a run shares. The launcher appends its
  * scratch note after.
  */
-import type { ConventionSource, FrozenFile, ScopeState } from '../checkpoint/events.ts';
+import type { ChangeCondition, ChangeReading, ConventionSource, FrozenFile, ScopeState } from '../checkpoint/events.ts';
 import type { ConventionsKnown } from '../checkpoint/survey-state.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import { inlineText, tableCell } from './markdown.ts';
@@ -43,6 +43,45 @@ export type ScopeConventions =
 export interface ScopeBlockInput extends ScopeBlockBase {
   /** What the scope block says of the conventions (R7 of the repository survey). */
   readonly conventions: ScopeConventions;
+  /**
+   * The triage's account of the change, which the block of every worker
+   * after the triage carries (R5 of the brief of a run); null for the
+   * triage's own block, and for a run whose triage gave none or recorded
+   * none.
+   */
+  readonly change?: ChangeReading | null;
+}
+
+/** A condition of principle 8 as one line's value: `no`, or `yes`, what, and in which files. */
+function conditionWords(condition: ChangeCondition): string {
+  if (!condition.holds) return 'no';
+  const what = condition.what === null ? '' : `: ${inlineText(condition.what)}`;
+  const files = condition.files.length === 0 ? '' : ` (in ${condition.files.map(inlineText).join(', ')})`;
+  return `yes${what}${files}`;
+}
+
+/**
+ * The scope block's section on the triage's account of the change (R5,
+ * PD4 of the brief of a run): that the account is the triage's and no
+ * verifier examined it, that it is context and never removes or refutes a
+ * candidate, and its fields, each folded onto its line, so no text of the
+ * triage can open a line of its own where the replay tools anchor.
+ */
+export function changeSection(change: ChangeReading): string {
+  const why = change.why === null
+    ? 'Why: the change states no reason.'
+    : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'no source named' : `from ${change.whyFrom.map(inlineText).join(', ')}`})`;
+  return [
+    '### The change, as the triage read it',
+    '',
+    'This is the triage\'s account of the change, which no verifier examined. It is context, not a finding: the patch below is what you review, and the patch wins where the two differ. A stated intent never removes or refutes a candidate: a change can mean to do what it does and still be wrong. Where you need the intent to decide, quote the change\'s own words that the account names, not the account.',
+    '',
+    `Title: ${inlineText(change.title)}`,
+    `What it does: ${inlineText(change.what)}`,
+    why,
+    `Public interface: ${conditionWords(change.publicInterface)}`,
+    `Wide effect: ${conditionWords(change.wideEffect)}`,
+  ].join('\n');
 }
 
 /** One convention source as a line of the scope block: its path, its level, what it governs and what it applies to. */
@@ -151,13 +190,16 @@ export function surveyScopeBlock(input: ScopeBlockBase): string {
 /**
  * The scope block every worker after the survey receives: the shared
  * opening, the convention sources the run knows of (for a run that
- * predates the survey, the rules files the engine found), and the patch.
+ * predates the survey, the rules files the engine found), for a worker
+ * after the triage its account of the change, and the patch.
  */
 export function scopeBlock(input: ScopeBlockInput): string {
+  const change = input.change ?? null;
   return [
     ...scopeHeader(input),
     '',
     conventionsSection(input.conventions),
+    ...(change === null ? [] : ['', changeSection(change)]),
     '',
     '### Patch',
     '',

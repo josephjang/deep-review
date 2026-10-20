@@ -10,6 +10,17 @@ export const found = (file: string, line: number, summary: string): Record<strin
 /** A lead for each finder angle, with nothing in it. */
 export const noLeads = finderAngles.map((angle) => ({ angle, lead: null }));
 
+/** The triage's account of the change in the review script below (R3 of the brief of a run). */
+export const fixtureAccount = {
+  title: 'Let parse take null, and add b',
+  what: 'parse() now takes a null text, another function passes it one, and a new module calls parse.',
+  why: null,
+  whyFrom: [],
+  restsOn: ['src/a.ts', 'src/b.ts'],
+  publicInterface: { holds: true, what: 'parse() takes a null text.', files: ['src/a.ts'] },
+  wideEffect: { holds: false, what: null, files: [] },
+};
+
 /**
  * A review whose triage finds one defect in src/a.ts and one in src/b.ts,
  * both PLAUSIBLE from SCAN, which the decider decides to fix, and whose
@@ -19,7 +30,7 @@ export const noLeads = finderAngles.map((angle) => ({ angle, lead: null }));
  * src/b.ts with SCAN-2, one batch each, c1-1 and c2-1.
  */
 export const reviewScript: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: fixtureAccount } },
   sweep: { output: { candidates: [{ ...found('src/a.ts', 5, 'other() would read better inlined'), angle: 'DESIGN' }] } },
   decider: { output: deciderAnswer([{}, {}, { decision: 'leave' }]) },
 };

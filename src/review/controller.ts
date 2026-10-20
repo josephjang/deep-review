@@ -15,7 +15,7 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
@@ -25,6 +25,7 @@ import { standingAnswer } from '../checkpoint/answer-state.ts';
 import { batchPosition, budgetStoppedUnits, killedRun, revisionMessageOf, routeOf, secondCut, type CutShortCheck } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { changeReadingOf } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -589,26 +590,31 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         return { kind: 'unreadable', reason };
       }
     });
-    const blocks: { survey?: string; rest?: string } = {};
+    const blocks: { survey?: string; rest?: string; withChange?: string } = {};
     /**
      * The scope block a phase's workers receive, each rendered once: the
      * surveyor's has neither the convention sources, which the survey is
      * there to name, nor the patch, which it does not read; every later
      * worker's lists the sources the survey recorded, so it is rendered
      * after the survey phase, and carries the patch (R7, TD10 of the
-     * repository survey).
+     * repository survey). Every worker after the triage also gets the
+     * triage's account of the change once the triage gave one; the triage
+     * itself, and a run whose triage gave none or recorded none, get the
+     * block without it (R5, TD4 of the brief of a run).
      */
     const scopeBlockFor = (phase: Phase): string => {
       if (phase === 'survey') return (blocks.survey ??= surveyScopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence }));
-      if (blocks.rest === undefined) {
-        const survey = state.review!.phases.survey.status;
-        if (survey !== 'completed' && survey !== 'degraded' && survey !== 'skipped') throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
+      const survey = state.review!.phases.survey.status;
+      if (survey !== 'completed' && survey !== 'degraded' && survey !== 'skipped') throw new Error(`Run ${runId} renders the scope block of a ${phase} worker while its survey is ${survey}`);
+      const blockWith = (change: ChangeReading | null): string => {
         const known = conventionsKnown(state.review!.survey);
         // A run that predates the survey gets the rules files the engine listed when it was configured, which its pinned role prompts expect.
         const conventions: ScopeConventions = known.status === 'predates-survey' ? { status: 'predates-survey', rulesFiles: presurveyRulesFiles(options.worktree, scope.files.map((file) => file.path), options.home) } : known;
-        blocks.rest = scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions });
-      }
-      return blocks.rest;
+        return scopeBlock({ worktree: options.worktree, scope, evidence: checkpoint.evidence, conventions, change });
+      };
+      const change = phase === 'triage' ? null : changeReadingOf(state.review!.change);
+      if (change === null) return (blocks.rest ??= blockWith(null));
+      return (blocks.withChange ??= blockWith(change));
     };
     /**
      * The run going on without its survey, as the event that records it and

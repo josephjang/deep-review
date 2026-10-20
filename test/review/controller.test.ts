@@ -184,6 +184,16 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(triage, new RegExp(`^${state.scope!.head.slice(0, 12)} the change under review$`, 'm'));
     assert.match(triage, /^Then describe the change in `change`/m);
     assert.deepEqual(state.review!.change, { kind: 'given', reading: changeAccount });
+    // Every worker after the triage reads the account in its scope block; the triage and the surveyor do not (R5 of the brief of a run).
+    const section = '### The change, as the triage read it\n';
+    assert.ok(!triage.includes(section), 'the triage gets the block without its own account');
+    assert.ok(!box.promptOf(state, 'surveyor survey:survey').includes(section));
+    for (const label of ['finder-RIPPLE finders:RIPPLE', 'deduplication deduplication:deduplication', 'verifier verification:g1', 'sweep sweep:sweep', 'merge-rank merge-rank:merge-rank', 'decider decision:decision']) {
+      const prompt = box.promptOf(state, label);
+      assert.ok(prompt.includes(`${section}\nThis is the triage's account of the change, which no verifier examined.`), label);
+      assert.match(prompt, /^Title: Parse with a guard$/m, label);
+      assert.ok(prompt.indexOf(section) < prompt.indexOf('### Patch'), `${label}: before the patch`);
+    }
     // The surveyor's own block has no such section, and a read-only run asks it for no check.
     const surveyor = box.promptOf(state, 'surveyor survey:survey');
     assert.doesNotMatch(surveyor, /### Convention sources/);

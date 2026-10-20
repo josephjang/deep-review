@@ -77,6 +77,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     // The design finding the decision left never reached a fixer (R6 of the decision step), and each fixer was told its finding's decision (R7).
     const c1 = box.promptOf(state, 'fixer fixes:c1-1');
     assert.match(c1, /^Cluster c1, batch c1-1: 1 finding, numbered \[0\] to \[0\]/m);
+    // A fixer reads the triage's account too, to keep its fix inside the change's intent (R5 of the brief of a run).
+    assert.match(c1, /^### The change, as the triage read it\n\nThis is the triage's account of the change, which no verifier examined\.[^\n]*\n\nTitle: Let parse take null, and add b\n[\s\S]*^Why: the change states no reason\.$/m);
     assert.doesNotMatch(c1, /Findings of this cluster that earlier batches worked/, 'a cluster\'s first batch has none before it');
     assert.match(c1, /^\[0\] SCAN-1 \[minor\] PLAUSIBLE \(SCAN\) at src\/a\.ts:2$/m);
     assert.doesNotMatch(c1, /SWEEP-1/);
