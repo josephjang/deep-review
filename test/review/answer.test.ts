@@ -162,7 +162,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.ok(box.checkRuns().length > checksBefore, 'the checks ran again');
     assert.ok(passed.review!.fix!.checks.runs['answer-checks'].length > 0);
     const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)! });
-    assert.match(report, new RegExp(`^- \\[x\\] \\d\\\\\\. ${question}: `, 'm'));
+    assert.match(report, new RegExp(`^- \\d\\\\\\. ${question}: answered option `, 'm'));
     assert.match(report, /^Answered: the last pass on /m);
 
     // One answer recorded only, rejecting the departure; the same answer given again opens a second pass over that finding alone, which follows the rule.

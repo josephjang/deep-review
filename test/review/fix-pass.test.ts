@@ -103,7 +103,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
     // c1's fixer wrote the test without claiming it first, so its answer claimed it late (R6 of commit series integrity).
     assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
-    for (const patch of review.report!.patches) assert.ok(text.includes(box.checkpoint.evidence.pathOf(patch)), 'the report names each patch by its path');
+    for (const patch of review.report!.patches) assert.ok(text.includes(`artifacts/${patch.sha256}`), 'the report names each patch by its name in the store');
     assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
     const events = box.events(state.id);

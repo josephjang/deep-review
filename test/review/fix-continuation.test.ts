@@ -89,7 +89,8 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     // A second report beside the first, whose header names it; the first is unchanged (R7, PD10).
     assert.ok(outcome.kind === 'report' && outcome.reportPath !== firstPath);
     assert.equal(readFileSync(firstPath, 'utf8'), firstText);
-    assert.match(text, new RegExp(`^Continued: into the fix pass on ${RegExp.escape(review.continuedFrom!.at)}, after the read-only report at ${RegExp.escape(firstPath)}$`, 'm'));
+    // The first report by its name in the store, the same on every machine (R15 of the brief of a run).
+    assert.match(text, new RegExp(`^Continued: into the fix pass on ${RegExp.escape(review.continuedFrom!.at)}, after the read-only report artifacts/${review.continuedFrom!.report.report.sha256}$`, 'm'));
     assert.match(text, /^## Fixes$/m);
     assert.equal(review.report!.statistics.phases.find((row) => row.phase === 'survey')?.workers, 2, 'the statistics count both passes');
     const described = describeRun(state, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference));

@@ -59,7 +59,10 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   assert.ok(box.logs.includes(`run ${stopped.id}: the run budget stopped its fix pass; ${command} continues it`), box.logs.join('\n'));
   const batches = units.filter((unit) => unit.phase === 'fixes').length;
   const left = [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
-  assert.ok(text.includes(`\n- The run budget stopped the fix pass: ${left} did not start. \`${command}\` continues it and reviews nothing again.\n`), text);
+  // The facts of the run name the command, and the brief says that they do (R10, R15 of the brief of a run).
+  assert.ok(text.includes(`\nThe run budget stopped the fix pass: ${left} did not start. \`${command}\` continues it and reviews nothing again.\n`), text);
+  assert.ok(text.indexOf(command) > text.indexOf('\n## The run\n'), 'only the facts of the run name the command, which holds local paths');
+  assert.match(text, /^- The run budget stopped the fixes before [^\n]+ started\. The facts of the run at the end of the report give the command that continues them\.$/m);
   // status names the same command, and in place of a roles directory it is not given, a placeholder it explains.
   const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest }).lines;
   const withoutRoles = command.replace(` --roles "${box.rolesRoot}"`, '');
@@ -98,7 +101,7 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.ok(box.logs.some((line) => line.startsWith(`run ${stopped.id}: reopened its fix pass, which the run budget stopped, for batch c1-2; `)), box.logs.join('\n'));
     assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted,/m);
     const reopening = state.review!.fix!.reopenings[0]!;
-    assert.ok(text.includes(`\nReopened: the fix pass past the run budget on ${reopening.at}, after the report at ${box.checkpoint.evidence.pathOf(stopped.review!.report!.report)}\n`), text);
+    assert.ok(text.includes(`\nReopened: the fix pass past the run budget on ${reopening.at}, after the report artifacts/${stopped.review!.report!.report.sha256}\n`), text);
     assert.doesNotMatch(text, /The run budget stopped the fix pass/, 'nothing is left for the budget');
     assert.ok(!describeRun(state, claudeAdapter, () => '', { engineEntry: cliEntry, ownRolesDigest: () => '' }).lines.some((line) => line.startsWith('Continue: ')));
   });
@@ -269,7 +272,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.deepEqual(launchedSince(stopped, twice), ['fixer fixes:c1-2', 'fixer fixes:c1-3']);
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), thirdA);
     const last = twice.review!.fix!.reopenings.at(-1)!;
-    assert.match(readFileSync(box.checkpoint.evidence.pathOf(twice.review!.report!.report), 'utf8'), new RegExp(`^Reopened: the fix pass past the run budget 2 times, the last on ${last.at.replaceAll('.', '\\.')}, after the report at `, 'm'));
+    assert.match(readFileSync(box.checkpoint.evidence.pathOf(twice.review!.report!.report), 'utf8'), new RegExp(`^Reopened: the fix pass past the run budget 2 times, the last on ${last.at.replaceAll('.', '\\.')}, after the report artifacts/[0-9a-f]{64}$`, 'm'));
   });
 
   it('reopens a run commit committed, and the next commit commits the reopened work as a later series (R11 of resumable runs)', async (t) => {

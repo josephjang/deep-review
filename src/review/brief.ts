@@ -16,7 +16,9 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { findingOutcome, type FindingOutcome } from './fix-report.ts';
+import { findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { rankedFindings, type ReportFinding } from './state.ts';
+import { droppedByOperator } from './survey-report.ts';
 import type { CheckKind } from './vocabulary.ts';
 
 /** The most characters of a title, of what the change does and of why, that the brief shows; the evidence holds the whole account. */
@@ -131,6 +133,8 @@ export interface BriefCheck {
 export interface BriefChanged {
   /** Whether the run fixed; a run that only reviewed changed nothing. */
   readonly fixed: boolean;
+  /** Whether the run decided its findings: false for a run configured before the decision step, and for one that ranked none. */
+  readonly decided: boolean;
   readonly applied: readonly string[];
   readonly alreadyInTree: readonly string[];
   readonly deferred: readonly string[];
@@ -283,7 +287,8 @@ const unfinishedWords = (outcome: string | null): string | null => (outcome === 
 function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
   const gaps: BriefGap[] = [];
   for (const check of fix.checks.planned?.checks ?? []) {
-    if (check.command === null) gaps.push({ kind: 'check', text: `No ${check.kind} check ran: ${check.reason ?? 'the run has no command for it'}.` });
+    // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
+    if (check.command === null) gaps.push({ kind: 'check', text: `No ${check.kind} check ran: ${droppedByOperator(context.review.survey, check) ?? check.reason ?? 'the run has no command for it'}.` });
   }
   for (const check of checksOf(fix)) {
     const unfinished = [check.before, check.after].map(unfinishedWords).filter((words) => words !== null);
@@ -322,7 +327,7 @@ function gapsOf(context: BriefContext): BriefGap[] {
 }
 
 /** A judgment of the triage as the text of its condition: what, and the files that show it. */
-const judgedWords = (condition: ChangeCondition): string => `${condition.what === null ? '' : `: ${condition.what}`}${condition.files.length === 0 ? '' : ` (${condition.files.join(', ')})`}`;
+const judgedWords = (condition: ChangeCondition): string => `${condition.what === null ? '' : `: ${condition.what.trim().replace(/[.]+$/, '')}`}${condition.files.length === 0 ? '' : ` (${condition.files.join(', ')})`}`;
 
 /**
  * The conditions of principle 8 that hold (R11 of the brief of a run),
@@ -355,11 +360,12 @@ function changedOf(context: BriefContext): BriefChanged {
   const left = decisionsOf(context, 'leave').map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, 'fix').map((decision) => decision.id);
-    return { fixed: false, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [] };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [] };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit) => commit.sha));
   return {
     fixed: true,
+    decided: context.review.decisions !== null,
     applied: withOutcome(context, 'applied'),
     alreadyInTree: withOutcome(context, 'already applied'),
     deferred: withOutcome(context, 'deferred'),
@@ -417,4 +423,160 @@ export function briefOf(state: RunState): Brief {
     look: lookOf(context, departures),
     changed: changedOf(context),
   };
+}
+
+/** The most ids a list of the brief shows; it counts the rest (R13 of the brief of a run). */
+export const shownIds = 8;
+
+/** Ids as the brief lists them: the first `shownIds`, each as `show` gives it, then how many more. */
+export function idWords(ids: readonly string[], show: (id: string) => string = (id) => id): string {
+  const named = ids.slice(0, shownIds).map(show);
+  const more = ids.length - named.length;
+  if (more > 0) return `${named.join(', ')} and ${String(more)} more`;
+  return named.length <= 1 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named.at(-1)!}`;
+}
+
+/** What became of a decided fix, in the brief's plain words (the table of plain words of the design). */
+export const fateWords: Readonly<Record<BriefFate, string>> = {
+  applied: 'A fixer applied it.',
+  'already-in-tree': 'It was already in the tree.',
+  deferred: 'Its fixer put it off.',
+  blocked: 'Its fixer could not apply it.',
+  'not-attempted': 'No fixer attempted it.',
+  'not-fixed': 'This run only reviewed, so no fixer applied it; `review --fix` applies it.',
+};
+
+/** How a person runs a command the brief gives, said once, with no path (R8 of the brief of a run). */
+export const howToAnswer = 'To answer, ask your agent with the deep-review skill, or type the command at a terminal as the end of this report shows.';
+
+/** An answer a person gave, as a line of the brief. */
+const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
+
+/** The part "The change": the core of the change, marked as the triage's unverified account, or why the run has none. */
+function changePart(change: BriefChange): string[] {
+  const lines = ['## The change', ''];
+  switch (change.state) {
+    case 'unrecorded':
+      return [...lines, 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.'];
+    case 'none':
+      return [...lines, 'The triage of this run gave no account of the change.'];
+    case 'given': {
+      const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
+      const why = change.why === null
+        ? 'The change states no reason.'
+        : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'the triage named no source' : `from ${sources(change.whyFrom)}`}).`;
+      const restsOn = change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`;
+      const whole = change.cut ? ' The whole account is under [The change, in full](#the-change-in-full).' : '';
+      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}${whole}`];
+    }
+  }
+}
+
+/** One question as a block of the brief: its words, the option in place now and deep-review's choice, the options, the command, and the details one step below. */
+function questionBlock(question: BriefQuestion, position: number): string[] {
+  const inPlace = question.inPlace === question.choice
+    ? `In place now: option ${String(question.inPlace)}, which is also deep-review's choice, because it is the easiest to take back.`
+    : `In place now: option ${String(question.inPlace)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`;
+  const label = (option: BriefOption): string => [String(option.number), ...(option.number === question.inPlace ? ['in place now'] : []), ...(option.number === question.choice ? ['deep-review\'s choice'] : [])].join(', ');
+  return [
+    `### ${String(position)}. ${inlineText(question.question)} (${findingLink(question.id)})`,
+    '',
+    inPlace,
+    '',
+    '| Option | What it does | What it costs |',
+    '|---|---|---|',
+    ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
+    '',
+    question.answer === null ? `To take deep-review's choice: \`${question.command}\`. For another option, give its number.` : answeredWords(question.answer),
+    '',
+    '<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>',
+    '',
+    ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
+    `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
+    `- Why it asks: ${inlineText(question.grounds)}`,
+    '',
+    '</details>',
+  ];
+}
+
+/** One fix that goes against a written rule as a block of the brief: the rule, the fact against it, the fix and its fate, and the commands that review it. */
+function departureBlock(departure: BriefDeparture, position: number): string[] {
+  const reviewLine = departure.review === null
+    ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.`
+    : answeredWords(departure.review);
+  return [
+    `### ${String(position)}. ${findingLink(departure.id)}`,
+    '',
+    `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
+    '',
+    `The fact against it: ${sentenceText(departure.fact)}`,
+    '',
+    `What the fix does: ${sentenceText(departure.fix)} ${fateWords[departure.fate]}`,
+    '',
+    reviewLine,
+  ];
+}
+
+/** The part "Where to look": each condition of principle 8 that holds, with its findings linked, or one line that none does. */
+function lookPart(brief: Brief): string[] {
+  const lines = ['## Where to look', ''];
+  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, findingLink)}`}.`)];
+  const judged = brief.change.state === 'given' ? ' The triage judged that the change alters no public interface and affects no file beyond its own.' : '';
+  return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged}`];
+}
+
+/** How the checks ended, as one sentence of what deep-review changed. */
+function checksWords(checks: readonly BriefCheck[]): string {
+  if (checks.length === 0) return 'No check ran.';
+  if (checks.every((check) => check.before === 'passed' && check.after === 'passed')) return 'The checks passed before and after the fixes.';
+  const at = (outcome: string | null, when: string): string => (outcome === null ? `did not run ${when}` : `${outcome} ${when}`);
+  const words = (check: BriefCheck): string => (check.before !== null && check.before === check.after ? `${check.before} before and after the fixes` : `${at(check.before, 'before the fixes')} and ${at(check.after, 'after them')}`);
+  return `The checks: ${checks.map((check) => `${check.kind} ${words(check)}`).join('; ')}.`;
+}
+
+/** The paragraph "What deep-review changed" (R2 of the brief of a run). */
+function changedPart(changed: BriefChanged): string[] {
+  const lines = ['## What deep-review changed', ''];
+  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, findingLink)}.`;
+  if (!changed.fixed) {
+    const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, findingLink)}.`;
+    return [...lines, `This run only reviewed: it changed nothing.${toFix}${left}`];
+  }
+  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, findingLink)})`]);
+  const outcomes = [
+    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, findingLink)})`}`,
+    ...part(changed.alreadyInTree, 'found already in the tree'),
+    ...part(changed.deferred, 'its fixers put off'),
+    ...part(changed.blocked, 'its fixers could not apply'),
+    ...part(changed.notAttempted, 'no fixer attempted'),
+  ];
+  const commits = changed.patches === 0
+    ? 'No fix changed a file.'
+    : changed.commits === null
+      ? (changed.patches === 1 ? 'Its patch is not committed: `deep-review commit` commits it.' : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.`)
+      : `They are in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, and ${counted(changed.commits.uncommittedPatches, 'later patch is', 'later patches are')} not committed yet`}.`;
+  return [...lines, `${outcomes.join('; ')}. ${commits}${left} ${checksWords(changed.checks)}`];
+}
+
+/**
+ * The Markdown form of the brief (R8 to R12, R15 of the brief of a run):
+ * the title, the headline, and the parts in the order of principle 5,
+ * then what deep-review changed. It names no local path; it says once,
+ * in the first part that gives a command, how a person runs one.
+ */
+export function briefMarkdown(brief: Brief): string[] {
+  const questions = brief.questions.length === 0 ? [] : [
+    `## Questions for you (${String(brief.questions.length)})`,
+    '',
+    `Each question has an option in place now. Answer only to choose another one. ${howToAnswer}`,
+    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1)]),
+  ];
+  const departures = brief.departures.length === 0 ? [] : [
+    `## Fixes that go against a written rule (${String(brief.departures.length)})`,
+    ...(brief.questions.length === 0 ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${howToAnswer}`] : []),
+    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1)]),
+  ];
+  const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
+  const parts = [changePart(brief.change), questions, departures, notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
 }

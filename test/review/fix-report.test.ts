@@ -12,10 +12,10 @@ import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fix
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
 
-const patches = ['/evidence/patch-1', '/evidence/patch-2', '/evidence/patch-3'];
+const patches = [reference('1'), reference('2'), reference('3')];
 
 describe('the report of a fix run', () => {
-  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+  const render = (state: RunState = fixRun().fold()): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
 
   it('renders exactly as the committed snapshot, which a person read once in review', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
@@ -34,9 +34,9 @@ describe('the report of a fix run', () => {
     assert.match(report, /in rank order\. Patches 1 to 3 are committed; a patch number/);
   });
 
-  it('places Fixes, Checks and Changed files after Findings and before Refuted at verification', () => {
+  it('places Fixes, Checks and Changed files after Findings and before Angles (R12 of the brief of a run)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Checks', '## Changed files', '## Refuted at verification', '## Statistics', '## Limitations'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Fixes', '## Checks', '## Changed files', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
   });
@@ -54,7 +54,8 @@ describe('the report of a fix run', () => {
     const report = render();
     assert.match(report, /^\| Check \| Command \| Before the fixes \| After the fixes \| After the repair \|$/m);
     assert.match(report, /^\| typecheck \| not available \(none: nothing names it\) \| - \| - \| - \|$/m);
-    assert.match(report, /^\| lint \| npm run lint \| passed, 4\.0 s \| failed, 4\.0 s; output \/evidence\/cccccccc, \/evidence\/dddddddd \| passed, 4\.0 s \|$/m);
+    // The frozen output is named by its name in the store, which names no local path (R15 of the brief of a run).
+    assert.match(report, /^\| lint \| npm run lint \| passed, 4\.0 s \| failed, 4\.0 s; output artifacts\/c{64}, artifacts\/d{64} \| passed, 4\.0 s \|$/m);
     assert.match(report, /^\| test \| npm run test \| failed, 4\.0 s; output \S+, \S+ \| failed, 4\.0 s; output \S+, \S+ \(failing before the fix pass\) \| failed, 4\.0 s; output \S+, \S+ \(failing before the fix pass\) \|$/m);
   });
 
@@ -63,13 +64,14 @@ describe('the report of a fix run', () => {
     assert.match(report, /^\| Path \| Status \| Changed by \| Held by \|$/m);
     assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
     assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \| nobody \|$/m, 'a file no cluster owned, edited before claims existed');
-    assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(lint check\): \/evidence\/patch-1\n2\. fix: Guard the null in parse \(c1-1\): \/evidence\/patch-2\n3\. style: Format the guard \(repair\): \/evidence\/patch-3$/m);
+    assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(lint check\): artifacts\/1{64}\n2\. fix: Guard the null in parse \(c1-1\): artifacts\/2{64}\n3\. style: Format the guard \(repair\): artifacts\/3{64}$/m);
   });
 
-  it('adds the strays, the checks not available, and the fixers\' validation and suite lines to Limitations', () => {
+  it('adds the strays and the fixers\' validation and suite lines to the notes of the run, and names a check not available as a gap of the brief', () => {
     const report = render();
     assert.match(report, /^- Files no answer names, left in the tree and in no patch: notes\.txt\.$/m);
-    assert.match(report, /^- Checks not available: typecheck \(nothing names it\)\.$/m);
+    assert.match(report, /^- No typecheck check ran: nothing names it\.$/m);
+    assert.doesNotMatch(report, /Checks not available/);
     assert.match(report, /^- Validation of RIPPLE-1 \(c1-1\), old-code, test\/a\.test\.ts: failed on the old code for the null, passed on the fix$/m);
     assert.match(report, /^- Fixer c1-1 ran its own suite: pass \(npm test\)\.$/m);
     assert.match(report, /^- The repair ran its own suite: pass \(npm test\)\.$/m);
@@ -231,7 +233,7 @@ describe('the report of a fix run', () => {
 });
 
 describe('the report of a fix run with the decision step (R8 of the decision step)', () => {
-  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
 
   it('says of a finding no fixer saw that the decision left it, with the reason, and counts it so in the header', () => {
     const report = render(decidedOf(fixRun()).fold());
@@ -391,7 +393,7 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const workers = { [launched.launch.workerId]: cut, [worker(98)]: rerun };
     assert.deepEqual(cutWorkerLines(workers), [`Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`]);
     // Each renderer adds its own prefix to the bare sentence: a bullet in the report, `Stop: ` in status.
-    const report = renderReport({ ...state, workers }, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    const report = renderReport({ ...state, workers }, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
     assert.ok(report.includes(`\n- Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.\n`), report);
     assert.ok(describeRun({ ...state, workers }, claudeAdapter, evidencePath).lines.includes(`Stop: Cut: the worker of ${label} ended with exit code 143, a kill mark, and ran again.`));
   });
@@ -420,7 +422,7 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const sentence = `Lost with the engine: the worker of ${label}, and ran again; its edits are in a revision of its unfinished attempt.`;
     assert.deepEqual(lostWorkerLines(workers, revisions), [sentence]);
     const kept = { ...state, workers, review: { ...state.review!, fix: { ...fix, revisions } } };
-    const report = renderReport(kept, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    const report = renderReport(kept, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
     assert.ok(report.includes(`\n- ${sentence}\n`), report);
     assert.ok(describeRun(kept, claudeAdapter, evidencePath).lines.includes(`Stop: ${sentence}`));
   });
@@ -432,7 +434,7 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     const blocked = { ...state, review: { ...state.review!, limitBlocks } };
     const sentences = ['Usage limit: fixes blocked at attempt 1, and the run resumed after it: the fixer worker for fixes:c1-1 stopped at the provider\'s usage limit: resets 12:10pm (Asia/Seoul).', 'Usage limit: fixes blocked at attempt 2, and the run resumed after it: resets 6pm.'];
     assert.deepEqual(limitBlockLines(blocked.review), sentences, 'one per block, in order, its detail on one line');
-    const report = renderReport(blocked, { ...reportInput, statistics: fixStatistics, fix: { evidencePath, patches, continueCommand: null } });
+    const report = renderReport(blocked, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
     assert.ok(report.includes(`\n- ${sentences[0]!}\n- ${sentences[1]!}\n`), report);
     const lines = describeRun(blocked, claudeAdapter, evidencePath).lines;
     assert.deepEqual(lines.filter((line) => line.startsWith('Stop: Usage limit: ')), sentences.map((sentence) => `Stop: ${sentence}`));

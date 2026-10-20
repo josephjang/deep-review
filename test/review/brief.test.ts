@@ -171,7 +171,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('names the triage\'s two judgments as its own, and neither when they do not hold or the run has no account', () => {
       const brief = briefOf(withAccount(answerable(), given({ ...changeReading, wideEffect: { holds: true, what: 'every caller', files: [] } } as unknown as ChangeReading)));
       assert.deepEqual(brief.look.filter((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect').map((entry) => [entry.condition, entry.text]), [
-        ['public-interface', 'The change alters a public interface, in the triage\'s judgment: parse() can now return null. (src/a.ts)'],
+        ['public-interface', 'The change alters a public interface, in the triage\'s judgment: parse() can now return null (src/a.ts)'],
         ['wide-effect', 'The change affects many files beyond the ones it changes, in the triage\'s judgment: every caller'],
       ]);
       assert.ok(!briefOf(answerable()).look.some((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect'));
@@ -183,6 +183,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('says a run that only reviewed fixed nothing, and names what it decided to fix and left', () => {
       const { changed } = briefOf(answerable());
       assert.equal(changed.fixed, false);
+      assert.equal(changed.decided, true);
       assert.deepEqual([changed.applied, changed.toFix, changed.left, changed.patches, changed.commits], [[], ['RIPPLE-1'], [], 0, null]);
       assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
     });

@@ -18,7 +18,7 @@ import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
-import { checkSourceCell, droppedByOperator, unavailableCell } from './survey-report.ts';
+import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { checkPhases, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
@@ -455,9 +455,8 @@ function fixerTitle(phase: EditingPhase, key: string): string {
 }
 
 /**
- * The lines the fix pass adds to Limitations: violations, late and lost
- * claims, strays, the checks not available, and the fixers' validation
- * and suite lines.
+ * The lines the fix pass adds to the notes of the run: violations, late
+ * and lost claims, strays, and the fixers' validation and suite lines.
  */
 export function fixLimitations(review: ReviewState): string[] {
   const fix = review.fix;
@@ -487,9 +486,7 @@ export function fixLimitations(review: ReviewState): string[] {
   for (const lost of fix.lostClaims) lines.push(`- Claim lost: ${inlineText(lost.path)} by ${inlineText(lost.unit)} ${lostClaimWords(lost.holder)}; the claim is not on the ledger, and the file's edits fall under the ownership rule.`);
   const strays = strayedInRun(review, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
-  const unavailable = (fix.checks.planned?.checks ?? []).filter((check) => check.command === null);
-  // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
-  if (unavailable.length > 0) lines.push(`- Checks not available: ${unavailable.map((check) => `${check.kind} (${inlineText(droppedByOperator(review.survey, check) ?? check.reason ?? 'no command')})`).join('; ')}.`);
+  // A check not available is a gap of the brief, and the Checks table says why, with what the operator dropped and the tool this machine lacked (R15 of the repository survey; R10 of the brief of a run).
   for (const answer of allFixerAnswers(fix)) {
     for (const finding of answer.findings) {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);

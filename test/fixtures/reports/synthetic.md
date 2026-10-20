@@ -1,15 +1,54 @@
-# Deep review report
+# The change from 11111111 to 22222222
 
-Repository: /w
-Base: 1111111111111111111111111111111111111111
-Head: 2222222222222222222222222222222222222222
-Mode: worktree
-Run: run-1
-Engine: 0.0.0+dev (run created by 0.0.0)
-Runtime: claude 2.1.283 at /bin/claude
-Models: strong opus, fast sonnet
-Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
+Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.
+
+## The change
+
+The triage of this run did not record the core of the change, because an engine before this change reviewed it.
+
+## What the review did not cover
+
+- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found.
+- No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE.
+
+## Where to look
+
+No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.
+
+## What deep-review changed
+
+This run only reviewed: it changed nothing.
+
+---
+
+The evidence for each statement above follows.
+
+## The change, in full
+
+The triage of this run recorded no account of the change: an engine before the account reviewed it.
+
+## Findings
+
+<a id="finding-ripple-1"></a>
+
+### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
+
+null dereference
+
+Reason: same root cause at lines 4 and 7
+Evidence: line 4 dereferences null
+Angle: RIPPLE, SCAN
+Also at: SWEEP-2 src/a.ts:7
+
+<a id="finding-sweep-1"></a>
+
+### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
+
+extract the helper
+
+Reason: one improvement
+Evidence: none; the verifier of this group failed twice
+Angle: DESIGN
 
 ## Angles
 
@@ -25,25 +64,6 @@ Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 | DUPLICATION | run | none |
 | ALTITUDE | run | none |
 | CONVENTIONS | run | none |
-
-## Findings
-
-### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
-
-null dereference
-
-Reason: same root cause at lines 4 and 7
-Evidence: line 4 dereferences null
-Angle: RIPPLE, SCAN
-Also at: SWEEP-2 src/a.ts:7
-
-### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
-
-extract the helper
-
-Reason: one improvement
-Evidence: none; the verifier of this group failed twice
-Angle: DESIGN
 
 ## Refuted at verification
 
@@ -64,12 +84,24 @@ None.
 | report | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
 | Total | 9 | 22.5 | 4.50 (1 worker unreported) | 900 | 180 | 90 |
 
-## Limitations
+## Notes of the run
 
-- Angle FOOTGUNS did not run: 2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout. The sweep was told to cover its territory.
-- Group g1 of sweep-verification was not verified: 2 attempts did not complete: failed; failed again. Its candidates (SWEEP-1, SWEEP-2) carry PLAUSIBLE with the unverified mark.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
 - Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
 - Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
 - Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.
+
+## The run
+
+Repository: /w
+Base: 1111111111111111111111111111111111111111
+Head: 2222222222222222222222222222222222222222
+Mode: worktree
+Run: run-1
+Engine: 0.0.0+dev (run created by 0.0.0)
+Runtime: claude 2.1.283 at /bin/claude
+Models: strong opus, fast sonnet
+Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
+Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is a file of it.

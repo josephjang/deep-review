@@ -208,7 +208,10 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const lines = result.stdout.trim().split('\n');
     const reportPath = lines.at(-1)!;
     assert.ok(existsSync(reportPath), reportPath);
-    assert.match(readFileSync(reportPath, 'utf8'), /^# Deep review report\n/);
+    // The report starts with the brief, titled from the scope when the triage gave no account, and ends with the facts of the run (R12 of the brief of a run).
+    const report = readFileSync(reportPath, 'utf8');
+    assert.match(report, /^# The change from [0-9a-f]{8} to [0-9a-f]{8}\n/);
+    assert.match(report, /\n## The run\n\nRepository: /);
     assert.match(result.stderr, /run [0-9a-f-]+: created\n/);
     assert.match(result.stderr, /phase triage: started \(attempt 1\)/);
     assert.match(result.stderr, /worker triage triage:SCAN: completed in [0-9.]+ s, 0\.00 USD/);

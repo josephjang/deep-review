@@ -57,17 +57,30 @@ export function settingsHeaderLine(configuration: ReviewConfiguration): string {
  * record speaks for the settings it holds, and each line is said once.
  */
 export function settingsLimitations(configuration: ReviewConfiguration, scope: ScopeState): string[] {
+  return [...excludedLines(scope), ...settingsNotes(configuration)];
+}
+
+/** The line of the paths `scope.exclude` left out, or none for a run with no pattern; the brief names those paths as a gap (R10 of the brief of a run). */
+export function excludedLines(scope: ScopeState): string[] {
+  const patterns = scope.request.exclude;
+  if (patterns.length === 0) return [];
+  const { paths, count } = scope.excluded;
+  const named = paths.slice(0, namedExcludedPaths);
+  const more = count - named.length;
+  return [count === 0
+    ? `scope.exclude (${patterns.join(', ')}) left out no changed path.`
+    : `scope.exclude (${patterns.join(', ')}) left out ${String(count)} changed path${count === 1 ? '' : 's'}, which no worker reviewed: ${named.join(', ')}${more > 0 ? `, and ${String(more)} more` : ''}.`];
+}
+
+/**
+ * The lines of `settingsLimitations` after the paths left out: each value
+ * not followed, the repository's file skipped or edited, and each setting
+ * ignored, which the report gives in the notes of the run, naming the file
+ * of an ignored setting as `pathWords` gives it.
+ */
+export function settingsNotes(configuration: ReviewConfiguration, pathWords: (path: string) => string = (path) => path): string[] {
   const { settings, fixSettings } = configuration;
   const lines: string[] = [];
-  const patterns = scope.request.exclude;
-  if (patterns.length > 0) {
-    const { paths, count } = scope.excluded;
-    const named = paths.slice(0, namedExcludedPaths);
-    const more = count - named.length;
-    lines.push(count === 0
-      ? `scope.exclude (${patterns.join(', ')}) left out no changed path.`
-      : `scope.exclude (${patterns.join(', ')}) left out ${String(count)} changed path${count === 1 ? '' : 's'}, which no worker reviewed: ${named.join(', ')}${more > 0 ? `, and ${String(more)} more` : ''}.`);
-  }
   const records = [settings, fixSettings].filter((record): record is Sources => record !== null);
   if (records.length === 0) return lines;
   const notFollowed = [
@@ -79,6 +92,6 @@ export function settingsLimitations(configuration: ReviewConfiguration, scope: S
   else if (fixSettings?.repository.state === 'skipped') lines.push('The repository\'s file was skipped by --no-repository-config for the fix pass, so its checks did not follow the policy of the repository.');
   if (records.some((record) => record.repository.edited)) lines.push(`This change edits ${repositoryConfigPath}; the edit applies to later changes, and this review read the file as its base holds it.`);
   const ignored = new Map(records.flatMap((record) => record.ignored).map((entry) => [JSON.stringify([entry.layer, entry.path, entry.name]), entry]));
-  for (const entry of ignored.values()) lines.push(`Ignored: ${entry.name} in ${entry.path}: ${entry.reason}.`);
+  for (const entry of ignored.values()) lines.push(`Ignored: ${entry.name} in ${pathWords(entry.path)}: ${entry.reason}.`);
   return lines;
 }

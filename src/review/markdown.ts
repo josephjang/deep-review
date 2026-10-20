@@ -32,6 +32,57 @@ export function codeSpan(text: string): string {
 }
 
 /**
+ * The fixed anchor of a finding in the report, from its id in lower case
+ * (R12 of the brief of a run): the report puts it before the finding's
+ * heading, and each item of the brief links to it. An id is letters, a
+ * dash and digits, so the anchor needs no escape.
+ */
+export const findingAnchor = (id: string): string => `finding-${id.toLowerCase()}`;
+
+/** Where a report is rendered, for naming a local path the engine writes (R15 of the brief of a run). */
+export interface LocalPlaces {
+  readonly worktree: string;
+  readonly home: string;
+}
+
+/**
+ * A local path as the report names it outside the facts of the run (R15
+ * of the brief of a run): relative to the worktree with forward slashes
+ * when it is inside it, under `~` when it is inside the home directory,
+ * else as it is. Compared as text, without case on a Windows path, so a
+ * render reads no file system.
+ */
+export function localPathWords(path: string, places: LocalPlaces): string {
+  const inside = (root: string): string | null => {
+    if (root === '') return null;
+    const windows = /^[A-Za-z]:|^\\\\/.test(root);
+    const [whole, base] = windows ? [path.toLowerCase(), root.toLowerCase()] : [path, root];
+    const trimmed = base.replace(/[\\/]+$/, '');
+    if (whole === trimmed) return '';
+    return whole.startsWith(`${trimmed}/`) || (windows && whole.startsWith(`${trimmed}\\`)) ? path.slice(trimmed.length + 1) : null;
+  };
+  const inWorktree = inside(places.worktree);
+  if (inWorktree !== null) return inWorktree === '' ? '.' : inWorktree.replaceAll('\\', '/');
+  const inHome = inside(places.home);
+  if (inHome !== null) return inHome === '' ? '~' : `~/${inHome.replaceAll('\\', '/')}`;
+  return path;
+}
+
+/** A link to a finding's anchor, its id as the text. */
+export const findingLink = (id: string): string => `[${id}](#${findingAnchor(id)})`;
+
+/**
+ * A model's text as one sentence of a line: inline, ending with a full
+ * stop unless it ends with a mark of its own, closing brackets and quotes
+ * after it included; a trailing colon, comma or semicolon becomes the stop.
+ */
+export const sentenceText = (text: string): string => {
+  const inline = inlineText(text).trimEnd();
+  if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+  return `${inline.replace(/[:,;]$/, '')}.`;
+};
+
+/**
  * Text as a paragraph of its own: inline, without leading blanks (four of
  * them would open a code block), and with a leading character that would
  * open a block escaped: a heading, quote, list item, table row, fence or

@@ -53,6 +53,7 @@ export const briefJsonV1 = z.strictObject({
   look: z.array(z.strictObject({ condition: z.enum(lookConditions), findings: ids, text })),
   changed: z.strictObject({
     fixed: z.boolean(),
+    decided: z.boolean(),
     applied: ids,
     alreadyInTree: ids,
     deferred: ids,

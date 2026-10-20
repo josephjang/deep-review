@@ -36,7 +36,7 @@ describe('briefJson (R16, TD8 of the brief of a run)', () => {
     assert.deepEqual(Object.keys(json.change!), ['what', 'why', 'whyFrom', 'restsOn', 'publicInterface', 'wideEffect', 'cut']);
     assert.deepEqual(Object.keys(json.questions[0]!), ['id', 'question', 'inPlace', 'choice', 'options', 'lookedIn', 'grounds', 'answer', 'command']);
     assert.deepEqual(Object.keys(json.departures[0]!), ['id', 'rule', 'source', 'fact', 'fix', 'fate', 'review', 'accept', 'reject']);
-    assert.deepEqual(Object.keys(json.changed), ['fixed', 'applied', 'alreadyInTree', 'deferred', 'blocked', 'notAttempted', 'toFix', 'commits', 'patches', 'left', 'checks']);
+    assert.deepEqual(Object.keys(json.changed), ['fixed', 'decided', 'applied', 'alreadyInTree', 'deferred', 'blocked', 'notAttempted', 'toFix', 'commits', 'patches', 'left', 'checks']);
     assert.deepEqual(json.local, local);
   });
 

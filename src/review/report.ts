@@ -3,25 +3,30 @@
  * of the Codex sandbox; R7 of fix pass continuation; R10 of answers):
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
- * finding. Sections in order: the header, for a run with the decision
- * step Decisions (decision-report.ts), Angles, for a surveyed run
- * Conventions (survey-report.ts), Findings, for a fix run Fixes, Checks
- * and Changed files (fix-report.ts), Refuted at verification, Statistics
- * and Limitations.
+ * finding. It starts with the brief of the run (brief.ts; R12 of the
+ * brief of a run), and the evidence follows in order: the change in
+ * full, for a run with the decision step Decisions (decision-report.ts),
+ * Findings, each with its anchor, for a fix run Fixes, Checks and Changed
+ * files (fix-report.ts), Angles, for a surveyed run Conventions
+ * (survey-report.ts), Refuted at verification, Statistics, the notes of
+ * the run, and last the facts of the run, the only section that names a
+ * local path the engine writes (R15).
  */
-import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
+import { evidenceDirectoryName, storeNameOf } from '../checkpoint/checkpoint.ts';
+import type { ChangeCondition, RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { isAnswered, rawLocation, repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import { decisionLine, decisionsSection } from './decision-report.ts';
+import { briefMarkdown, briefOf } from './brief.ts';
+import { answeringLine, decisionLine, decisionsSection } from './decision-report.ts';
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { codeSpan, inlineText, paragraphText, tableCell } from './markdown.ts';
+import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell, type LocalPlaces } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
+import { settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
@@ -45,13 +50,16 @@ export interface ReportInput {
   readonly statistics: { readonly phases: readonly (Spend & { readonly phase: Phase })[]; readonly total: Spend; readonly budgetApplied: boolean };
   /** The spend as the budget check counted it (`budgetSpendOf`), which the line of the run budget names beside the reported spend when they differ, or null when no budget check ran (R15 of resumable runs). */
   readonly budgetCheck: BudgetSpend | null;
+  /** The directory of the evidence store, which the facts of the run name once; the rest of the report names a file of it by its name in the store (R15 of the brief of a run). */
+  readonly store: string;
+  /** The home directory, under which the report names a path with `~` (R15 of the brief of a run). */
+  readonly home: string;
   /**
-   * For a fix run: where a frozen blob is, for the checks' output; the
-   * patch series' paths in ledger order; and the command that continues
-   * a fix pass the run budget stopped (`continueCommand`), else null (R15
-   * of resumable runs).
+   * For a fix run: the patch series in ledger order, and the command that
+   * continues a fix pass the run budget stopped (`continueCommand`), else
+   * null (R15 of resumable runs).
    */
-  readonly fix?: { readonly evidencePath: (reference: ArtifactReference) => string; readonly patches: readonly string[]; readonly continueCommand: string | null };
+  readonly fix?: { readonly patches: readonly ArtifactReference[]; readonly continueCommand: string | null };
 }
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
@@ -89,6 +97,9 @@ function findingBlock(position: number, entry: ReportFinding, decision: Recorded
   const { finding, primary, members, resolution } = entry;
   const also = members.length === 0 ? '' : ` (also ${members.map((member) => member.id).join(', ')})`;
   const lines = [
+    // A fixed anchor by the id, so each item of the brief links to the finding (R12 of the brief of a run).
+    `<a id="${findingAnchor(finding.id)}"></a>`,
+    '',
     `### ${String(position)}. [${finding.severity}] ${resolution.verdict}  ${finding.id}${also}  ${shortLocation(primary)}${marks(primary, resolution.unverified)}`,
     '',
     paragraphText(finding.summary),
@@ -229,12 +240,16 @@ export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): strin
   return review.limitBlocks.map((block) => `Usage limit: ${block.phase} blocked at attempt ${String(block.attempt)}, and the run resumed after it: ${inlineText(block.detail)}.`);
 }
 
-function limitations(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
+/**
+ * The notes of the run: what Limitations said before the brief, less what
+ * the brief names as a gap (R10, R12 of the brief of a run): the angles
+ * that did not run, the groups no verifier examined, the paths the
+ * settings left out, the files too large to freeze, the checks not
+ * available and the work the run budget did not start, whose command is in
+ * the facts of the run. Each line names a local path as `places` gives it.
+ */
+function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput, places: LocalPlaces): string[] {
   const lines: string[] = [];
-  for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- Angle ${angle} did not run: ${inlineText(reason)}. The sweep was told to cover its territory.`);
-  for (const group of unverifiedGroupsOf(review)) {
-    lines.push(`- Group ${group.groupId} of ${group.phase} was not verified: ${inlineText(group.reason)}. Its candidates (${group.candidateIds.join(', ')}) carry PLAUSIBLE with the unverified mark.`);
-  }
   const drifted = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.drifted);
   // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
   const against = review.fix === null ? 'the reviewed change' : 'what the run expected';
@@ -245,15 +260,10 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
   const fate = blocked === drifted.length ? 'each blocked the run until the tree was restored' : blocked === 0 ? 'each was written back after a check a kill cut short' : `${String(drifted.length - blocked)} ${drifted.length - blocked === 1 ? 'was' : 'were'} written back after a check a kill cut short, and each other blocked the run until the tree was restored`;
   lines.push(`- Worktree checks: ${String(review.checks.length)}, ${drifted.length === 0 ? `none found a difference from ${against}` : `${String(drifted.length)} found a difference in ${drifted.map(({ check }) => `${check.phase} (attempt ${String(check.attempt)}: ${[...headMoved(check), ...check.files.map((file) => `${inlineText(file.path)} ${file.outcome}`)].join(', ')})`).join('; ')}; ${fate}`}.`);
   lines.push(budgetLine(review, input.statistics, input.budgetCheck));
-  const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
-  const command = input.fix?.continueCommand ?? null;
-  if (stopped.length > 0 && command !== null) lines.push(`- The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`);
   const unreported = input.statistics.total.costUnreported;
   if (unreported !== null && unreported > 0) {
     lines.push(`- Workers with no reported cost: ${String(unreported)}. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show.${input.statistics.budgetApplied ? ' The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.' : ''}`);
   }
-  const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => inlineText(file.path));
-  if (oversized.length > 0) lines.push(`- Files too large to freeze, which no worker could be given a frozen state of: ${oversized.join(', ')}.`);
   const standing = Object.values(review.candidates).filter((candidate) => candidate.duplicateOf === null);
   const outside = standing.filter(outsideChange);
   if (outside.length > 0) {
@@ -264,72 +274,110 @@ function limitations(state: RunState, scope: ScopeState, review: ReviewState, in
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
-  lines.push(...settingsLimitations(review.configuration, scope).map((line) => `- ${inlineText(line)}`));
+  lines.push(...settingsNotes(review.configuration, (path) => localPathWords(path, places)).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   // What a stop did, and what the resumed run did about it (R15 of resumable runs).
-  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review.fix?.revisions ?? []), ...limitBlockLines(review), ...(input.fix === undefined ? [] : stopLimitations(review, input.fix.evidencePath))];
+  const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review.fix?.revisions ?? []), ...limitBlockLines(review), ...stopLimitations(review, storeNameOf)];
   lines.push(...stops.map((line) => `- ${line}`));
   return lines;
 }
 
 /**
- * The header's line for a read-only run continued into the fix pass (R7
- * of fix pass continuation): when, and where its read-only report is,
- * which stays in the evidence store beside this one; none for a run
- * never continued.
+ * The line of the facts of the run for a read-only run continued into the
+ * fix pass (R7 of fix pass continuation): when, and its read-only report
+ * by its name in the store, beside this one; none for a run never
+ * continued.
  */
-function continuedLine(review: ReviewState, input: ReportInput): string[] {
+function continuedLine(review: ReviewState): string[] {
   if (review.continuedFrom === null) return [];
-  if (input.fix === undefined) throw new Error('A continued run is a fix run, whose report names where its evidence is');
-  return [`Continued: into the fix pass on ${review.continuedFrom.at}, after the read-only report at ${inlineText(input.fix.evidencePath(review.continuedFrom.report.report))}`];
+  return [`Continued: into the fix pass on ${review.continuedFrom.at}, after the read-only report ${storeNameOf(review.continuedFrom.report.report)}`];
 }
 
 /**
- * The header's lines of a run a person answered (R10 of answers): how
+ * The lines of the facts of a run a person answered (R10 of answers): how
  * many answered findings it holds and how many of their answers the tree
- * holds, and after an answer pass, when the last pass was opened and where
- * the report it replaced is. None for a run nobody answered.
+ * holds, and after an answer pass, when the last pass was opened and the
+ * report it replaced by its name in the store. None for a run nobody
+ * answered.
  */
-function answersLines(review: ReviewState, input: ReportInput): string[] {
+function answersLines(review: ReviewState): string[] {
   const standing = [...standingAnswers(review).values()];
   if (standing.length === 0) return [];
   const applied = standing.filter((answer) => answer.appliedBy !== null).length;
   const lines = [`Answers: ${String(standing.length)} recorded, ${String(applied)} applied`];
   const last = review.answerPasses.at(-1);
-  if (last !== undefined) {
-    if (input.fix === undefined) throw new Error('A run with an answer pass is a fix run, whose report names where its evidence is');
-    lines.push(`Answered: the last pass on ${last.at}, after the report at ${inlineText(input.fix.evidencePath(last.reportBefore.report))}`);
-  }
+  if (last !== undefined) lines.push(`Answered: the last pass on ${last.at}, after the report ${storeNameOf(last.reportBefore.report)}`);
   return lines;
 }
 
 /**
- * The header's line of a fix pass the run budget stopped and the same
- * command reopened (R15 of resumable runs): when it was last reopened,
- * how many times when more than one, and where the report it replaced
- * is. None for a run never reopened.
+ * The line of the facts of a fix pass the run budget stopped and the same
+ * command reopened (R15 of resumable runs): when it was last reopened, how
+ * many times when more than one, and the report it replaced by its name in
+ * the store. None for a run never reopened.
  */
-function reopenedLine(review: ReviewState, input: ReportInput): string[] {
+function reopenedLine(review: ReviewState): string[] {
   const reopenings = review.fix?.reopenings ?? [];
   const last = reopenings.at(-1);
   if (last === undefined) return [];
-  if (input.fix === undefined) throw new Error('A reopened run is a fix run, whose report names where its evidence is');
   const when = reopenings.length === 1 ? `on ${last.at}` : `${String(reopenings.length)} times, the last on ${last.at}`;
-  return [`Reopened: the fix pass past the run budget ${when}, after the report at ${inlineText(input.fix.evidencePath(last.reportBefore.report))}`];
+  return [`Reopened: the fix pass past the run budget ${when}, after the report ${storeNameOf(last.reportBefore.report)}`];
 }
 
-/** Render the report from the fold. The run must be configured for review and have its scope. */
-export function renderReport(state: RunState, input: ReportInput): string {
-  const review = state.review;
-  const scope = state.scope;
-  if (review === null || scope === null) throw new Error(`Run ${state.id} has no review to report on`);
+/** One judgment of the triage as a line of The change, in full: no, or yes with what and the files. */
+function conditionLine(name: string, condition: ChangeCondition): string {
+  if (!condition.holds) return `- ${name}: no`;
+  return `- ${name}: yes${condition.what === null ? '' : `, ${inlineText(condition.what)}`}${condition.files.length === 0 ? '' : ` (in ${condition.files.map(inlineText).join(', ')})`}`;
+}
+
+/** The first section of the evidence: each field of the triage's account as it gave it, with its sources (R3 of the brief of a run), or why the run has none. */
+function changeInFull(review: ReviewState): string[] {
+  const lines = ['## The change, in full', ''];
+  switch (review.change.kind) {
+    case 'unrecorded':
+      return [...lines, 'The triage of this run recorded no account of the change: an engine before the account reviewed it.'];
+    case 'none':
+      return [...lines, 'The triage of this run gave no account of the change.'];
+    case 'given': {
+      const { reading } = review.change;
+      const sources = (list: readonly string[]): string => (list.length === 0 ? 'none named' : list.map(inlineText).join(', '));
+      return [
+        ...lines,
+        'The triage\'s account, as it gave it. No verifier examined it, and every worker after the triage read it as context.',
+        '',
+        `- Title: ${inlineText(reading.title)}`,
+        `- What it does: ${inlineText(reading.what)}`,
+        `- Why, in the change's own words: ${reading.why === null ? 'the change states no reason' : inlineText(reading.why)}`,
+        ...(reading.why === null ? [] : [`- Where those words are: ${sources(reading.whyFrom)}`]),
+        `- What the account rests on: ${sources(reading.restsOn)}`,
+        conditionLine('Public interface', reading.publicInterface),
+        conditionLine('Wide effect', reading.wideEffect),
+      ];
+    }
+  }
+}
+
+/**
+ * The last section, the facts of the run (R12, R15 of the brief of a
+ * run): its repository, its commits, its engine, its runtime, its models,
+ * the digest of its roles and its settings, the earlier reports by their
+ * names in the store, the counts, where the evidence store is, how a
+ * person at a terminal types a command of the report, and the command that
+ * continues a fix pass the run budget stopped. It is the one section that
+ * names a local path the engine writes, so a later publication can leave
+ * it out.
+ */
+function factsOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
+  const { configuration } = review;
   const findings = rankedFindings(review);
   const confirmed = findings.filter((entry) => entry.resolution.verdict === 'CONFIRMED').length;
-  const refutedList = refuted(review);
-  const { configuration } = review;
-  const header = [
-    '# Deep review report',
+  const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
+  const command = input.fix?.continueCommand ?? null;
+  const continuing = stopped.length > 0 && command !== null ? ['', `The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`] : [];
+  const answering = answeringLine(review, input.engineEntry);
+  return [
+    '## The run',
     '',
     `Repository: ${inlineText(state.worktree)}`,
     `Base: ${scope.base}`,
@@ -341,20 +389,34 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`]),
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
     `Roles digest: ${configuration.rolesDigest}`,
-    // A run configured before the settings renders as it did; status says it is older than them (R17 of the configuration).
+    // A run configured before the settings renders no line of them; status says it is older than them (R17 of the configuration).
     ...(configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
-    ...continuedLine(review, input),
-    ...answersLines(review, input),
-    ...reopenedLine(review, input),
-    `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refutedList.length)} refuted at verification`,
+    ...continuedLine(review),
+    ...answersLines(review),
+    ...reopenedLine(review),
+    `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refuted(review).length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
+    `Evidence store: ${inlineText(input.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is a file of it.`,
+    ...(answering.length === 0 ? [] : ['', ...answering]),
+    ...continuing,
   ];
-  // A run with the decision step says what it decided right after the header; one configured before the step has no such section.
-  const decisions = decisionsSection(review, input.engineEntry);
+}
+
+/** Render the report from the fold: the brief, then the evidence. The run must be configured for review and have its scope. */
+export function renderReport(state: RunState, input: ReportInput): string {
+  const review = state.review;
+  const scope = state.scope;
+  if (review === null || scope === null) throw new Error(`Run ${state.id} has no review to report on`);
+  const places = { worktree: state.worktree, home: input.home };
+  const findings = rankedFindings(review);
+  const refutedList = refuted(review);
+  const brief = [...briefMarkdown(briefOf(state)), '', '---', '', 'The evidence for each statement above follows.'];
+  // A run with the decision step says what it decided first in the evidence; one configured before the step has no such section.
+  const decisions = decisionsSection(review);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
-  const conventions = conventionsReportSection(review);
+  const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));
   const findingsSection = [
     '## Findings',
     '',
@@ -366,9 +428,20 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
-  const limitationsSection = ['## Limitations', '', ...limitations(state, scope, review, input)];
+  const notesSection = ['## Notes of the run', '', ...notesOfRun(state, scope, review, input, places)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
-  const fixed = input.fix === undefined ? [] : fixSections(state, input.fix.evidencePath, input.fix.patches);
-  return [header, ...(decisions === null ? [] : [decisions]), anglesSection, ...(conventions === null ? [] : [conventions]), findingsSection, ...fixed, refutedSection, statisticsSection, limitationsSection].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
+  const fixed = input.fix === undefined ? [] : fixSections(state, storeNameOf, input.fix.patches.map(storeNameOf));
+  return [
+    brief,
+    changeInFull(review),
+    ...(decisions === null ? [] : [decisions]),
+    findingsSection,
+    ...fixed,
+    anglesSection,
+    ...(conventions === null ? [] : [conventions]),
+    refutedSection,
+    statisticsSection,
+    notesSection,
+    factsOfRun(state, scope, review, input),
+  ].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';
 }
-

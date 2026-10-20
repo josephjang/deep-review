@@ -1,33 +1,36 @@
-# Deep review report
+# The change from 11111111 to 22222222
 
-Repository: /w
-Base: 1111111111111111111111111111111111111111
-Head: 2222222222222222222222222222222222222222
-Mode: worktree
-Run: run-1
-Engine: 0.0.0+dev (run created by 0.0.0)
-Runtime: claude 2.1.283 at /bin/claude
-Models: strong opus, fast sonnet
-Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
-Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
+Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.
 
-## Angles
+## The change
 
-| Angle | Ran | Lead from SCAN |
-|---|---|---|
-| SCAN | run (as the triage) | - |
-| REMOVALS | run | none |
-| RIPPLE | run | the callers of parse() |
-| FOOTGUNS | not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout) | none |
-| WRAPPERS | run | none |
-| EFFICIENCY | run | none |
-| DESIGN | run | none |
-| DUPLICATION | run | none |
-| ALTITUDE | run | none |
-| CONVENTIONS | run | none |
+The triage of this run did not record the core of the change, because an engine before this change reviewed it.
+
+## What the review did not cover
+
+- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found.
+- No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE.
+- No typecheck check ran: nothing names it.
+
+## Where to look
+
+No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.
+
+## What deep-review changed
+
+deep-review applied 1 fix ([RIPPLE-1](#finding-ripple-1)). Its 3 patches are not committed: `deep-review commit` commits them. It left 1 finding: [SWEEP-1](#finding-sweep-1). The checks: build passed before and after the fixes; lint passed before and after the fixes; test failed before and after the fixes.
+
+---
+
+The evidence for each statement above follows.
+
+## The change, in full
+
+The triage of this run recorded no account of the change: an engine before the account reviewed it.
 
 ## Findings
+
+<a id="finding-ripple-1"></a>
 
 ### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
 
@@ -37,6 +40,8 @@ Reason: same root cause at lines 4 and 7
 Evidence: line 4 dereferences null
 Angle: RIPPLE, SCAN
 Also at: SWEEP-2 src/a.ts:7
+
+<a id="finding-sweep-1"></a>
 
 ### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
 
@@ -80,8 +85,8 @@ Tests the fixers say they added or tightened:
 |---|---|---|---|---|
 | build | npm run build | passed, 4.0 s | passed, 4.0 s | passed, 4.0 s |
 | typecheck | not available (none: nothing names it) | - | - | - |
-| lint | npm run lint | passed, 4.0 s | failed, 4.0 s; output /evidence/cccccccc, /evidence/dddddddd | passed, 4.0 s |
-| test | npm run test | failed, 4.0 s; output /evidence/cccccccc, /evidence/dddddddd | failed, 4.0 s; output /evidence/cccccccc, /evidence/dddddddd (failing before the fix pass) | failed, 4.0 s; output /evidence/cccccccc, /evidence/dddddddd (failing before the fix pass) |
+| lint | npm run lint | passed, 4.0 s | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd | passed, 4.0 s |
+| test | npm run test | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass) | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass) |
 
 ## Changed files
 
@@ -92,9 +97,24 @@ Tests the fixers say they added or tightened:
 
 The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:
 
-1. chore: apply the lint check's rewrite (lint check): /evidence/patch-1
-2. fix: Guard the null in parse (c1-1): /evidence/patch-2
-3. style: Format the guard (repair): /evidence/patch-3
+1. chore: apply the lint check's rewrite (lint check): artifacts/1111111111111111111111111111111111111111111111111111111111111111
+2. fix: Guard the null in parse (c1-1): artifacts/2222222222222222222222222222222222222222222222222222222222222222
+3. style: Format the guard (repair): artifacts/3333333333333333333333333333333333333333333333333333333333333333
+
+## Angles
+
+| Angle | Ran | Lead from SCAN |
+|---|---|---|
+| SCAN | run (as the triage) | - |
+| REMOVALS | run | none |
+| RIPPLE | run | the callers of parse() |
+| FOOTGUNS | not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout) | none |
+| WRAPPERS | run | none |
+| EFFICIENCY | run | none |
+| DESIGN | run | none |
+| DUPLICATION | run | none |
+| ALTITUDE | run | none |
+| CONVENTIONS | run | none |
 
 ## Refuted at verification
 
@@ -120,17 +140,29 @@ None.
 | report | 0 | 8.0 | - | - | - | - |
 | Total | 9 | 22.5 | 4.50 (1 worker unreported) | 900 | 180 | 90 |
 
-## Limitations
+## Notes of the run
 
-- Angle FOOTGUNS did not run: 2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout. The sweep was told to cover its territory.
-- Group g1 of sweep-verification was not verified: 2 attempts did not complete: failed; failed again. Its candidates (SWEEP-1, SWEEP-2) carry PLAUSIBLE with the unverified mark.
 - Worktree checks: 16, none found a difference from what the run expected.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
 - Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
 - Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
 - Files no answer names, left in the tree and in no patch: notes.txt.
-- Checks not available: typecheck (nothing names it).
 - Validation of RIPPLE-1 (c1-1), old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
 - Fixer c1-1 ran its own suite: pass (npm test).
 - The repair ran its own suite: pass (npm test).
 - Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.
+
+## The run
+
+Repository: /w
+Base: 1111111111111111111111111111111111111111
+Head: 2222222222222222222222222222222222222222
+Mode: worktree
+Run: run-1
+Engine: 0.0.0+dev (run created by 0.0.0)
+Runtime: claude 2.1.283 at /bin/claude
+Models: strong opus, fast sonnet
+Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
+Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
+Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is a file of it.

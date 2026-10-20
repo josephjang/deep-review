@@ -243,8 +243,13 @@ const runId = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
  * the revision of its unfinished attempt holds them (R20 of the fix pass),
  * so the notes of the patches, the patch series and the attempt in Changed
  * files are left out, and the patches are compared by what they change in
- * each path instead (`Outcome.revised`). The Limitations are compared as a
- * set, since some of their lines follow the order the workers ended in.
+ * each path instead (`Outcome.revised`); the brief's count of the patches
+ * is left out with them. A file of the evidence store is named by its name
+ * in the store, `artifacts/<hash>`, or by its path in a report an older
+ * engine wrote. The notes of the run, and the facts of the run after them,
+ * are compared as a set, since some of their lines follow the order the
+ * workers ended in; so are the lines after Limitations in such an older
+ * report.
  */
 export function normalizedReport(text: string, sandbox: string): string {
   const withoutStatistics = text.replace(/^## Statistics\n[\s\S]*?(?=^## )/m, '');
@@ -252,14 +257,16 @@ export function normalizedReport(text: string, sandbox: string): string {
     .split('\n')
     .filter((line) => !/^(Repository|Base|Head|Run|Reopened): /.test(line))
     .filter((line) => !/^- (Worktree checks|Run budget|Workers with no reported cost): /.test(line))
-    .filter((line) => !/^- (Ran again after|Cut|Cut by a stop|Lost with the engine|Written back after|The run budget stopped|A stop cut|Dropped: )/.test(line))
+    .filter((line) => !/^- (Ran again after|Cut|Cut by a stop|Lost with the engine|Written back after|The run budget stopped|A stop cut|A stop ended|Dropped: )/.test(line))
+    .filter((line) => !/^The run budget stopped the fix pass: /.test(line))
     .map((line) => line.split(sandbox).join('<sandbox>'))
-    .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>'))
+    .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>').replace(/\bartifacts\/[0-9a-f]{64}\b/g, '<artifact>'))
     .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>'))
     .filter((line) => !/^\d+\. .*: <artifact>$/.test(line))
+    .map((line) => line.replace(/Its (\d+ patches are|patch is) not committed: `deep-review commit` commits (them|it)\./, 'Its <patches> are not committed.'))
     .map((line) => line.replace(/; (no patch|patch(es)? [\d, -]+)$/, '; <patches>').replace(/, unfinished attempt\b/g, '').replace(/\b\d+ patch(es)?\b/, '<n> patches'));
-  const limitations = lines.indexOf('## Limitations');
-  return limitations === -1 ? lines.join('\n') : [...lines.slice(0, limitations + 1), ...lines.slice(limitations + 1).sort()].join('\n');
+  const notes = [lines.indexOf('## Notes of the run'), lines.indexOf('## Limitations')].find((index) => index !== -1) ?? -1;
+  return notes === -1 ? lines.join('\n') : [...lines.slice(0, notes + 1), ...lines.slice(notes + 1).sort()].join('\n');
 }
 
 /**

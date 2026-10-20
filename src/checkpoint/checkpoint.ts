@@ -10,6 +10,14 @@ import { lookupEvent } from './registry.ts';
 /** The directory under the checkpoint root that holds evidence blobs. */
 export const evidenceDirectoryName = 'artifacts';
 
+/**
+ * A file of the evidence store by its name in the store, `artifacts/<hash>`,
+ * as the report names it: the same on every machine, so a report published
+ * elsewhere names no local path; the facts of the run say once where the
+ * store is (R15 of the brief of a run).
+ */
+export const storeNameOf = (reference: { readonly sha256: string }): string => `${evidenceDirectoryName}/${reference.sha256}`;
+
 /** An event a caller wants appended: kind, version and a payload the registry will validate. */
 export interface NewEvent {
   readonly kind: string;

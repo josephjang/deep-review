@@ -98,13 +98,14 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     assert.deepEqual(settingsLimitations(skipped, scopeWith()), ['The repository\'s file was skipped by --no-repository-config for the fix pass, so its checks did not follow the policy of the repository.']);
   });
 
-  it('puts the header line in the report and the lines among its limitations, and the same lines in status', () => {
+  it('puts the header line in the facts of the run, the paths left out among the gaps of the brief and the rest in the notes, and the same lines in status', () => {
     const finished = reported().fold();
     const settings = configuredWith({ notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'make test', layer: 'operator' }] });
     const state: RunState = { ...finished, scope: scopeWith(['dist/**'], ['dist/a.js']), review: { ...finished.review!, configuration: settings } };
     const report = renderReport(state, reportInput);
     assert.match(report, /^Roles digest: d{64}\nSettings: no configuration file\n/m);
-    assert.match(report, /^- scope\.exclude \(dist\/\*\*\) left out 1 changed path, which no worker reviewed: dist\/a\.js\.$/m);
+    assert.match(report, /^- 1 changed path under dist\/\*\*, which the settings leave out\.$/m, 'a gap of the brief (R10 of the brief of a run)');
+    assert.doesNotMatch(report, /^- scope\.exclude /m);
     assert.match(report, /^- Not followed: checks\.test: the repository's "npm test", this run's "make test" from the operator's file\.$/m);
     const lines = describeRun(state, claudeAdapter, (reference) => `/evidence/${reference.sha256.slice(0, 8)}`).lines;
     assert.equal(lines[3], 'Settings: no configuration file');

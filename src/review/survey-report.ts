@@ -76,8 +76,14 @@ export function unavailableCell(survey: SurveyState | null, check: PlannedCheck)
   return dropped === null ? `not available (${tableCell(origin)}: ${tableCell(check.reason ?? 'no command')})` : tableCell(dropped);
 }
 
-/** The Conventions section of a surveyed run: the sources, the user-level decisions under the pinned policy, and the surveyor's note, or for a continued run the review's and the continuation's apart; none for a run configured before the survey. */
-export function conventionsReportSection(review: ReviewState): string[] | null {
+/**
+ * The Conventions section of a surveyed run: the sources, the user-level
+ * decisions under the pinned policy, and the surveyor's note, or for a
+ * continued run the review's and the continuation's apart; none for a run
+ * configured before the survey. A user-level file is named as `pathWords`
+ * gives it, under `~` in the report (R15 of the brief of a run).
+ */
+export function conventionsReportSection(review: ReviewState, pathWords: (path: string) => string = (path) => path): string[] | null {
   const survey = review.survey;
   if (survey === null) return null;
   // A survey that exists is surveyed, failed or pending; only a run configured before it is 'predates-survey', and that returned above.
@@ -105,14 +111,14 @@ export function conventionsReportSection(review: ReviewState): string[] | null {
     lines.push('', '| Source | Level | Governs | Applies to |', '|---|---|---|---|');
     for (const source of sources) {
       const level = source.level === 'user' ? `user: ${source.grounds ?? 'no grounds recorded'}` : 'repository';
-      lines.push(`| ${tableCell(source.path)} | ${tableCell(level)} | ${tableCell(source.governs)} | ${source.appliesTo === null ? 'the whole repository' : tableCell(source.appliesTo.join(', '))} |`);
+      lines.push(`| ${tableCell(pathWords(source.path))} | ${tableCell(level)} | ${tableCell(source.governs)} | ${source.appliesTo === null ? 'the whole repository' : tableCell(source.appliesTo.join(', '))} |`);
     }
   }
   lines.push('');
   if (userRules.length === 0) lines.push(`No user-level rules file of the reviewer's existed on this machine; the policy value was \`${setting}\`.`);
   else {
     lines.push(`The reviewer's own rules files, under the policy value \`${setting}\`:`, '');
-    for (const rule of userRules) lines.push(`- ${inlineText(rule.path)}: ${rule.applied ? 'applied' : 'not applied'}, ${inlineText(rule.reason)}`);
+    for (const rule of userRules) lines.push(`- ${inlineText(pathWords(rule.path))}: ${rule.applied ? 'applied' : 'not applied'}, ${inlineText(rule.reason)}`);
   }
   if (review.continuedFrom !== null) return [...lines, ...continuedSurveyLines(survey)];
   const answers = survey.answers;

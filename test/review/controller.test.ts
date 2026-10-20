@@ -153,19 +153,22 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(decider, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: parse dereferences null; also at the unlocated caller\n {4}merge and rank: one root cause\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:2: CONFIRMED\n[\s\S]* {8}evidence: line 2 dereferences text with !\n {4}- RIPPLE-2 \(RIPPLE\) at src\/nowhere\.ts:1 \(unlocated[^\n]*\): PLAUSIBLE\n/m);
     assert.ok(workers.some((worker) => worker.launch.label === 'decider decision:decision' && worker.launch.access === 'read-only' && worker.launch.shell), 'one decider, read-only with a shell');
     assert.ok(box.logs.includes('worker decider decision:decision: decided 1 to fix, 0 to leave, 1 to ask the author'), box.logs.join('\n'));
-    // The report.
-    assert.match(text, /^# Deep review report\n/);
+    // The report starts with the brief: the triage's title and account, then the question (R2, R12 of the brief of a run).
+    assert.match(text, /^# Parse with a guard\n\n1 thing needs you: 1 question\. Nothing waits for you: each question has a default in place\.\n\n## The change\n\nThe parser reads the length of its input, and another function calls it\.\n/);
+    assert.match(text, /^### 1\. fake question for \[1\]\? \(\[SWEEP-1\]\(#finding-sweep-1\)\)$/m);
+    assert.match(text, /^## The change, in full\n\nThe triage's account, as it gave it\./m);
     assert.match(text, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);
     assert.match(text, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also RIPPLE-2\)  src\/a\.ts:2$/m);
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
-    // A read-only run says what it decided right after the header, and under each finding (R8 of the decision step).
-    assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification\n\n## Decisions\n\nBefore any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author\./m);
-    assert.match(text, /^### Questions for the author\n\n[^\n]*\n\n- \[ \] 2\\\. SWEEP-1: fake question for \[1\]\?\n  - Default: fake default \(no edit\)$/m);
-    // The report names the entry the engine ran from, for a person at a terminal (R9 of the skill surface corrections).
-    assert.ok(text.includes(`\`node "${cliEntry}" answer --finding <id> --option <n>\``), text);
+    // A read-only run says what it decided first in the evidence, and under each finding (R8 of the decision step).
+    assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author\./m);
+    assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification$/m);
+    assert.match(text, /^- 2\\\. SWEEP-1: not answered; the default in place is fake default \(no edit\)$/m);
+    // The facts of the run name the entry the engine ran from, for a person at a terminal (R9 of the skill surface corrections).
+    assert.ok(text.slice(text.indexOf('\n## The run\n')).includes(`\`node "${cliEntry}" answer --finding <id> --option <n>\``), text);
     assert.match(text, /^### To fix\n\n- 1\\\. RIPPLE-1: fake approach for \[0\]\. Grounds: fake grounds for \[0\]$/m);
     assert.match(text, /^Decision: fix: fake grounds for \[0\]$/m);
-    assert.match(text, /^Decision: ask the author, defaulting to fake default \(no edit\); see Decisions: fake grounds for \[1\]$/m);
+    assert.match(text, /^Decision: ask the author, defaulting to fake default \(no edit\); see Questions for you: fake grounds for \[1\]$/m);
     assert.doesNotMatch(text, /^## Fixes$/m, 'a read-only run has no fix pass to report');
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
     assert.match(text, /^\| Total \| 19 \| /m);
@@ -286,7 +289,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(state.review!.anglesNotRun.DESIGN!, /failed: The answer does not match the output schema.*; timeout: The worker ran past its timeout/);
     assert.equal(state.review!.phases.finders.status, 'degraded');
     assert.match(text, /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
-    assert.match(text, /- Angle DESIGN did not run/);
+    assert.match(text, /^- The DESIGN angle did not run \(/m);
     assert.match(box.promptOf(state, 'sweep sweep:sweep'), /These angles did not run, so their territory is yours to cover: FOOTGUNS \(.*\); DESIGN \(.*\)\./);
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'finder-FOOTGUNS finders:FOOTGUNS').length, 2);
   });
@@ -302,7 +305,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(state.review!.phases.verification.status, 'degraded');
     assert.match(text, /PLAUSIBLE  SCAN-2  src\/b\.ts:1 \(unverified\)/);
     assert.match(text, /Evidence: none; the verifier of this group failed twice/);
-    assert.match(text, /- Group g2 of verification was not verified/);
+    assert.match(text, /^- No verifier examined SCAN-2 \(2 attempts did not complete: /m);
   });
 
   it('blocks with worker-failed when the triage fails twice, and running again retries it and completes', async (t) => {

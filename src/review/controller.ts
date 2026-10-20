@@ -13,6 +13,7 @@
  * from the last step the ledger holds.
  */
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
@@ -841,8 +842,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           // A fix pass the run budget stopped is continued by the same command with a higher budget, which the report and the log name (R11, R15 of resumable runs).
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
           const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options.rolesRoot), stoppedSpend);
-          const fix = state.review!.fix === null ? {} : { fix: { evidencePath: (reference: { sha256: string; bytes: number }) => checkpoint.evidence.pathOf(reference), patches: patches.map((patch) => checkpoint.evidence.pathOf(patch)), continueCommand: continuing } };
-          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, ...fix }));
+          const fix = state.review!.fix === null ? {} : { fix: { patches, continueCommand: continuing } };
+          const report = checkpoint.evidence.put(renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options.home ?? homedir(), ...fix }));
           state = append(checkpoint, state, [
             { kind: 'report.written', version: 5, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },

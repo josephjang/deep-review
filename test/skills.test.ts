@@ -94,8 +94,10 @@ describe('the skill texts', () => {
       assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of its report's header\s+and its `## Limitations` section exactly as the report prints them\./);
       assert.doesNotMatch(text, /why a run reviewed\s+what it did, run the `config show`/);
       // The record the skill names holds the run's settings: status and the report give the same settings lines.
-      for (const source of ['src/review/status.ts', 'src/review/report.ts']) assert.ok(read(source).includes('settingsHeaderLine(') && read(source).includes('settingsLimitations('), `${source} prints the run's recorded settings`);
-      assert.ok(read('src/review/report.ts').includes('\'## Limitations\''), 'the report has a Limitations section');
+      assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(') && read('src/review/status.ts').includes('settingsLimitations('), 'status prints the run\'s recorded settings');
+      // The report gives the settings line in the facts of the run, the paths left out among the gaps of the brief, and the rest in the notes of the run (R10, R12 of the brief of a run).
+      assert.ok(read('src/review/report.ts').includes('settingsHeaderLine(') && read('src/review/report.ts').includes('settingsNotes(') && read('src/review/brief.ts').includes('scope.excluded'), 'the report prints the run\'s recorded settings');
+      assert.ok(read('src/review/report.ts').includes('\'## The run\'') && read('src/review/report.ts').includes('\'## Notes of the run\''), 'the report has the facts and the notes of the run');
       assert.match(text, /When the user\s+asks to change a preference, name the file that\s+`config show` lists for it\./);
       // R3 of the skill surface corrections: a new file comes from config init, each setting commented at its default, not from TOML the model writes.
       assert.match(text, /When the user asks for a configuration file\s+that does not exist yet, run the `main\.mjs` of step 3 with only\s+`config init --repository`, `config init --operator` or\s+`config init --clone`, for the repository's file, the operator's or\s+this clone's\./);
