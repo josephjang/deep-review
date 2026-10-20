@@ -17,7 +17,7 @@ const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DE
 
 /** A review whose triage finds one defect in src/a.ts, which the decider decides to fix, departing from a rule, and the fixes phase's fixer fixes. */
 const departing: Script = {
-  triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'text is dereferenced when null: the failure' }], leads: noLeads } },
+  triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'text is dereferenced when null: the failure' }], leads: noLeads, change: null } },
   decider: { output: deciderAnswer([{ departs: true }]) },
   'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n' } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
 };

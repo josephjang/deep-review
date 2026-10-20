@@ -112,7 +112,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
 
   /** A script whose triage finds three defects in src/a.ts, so one cluster holds three findings in rank order. */
   const threeInOneFile: Script = {
-    triage: { output: { candidates: [found('src/a.ts', 1, 'first'), found('src/a.ts', 2, 'second'), found('src/a.ts', 3, 'third')], leads: noLeads } },
+    triage: { output: { candidates: [found('src/a.ts', 1, 'first'), found('src/a.ts', 2, 'second'), found('src/a.ts', 3, 'third')], leads: noLeads, change: null } },
   };
 
   it('gives each finding its own revision from the snapshot taken after it, folds a finding with none into the next, and writes a series git am applies', async (t) => {
@@ -160,7 +160,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     setPolicyBatchSize(box, 1);
     // Two findings in src/a.ts make one cluster; batches of one run it as c1-1, then c1-2.
     box.script({
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       'fixer:fixes:c1-2': { output: fixerAnswer([{ status: 'already-applied', files: ['src/a.ts'], note: 'the guard c1-1 added covers it' }]) },
     });
@@ -190,7 +190,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     setPolicyBatchSize(box, 1);
     box.script({
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads, change: null } },
       // The first batch alone spends past the budget, so its cluster's second batch is never launched.
       'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
     });
@@ -285,7 +285,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const guardedB = `${fixedB}// keeps the guard\n`;
     box.script({
       // Two findings in src/a.ts, c1's one batch, and one in src/b.ts, c2's: the shape of batch c1-1 on #54.
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 5, 'other() passes null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 5, 'other() passes null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': {
         edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }],
         output: fixerAnswer([
@@ -714,7 +714,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     const second = `${fixedA}// the second finding\n`;
     box.script({
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': [
         // The first attempt snapshots both findings, writes a test after its last snapshot, and dies.
         { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }, { writes: { 'src/a.ts': second }, snapshot: 1 }, { writes: { 'test/a.test.ts': testA } }], exit: 3 },
@@ -892,7 +892,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     write(box.repo, 'src/a.ts', fixedA);
     git(box.repo, 'commit', '-q', '-am', 'the change under review');
     box.script({
-      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': [{ output: fixerAnswer([{ status: 'deferred', files: [] }]) }],
     });
     reportText(await box.fix('claude'));
@@ -903,7 +903,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     // Edited, the same file is a modification of what HEAD held, and its patch applies there.
     box.checkpoint.append(untouched.id, untouched.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'next case' } }]);
     box.script({
-      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/caller.ts', 2, 'passes null to parse')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/caller.ts': 'import { parse } from \'./a.ts\';\nexport const n = parse(\'\');\n' } }], output: fixerAnswer([{ files: ['src/caller.ts'] }]) },
     });
     reportText(await box.fix('claude'));

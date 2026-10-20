@@ -123,7 +123,7 @@ describe('the Codex Windows sandbox in a run (R1 to R3 of the Codex sandbox)', {
     const { box, codex } = spied(t);
     // A finding decided fix, so the continuation is refused for its sandbox, not for having nothing to fix, which is refused first.
     box.script({
-      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null } },
       decider: { output: deciderAnswer([{}]) },
     });
     reportText(await codex({ flags: { codexWindowsSandbox: 'elevated' } }));
@@ -231,7 +231,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
   /** A sandbox for the test `t` alone, with one finding for one fixer, and a lint check failing before and after the fixes, so a repair worker runs too. */
   const sandbox = (t: TestContext): ReviewSandbox => {
     const box = ReviewSandbox.forTest(t, {
-      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n' } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
       'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
     });

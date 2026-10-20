@@ -37,7 +37,7 @@ const otherB = 'import { parse } from \'./a.ts\';\nexport const b = parse("x");\
  * findings are, rewriting both files.
  */
 const answerable: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
   decider: { output: deciderAnswer([{ departs: true }, { decision: 'ask', edits: false }]) },
   'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
 };

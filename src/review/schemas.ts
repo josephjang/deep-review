@@ -7,6 +7,7 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
+import { changeTextLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import { StructuralCheckError } from './errors.ts';
 import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
@@ -33,12 +34,80 @@ export const maxCandidates = 12;
 
 export const leadOutputSchema = z.strictObject({ angle: finderAngleSchema, lead: z.string().min(1).max(1000).nullable() });
 
-/** The triage returns its `SCAN` candidates and one lead per other angle: a string, or null when the diff supports none. */
+/**
+ * A text of the triage's account of the change, at the wide limit the
+ * ledger records (R3 of the brief of a run). It has no lower limit: the
+ * account must not cost the triage its answer, so an empty text is not
+ * refused here, and `normalizeTriageChange` reads it as absent.
+ */
+const changeOutputText = z.string().max(changeTextLengthV1);
+/** A commit or a path the account names; wide, as the texts are, and cut by the normalization to what the ledger records. */
+const changeOutputSources = z.array(z.string().max(1000)).max(50);
+const changeConditionOutputSchema = z.strictObject({ holds: z.boolean(), what: changeOutputText.nullable(), files: changeOutputSources });
+
+/** The triage's account of the change as it returns it (R3, R4 of the brief of a run), before `normalizeTriageChange`. */
+export const changeOutputSchema = z.strictObject({
+  title: changeOutputText,
+  what: changeOutputText,
+  why: changeOutputText.nullable(),
+  whyFrom: changeOutputSources,
+  restsOn: changeOutputSources,
+  publicInterface: changeConditionOutputSchema,
+  wideEffect: changeConditionOutputSchema,
+});
+export type ChangeOutput = z.infer<typeof changeOutputSchema>;
+
+/** The triage returns its `SCAN` candidates, one lead per other angle (a string, or null when the diff supports none), and its account of the change, or null. */
 export const triageOutputSchema = z.strictObject({
   candidates: z.array(candidateSchema).max(maxCandidates),
   leads: z.array(leadOutputSchema).length(finderAngles.length),
+  change: changeOutputSchema.nullable(),
 });
 export type TriageOutput = z.infer<typeof triageOutputSchema>;
+
+/** The most sources of `why`, of what the account rests on, and of a condition's files, that the ledger records. */
+export const changeSourceLimits = { whyFrom: 20, restsOn: 30, files: 30 } as const;
+
+/** A text of the account trimmed, or null when nothing is left. */
+const presentText = (text: string | null): string | null => {
+  const trimmed = text?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
+};
+
+/** The sources of a list trimmed, without the empty ones and repeats, in their order, up to `limit`. */
+const presentSources = (sources: readonly string[], limit: number): string[] => [...new Set(sources.map((source) => source.trim()).filter((source) => source !== ''))].slice(0, limit);
+
+/** A condition as the ledger records it: one that does not hold has no sentence and no files. */
+const normalizeCondition = (condition: ChangeOutput['publicInterface']): ChangeCondition =>
+  condition.holds ? { holds: true, what: presentText(condition.what), files: presentSources(condition.files, changeSourceLimits.files) } : { holds: false, what: null, files: [] };
+
+/**
+ * The triage's account as `candidates.recorded@2` records it (R3 of the
+ * brief of a run). It refuses nothing, since the triage has no degraded
+ * outcome and a refused answer would lose its candidates and its leads
+ * too: each text is trimmed; an account with no title or no `what` left
+ * is no account; a reason with nothing left is none, and loses its
+ * sources; a condition that does not hold loses its sentence and its
+ * files; each list loses its empty entries and repeats and keeps the
+ * first entries up to its limit. A reason with no source stays, and the
+ * brief says it has none.
+ */
+export function normalizeTriageChange(change: ChangeOutput | null): ChangeReading | null {
+  if (change === null) return null;
+  const title = presentText(change.title);
+  const what = presentText(change.what);
+  if (title === null || what === null) return null;
+  const why = presentText(change.why);
+  return {
+    title,
+    what,
+    why,
+    whyFrom: why === null ? [] : presentSources(change.whyFrom, changeSourceLimits.whyFrom),
+    restsOn: presentSources(change.restsOn, changeSourceLimits.restsOn),
+    publicInterface: normalizeCondition(change.publicInterface),
+    wideEffect: normalizeCondition(change.wideEffect),
+  };
+}
 
 export const finderOutputSchema = z.strictObject({ candidates: z.array(candidateSchema).max(maxCandidates) });
 export type FinderOutput = z.infer<typeof finderOutputSchema>;

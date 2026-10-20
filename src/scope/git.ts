@@ -59,6 +59,33 @@ export function emptyTree(repo: string): string {
   return gitText(repo, ['hash-object', '-t', 'tree', '--stdin'], { okExitCodes: [] }).trim();
 }
 
+/** One commit of a change and its whole message, as git stores it. */
+export interface CommitMessage {
+  readonly commit: string;
+  readonly message: string;
+}
+
+/**
+ * The messages of the commits of a change from `base` to `head`, oldest
+ * first, each after its parents (R6 of the brief of a run): the commits
+ * `head` reaches and `base` does not; the commit `head` alone when `base`
+ * is the empty tree, the base of a root commit, which no commit reaches;
+ * and none when `base` is `head`, a change of the working tree alone.
+ * Each message keeps its lines, less the blank ones git leaves at its end.
+ * `--no-show-signature` overrides a configured `log.showSignature`, whose
+ * lines would land between the fields, and `--encoding` gives every
+ * message in UTF-8, whatever `i18n.logOutputEncoding` says.
+ */
+export function commitMessages(repo: string, base: string, head: string): CommitMessage[] {
+  if (base === head) return [];
+  const range = base === emptyTree(repo) ? ['-1', head] : [`${base}..${head}`];
+  const fields = gitText(repo, ['log', '--reverse', '--topo-order', '--no-show-signature', '--encoding=UTF-8', '--format=%H%x00%B%x00', ...range, '--']).split('\0');
+  const messages: CommitMessage[] = [];
+  // Each commit prints its id, a NUL, its message, a NUL and a newline, which starts the next id.
+  for (let index = 0; index + 1 < fields.length; index += 2) messages.push({ commit: fields[index]!.trim(), message: fields[index + 1]!.trimEnd() });
+  return messages;
+}
+
 export function mergeBase(repo: string, a: string, b: string): string {
   return gitText(repo, ['merge-base', a, b]).trim();
 }

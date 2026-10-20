@@ -19,7 +19,7 @@ export const noLeads = finderAngles.map((angle) => ({ angle, lead: null }));
  * src/b.ts with SCAN-2, one batch each, c1-1 and c2-1.
  */
 export const reviewScript: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
   sweep: { output: { candidates: [{ ...found('src/a.ts', 5, 'other() would read better inlined'), angle: 'DESIGN' }] } },
   decider: { output: deciderAnswer([{}, {}, { decision: 'leave' }]) },
 };

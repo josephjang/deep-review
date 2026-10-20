@@ -40,7 +40,7 @@ import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts'
 import { captureScope, namesScope, resolveScopeRequest, scopeBase, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
-import { objectFormat } from '../scope/git.ts';
+import { commitMessages, objectFormat } from '../scope/git.ts';
 import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckSettings } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
 import { checkSettingsInForce, checkSettingsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckSettings, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
@@ -69,7 +69,7 @@ import { budgetSpendOf, progressWords, spendWords, statisticsOf, type BudgetSpen
 import { budgetStoppedRun, currentPhase, reviewStatus } from './state.ts';
 import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit } from './steps.ts';
 import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
-import { claimPathPlaceholder, snapshotIndexPlaceholder } from './tasks.ts';
+import { claimPathPlaceholder, snapshotIndexPlaceholder, type ChangeMessages } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse } from './vocabulary.ts';
 
@@ -573,6 +573,22 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     state = reenterPhase(checkpoint, state, adapter, log);
 
     const scope = state.scope!;
+    /**
+     * The commit messages of the change, which the triage's task lists,
+     * read from git when the triage first launches (R6 of the brief of a
+     * run); a commit does not change, so a relaunch lists the same ones. A
+     * history git cannot read costs the triage those words, never the run:
+     * the task says so, as the log does.
+     */
+    const changeMessages = once((): ChangeMessages => {
+      try {
+        return { kind: 'read', messages: commitMessages(options.worktree, scope.base, scope.head) };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        log(`run ${runId}: could not read the commit messages of the change, so the triage reads none: ${reason}`);
+        return { kind: 'unreadable', reason };
+      }
+    });
     const blocks: { survey?: string; rest?: string } = {};
     /**
      * The scope block a phase's workers receive, each rendered once: the
@@ -771,6 +787,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             configuration,
             scopeBlock: scopeBlockFor,
             survey: surveyInputs,
+            commitMessages: changeMessages,
             evidence: checkpoint.evidence,
             newScratch: () => join(scratchBase, randomUUID()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),

@@ -491,7 +491,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const marker = join(box.directory, 'fixer-may-answer');
     const fixed = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n';
     box.script({
-      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'other() passes null' }], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'other() passes null' }], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null } },
       // The first fixer edits its file and then waits; it is killed with the engine. Its replacement answers.
       'fixer:fixes:c1-1': [{ edits: [{ writes: { 'src/a.ts': `${fixed}// half done\n` } }], waitFor: marker }, { edits: [{ writes: { 'src/a.ts': fixed } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) }],
     });
@@ -532,7 +532,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const shared = 'test/shared.test.ts';
     const found = (line: number, summary: string): Record<string, unknown> => ({ file: 'src/a.ts', line, summary, detail: `${summary}: d` });
     box.script({
-      triage: { output: { candidates: [found(2, 'text is dereferenced when null'), found(6, 'other() passes null on')], leads: finderAngles.map((angle) => ({ angle, lead: null })) } },
+      triage: { output: { candidates: [found(2, 'text is dereferenced when null'), found(6, 'other() passes null on')], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null } },
       // c1-1 claims the shared test and answers; c1-2 waits and is killed with the engine; its replacement claims the same file again.
       'fixer:fixes:c1-1': { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { [shared]: 'shared\n' } }], output: fixerAnswer([{ files: [shared] }]) },
       'fixer:fixes:c1-2': [{ waitFor: marker }, { edits: [{ claims: [shared], expectClaim: 'claimed', writes: { [shared]: 'shared\nmore\n' } }], output: fixerAnswer([{ files: [shared] }]) }],

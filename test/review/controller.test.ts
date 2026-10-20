@@ -42,6 +42,17 @@ const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DE
 /** A candidate as a finder returns it. */
 const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
 
+/** The triage's account of the change in the full script (R3 of the brief of a run). */
+const changeAccount = {
+  title: 'Parse with a guard',
+  what: 'The parser reads the length of its input, and another function calls it.',
+  why: 'The commit says the parser needs a caller.',
+  whyFrom: ['HEAD'],
+  restsOn: ['src/a.ts'],
+  publicInterface: { holds: true, what: 'parse() is exported.', files: ['src/a.ts'] },
+  wideEffect: { holds: false, what: null, files: [] },
+};
+
 /** The surveyor's answer of a read-only run that names the sandbox's AGENTS.md as its one convention source. */
 const surveyedAgents = { output: { conventions: [{ path: 'AGENTS.md', level: 'repository', governs: 'how globs are quoted', appliesTo: null, grounds: null }], userRules: [], checks: null, note: '' } };
 
@@ -56,7 +67,7 @@ const fullScript: Script = {
   triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src\\a.ts', 6, 'other() passes null')], leads: [
     { angle: 'REMOVALS', lead: 'src/gone.ts was deleted' }, { angle: 'RIPPLE', lead: 'callers of parse()' }, { angle: 'FOOTGUNS', lead: null }, { angle: 'WRAPPERS', lead: null },
     { angle: 'EFFICIENCY', lead: null }, { angle: 'DESIGN', lead: null }, { angle: 'DUPLICATION', lead: null }, { angle: 'ALTITUDE', lead: null }, { angle: 'CONVENTIONS', lead: null },
-  ] } },
+  ], change: changeAccount } },
   'finder-RIPPLE': { output: { candidates: [found('/somewhere/src/a.ts', 2, 'parse(null) from other()'), found('src/nowhere.ts', 1, 'a caller outside the scope')] } },
   // WRAPPERS fails once with a malformed answer, then answers.
   'finder-WRAPPERS': [{ malformed: true }, { output: { candidates: [] } }],
@@ -118,7 +129,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && [...fixPhases, ...answerPhases].includes(payload.phase as never)), 'no phase of the fix pass or of an answer pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
     // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, the sixth of the configuration, which records the settings, and the second of the scope.
-    const written: Record<string, number> = { 'review.configured': 6, 'scope.captured': 2, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5 };
+    const written: Record<string, number> = { 'review.configured': 6, 'scope.captured': 2, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5, 'candidates.recorded': 2 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.
@@ -167,7 +178,12 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(ripple, /^SCAN lead: callers of parse\(\)$/m);
     assert.match(ripple, /^Role: finder-RIPPLE\nUnit: RIPPLE\nPhase: finders$/m);
     assert.match(ripple, /### Convention sources\n\nThe repository survey named these files as stating the conventions a change here must follow:\n\n- AGENTS\.md \(repository\): how globs are quoted\n/);
-    assert.match(box.promptOf(state, 'triage triage:SCAN'), /- AGENTS\.md \(repository\): how globs are quoted/);
+    const triage = box.promptOf(state, 'triage triage:SCAN');
+    assert.match(triage, /- AGENTS\.md \(repository\): how globs are quoted/);
+    // The triage's task lists the commit of the change it reviews, and the fold keeps its account (R3, R6 of the brief of a run).
+    assert.match(triage, new RegExp(`^${state.scope!.head.slice(0, 12)} the change under review$`, 'm'));
+    assert.match(triage, /^Then describe the change in `change`/m);
+    assert.deepEqual(state.review!.change, { kind: 'given', reading: changeAccount });
     // The surveyor's own block has no such section, and a read-only run asks it for no check.
     const surveyor = box.promptOf(state, 'surveyor survey:survey');
     assert.doesNotMatch(surveyor, /### Convention sources/);
@@ -188,6 +204,18 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(box.logs.some((line) => /^phase triage: started \(attempt 1\); \d+ min \d+ s since the run started; spent \d+\.\d\d USD of the 60\.00 USD run budget$/.test(line)), box.logs.join('\n'));
     assert.ok(box.logs.some((line) => /^worker finder-WRAPPERS finders:WRAPPERS: attempt failed: failed: The answer does not match the output schema/.test(line)));
     assert.equal(lockFree(() => acquireRunLock(box.checkpoint.root, state.id)), true, 'the lock is released');
+  });
+
+  it('lists no commit to the triage of a change of the working tree, and keeps a triage that gave no account as none (R6, R18 of the brief of a run)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    write(box.repo, 'src/b.ts', 'export const b = 2;\n');
+    await box.review('claude');
+    const state = box.run();
+    assert.equal(state.scope!.mode, 'worktree');
+    const triage = box.promptOf(state, 'triage triage:SCAN');
+    assert.match(triage, /^The change has no commits: it is a change of the working tree\./m);
+    assert.doesNotMatch(triage, /The subjects of the/);
+    assert.deepEqual(state.review!.change, { kind: 'none' });
   });
 
   it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async (t) => {
@@ -255,7 +283,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
 
   it('marks a group unverified when its verifier fails twice, and its candidates carry PLAUSIBLE unverified into the report', async (t) => {
     const box = ReviewSandbox.forTest(t);
-    box.script({ triage: { output: { candidates: [found('src/a.ts', 2, 'null deref'), found('src/b.ts', 1, 'b calls parse')], leads: noLeads } }, 'verifier:verification:g2': { exit: 1 } });
+    box.script({ triage: { output: { candidates: [found('src/a.ts', 2, 'null deref'), found('src/b.ts', 1, 'b calls parse')], leads: noLeads, change: null } }, 'verifier:verification:g2': { exit: 1 } });
     const text = reportText(await box.review('claude'));
     const state = box.run();
     assert.deepEqual(state.review!.plans.verification, [{ id: 'g1', candidateIds: ['SCAN-1'] }, { id: 'g2', candidateIds: ['SCAN-2'] }]);
@@ -369,6 +397,9 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // The run recorded the first invocation's flags with its settings, so only the flags of a later resume need giving again (R11 of the configuration).
     assert.deepEqual(box.logs.filter((line) => line.includes('has not planned its checks')), [`run ${state.id} has not planned its checks yet; it keeps the check settings it recorded, and --check and --no-check apply over them to each invocation until it plans them, so give again every one an earlier resume gave`]);
     assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
+    // The commit messages are read with `git log` too: a history git cannot read costs the triage their words, never the run (R6 of the brief of a run).
+    assert.match(box.promptOf(state, 'triage triage:SCAN'), /^The engine could not read the commit messages of the change \(git log [^\n]*unknown date format[^\n]*\)\. Take the reason only from the documents the change adds or edits\.$/m);
+    assert.equal(box.logs.filter((line) => line.startsWith(`run ${state.id}: could not read the commit messages of the change, so the triage reads none: git log `)).length, 1, box.logs.join('\n'));
   });
 
   /** A surveyed check of the fake package.json, its tool missing when one is named. */

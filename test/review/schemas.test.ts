@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { changeReadingSchema, changeTextLengthV1 } from '../../src/checkpoint/events.ts';
 import { StructuralCheckError } from '../../src/review/errors.ts';
 import {
+  changeSourceLimits,
   checkDecisions,
   checkDeduplication,
   checkFixerAnswer,
@@ -14,6 +16,7 @@ import {
   fixerOutputSchema,
   maxCandidates,
   mergeRankOutputSchema,
+  normalizeTriageChange,
   outputSchemaOf,
   sweepOutputSchema,
   triageOutputSchema,
@@ -68,19 +71,101 @@ describe('the output schemas', () => {
   });
 
   it('requires the triage to return exactly nine leads, each a string or null', () => {
-    assert.ok(triageOutputSchema.safeParse({ candidates: [], leads }).success);
-    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: leads.slice(1) }).success);
-    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: [...leads, { angle: 'SCAN', lead: null }] }).success);
-    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: leads.map((lead) => ({ ...lead, lead: '' })) }).success);
+    assert.ok(triageOutputSchema.safeParse({ candidates: [], leads, change: null }).success);
+    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: leads.slice(1), change: null }).success);
+    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: [...leads, { angle: 'SCAN', lead: null }], change: null }).success);
+    assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads: leads.map((lead) => ({ ...lead, lead: '' })), change: null }).success);
+  });
+
+  describe('the triage\'s account of the change (R3, R4 of the brief of a run)', () => {
+    const condition = { holds: false, what: null, files: [] };
+    const account = { title: 'Parse an empty input', what: 'The parser accepts an empty input.', why: null, whyFrom: [], restsOn: ['src/a.ts'], publicInterface: condition, wideEffect: condition };
+
+    it('requires the account, which may be null', () => {
+      assert.ok(triageOutputSchema.safeParse({ candidates: [], leads, change: account }).success);
+      assert.ok(triageOutputSchema.safeParse({ candidates: [], leads, change: null }).success);
+      assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads }).success, 'every field is required, as the runtime contract demands');
+    });
+
+    it('refuses no account for breaking a rule the normalization settles: empty texts, a condition that does not hold with a sentence, a reason with no source, an empty list', () => {
+      for (const change of [
+        { ...account, title: '', what: '' },
+        { ...account, title: 'x'.repeat(200) },
+        { ...account, why: '', whyFrom: ['', 'a'] },
+        { ...account, restsOn: [] },
+        { ...account, publicInterface: { holds: false, what: 'something', files: ['src/a.ts'] } },
+        { ...account, wideEffect: { holds: true, what: null, files: [] } },
+      ]) assert.ok(triageOutputSchema.safeParse({ candidates: [], leads, change }).success, JSON.stringify(change));
+    });
+
+    it('holds each text to the wide limit the ledger records, and each list to 50', () => {
+      const over = 'x'.repeat(changeTextLengthV1 + 1);
+      for (const field of ['title', 'what', 'why'] as const) {
+        assert.ok(triageOutputSchema.safeParse({ candidates: [], leads, change: { ...account, [field]: 'x'.repeat(changeTextLengthV1) } }).success, `${field} at the limit`);
+        assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads, change: { ...account, [field]: over } }).success, `${field} past it`);
+      }
+      assert.ok(!triageOutputSchema.safeParse({ candidates: [], leads, change: { ...account, restsOn: Array.from({ length: 51 }, (_, index) => `f${String(index)}`) } }).success);
+    });
+  });
+});
+
+describe('normalizeTriageChange (R3 of the brief of a run)', () => {
+  const condition = { holds: false, what: null, files: [] };
+  const account = { title: 'Parse an empty input', what: 'The parser accepts an empty input.', why: 'An empty file is valid.', whyFrom: ['abc123'], restsOn: ['src/a.ts'], publicInterface: condition, wideEffect: condition };
+
+  it('keeps an account that already holds to its rules, as it is', () => {
+    assert.deepEqual(normalizeTriageChange(account), account);
+    assert.equal(normalizeTriageChange(null), null);
+  });
+
+  it('trims each text, and reads an account with no title or no what left as no account', () => {
+    assert.deepEqual(normalizeTriageChange({ ...account, title: '  Parse  ', what: '\nIt parses.\n' }), { ...account, title: 'Parse', what: 'It parses.' });
+    assert.equal(normalizeTriageChange({ ...account, title: '   ' }), null);
+    assert.equal(normalizeTriageChange({ ...account, what: '' }), null);
+  });
+
+  it('reads an empty reason as none, which loses its sources, and keeps a reason with no source', () => {
+    assert.deepEqual(normalizeTriageChange({ ...account, why: ' ', whyFrom: ['abc123'] }), { ...account, why: null, whyFrom: [] });
+    assert.deepEqual(normalizeTriageChange({ ...account, why: null, whyFrom: ['abc123'] }), { ...account, why: null, whyFrom: [] });
+    assert.deepEqual(normalizeTriageChange({ ...account, whyFrom: [] }), { ...account, whyFrom: [] }, 'the brief says the reason has no source');
+  });
+
+  it('takes the sentence and the files from a condition that does not hold, and keeps a condition that holds with no sentence', () => {
+    assert.deepEqual(normalizeTriageChange({ ...account, publicInterface: { holds: false, what: 'the flag', files: ['src/cli.ts'] } })?.publicInterface, { holds: false, what: null, files: [] });
+    assert.deepEqual(normalizeTriageChange({ ...account, wideEffect: { holds: true, what: '  ', files: [' src/a.ts ', 'src/a.ts', ''] } })?.wideEffect, { holds: true, what: null, files: ['src/a.ts'] });
+  });
+
+  it('drops empty entries and repeats from each list, and keeps the first entries up to its limit', () => {
+    const many = (count: number): string[] => Array.from({ length: count }, (_, index) => `src/f${String(index)}.ts`);
+    const normalized = normalizeTriageChange({ ...account, whyFrom: ['', ...many(25)], restsOn: [...many(40), 'src/f0.ts'], publicInterface: { holds: true, what: 'w', files: many(40) } })!;
+    assert.deepEqual(normalized.whyFrom, many(changeSourceLimits.whyFrom));
+    assert.deepEqual(normalized.restsOn, many(changeSourceLimits.restsOn));
+    assert.deepEqual(normalized.publicInterface.files, many(changeSourceLimits.files));
+    assert.deepEqual(normalizeTriageChange({ ...account, restsOn: [] })?.restsOn, [], 'an account that names nothing it rests on stays');
+  });
+
+  it('writes what the ledger records, whatever the triage returned within its schema', () => {
+    const answers = [
+      account,
+      { ...account, title: ' t ', why: '', whyFrom: ['x', 'x'], restsOn: [] },
+      { ...account, publicInterface: { holds: false, what: 'w', files: ['f'] }, wideEffect: { holds: true, what: '', files: Array.from({ length: 50 }, (_, index) => `f${String(index)}`) } },
+      { ...account, whyFrom: Array.from({ length: 50 }, (_, index) => `c${String(index)}`), restsOn: Array.from({ length: 50 }, () => '  ') },
+    ];
+    for (const answer of answers) {
+      assert.ok(triageOutputSchema.shape.change.safeParse(answer).success, 'the answer is one the triage can return');
+      const normalized = normalizeTriageChange(answer);
+      assert.ok(normalized !== null);
+      assert.ok(changeReadingSchema.safeParse(normalized).success, JSON.stringify(normalized));
+    }
   });
 });
 
 describe('the structural checks', () => {
   it('accept leads that cover the nine angles once and refuse a repeat or a gap', () => {
-    assert.doesNotThrow(() => checkTriageLeads({ candidates: [], leads }));
-    assert.throws(() => checkTriageLeads({ candidates: [], leads: [...leads.slice(1), leads[1]!] }), (error: unknown) => error instanceof StructuralCheckError && /two leads for angle RIPPLE/.test(error.message) && /no lead for REMOVALS/.test(error.message) === false);
+    assert.doesNotThrow(() => checkTriageLeads({ candidates: [], leads, change: null }));
+    assert.throws(() => checkTriageLeads({ candidates: [], leads: [...leads.slice(1), leads[1]!], change: null }), (error: unknown) => error instanceof StructuralCheckError && /two leads for angle RIPPLE/.test(error.message) && /no lead for REMOVALS/.test(error.message) === false);
     const twice = [...leads.slice(0, 8), leads[0]!];
-    assert.throws(() => checkTriageLeads({ candidates: [], leads: twice }), /two leads for angle REMOVALS/);
+    assert.throws(() => checkTriageLeads({ candidates: [], leads: twice, change: null }), /two leads for angle REMOVALS/);
   });
 
   it('accept dedup groups over the numbered input and refuse an index outside it, in two groups, or a kept non-member', () => {

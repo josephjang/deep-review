@@ -196,7 +196,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
   // R4 of fix pass continuation: the survey of a read-only run continued into the fix pass.
   describe('of a read-only run continued into the fix pass', () => {
     /** A review whose triage finds one defect in src/a.ts, which the decider decides to fix. */
-    const oneFix = { triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })) } }, decider: { output: deciderAnswer([{}]) } };
+    const oneFix = { triage: { output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })), change: null } }, decider: { output: deciderAnswer([{}]) } };
 
     it('refuses to continue a run that went on without its survey until the flags settle every check, then continues it with no surveyor, its survey as it degraded', async (t) => {
       const box = ReviewSandbox.forTest(t, { ...oneFix, surveyor: { exit: 2 } });

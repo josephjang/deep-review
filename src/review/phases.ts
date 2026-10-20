@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedDecisionSchema, type CandidatesRecordedV1, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
+import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -32,6 +32,7 @@ import {
   checkDeduplication,
   checkMergeRank,
   checkTriageLeads,
+  normalizeTriageChange,
   checkVerdicts,
   outputSchemaOf,
   type CandidateOutput,
@@ -49,7 +50,7 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
@@ -74,6 +75,8 @@ export interface PhaseContext {
   readonly scopeBlock: (phase: Unit['phase']) => string;
   /** What this invocation knows for the survey, for the surveyor's task. */
   readonly survey: () => SurveyInputs;
+  /** The commit messages of the change, for the triage's task, read when first asked for (R6 of the brief of a run). */
+  readonly commitMessages: () => ChangeMessages;
   /** The evidence store, for the frozen logs a repair task quotes. */
   readonly evidence: Pick<EvidenceStore, 'read' | 'pathOf'>;
   /** A fresh scratch directory for an editing worker, outside the reviewed tree and the checkpoint, so its task can name its snapshot directory. */
@@ -380,11 +383,12 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
-/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, and the survey's inputs. */
+/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, and the commit messages of the change the triage's task lists. */
 export interface TaskOptions {
   readonly editing?: EditingTaskInput | null;
   readonly evidence?: Pick<EvidenceStore, 'read' | 'pathOf'> | null;
   readonly survey?: SurveyInputs | null;
+  readonly commitMessages?: ChangeMessages | null;
 }
 
 /**
@@ -443,7 +447,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       if (options.survey === undefined || options.survey === null) throw new Error('The surveyor\'s task names what the invocation knows for the survey and needs it');
       return surveyTaskOf(review, options.survey);
     case 'triage':
-      return triageTask();
+      if (options.commitMessages === undefined || options.commitMessages === null) throw new Error('The triage\'s task lists the commit messages of the change and needs them');
+      return triageTask(options.commitMessages);
     case 'finders': {
       const angle = unit.key as FinderAngle;
       return finderTask(angle, review.leads?.find((lead) => lead.angle === angle) ?? null);
@@ -504,7 +509,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const review = requireReview(live === null ? context.state : settleClaims(context.state, unit.key, live, context.worktree).state);
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey }) }, context.scopeBlock(unit.phase));
+  const commitMessages = unit.phase === 'triage' ? context.commitMessages() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -628,7 +634,7 @@ function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, con
 /** The events a unit's contribution is recorded as, each kind with its own payload. */
 type ContributionEvent =
   | { readonly kind: 'survey.recorded'; readonly version: 1; readonly payload: SurveyRecorded }
-  | { readonly kind: 'candidates.recorded'; readonly version: 1; readonly payload: CandidatesRecordedV1 }
+  | { readonly kind: 'candidates.recorded'; readonly version: 2; readonly payload: CandidatesRecorded }
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
@@ -653,18 +659,18 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       const output = receipt.output as TriageOutput;
       checkTriageLeads(output);
       const candidates = recordCandidates('triage', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle: 'SCAN' as const })), state, worktree);
-      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'triage', key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output.leads) } };
+      return { kind: 'candidates.recorded', version: 2, payload: { phase: 'triage', key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output.leads), change: normalizeTriageChange(output.change) } };
     }
     case 'finders': {
       const output = receipt.output as FinderOutput;
       const angle = unit.key as FinderAngle;
       const candidates = recordCandidates('finders', unit.key, output.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
-      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'finders', key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
+      return { kind: 'candidates.recorded', version: 2, payload: { phase: 'finders', key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
     }
     case 'sweep': {
       const output = receipt.output as SweepOutput;
       const candidates = recordCandidates('sweep', unit.key, output.candidates, state, worktree);
-      return { kind: 'candidates.recorded', version: 1, payload: { phase: 'sweep', key: unit.key, workerId: receipt.workerId, candidates, leads: null } };
+      return { kind: 'candidates.recorded', version: 2, payload: { phase: 'sweep', key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
     }
     case 'deduplication':
     case 'sweep-deduplication': {

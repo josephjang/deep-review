@@ -48,7 +48,7 @@ const leads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESI
 
 describe('taskFor', () => {
   it('writes each phase its task from the fold', () => {
-    assert.match(taskFor(unit('triage', 'SCAN', 'triage'), configured().review()), /Run the `SCAN` angle/);
+    assert.match(taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [] } }), /Run the `SCAN` angle/);
     assert.match(taskFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), triaged().review()), /^Angle: RIPPLE\nSCAN lead: the callers of parse\(\)/);
     assert.match(taskFor(unit('finders', 'DESIGN', 'finder-DESIGN'), triaged().review()), /^Angle: DESIGN\nLead: none/);
     assert.match(taskFor(unit('deduplication', 'deduplication', 'deduplication'), found().review()), /2 candidates, numbered \[0\] to \[1\]\.[\s\S]*\[0\] SCAN-1[\s\S]*\[1\] RIPPLE-1/);
@@ -102,6 +102,13 @@ describe('the answer pass\'s task (R5, R7 of answers)', () => {
     assert.match(task, /^ {8}before the answer: the run's last fixer of it answered deferred: SWEEP-1 answered$/m, 'the first pass\'s answer is what the run did before');
   });
 
+  it('lists the commit messages it is given in the triage\'s task, and refuses a triage without them (R6 of the brief of a run)', () => {
+    const task = taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input\n\nAn empty file is valid.' }] } });
+    assert.match(task, /^c{12} feat: Parse the input$/m);
+    assert.match(task, /^An empty file is valid\.$/m);
+    assert.throws(() => taskFor(unit('triage', 'SCAN', 'triage'), configured().review()), /The triage's task lists the commit messages of the change and needs them/);
+  });
+
   it('refuses a pass the fold does not have', () => {
     assert.throws(() => taskFor(unit('answer', 'pass-2', 'fixer'), opened().review(), options), /The answer pass pass-2 is not recorded/);
   });
@@ -116,6 +123,7 @@ describe('invocationFor', () => {
     configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: role === 'finder-RIPPLE' ? 'sonnet' : 'opus', effort: 'high' as const, budgetUsd: role === 'triage' ? null : 8, timeoutMs: 600_000 })) },
     scopeBlock: () => '## Scope\n\nRepository: /w',
     survey: () => noSurveyInputs,
+    commitMessages: () => ({ kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input' }] }),
     evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
@@ -141,6 +149,10 @@ describe('invocationFor', () => {
   it('leaves the budget out for a role pinned without one, and refuses a role without a prompt', () => {
     const invocation = invocationFor(unit('triage', 'SCAN', 'triage'), context(configured().fold()));
     assert.equal('budgetUsd' in invocation, false);
+    assert.match(invocation.prompt, /^c{12} feat: Parse the input$/m, 'the triage\'s task lists the commit messages its context reads');
+    let read = 0;
+    invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), commitMessages: () => { read += 1; return { kind: 'read', messages: [] }; } });
+    assert.equal(read, 0, 'no other unit reads them');
     assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), roles: new Map() }), /No assembled prompt for role finder-RIPPLE/);
   });
 
@@ -329,10 +341,29 @@ describe('contributionOf', () => {
         { file: 'SRC/Caller.ts', line: 2, summary: 'a caller', detail: 'd' },
       ],
       leads: [...leads].reverse(),
+      change: {
+        title: '  Parse an empty input ',
+        what: 'The parser returns no value for an empty input.\n',
+        why: '   ',
+        whyFrom: ['c'.repeat(40)],
+        restsOn: ['src/a.ts', ' src/a.ts', ''],
+        publicInterface: { holds: false, what: 'nothing', files: ['src/a.ts'] },
+        wideEffect: { holds: true, what: 'Every caller reads the null.', files: ['src/caller.ts'] },
+      },
     };
     const event = contribution(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
     assert.equal(event.kind, 'candidates.recorded');
-    const payload = event.payload as { candidates: Record<string, unknown>[]; leads: { angle: string }[]; key: string; phase: string };
+    assert.equal(event.version, 2);
+    const payload = event.payload as { candidates: Record<string, unknown>[]; leads: { angle: string }[]; key: string; phase: string; change: unknown };
+    assert.deepEqual(payload.change, {
+      title: 'Parse an empty input',
+      what: 'The parser returns no value for an empty input.',
+      why: null,
+      whyFrom: [],
+      restsOn: ['src/a.ts'],
+      publicInterface: { holds: false, what: null, files: [] },
+      wideEffect: { holds: true, what: 'Every caller reads the null.', files: ['src/caller.ts'] },
+    }, 'the account as normalizeTriageChange leaves it (R3 of the brief of a run)');
     assert.equal(payload.phase, 'triage');
     assert.equal(payload.key, 'SCAN');
     assert.deepEqual(payload.candidates[0], { id: 'SCAN-1', angle: 'SCAN', file: 'src/a.ts', line: 2, located: true, inScope: true, rawFile: 'src\\a.ts', rawLine: 2, summary: 's', detail: 'd' });
@@ -342,7 +373,7 @@ describe('contributionOf', () => {
   });
 
   it('turns a structural failure into a failed attempt naming the check', () => {
-    const output = { candidates: [], leads: [...leads.slice(1), leads[1]] };
+    const output = { candidates: [], leads: [...leads.slice(1), leads[1]], change: null };
     const event = contribution(unit('triage', 'SCAN', 'triage'), receipt(output), configured().fold(), worktree);
     assert.equal(event.kind, 'attempt.failed');
     assert.match((event.payload as { reason: string }).reason, /^structural check: The triage returned two leads for angle RIPPLE/);
@@ -358,7 +389,8 @@ describe('contributionOf', () => {
   it('records every contribution under the kind whose schema its payload satisfies', () => {
     const decodes = (event: NewEvent): boolean => lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true;
     const contributions = [
-      contribution(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads }), configured().fold(), worktree),
+      contribution(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads, change: null }), configured().fold(), worktree),
+      contribution(unit('triage', 'SCAN', 'triage'), receipt({ candidates: [], leads, change: { title: 't', what: 'w', why: 'y', whyFrom: [], restsOn: [], publicInterface: { holds: false, what: 'x', files: ['f'] }, wideEffect: { holds: true, what: null, files: [] } } }), configured().fold(), worktree),
       contribution(unit('finders', 'DESIGN', 'finder-DESIGN'), receipt({ candidates: [] }), triaged().fold(), worktree),
       contribution(unit('sweep', 'sweep', 'sweep'), receipt({ candidates: [] }), verified().fold(), worktree),
       contribution(unit('deduplication', 'deduplication', 'deduplication'), receipt({ groups: [] }), found().fold(), worktree),
@@ -367,7 +399,7 @@ describe('contributionOf', () => {
       contribution(unit('sweep-verification', 'g1', 'verifier'), receipt({ verdicts: [{ index: 0, verdict: 'PLAUSIBLE', evidence: 'e' }, { index: 1, verdict: 'CONFIRMED', evidence: 'e' }] }), swept().fold(), worktree),
       contribution(unit('merge-rank', 'merge-rank', 'merge-rank'), receipt({ findings: [{ primary: 0, members: [1, 2], severity: 'major', summary: 's', reason: 'r' }] }), swept().fold(), worktree),
     ];
-    assert.deepEqual(contributions.map((event) => event.kind), ['candidates.recorded', 'candidates.recorded', 'candidates.recorded', 'deduplication.recorded', 'deduplication.recorded', 'verdicts.recorded', 'verdicts.recorded', 'ranking.recorded']);
+    assert.deepEqual(contributions.map((event) => event.kind), ['candidates.recorded', 'candidates.recorded', 'candidates.recorded', 'candidates.recorded', 'deduplication.recorded', 'deduplication.recorded', 'verdicts.recorded', 'verdicts.recorded', 'ranking.recorded']);
     for (const event of contributions) assert.ok(decodes(event), `${event.kind} decodes under its own schema: ${JSON.stringify(event.payload)}`);
   });
 

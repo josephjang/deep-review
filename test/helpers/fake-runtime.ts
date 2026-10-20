@@ -100,7 +100,7 @@ export function surveyorAnswer(prompt: string): unknown {
 /** The empty, valid answer of a review role: what a worker that found nothing returns. */
 export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'surveyor') return surveyorAnswer(prompt);
-  if (role === 'triage') return { candidates: [], leads: finderAngles.map((angle) => ({ angle, lead: null })) };
+  if (role === 'triage') return { candidates: [], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null };
   if (role.startsWith('finder-') || role === 'sweep') return { candidates: [] };
   if (role === 'deduplication') return { groups: [] };
   if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };

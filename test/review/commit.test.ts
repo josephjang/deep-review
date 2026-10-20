@@ -23,7 +23,7 @@ const fixedB = 'import { parse } from \'./a.ts\';\nexport const b = parse("x");\
 
 /** Two findings, one in src/a.ts and one in src/b.ts, each fixed by its cluster's fixer, which also adds a test to the first. */
 const twoFixes: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
   'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': 'test a\n' } }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
   'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB } }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
 };
@@ -46,7 +46,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
 
   it('commits an unfinished attempt\'s edits with the message the retry gave on verifying them, its trailer saying so, and its leftovers under the engine\'s', async (t) => {
     const box = await fixedBox(t, {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': [
         // The first attempt snapshots its finding, writes a test after the snapshot, and dies.
         { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }, { writes: { 'test/a.test.ts': 'test a\n' } }], exit: 3 },
@@ -66,7 +66,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');
     const ruled = 'export function parse(text: string | null) {\n  if (text === null) throw new Error(\'parse throws on a null input\');\n  return text.length;\n}\n';
     const runId = await fixRun(box, {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads, change: null } },
       decider: { output: deciderAnswer([{ departs: true }]) },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
       'fixer:answer:pass-1': { edits: [{ writes: { 'src/a.ts': ruled }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Throw on a null text, as the rule says' }]) },
@@ -112,7 +112,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     write(box.repo, 'src/c.ts', 'export const c = 1;\n');
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');
     await fixRun(box, {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
     });
     assert.equal(box.run().scope!.mode, 'worktree');
@@ -167,7 +167,7 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
   it('refuses a revised file too large to have been frozen, before any object is written', async (t) => {
     const big = 'x'.repeat(freezeLimitBytes + 1);
     const box = await fixedBox(t, {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'needs a big table')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'needs a big table')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'src/table.txt': big } }], output: fixerAnswer([{ files: ['src/a.ts', 'src/table.txt'] }]) },
     });
     const objects = git(box.repo, 'count-objects');

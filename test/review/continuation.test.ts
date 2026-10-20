@@ -10,7 +10,7 @@ import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review
 /** A review whose triage finds one defect in src/a.ts, which the decider decides to fix, every worker reporting 1 USD. */
 const oneFix: Script = {
   '*': { costUsd: 1 },
-  triage: { costUsd: 1, output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })) } },
+  triage: { costUsd: 1, output: { candidates: [{ file: 'src/a.ts', line: 2, summary: 'text is dereferenced when null', detail: 'parse(null) throws' }], leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })), change: null } },
   decider: { costUsd: 1, output: deciderAnswer([{}]) },
 };
 

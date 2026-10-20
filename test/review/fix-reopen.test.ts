@@ -34,7 +34,7 @@ const secondA = fixedA.replace('return parse(null);', 'return parse(\'\');');
  * when a reopened run launches it.
  */
 const budgetScript: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads, change: null } },
   'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
   'fixer:fixes:c1-2': { edits: [{ writes: { 'src/a.ts': secondA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Pass a text to parse' }]) },
 };
@@ -254,7 +254,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
   it('reopens a second time when the budget stops it again, and keeps both reopenings (R11 of resumable runs)', async (t) => {
     const script: Script = {
       ...budgetScript,
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/a.ts', 7, 'other() is never tested')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/a.ts', 7, 'other() is never tested')], leads: noLeads, change: null } },
       'fixer:fixes:c1-2': { ...budgetScript['fixer:fixes:c1-2'] as object, costUsd: 5 },
       'fixer:fixes:c1-3': { edits: [{ writes: { 'src/a.ts': thirdA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Mark the check' }]) },
     };
@@ -290,7 +290,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     const blocked = { output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'], note: 'needs src/b.ts' }]) };
     const secondRound = (index: number): Script[string] => ({ edits: [{ writes: { 'src/a.ts': `${fixedA}// second round ${String(index)}\n` }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: `fix(a): Second round ${String(index)}` }]) });
     const script: Script = {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/a.ts', 7, 'other() is never tested'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/a.ts', 7, 'other() is never tested'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': blocked,
       'fixer:fixes:c1-2': blocked,
       'fixer:fixes:c1-3': { ...blocked, costUsd: 5 },
@@ -339,7 +339,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
   it('plans no second round while the budget left the first, says so of the finding the first round blocked, and plans and runs it once reopened (PD13, R15 of resumable runs)', async (t) => {
     // c1 owns src/a.ts, whose first batch is blocked on src/b.ts and spends past the budget, so c1-2 is left; c2 fixes src/b.ts.
     const script: Script = {
-      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads } },
+      triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
       'fixer:fixes:c1-1': { costUsd: 5, output: fixerAnswer([{ status: 'blocked', files: [], requiredFiles: ['src/b.ts'], note: 'needs src/b.ts' }]) },
       'fixer:fixes:c1-2': budgetScript['fixer:fixes:c1-2']!,
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': 'import { parse } from \'./a.ts\';\nexport const b = parse("x");\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },

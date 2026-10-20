@@ -30,7 +30,7 @@ const verdictsOf = (...verdicts: string[]): { output: unknown } => ({ output: { 
  * plausible, so the three recorded outcomes are a fixer, dropped and held.
  */
 const reviewScript: Script = {
-  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null')], leads: noLeads } },
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null')], leads: noLeads, change: null } },
   'finder-DESIGN': { output: { candidates: [found('src/b.ts', 1, 'b belongs beside parse')] } },
   'verifier:verification:g1': verdictsOf('CONFIRMED', 'REFUTED'),
   'verifier:verification:g2': verdictsOf('PLAUSIBLE'),

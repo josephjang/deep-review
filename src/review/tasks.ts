@@ -13,6 +13,7 @@ import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import type { Layer } from '../config/settings.ts';
+import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
 import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
@@ -188,12 +189,103 @@ function candidateItem(index: number, candidate: CandidateState, extra: readonly
 const fieldNote =
   'In your JSON, each candidate has `file`, `line`, `summary` and `detail`; `detail` is the fourth field of the finder output contract, the `failure_scenario` or the `value_statement` your angle asks for. Do not invent an id: the engine assigns one to each candidate you return.';
 
-/** The triage's task: the `SCAN` review and one lead per other angle. */
-export function triageTask(): string {
+/**
+ * The commit messages of the change as the triage's task gets them (R6 of
+ * the brief of a run): those git gave, none for a change of the working
+ * tree, or why git could not give them, which costs the triage the words
+ * of the commits and never the run.
+ */
+export type ChangeMessages =
+  | { readonly kind: 'read'; readonly messages: readonly CommitMessage[] }
+  | { readonly kind: 'unreadable'; readonly reason: string };
+
+/** The most bytes of commit subjects the triage's task lists, and of subjects and whole messages together (R6 of the brief of a run). */
+export const commitSubjectsLimitBytes = 16 * 1024;
+export const commitMessagesLimitBytes = 32 * 1024;
+
+/** The characters of a commit id the triage's task shows, enough to name it in `whyFrom`. */
+const shownCommitLength = 12;
+
+const utf8Bytes = (text: string): number => Buffer.byteLength(text, 'utf8');
+
+/** The lines of `items`, oldest first, while their bytes, with a line break after each, stay within `limit`. */
+function withinBytes(items: readonly string[], limit: number): string[] {
+  const kept: string[] = [];
+  let used = 0;
+  for (const item of items) {
+    const bytes = utf8Bytes(item) + 1;
+    if (used + bytes > limit) break;
+    kept.push(item);
+    used += bytes;
+  }
+  return kept;
+}
+
+/**
+ * The commit messages of the change as the triage's task lists them (R6,
+ * TD3 of the brief of a run): the subject of each commit, oldest first,
+ * up to `commitSubjectsLimitBytes`; then each whole message, oldest first,
+ * while the two lists together stay within `commitMessagesLimitBytes`;
+ * and how many of each the limits left out. Each list is fenced, so a
+ * line of a message cannot open a section of the prompt.
+ */
+export function commitMessagesSection(words: ChangeMessages): string[] {
+  if (words.kind === 'unreadable') {
+    return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
+  }
+  const { messages } = words;
+  if (messages.length === 0) {
+    return ['The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits.'];
+  }
+  const shown = (commit: string): string => commit.slice(0, shownCommitLength);
+  const subjects = withinBytes(messages.map(({ commit, message }) => `${shown(commit)} ${message.split('\n', 1)[0] ?? ''}`), commitSubjectsLimitBytes);
+  const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
+  const wholes = withinBytes(messages.map(({ commit, message }) => `commit ${shown(commit)}\n${message}\n`), commitMessagesLimitBytes - used);
+  const fenced = (text: string): string[] => {
+    const fence = fenceFor(text);
+    return [`${fence}text`, text, fence];
+  };
+  const leftSubjects = messages.length - subjects.length;
+  const leftWholes = messages.length - wholes.length;
+  return [
+    `The subjects of the ${String(messages.length)} commit${messages.length === 1 ? '' : 's'} of the change, oldest first:`,
+    '',
+    ...fenced(subjects.join('\n')),
+    '',
+    'The whole messages, oldest first:',
+    '',
+    ...(wholes.length === 0 ? ['(none fit within the limit)'] : fenced(wholes.join('\n').trimEnd())),
+    ...(leftSubjects === 0 && leftWholes === 0 ? [] : ['', `${String(leftSubjects)} subject${leftSubjects === 1 ? '' : 's'} and ${String(leftWholes)} whole message${leftWholes === 1 ? '' : 's'} are left out at the limits.`]),
+  ];
+}
+
+/**
+ * The triage's task (R3, R4, R6 of the brief of a run): the `SCAN` review,
+ * one lead per other angle, and an account of the change, from the patch
+ * and the change's own words: the commit messages listed here and the
+ * documents the change adds or edits.
+ */
+export function triageTask(messages: ChangeMessages): string {
   return [
     'Run the `SCAN` angle over every hunk of the patch below and the enclosing function of each. Return your candidates, up to 12.',
     '',
     `Then, for EACH of the nine other angles, in this order (${finderAngles.join(', ')}), return one lead: a concrete file, symbol or mechanism the finder of that angle should inspect first, grounded in what you read, or null when the diff supports none. A lead is never a skip; every angle runs whatever you return, so name what you saw and nothing more.`,
+    '',
+    'Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:',
+    '',
+    '- `title`: what the change is, in at most 80 characters.',
+    '- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.',
+    '- `why`: why the change does it, in the change\'s own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.',
+    '- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.',
+    '- `restsOn`: the files and commits that `what` rests on, at least one.',
+    '- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.',
+    '- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.',
+    '',
+    'Keep `why` within 400 characters. Return `change` as null only when you cannot describe the change at all.',
+    '',
+    '### The change\'s own words',
+    '',
+    ...commitMessagesSection(messages),
     '',
     fieldNote,
   ].join('\n');

@@ -23,6 +23,7 @@ const reviewScript: Script = {
         { file: 'src/a.ts', line: 6, summary: 'other() passes null', detail: 'other() passes null: the failure a user would see' },
       ],
       leads: ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null })),
+      change: null,
     },
   },
   'finder-DESIGN': { output: { candidates: [{ file: 'src/b.ts', line: 1, summary: 'b belongs beside parse', detail: 'b belongs beside parse: the failure a user would see' }] } },
