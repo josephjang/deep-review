@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefLimits, briefOf, cutAtWord, gapKinds, lookConditions, type GapKind } from '../../src/review/brief.ts';
+import { briefLimits, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { answer, answerableDecisions, changeReading, decidedFixRun, decisions, departure, launch, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
@@ -214,3 +214,42 @@ describe('cutAtWord', () => {
   });
 });
 
+
+describe('briefShortForm (R13 of the brief of a run)', () => {
+  it('says each part in a line that names its subject first, at most seven lines of at most 200 characters', () => {
+    const lines = briefShortForm(briefOf(withAccount(answerable(), given())));
+    assert.deepEqual(lines, [
+      `Parse an empty input (run ${answerable().id.slice(0, 8)})`,
+      'The change: The parser returns no value for an empty input, where it threw before.',
+      'Questions: 1, each with a default in place: SWEEP-1',
+      'Against a written rule: 1 fix: RIPPLE-1',
+      'Not covered: 2 gaps, the first: The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later...',
+      'Look at: 1 departure, a change to a public interface',
+      'Changed: nothing; this run only reviewed',
+    ]);
+    for (const line of lines) assert.ok(line.length <= shortLineLimit, line);
+  });
+
+  it('shows at most 8 ids of a list and counts the rest, and keeps its lines however many findings the run has', () => {
+    const brief = briefOf(answerable());
+    const question = brief.questions[0]!;
+    const many = { ...brief, questions: Array.from({ length: 12 }, (_, index) => ({ ...question, id: `SWEEP-${String(index + 1)}` })) };
+    const lines = briefShortForm(many);
+    assert.equal(lines.length, 7);
+    assert.equal(lines[2], 'Questions: 12, each with a default in place: SWEEP-1, SWEEP-2, SWEEP-3, SWEEP-4, SWEEP-5, SWEEP-6, SWEEP-7, SWEEP-8 and 4 more');
+    const long = { ...brief, title: 'word '.repeat(80), notCovered: [{ kind: 'excluded' as const, text: 'path '.repeat(100) }] };
+    for (const line of briefShortForm(long)) assert.ok(line.length <= shortLineLimit, line);
+  });
+
+  it('says so on a line with nothing to say, and of a run that fixed, what it applied and where the edits are', () => {
+    const state = answerable();
+    const review = state.review!;
+    const quiet = briefShortForm(briefOf({ ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] }, decisions: [decisions[1]!] as never } }));
+    assert.deepEqual(quiet.slice(2), ['Questions: none', 'Against a written rule: no fix', 'Not covered: nothing', 'Look at: nothing', 'Changed: nothing; this run only reviewed']);
+    assert.equal(quiet[1], 'The change: not recorded; an engine before the account reviewed this run');
+    assert.equal(briefShortForm(briefOf(decidedFixRun().fold())).at(-1), 'Changed: 1 fix, not committed');
+    assert.equal(briefShortForm(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold())).at(-1), 'Changed: 0 fixes, 1 fix not applied');
+    const answered = briefShortForm(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold()));
+    assert.deepEqual(answered.slice(2, 4), ['Questions: none open; each is answered', 'Against a written rule: no fix left to review']);
+  });
+});

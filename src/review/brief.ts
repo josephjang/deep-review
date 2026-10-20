@@ -580,3 +580,59 @@ export function briefMarkdown(brief: Brief): string[] {
   const parts = [changePart(brief.change), questions, departures, notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
 }
+
+/** The most characters of a line of the short form; the path that ends it has no limit, since a path cannot be cut (R13 of the brief of a run). */
+export const shortLineLimit = 200;
+
+/** The first sentence of a text, or the whole text when it has no sentence end. */
+const firstSentence = (text: string): string => /^.*?[.!?](?=\s|$)/.exec(inlineText(text))?.[0] ?? inlineText(text);
+
+/** A condition of principle 8 in a few words, for the short form. */
+const lookWords = (entry: BriefLook): string => {
+  switch (entry.condition) {
+    case 'departure':
+      return counted(entry.findings.length, 'departure', 'departures');
+    case 'plausible':
+      return `${counted(entry.findings.length, 'fix', 'fixes')} on a PLAUSIBLE verdict`;
+    case 'public-interface':
+      return 'a change to a public interface';
+    case 'wide-effect':
+      return 'an effect on many files';
+  }
+};
+
+/** What deep-review changed, in a few words, for the short form. */
+function changedWords(changed: BriefChanged): string {
+  if (!changed.fixed) return 'nothing; this run only reviewed';
+  const fixes = counted(changed.applied.length, 'fix', 'fixes');
+  const unapplied = changed.deferred.length + changed.blocked.length + changed.notAttempted.length;
+  const rest = unapplied === 0 ? '' : `, ${counted(unapplied, 'fix', 'fixes')} not applied`;
+  const where = changed.patches === 0 ? '' : changed.commits === null ? ', not committed' : `, in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, ${counted(changed.commits.uncommittedPatches, 'patch', 'patches')} not committed`}`;
+  return `${fixes}${rest}${where}`;
+}
+
+/**
+ * The short form of the brief (R13, PD12 of the brief of a run): at most
+ * seven lines of at most `shortLineLimit` characters, whatever the number
+ * of findings, each naming its subject in its first words so it keeps its
+ * sense when a model rewords it; a list shows at most `shownIds` ids and
+ * counts the rest, and a line with nothing to say says so. The caller
+ * prints the path of the report after them, the last line.
+ */
+export function briefShortForm(brief: Brief): string[] {
+  const openQuestions = brief.questions.filter((question) => question.answer === null).map((question) => question.id);
+  const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
+  const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
+  const gaps = brief.notCovered;
+  const notCovered = gaps.length === 0 ? 'nothing' : gaps.length === 1 ? inlineText(gaps[0]!.text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0]!.text)}`;
+  const lines = [
+    `${inlineText(brief.title)} (run ${brief.run.slice(0, 8)})`,
+    `The change: ${change}`,
+    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, each with a default in place: ${idWords(openQuestions)}`,
+    openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
+    `Not covered: ${notCovered}`,
+    `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
+    `Changed: ${changedWords(brief.changed)}`,
+  ];
+  return lines.map((line) => cutAtWord(line, shortLineLimit));
+}

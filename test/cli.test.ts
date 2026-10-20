@@ -199,6 +199,20 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(abandon.stderr, /no checkpoint, so there is no run to abandon/);
   });
 
+  it('ends with the path of the record when the copy cannot be written, and says why on stderr (R13, TD6 of the brief of a run)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({});
+    // A file where the directory of the copies would be.
+    const root = locateCheckpoint(box.repo).root;
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'reports'), 'not a directory');
+    const result = await run(box, ...claudeFlags(box, '--last-commit'));
+    assert.equal(result.status, 0, result.stderr);
+    const last = result.stdout.trim().split('\n').at(-1)!;
+    assert.match(last, /[\\/]artifacts[\\/][0-9a-f]{64}$/, 'the record\'s path');
+    assert.match(result.stderr, /: could not write the copy of the report to .+[\\/]reports[\\/]\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\.md: /);
+  });
+
   it('reviews the last commit to a report, prints its path last, and then reports the run through status', async (t) => {
 
     const box = ReviewSandbox.forTest(t);
@@ -208,6 +222,11 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const lines = result.stdout.trim().split('\n');
     const reportPath = lines.at(-1)!;
     assert.ok(existsSync(reportPath), reportPath);
+    // The short form of the brief comes first, at most seven lines, and the last line is the path of the copy beside the ledger (R13, R14 of the brief of a run).
+    assert.equal(lines.length, 8, result.stdout);
+    assert.match(lines[0]!, /^The change from [0-9a-f]{8} to [0-9a-f]{8} \(run [0-9a-f]{8}\)$/);
+    assert.deepEqual(lines.slice(1, 7).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);
+    assert.match(reportPath, /[\\/]deep-review-checkpoint[\\/]reports[\\/]\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\.md$/);
     // The report starts with the brief, titled from the scope when the triage gave no account, and ends with the facts of the run (R12 of the brief of a run).
     const report = readFileSync(reportPath, 'utf8');
     assert.match(report, /^# The change from [0-9a-f]{8} to [0-9a-f]{8}\n/);

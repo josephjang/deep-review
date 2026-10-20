@@ -152,7 +152,11 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(first.status, 0, first.stderr);
     const lines = first.stdout.trimEnd().split('\n');
     assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2`);
-    assert.match(lines.at(-1)!, /artifacts[\\/][0-9a-f]{64}$/, 'the report\'s path is the last line');
+    // The pass ends as review does: the short form of the brief, then the path of the copy of the new report (R13 of the brief of a run).
+    assert.equal(lines.at(-1), reportCopyPath(box.checkpoint.root, finished), 'the copy\'s path is the last line');
+    assert.equal(lines.length, 9, 'the answer line, the seven lines of the short form and the path');
+    assert.deepEqual(lines.slice(2, 8).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);
+    assert.equal(lines[3], 'Questions: none open; each is answered', 'the pass applied the answer the person gave');
     assert.match(first.stderr, new RegExp(`run ${finished.id}: answer pass over ${question}\\n`));
     const passed = box.run();
     const passWorkers = Object.values(passed.workers).filter((worker) => worker.launch.label?.startsWith('fixer answer:'));
@@ -162,7 +166,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.deepEqual(passed.review!.answers.at(-1)!.appliedBy, { phase: 'answer', key: 'pass-1' });
     assert.ok(box.checkRuns().length > checksBefore, 'the checks ran again');
     assert.ok(passed.review!.fix!.checks.runs['answer-checks'].length > 0);
-    const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)!, copyPath: null });
+    const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)!, copyPath: null, shortForm: [] });
     assert.match(report, new RegExp(`^- \\d\\\\\\. ${question}: answered option `, 'm'));
     assert.match(report, /^Answered: the last pass on /m);
 

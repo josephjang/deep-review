@@ -63,6 +63,7 @@ import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
+import { briefOf, briefShortForm } from './brief.ts';
 import { renderReport } from './report.ts';
 import { refreshReportCopy, reportCopyPath, writeReportCopy } from './report-copy.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
@@ -183,8 +184,8 @@ export interface ReviewOptions {
 }
 
 export type ReviewOutcome =
-  /** The run wrote its report: the record's path, and the copy's, or null when it could not be written (R14 of the brief of a run). */
-  | { readonly kind: 'report'; readonly runId: string; readonly reportPath: string; readonly copyPath: string | null }
+  /** The run wrote its report: the record's path, the copy's, or null when it could not be written, and the short form of its brief, which the command prints before the path (R13, R14 of the brief of a run). */
+  | { readonly kind: 'report'; readonly runId: string; readonly reportPath: string; readonly copyPath: string | null; readonly shortForm: readonly string[] }
   | { readonly kind: 'blocked'; readonly runId: string; readonly blocker: Blocker & { readonly phase: Phase } };
 
 /** How a launched worker settles: with its receipt, or with the error the launcher threw instead of one. */
@@ -726,7 +727,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           // A run complete before this invocation wrote nothing now; its copy is rendered from the ledger, as a later command renders it.
           const own = namedRoles(options.rolesRoot) === null;
           copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, ownRolesDigest: () => (own ? configuration.rolesDigest : ''), ...(options.home === undefined ? {} : { home: options.home }) }, log) };
-          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path };
+          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefShortForm(briefOf(state)) };
         }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);

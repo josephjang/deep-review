@@ -79,7 +79,7 @@ export const usage = `usage:
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
   deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
-exit codes: 0 a report (its path is the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (the short form of its brief, then the path of its copy, the last line of stdout), a status, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -450,10 +450,11 @@ function copyContextOf(io: CommandIo, run: RunState): CopyContext {
   };
 }
 
-/** Print how a run the command ran ended: the report's path last on stdout, exit 0, or the blocker and its action on stderr, exit 2. */
+/** Print how a run the command ran ended: the short form of the brief and the path of the report's copy last on stdout, exit 0, or the blocker and its action on stderr, exit 2. */
 function reviewEnded(outcome: ReviewOutcome, io: CommandIo): number {
   if (outcome.kind === 'report') {
-    io.stdout(`${outcome.reportPath}\n`);
+    // The short form of the brief, then the path of the copy, or of the record when no copy could be written, whose reason is on stderr (R13 of the brief of a run).
+    io.stdout(`${[...outcome.shortForm, outcome.copyPath ?? outcome.reportPath].join('\n')}\n`);
     return 0;
   }
   io.stderr(`blocked in ${outcome.blocker.phase} (${outcome.blocker.code}): ${outcome.blocker.detail}\naction: ${outcome.blocker.action}\n`);
