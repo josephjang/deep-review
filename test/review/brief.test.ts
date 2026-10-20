@@ -1,0 +1,215 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import type { ChangeReading } from '../../src/checkpoint/events.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
+import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
+import { briefLimits, briefOf, cutAtWord, gapKinds, lookConditions, type GapKind } from '../../src/review/brief.ts';
+import { answer, answerableDecisions, changeReading, decidedFixRun, decisions, departure, launch, readOnlyReported, worker } from '../helpers/review-history.ts';
+
+/** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
+const withAccount = (state: RunState, change: TriageAccount): RunState => ({ ...state, review: { ...state.review!, change } });
+const given = (reading: ChangeReading = changeReading as unknown as ChangeReading): TriageAccount => ({ kind: 'given', reading });
+
+/** A read-only run whose decisions ask SWEEP-1 and fix RIPPLE-1 against a written rule. */
+const answerable = (): RunState => readOnlyReported(answerableDecisions()).fold();
+
+describe('briefOf (R1, R2 of the brief of a run)', () => {
+  it('gives the same value for the same fold, twice', () => {
+    const state = withAccount(answerable(), given());
+    assert.deepEqual(briefOf(state), briefOf(state));
+  });
+
+  it('titles the run with the triage\'s title, cut at a word to 80 characters', () => {
+    assert.equal(briefOf(withAccount(answerable(), given())).title, 'Parse an empty input');
+    const long = briefOf(withAccount(answerable(), given({ ...changeReading, title: `${'word '.repeat(30)}end` } as unknown as ChangeReading))).title;
+    assert.ok(long.length <= briefLimits.title && long.endsWith('...'), long);
+  });
+
+  it('counts the open questions and departures in its headline, and says that nothing waits', () => {
+    const brief = briefOf(answerable());
+    assert.deepEqual([brief.headline.questions, brief.headline.departures], [1, 1]);
+    assert.equal(brief.headline.text, '2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: each question has a default in place.');
+  });
+
+  it('takes a question out of the headline once a person answers it, and a departure once a person accepts or rejects it', () => {
+    const answered = readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold();
+    const brief = briefOf(answered);
+    assert.deepEqual([brief.headline.questions, brief.headline.departures], [0, 1]);
+    assert.equal(brief.headline.text, '1 thing needs you: 1 fix that goes against a written rule. Nothing waits for you: the run went on as it decided.');
+    assert.deepEqual(brief.questions[0]!.answer, { words: 'option 2', at: brief.questions[0]!.answer!.at, applied: false }, 'the question stays, with its answer');
+    for (const review of ['accept', 'reject'] as const) {
+      const reviewed = briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', review)).fold());
+      assert.deepEqual([reviewed.headline.questions, reviewed.headline.departures], [0, 0], review);
+      assert.equal(reviewed.headline.text, 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.');
+      assert.equal(reviewed.departures[0]!.review?.words, review === 'accept' ? 'accepted' : 'rejected');
+    }
+  });
+
+  describe('the core of the change (R3, R18)', () => {
+    it('shows what the change does and why with their sources, and cuts each at a word to its limit', () => {
+      const brief = briefOf(withAccount(answerable(), given()));
+      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect, cut: false });
+      const what = `${'The parser reads input. '.repeat(40)}`.trim();
+      const why = `${'Because it must. '.repeat(40)}`.trim();
+      const cut = briefOf(withAccount(answerable(), given({ ...changeReading, what, why } as unknown as ChangeReading))).change;
+      assert.ok(cut.state === 'given');
+      assert.ok(cut.what.length <= briefLimits.what && cut.what.endsWith('...') && what.startsWith(cut.what.slice(0, -3)), cut.what);
+      assert.ok(cut.why !== null && cut.why.length <= briefLimits.why && cut.why.endsWith('...'), cut.why ?? '');
+      assert.equal(cut.cut, true);
+    });
+
+    it('says an older run has no core, and titles it from its scope', () => {
+      const brief = briefOf(answerable());
+      assert.deepEqual(brief.change, { state: 'unrecorded' });
+      assert.equal(brief.title, `The change from ${'1'.repeat(8)} to ${'2'.repeat(8)}`);
+      assert.deepEqual(briefOf(withAccount(answerable(), { kind: 'none' })).change, { state: 'none' });
+    });
+
+    it('titles a change of the working tree as the uncommitted change on its head', () => {
+      const state = answerable();
+      assert.equal(briefOf({ ...state, scope: { ...state.scope!, base: state.scope!.head } }).title, `The uncommitted change on ${state.scope!.head.slice(0, 8)}`);
+    });
+  });
+
+  describe('the questions (R7, R8)', () => {
+    it('names the option in place now, deep-review\'s choice, each option with its cost and rule, and the command that takes the choice', () => {
+      const [question] = briefOf(answerable()).questions;
+      assert.ok(question !== undefined);
+      assert.equal(question.id, 'SWEEP-1');
+      assert.equal(question.question, 'Should parse accept an empty input?');
+      assert.deepEqual([question.inPlace, question.choice], [1, 2]);
+      assert.deepEqual(question.options.map((option) => [option.number, option.option, option.edits]), [[1, 'keep accepting it', false], [2, 'accept it and return an empty result', true]]);
+      assert.equal(question.command, 'deep-review answer --finding SWEEP-1 --option 2');
+      assert.equal(question.answer, null);
+    });
+  });
+
+  describe('the departures (R9)', () => {
+    it('shows the rule, its source, the fact against it, the fix and the commands that accept and reject it', () => {
+      const [found] = briefOf(answerable()).departures;
+      assert.deepEqual(found, {
+        id: 'RIPPLE-1', rule: departure.rule, source: departure.source, fact: departure.reason, fix: decisions[0]!.fix!.approach,
+        fate: 'not-fixed', review: null,
+        accept: 'deep-review answer --finding RIPPLE-1 --accept', reject: 'deep-review answer --finding RIPPLE-1 --reject',
+      });
+    });
+
+    it('shows each fate of its fix in a run that fixed', () => {
+      const fates: [string, string][] = [['applied', 'applied'], ['already-applied', 'already-in-tree'], ['deferred', 'deferred'], ['blocked', 'blocked']];
+      for (const [status, fate] of fates) assert.equal(briefOf(decidedFixRun(answerableDecisions(), status).fold()).departures[0]!.fate, fate, status);
+    });
+  });
+
+  describe('what the run did not cover (R10)', () => {
+    const kinds = (state: RunState): GapKind[] => briefOf(state).notCovered.map((gap) => gap.kind);
+
+    it('lists the angle that did not run and the group no verifier examined, and no line saying it covered everything', () => {
+      const brief = briefOf(answerable());
+      assert.deepEqual(brief.notCovered.map((gap) => gap.kind), ['angle', 'unverified']);
+      assert.match(brief.notCovered[0]!.text, /^The FOOTGUNS angle did not run \(2 attempts did not complete: [^)]*\)\. A later pass looked for what it would have found\.$/);
+      assert.match(brief.notCovered[1]!.text, /^No verifier examined SWEEP-1, SWEEP-2 \(2 attempts did not complete: failed; failed again\); each counts as PLAUSIBLE\.$/);
+      assert.equal(brief.covered, null);
+    });
+
+    it('lists the paths the settings left out and the files too large to freeze', () => {
+      const state = answerable();
+      const scope = { ...state.scope!, request: { ...state.scope!.request, exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 }, files: [...state.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] };
+      const brief = briefOf({ ...state, scope });
+      assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'excluded' || gap.kind === 'oversized').map((gap) => gap.text), ['2 changed paths under dist/**, which the settings leave out.', '1 file too large to freeze, which no worker was given: big.bin.']);
+    });
+
+    it('lists a check with no command, and each fix no fixer applied, by why', () => {
+      for (const [status, words] of [['deferred', 'its fixer put it off'], ['blocked', 'its fixer could not apply it']] as const) {
+        const brief = briefOf(decidedFixRun(answerableDecisions(), status).fold());
+        assert.ok(brief.notCovered.some((gap) => gap.kind === 'check' && /^No typecheck check ran: .+.$/.test(gap.text)), JSON.stringify(brief.notCovered));
+        assert.ok(brief.notCovered.some((gap) => gap.kind === 'fix' && gap.text === `RIPPLE-1 was decided as a fix, and ${words}.`), status);
+      }
+    });
+
+    it('lists the work the run budget did not start, and points at the facts of the run for the command that continues it', () => {
+      const state = decidedFixRun().fold();
+      const fix = state.review!.fix!;
+      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-2': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
+      const gap = briefOf(stopped as RunState).notCovered.find((entry) => entry.kind === 'budget');
+      assert.equal(gap?.text, 'The run budget stopped the fixes before 1 batch of fixes and the repair of the checks started. The facts of the run at the end of the report give the command that continues them.');
+    });
+
+    it('lists a worker a stop ended whose work did not run again, and not one that ran again', () => {
+      const lost = readOnlyReported(answerableDecisions()).add('worker.launched', launch(worker(90), 'decider decision:decision')).add('worker.lost', { workerId: worker(90), phase: null, key: null, reason: 'the engine exited while the worker ran' }).fold();
+      assert.equal(kinds(lost).filter((kind) => kind === 'stop').length, 1);
+      assert.equal(briefOf(lost).notCovered.find((gap) => gap.kind === 'stop')?.text, 'A stop ended 1 worker whose work did not run again; the notes of the run name it.');
+      assert.ok(!kinds(answerable()).includes('stop'), 'the WRAPPERS worker lost in the finders ran again');
+    });
+
+    it('says in one line that the run covered everything, for a run with no gap', () => {
+      const state = answerable();
+      const review = state.review!;
+      const clean = { ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] } } };
+      assert.deepEqual(briefOf(clean).notCovered, []);
+      assert.equal(briefOf(clean).covered, 'Each angle ran, and a verifier examined each candidate.');
+    });
+
+    it('names every kind of gap the JSON form allows', () => {
+      assert.deepEqual([...gapKinds], ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop']);
+    });
+  });
+
+  describe('where to look (R11)', () => {
+    it('names the departures, and the findings decided as fixes on a PLAUSIBLE verdict in a run that only reviewed', () => {
+      const brief = briefOf(readOnlyReported([{ ...decisions[0], departure }, { ...decisions[0], id: 'SWEEP-1' }]).fold());
+      assert.deepEqual(brief.look.map((entry) => [entry.condition, entry.findings, entry.text]), [
+        ['departure', ['RIPPLE-1'], '1 fix goes against a written rule'],
+        ['plausible', ['SWEEP-1'], '1 finding decided as a fix rests on a verdict that is only PLAUSIBLE'],
+      ]);
+    });
+
+    it('counts in a run that fixed only the fixes a fixer applied on a PLAUSIBLE verdict', () => {
+      const brief = briefOf(decidedFixRun().fold());
+      assert.deepEqual(brief.look.map((entry) => entry.condition), ['departure'], 'RIPPLE-1 is CONFIRMED, and SWEEP-1 was asked, not fixed');
+    });
+
+    it('names the triage\'s two judgments as its own, and neither when they do not hold or the run has no account', () => {
+      const brief = briefOf(withAccount(answerable(), given({ ...changeReading, wideEffect: { holds: true, what: 'every caller', files: [] } } as unknown as ChangeReading)));
+      assert.deepEqual(brief.look.filter((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect').map((entry) => [entry.condition, entry.text]), [
+        ['public-interface', 'The change alters a public interface, in the triage\'s judgment: parse() can now return null. (src/a.ts)'],
+        ['wide-effect', 'The change affects many files beyond the ones it changes, in the triage\'s judgment: every caller'],
+      ]);
+      assert.ok(!briefOf(answerable()).look.some((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect'));
+      assert.deepEqual([...lookConditions], ['departure', 'plausible', 'public-interface', 'wide-effect']);
+    });
+  });
+
+  describe('what deep-review changed (R2)', () => {
+    it('says a run that only reviewed fixed nothing, and names what it decided to fix and left', () => {
+      const { changed } = briefOf(answerable());
+      assert.equal(changed.fixed, false);
+      assert.deepEqual([changed.applied, changed.toFix, changed.left, changed.patches, changed.commits], [[], ['RIPPLE-1'], [], 0, null]);
+      assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
+    });
+
+    it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
+      const applied = briefOf(decidedFixRun().fold()).changed;
+      assert.deepEqual([applied.fixed, applied.applied, applied.deferred, applied.patches, applied.commits], [true, ['RIPPLE-1'], [], 1, null]);
+      assert.deepEqual(applied.checks, [{ kind: 'build', before: 'passed', after: 'passed' }, { kind: 'lint', before: 'passed', after: 'passed' }, { kind: 'test', before: 'passed', after: 'passed' }]);
+      assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold()).changed.deferred, ['RIPPLE-1']);
+      assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'blocked').fold()).changed.blocked, ['RIPPLE-1']);
+    });
+
+    it('names the commits that hold the edits once deep-review commit made them', () => {
+      const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
+      const committed = briefOf(decidedFixRun().add('commits.created', series).fold()).changed;
+      assert.deepEqual(committed.commits, { shas: ['c'.repeat(40), 'a'.repeat(40)], uncommittedPatches: 0 });
+    });
+  });
+});
+
+describe('cutAtWord', () => {
+  it('keeps a text that fits, and cuts a longer one at a word with three periods', () => {
+    assert.equal(cutAtWord('short', 10), 'short');
+    assert.equal(cutAtWord('one two three four', 12), 'one two...');
+    assert.equal(cutAtWord('one, two, three', 12), 'one, two...', 'no punctuation before the periods');
+    assert.equal(cutAtWord('x'.repeat(20), 10), `${'x'.repeat(7)}...`, 'a word longer than the room is cut where the limit falls');
+    assert.equal(cutAtWord('abc', 3), 'abc');
+  });
+});
+

@@ -100,6 +100,11 @@ function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
   return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
 
+/** What became of one ranked finding in a fix run, as Fixes names it: the outcome alone, which the brief of a run reads too (R2, R9 of the brief of a run). */
+export function findingOutcome(review: ReviewState, fix: FixState, id: string): FindingOutcome {
+  return fateOf(review, fix, id).outcome;
+}
+
 /**
  * The line of a finding left as superseded: the superseding finding's
  * outcome, since its fix was to remove this one, and when that fix did
