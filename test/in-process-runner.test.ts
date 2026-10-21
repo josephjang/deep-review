@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { shellInvocation } from '../src/review/checks/run.ts';
@@ -10,16 +9,7 @@ import { paddedVersionBytes } from './helpers/fake-probe.ts';
 import { inProcessRunProbe, inProcessRunProcess, processFakeOf, runtimeFakeOf } from './helpers/in-process-runner.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './helpers/launcher.ts';
 import { fakeCheck, fakeCheckCommand } from './helpers/fake-check.ts';
-
-/** A new temporary directory by its real path, removed when the test `t` ends. */
-function temporaryDirectory(t: TestContext): string {
-  const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'in-process-runner-')));
-  t.after(() => {
-    // A process the real runner killed may hold a file a moment after it is gone, which Windows refuses to remove until it lets go.
-    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-  });
-  return directory;
-}
+import { temporaryDirectory } from './helpers/repository.ts';
 
 /** A request in `directory` for `executable` and `args`, with the prompt on stdin and the fakes' base environment. */
 function requestIn(directory: string, executable: string, args: readonly string[], environment: NodeJS.ProcessEnv = {}, overrides: Partial<ProcessRequest> = {}): ProcessRequest {
@@ -59,7 +49,7 @@ interface Ran {
  * the directory each ran in.
  */
 async function bothRunners(t: TestContext, build: (directory: string) => ProcessRequest): Promise<{ readonly real: Ran; readonly inProcess: Ran; readonly directories: { readonly real: string; readonly inProcess: string } }> {
-  const root = temporaryDirectory(t);
+  const root = temporaryDirectory(t, 'in-process-runner-');
   const run = async (name: string, runner: (request: ProcessRequest) => Promise<ProcessResult>): Promise<[Ran, string]> => {
     const directory = join(root, name);
     const result = await runner(build(directory));
@@ -86,7 +76,7 @@ const settle = (pending: Promise<string>): Promise<{ readonly stdout?: string; r
 describe('the in-process runner', () => {
   describe('which requests it runs in this process', () => {
     it('runs the fake runtimes and the stand-in check here, with the arguments after the script', (t) => {
-      const directory = temporaryDirectory(t);
+      const directory = temporaryDirectory(t, 'in-process-runner-');
       assert.deepEqual(processFakeOf(requestIn(directory, process.execPath, [fakeClaude, '-p', '--json']))?.args, ['-p', '--json']);
       assert.equal(processFakeOf(requestIn(directory, process.execPath, [fakeClaude]))?.name, 'claude');
       assert.equal(processFakeOf(requestIn(directory, process.execPath, [fakeCodex, 'exec']))?.name, 'codex');
@@ -94,7 +84,7 @@ describe('the in-process runner', () => {
     });
 
     it('leaves a fake that may start a grandchild to the real runner: one told to hang with one, one that may hold, and a check with a hang rule', (t) => {
-      const directory = temporaryDirectory(t);
+      const directory = temporaryDirectory(t, 'in-process-runner-');
       assert.equal(processFakeOf(requestIn(directory, process.execPath, [fakeClaude], { FAKE_HANG: join(directory, 'pid') })), null);
       assert.equal(processFakeOf(requestIn(directory, process.execPath, [fakeCodex], { FAKE_START_DIR: directory })), null);
       const checks = join(directory, 'checks.json');
@@ -106,7 +96,7 @@ describe('the in-process runner', () => {
     });
 
     it('leaves every other request to the real runner: another script or executable, a command around the check, a kind no check has, another shell, and a working directory that is not there', (t) => {
-      const directory = temporaryDirectory(t);
+      const directory = temporaryDirectory(t, 'in-process-runner-');
       assert.equal(processFakeOf(requestIn(directory, process.execPath, ['-e', ''])), null);
       assert.equal(processFakeOf(requestIn(directory, join(directory, 'claude'), [fakeClaude])), null);
       assert.equal(processFakeOf(checkRequestIn(directory, `${fakeCheckCommand('build')} && echo more`)), null);
@@ -194,7 +184,7 @@ describe('the in-process runner', () => {
     });
 
     it('fails as the real runner does when the input is missing, before any output file exists', async (t) => {
-      const directory = temporaryDirectory(t);
+      const directory = temporaryDirectory(t, 'in-process-runner-');
       const request = { ...requestIn(directory, process.execPath, [fakeClaude, '-p']), stdinFile: join(directory, 'missing') };
       await assert.rejects(runProcess(request), { code: 'ENOENT' });
       await assert.rejects(inProcessRunProcess(request), { code: 'ENOENT' });
@@ -217,7 +207,7 @@ describe('the in-process runner', () => {
     }
 
     it('refuses a probe past its output limit with the words runProbe uses', async (t) => {
-      const padded = join(temporaryDirectory(t), 'padded');
+      const padded = join(temporaryDirectory(t, 'in-process-runner-'), 'padded');
       writeFileSync(padded, '');
       const request = probe(fakeClaude, ['--version'], { FAKE_PADDED_WHEN: padded }, paddedVersionBytes / 2);
       const real = await settle(runProbe(request));

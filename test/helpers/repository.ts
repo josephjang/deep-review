@@ -1,5 +1,7 @@
-import { appendFileSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { git } from './git.ts';
 
 /**
@@ -8,6 +10,16 @@ import { git } from './git.ts';
  * Importing this module also deletes them from `process.env`.
  */
 export { git };
+
+/** A new temporary directory named from `prefix`, by its real path, removed when the test `t` ends. */
+export function temporaryDirectory(t: TestContext, prefix: string): string {
+  const directory = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+  t.after(() => {
+    // A process the real runner killed may hold a file a moment after it is gone, which Windows refuses to remove until it lets go.
+    rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  });
+  return directory;
+}
 
 export interface RepositoryOptions {
   /** core.autocrlf for the repository; false unless a test asks for a CRLF checkout, whatever the machine's global setting. */
