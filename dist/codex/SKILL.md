@@ -87,12 +87,15 @@ chained before or after it.
    engine prints its progress on stderr. If the command is interrupted,
    run the same command again: it continues from the last step its ledger
    holds and pays for no completed worker twice.
-4. Exit code 0: the last line of stdout is the report's path. Show the
-   user that path and say the report is theirs to read. Do not
-   summarize, quote or interpret the findings. After a run with `--fix`,
-   also say that the fixes are in the working tree, uncommitted, one
-   patch per finding as the report's Changed files lists them, and offer
-   to commit them.
+4. Exit code 0: stdout ends with the short form of the run's brief, one
+   line for each part, and its last line is the report's path. Show the
+   lines before the path to the user in a code block, as printed, then
+   show the path and say the report is theirs to read: it starts with
+   the brief, and the evidence follows. Do not
+   summarize, quote or interpret the findings beyond those lines. After
+   a run with `--fix`, also say that the fixes are in the working tree,
+   uncommitted, one patch per finding as the report's Changed files
+   lists them, and offer to commit them.
 5. When the user accepts, run
 
    node "<this skill's directory>/engine/main.mjs" commit
@@ -101,8 +104,8 @@ chained before or after it.
    the command commits the user's own change first, so ask the user for
    that commit's message before you run it. Show the lines it prints, one
    per commit. On exit code 2, show stderr verbatim and stop.
-6. The report's Decisions section lists the questions the run asked and
-   the fixes that depart from a rule, each ending with the
+6. The brief at the top of the report lists the questions the run asked
+   and the fixes that go against a written rule, each with the
    `deep-review answer` command that answers it. When the user answers
    one, run this from the repository as a background shell command with
    the longest timeout you can, and wait for it to exit:
@@ -114,9 +117,9 @@ chained before or after it.
    departure, and `--note <text>` with what the user said beyond the
    choice. Exit code 0: the first line of stdout says the answer is
    recorded. On a run that fixed, the engine then applies every answer
-   that owes an edit, and the last line of stdout is the new report's
-   path: show it as in step 4 and offer to commit the new edits as in
-   step 5. On a run that only reviewed, it says that `review --fix`
+   that owes an edit, and stdout ends with the short form of the brief
+   and the new report's path: show them as in step 4 and offer to commit
+   the new edits as in step 5. On a run that only reviewed, it says that `review --fix`
    applies the answer: offer to run step 3 again with `--fix`.
    When it says the tree already holds the answer, tell the user nothing
    was applied. Exit code 2: show stderr verbatim and stop; when it says
@@ -142,14 +145,21 @@ chained before or after it.
    review would be lost; do not offer it then.
 8. Any other exit code: show stderr verbatim and stop.
 
+When the user asks what a finished run found, run the `main.mjs` of
+step 3 with only `report`, adding `--run <id>` when they name a run,
+and show what it prints as step 4 says. On exit code 2, show stderr
+verbatim.
+
 When the user asks how deep-review is configured, or what a run would
 take now, run the `config show` command of step 3 with the same scope
 flags and no `--fix`, and show all that it prints. When the user asks
 why a run reviewed what it did, answer from that run's own record, not
 from `config show`, which reads today's files and flags: for the active
 run, run the `status` command of step 3 and show all that it prints;
-for a finished run, show the `Settings:` line of its report's header
-and its `## Limitations` section exactly as the report prints them.
+for a finished run, show the `Settings:` line of the facts of the run,
+the section `## The run` at the end of its report, and the list of what
+the review did not cover in its brief, exactly as the report prints
+them.
 When the user asks to change a preference, name the file that
 `config show` lists for it. When the user asks for a configuration file
 that does not exist yet, run the `main.mjs` of step 3 with only

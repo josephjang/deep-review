@@ -103,7 +103,11 @@ now, and the author's answer is needed only to go another way, so:
   keeping it; for a public interface, leaving it unchanged.
 - **Make it answerable at a glance**: one question; two to four options,
   each with what it costs and whom; the one you recommend; the one you
-  applied.
+  applied. Write the question, each option and each cost for a person who
+  did not read the change: plain words, and no file, line, requirement
+  number or internal name of the code. A command, a flag or a setting that
+  a user types is fine. Put the rest in where you looked and in your
+  grounds, one step below the question.
 - **Make the answer last.** For each option, write the rule a
   convention source of this repository would state if the author chose
   it, so the next review settles the same question alone.

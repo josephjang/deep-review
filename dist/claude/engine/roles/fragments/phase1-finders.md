@@ -31,7 +31,7 @@ verification appendix lists by ID. A worker never assigns an ID.
 ### Phase 1a — Triage: `SCAN` runs first
 
 The `SCAN` angle runs alone, before any other angle, as a single worker
-whose prompt carries the scope block. That worker has two jobs:
+whose prompt carries the scope block. That worker has three jobs:
 
 1. **Its own review** — the line-by-line review described under `SCAN`
    below. Its findings enter the Phase 2 pool like any other angle's.
@@ -44,6 +44,15 @@ whose prompt carries the scope block. That worker has two jobs:
    apparent. Do not invent a lead when none is apparent. A lead is
    never a reason to skip an angle, and the absence of one never is
    either: every angle runs whatever the leads say.
+3. **An account of the change** — what the change does, in plain words
+   for a person who did not read it, and why, in the change's own words:
+   its commit messages, which the task lists, and the documents it adds
+   or edits. Quote or restate them and name where they are; when they
+   state no reason, say so, and never supply a reason of your own. Also
+   judge whether the change alters a public interface and whether it
+   affects many files beyond the ones it changes. The report opens with
+   this account, and every worker after you reads it as context, marked
+   as yours and unverified.
 
 ### Phase 1b — The other nine angles run in parallel
 
