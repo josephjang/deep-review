@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
@@ -27,6 +27,25 @@ describe('createRepository', () => {
     const repo = createRepository(join(temporaryDirectory(t), 'repo'), { autocrlf: true });
     assert.equal(git(repo, 'config', '--local', '--get-all', 'core.autocrlf'), 'true');
     assert.equal(git(repo, 'config', '--local', '--get', 'core.bare'), 'false', 'the [core] section git init wrote is still read');
+  });
+
+  it('gives each setting one value that a test can replace, whatever config the machine\'s init.templateDir holds', (t) => {
+    const directory = temporaryDirectory(t);
+    write(directory, 'template/config', '[core]\n\tautocrlf = input\n[user]\n\temail = me@x\n');
+    write(directory, 'global', `[init]\n\ttemplateDir = ${join(directory, 'template').replaceAll('\\', '/')}\n`);
+    const before = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = join(directory, 'global');
+    t.after(() => {
+      if (before === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = before;
+    });
+    const repo = createRepository(join(directory, 'repo'));
+    assert.equal(git(repo, 'config', '--local', '--get-all', 'core.autocrlf'), 'false');
+    assert.equal(git(repo, 'config', '--local', '--get-all', 'user.email'), 'test@example.invalid');
+    git(repo, 'config', 'core.autocrlf', 'true');
+    git(repo, 'config', 'user.email', 'a@b');
+    assert.equal(git(repo, 'config', '--get', 'core.autocrlf'), 'true');
+    assert.ok(existsSync(join(repo, '.git', 'info')) && existsSync(join(repo, '.git', 'hooks')), 'the directories a test writes an exclude or a hook in');
   });
 
   it('commits with the identity it set', (t) => {
