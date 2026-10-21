@@ -15,7 +15,7 @@ import { checkKinds } from './vocabulary.ts';
 const text = z.string();
 const ids = z.array(z.string());
 const condition = z.strictObject({ holds: z.boolean(), what: text.nullable(), files: z.array(text) });
-const answer = z.strictObject({ words: text, at: text, applied: z.boolean() });
+const answer = z.strictObject({ kind: z.enum(['option', 'accept', 'reject']), option: z.number().int().min(1).nullable(), words: text, at: text, applied: z.boolean() });
 
 /** Version 1 of the JSON form of the brief. */
 export const briefJsonV1 = z.strictObject({
@@ -30,6 +30,7 @@ export const briefJsonV1 = z.strictObject({
     id: text,
     question: text,
     inPlace: z.number().int().min(1),
+    defaultApplied: z.boolean(),
     choice: z.number().int().min(1),
     options: z.array(z.strictObject({ option: text, cost: text, rule: text, edits: z.boolean() })),
     lookedIn: z.array(text),
@@ -72,7 +73,7 @@ export type BriefJsonV1 = z.infer<typeof briefJsonV1>;
 /** The local facts the JSON form carries beside the brief: the copy's path, or null when it could not be written, the record's, the repository, the store and the continue command or null. */
 export type BriefLocal = BriefJsonV1['local'];
 
-const answerJson = (given: BriefAnswer | null): BriefJsonV1['questions'][number]['answer'] => (given === null ? null : { words: given.words, at: given.at, applied: given.applied });
+const answerJson = (given: BriefAnswer | null): BriefJsonV1['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
 
 /** The brief as version 1 of its JSON form, with the run's local facts. */
 export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
@@ -88,6 +89,7 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
       id: question.id,
       question: question.question,
       inPlace: question.inPlace,
+      defaultApplied: question.defaultApplied,
       choice: question.choice,
       options: question.options.map((option) => ({ option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
       lookedIn: [...question.lookedIn],

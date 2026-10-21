@@ -3,8 +3,8 @@ import { describe, it } from 'node:test';
 import type { ChangeReading } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefLimits, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
-import { answer, answerableDecisions, changeReading, decidedFixRun, decisions, departure, launch, readOnlyReported, worker } from '../helpers/review-history.ts';
+import { briefLimits, briefMarkdown, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
 const withAccount = (state: RunState, change: TriageAccount): RunState => ({ ...state, review: { ...state.review!, change } });
@@ -36,7 +36,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     const brief = briefOf(answered);
     assert.deepEqual([brief.headline.questions, brief.headline.departures], [0, 1]);
     assert.equal(brief.headline.text, '1 thing needs you: 1 fix that goes against a written rule. Nothing waits for you: the run went on as it decided.');
-    assert.deepEqual(brief.questions[0]!.answer, { words: 'option 2', at: brief.questions[0]!.answer!.at, applied: false }, 'the question stays, with its answer');
+    assert.deepEqual(brief.questions[0]!.answer, { kind: 'option', option: 2, words: 'option 2', at: brief.questions[0]!.answer!.at, applied: false }, 'the question stays, with its answer');
     for (const review of ['accept', 'reject'] as const) {
       const reviewed = briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', review)).fold());
       assert.deepEqual([reviewed.headline.questions, reviewed.headline.departures], [0, 0], review);
@@ -267,5 +267,41 @@ describe('the line that says the run covered everything (R10 of the brief of a r
   it('says each check ran before and after the fixes only when they ran after them', () => {
     assert.equal(briefOf(covered('applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.');
     assert.equal(briefOf(covered('already-applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.');
+  });
+});
+
+describe('the words of a question and a departure once a person answered (R8, R9 of the brief of a run)', () => {
+  const markdown = (state: RunState): string => briefMarkdown(briefOf(state)).join('\n');
+
+  it('says an answered question\'s answer first, and no option in place now', () => {
+    const passed = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 2).fold();
+    const text = markdown(passed);
+    assert.match(text, /^### 1\. Should parse accept an empty input\? \(\[SWEEP-1\]\(#finding-sweep-1\)\)\n\nAnswered: option 2 on [^;]+; the tree holds it\. deep-review's choice was option 2\.$/m);
+    assert.doesNotMatch(text, /In place now/);
+    assert.match(text, /^\| 2, your answer, deep-review's choice \| /m);
+    assert.equal(briefOf(passed).questions[0]!.answer?.kind, 'option');
+  });
+
+  it('calls a default that edits the code the default, not in place, in a run that only reviewed', () => {
+    const state = readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold();
+    const brief = briefOf(state);
+    assert.equal(brief.questions[0]!.defaultApplied, false);
+    const text = markdown(state);
+    assert.match(text, /^The default: option 1, because it is the easiest to take back; this run only reviewed, so `review --fix` applies it\. deep-review's choice: option 2\.$/m);
+    assert.match(text, /^\| 1, the default \| /m);
+    assert.match(brief.headline.text, /Nothing waits for you: each question has a default\.$/);
+    assert.equal(briefOf(readOnlyReported([decisions[0], askDecision('SWEEP-1', false)]).fold()).questions[0]!.defaultApplied, true, 'a default that keeps the code is in place');
+  });
+
+  it('says a departure a person rejected now follows the rule, and whether the tree holds that fix', () => {
+    const readOnly = readOnlyReported(answerableDecisions()).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
+    assert.match(markdown(readOnly), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; `review --fix` applies the fix that follows it\.$/m);
+    const owed = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
+    assert.match(markdown(owed), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
+    const held = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2).fold();
+    assert.match(markdown(held), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; the tree holds the fix that follows it\.$/m);
+    assert.doesNotMatch(markdown(held), /A fixer applied it\./);
+    const accepted = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
+    assert.match(markdown(accepted), /^What the fix does: guard the null once, before parse reads it\. A fixer applied it\.$/m, 'an acceptance keeps the fix as applied');
   });
 });

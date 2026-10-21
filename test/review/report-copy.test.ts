@@ -60,7 +60,7 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.equal(path, reportCopyPath(root, state));
     const text = readFileSync(path!, 'utf8');
     assert.equal(text, renderReport(state, reportInputOf(checkpointAt(root), state, context)));
-    assert.match(text, /^Answered: option 2 on [^;]+; not yet applied\.$/m);
+    assert.match(text, /^Answered: option 2 on [^;]+; not yet applied\. deep-review's choice was option 2\.$/m);
     assert.match(text, /^Engine: 0\.0\.0\+copy \(run created by 0\.0\.0\)$/m, 'the copy names the engine that rendered it');
   });
 

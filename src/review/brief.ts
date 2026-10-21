@@ -56,6 +56,10 @@ export interface BriefOption {
 
 /** An answer a person gave, as the brief says it. */
 export interface BriefAnswer {
+  /** What the person gave: an option, or an acceptance or a rejection of a departure. */
+  readonly kind: 'option' | 'accept' | 'reject';
+  /** The option chosen, numbered from 1, or null for an acceptance or a rejection. */
+  readonly option: number | null;
   /** The answer as the engine words it, such as `option 2` or `accepted`. */
   readonly words: string;
   readonly at: string;
@@ -67,8 +71,14 @@ export interface BriefAnswer {
 export interface BriefQuestion {
   readonly id: string;
   readonly question: string;
-  /** The option in place now, because it is the easiest to take back. */
+  /** The default, the option that is the easiest to take back. */
   readonly inPlace: number;
+  /**
+   * Whether the default is in place: one that keeps the code is; one that
+   * edits it is once a fixer applied it, and never in a run that only
+   * reviewed.
+   */
+  readonly defaultApplied: boolean;
   /** The option deep-review thinks best. */
   readonly choice: number;
   readonly options: readonly BriefOption[];
@@ -193,7 +203,7 @@ function scopeTitle(state: RunState): string {
 
 
 /** An answer as the brief says it: its words, when, and whether the tree holds it. */
-const answerOf = (answer: RecordedAnswer): BriefAnswer => ({ words: answerWords(answer.answer), at: answer.at, applied: answer.appliedBy !== null });
+const answerOf = (answer: RecordedAnswer): BriefAnswer => ({ kind: answer.answer.kind, option: answer.answer.kind === 'option' ? answer.answer.option + 1 : null, words: answerWords(answer.answer), at: answer.at, applied: answer.appliedBy !== null });
 
 /** A fix pass's outcome of a finding in the brief's vocabulary; a finding no fixer was given has none. */
 const fateWordsOf: Readonly<Partial<Record<FindingOutcome, BriefFate>>> = {
@@ -234,10 +244,13 @@ function questionsOf(context: BriefContext): BriefQuestion[] {
   return decisionsOf(context, 'ask').map((decision) => {
     const { ask } = decision;
     const standing = standingAnswer(context.review, decision.id);
+    const outcome = context.outcomes.get(decision.id);
+    const edits = ask.options[ask.applied]?.edits ?? false;
     return {
       id: decision.id,
       question: ask.question,
       inPlace: ask.applied + 1,
+      defaultApplied: !edits || outcome === 'applied' || outcome === 'already applied',
       choice: ask.recommended + 1,
       options: ask.options.map((option, index) => ({ number: index + 1, option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
       lookedIn: ask.searched,
@@ -381,11 +394,11 @@ function changedOf(context: BriefContext): BriefChanged {
 }
 
 /** The headline's sentence: how many things need the person, and that nothing waits. */
-function headlineText(questions: number, departures: number): string {
+function headlineText(questions: number, departures: number, defaultsInPlace: boolean): string {
   const total = questions + departures;
   if (total === 0) return 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.';
   const parts = [...(questions === 0 ? [] : [counted(questions, 'question', 'questions')]), ...(departures === 0 ? [] : [counted(departures, 'fix that goes against a written rule', 'fixes that go against a written rule')])];
-  const waits = questions > 0 ? 'Nothing waits for you: each question has a default in place.' : 'Nothing waits for you: the run went on as it decided.';
+  const waits = questions === 0 ? 'Nothing waits for you: the run went on as it decided.' : `Nothing waits for you: each question has a default${defaultsInPlace ? ' in place' : ''}.`;
   return `${counted(total, 'thing needs', 'things need')} you: ${parts.join(' and ')}. ${waits}`;
 }
 
@@ -424,7 +437,7 @@ export function briefOf(state: RunState): Brief {
   return {
     run: state.id,
     title: review.change.kind === 'given' ? cutAtWord(review.change.reading.title, briefLimits.title) : scopeTitle(state),
-    headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures) },
+    headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures, questions.every((question) => question.answer !== null || question.defaultApplied)) },
     change: changeOf(review.change),
     questions,
     departures,
@@ -483,21 +496,33 @@ function changePart(change: BriefChange): string[] {
 }
 
 /** One question as a block of the brief: its words, the option in place now and deep-review's choice, the options, the command, and the details one step below. */
-function questionBlock(question: BriefQuestion, position: number): string[] {
-  const inPlace = question.inPlace === question.choice
-    ? `In place now: option ${String(question.inPlace)}, which is also deep-review's choice, because it is the easiest to take back.`
-    : `In place now: option ${String(question.inPlace)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`;
-  const label = (option: BriefOption): string => [String(option.number), ...(option.number === question.inPlace ? ['in place now'] : []), ...(option.number === question.choice ? ['deep-review\'s choice'] : [])].join(', ');
+function questionBlock(question: BriefQuestion, position: number, fixed: boolean): string[] {
+  const { answer } = question;
+  // What stands: the answer a person gave, else the default, in place or, when it edits the code and no fixer applied it, only the default.
+  const answered = answer?.option ?? null;
+  const standing = answer !== null
+    ? `${answeredWords(answer)} deep-review's choice was option ${String(question.choice)}.`
+    : question.defaultApplied
+      ? question.inPlace === question.choice
+        ? `In place now: option ${String(question.inPlace)}, which is also deep-review's choice, because it is the easiest to take back.`
+        : `In place now: option ${String(question.inPlace)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`
+      : `The default: option ${String(question.inPlace)}, because it is the easiest to take back; ${fixed ? 'its fixer did not apply it' : 'this run only reviewed, so `review --fix` applies it'}. deep-review's choice: option ${String(question.choice)}.`;
+  const inPlaceLabel = question.defaultApplied ? 'in place now' : 'the default';
+  const label = (option: BriefOption): string => [
+    String(option.number),
+    ...(answer === null && option.number === question.inPlace ? [inPlaceLabel] : []),
+    ...(option.number === answered ? ['your answer'] : []),
+    ...(option.number === question.choice ? ['deep-review\'s choice'] : []),
+  ].join(', ');
   return [
     `### ${String(position)}. ${inlineText(question.question)} (${findingLink(question.id)})`,
     '',
-    inPlace,
+    standing,
     '',
     '| Option | What it does | What it costs |',
     '|---|---|---|',
     ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
-    '',
-    question.answer === null ? `To take deep-review's choice: \`${question.command}\`. For another option, give its number.` : answeredWords(question.answer),
+    ...(answer === null ? ['', `To take deep-review's choice: \`${question.command}\`. For another option, give its number.`] : []),
     '',
     '<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>',
     '',
@@ -510,10 +535,15 @@ function questionBlock(question: BriefQuestion, position: number): string[] {
 }
 
 /** One fix that goes against a written rule as a block of the brief: the rule, the fact against it, the fix and its fate, and the commands that review it. */
-function departureBlock(departure: BriefDeparture, position: number): string[] {
-  const reviewLine = departure.review === null
+function departureBlock(departure: BriefDeparture, position: number, fixed: boolean): string[] {
+  const { review } = departure;
+  const reviewLine = review === null
     ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.`
-    : answeredWords(departure.review);
+    : answeredWords(review);
+  // A rejection replaces the departing fix with one that follows the rule, so the fate of the departing fix no longer stands.
+  const fate = review?.kind !== 'reject'
+    ? fateWords[departure.fate]
+    : `You chose to follow the rule instead; ${review.applied ? 'the tree holds the fix that follows it' : fixed ? 'no fixer has applied the fix that follows it yet' : '`review --fix` applies the fix that follows it'}.`;
   return [
     `### ${String(position)}. ${findingLink(departure.id)}`,
     '',
@@ -521,7 +551,7 @@ function departureBlock(departure: BriefDeparture, position: number): string[] {
     '',
     `The fact against it: ${sentenceText(departure.fact)}`,
     '',
-    `What the fix does: ${sentenceText(departure.fix)} ${fateWords[departure.fate]}`,
+    `What the fix does: ${sentenceText(departure.fix)} ${fate}`,
     '',
     reviewLine,
   ];
@@ -578,13 +608,13 @@ export function briefMarkdown(brief: Brief): string[] {
   const questions = brief.questions.length === 0 ? [] : [
     `## Questions for you (${String(brief.questions.length)})`,
     '',
-    `Each question has an option in place now. Answer only to choose another one. ${howToAnswer}`,
-    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1)]),
+    `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswer}`,
+    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed)]),
   ];
   const departures = brief.departures.length === 0 ? [] : [
     `## Fixes that go against a written rule (${String(brief.departures.length)})`,
     ...(brief.questions.length === 0 ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${howToAnswer}`] : []),
-    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1)]),
+    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed)]),
   ];
   const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
   const parts = [changePart(brief.change), questions, departures, notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);

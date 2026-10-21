@@ -369,11 +369,12 @@ describe('the Decisions section (R8 of the decision step)', () => {
     };
     const held = recorded(0);
     assert.match(held.report, new RegExp(`^- 2\\\\\\. SWEEP-1: answered option 1 on ${held.at}; the option the tree held$`, 'm'));
-    assert.match(held.report, new RegExp(`^Answered: option 1 on ${held.at}; the tree holds it\\.$`, 'm'), 'the brief says so in the question\'s block');
+    assert.match(held.report, new RegExp(`^Answered: option 1 on ${held.at}; the tree holds it\\. deep-review's choice was option 2\\.$`, 'm'), 'the brief says so in the question\'s block');
+    assert.doesNotMatch(held.report, /In place now/, 'the answer stands in the default\'s place');
     assert.doesNotMatch(held.report, /To take deep-review's choice/, 'an answered question offers no command');
     const owed = recorded(1);
     assert.match(owed.report, new RegExp(`^- 2\\\\\\. SWEEP-1: answered option 2 on ${owed.at}; not yet applied$`, 'm'));
-    assert.match(owed.report, new RegExp(`^Answered: option 2 on ${owed.at}; not yet applied\\.$`, 'm'));
+    assert.match(owed.report, new RegExp(`^Answered: option 2 on ${owed.at}; not yet applied\\. deep-review's choice was option 2\\.$`, 'm'));
     assert.match(owed.report, /^Answers: 1 recorded, 0 applied$/m, 'the header counts the answers');
     assert.doesNotMatch(owed.report, /^Answered: the last pass/m, 'no pass yet');
   });

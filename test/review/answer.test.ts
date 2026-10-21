@@ -194,7 +194,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.doesNotMatch(readFileSync(copy, 'utf8'), /^Answered: /m, 'review wrote the copy before any answer');
     const recorded = await run(box, '--finding', question, '--option', '2');
     assert.equal(recorded.status, 0, recorded.stderr);
-    assert.match(readFileSync(copy, 'utf8'), /^Answered: option 2 on [^;]+; not yet applied\.$/m);
+    assert.match(readFileSync(copy, 'utf8'), /^Answered: option 2 on [^;]+; not yet applied\. deep-review's choice was option 2\.$/m);
   });
 
   it('records the answer but refuses the pass when the tree moved, naming what moved and what the answer says; the same answer applies it once restored (R6)', async (t) => {
