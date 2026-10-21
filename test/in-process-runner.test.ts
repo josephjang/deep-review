@@ -9,7 +9,7 @@ import { runProcess, type ProcessRequest, type ProcessResult } from '../src/runt
 import { paddedVersionBytes } from './helpers/fake-probe.ts';
 import { inProcessRunProbe, inProcessRunProcess, processFakeOf, runtimeFakeOf } from './helpers/in-process-runner.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './helpers/launcher.ts';
-import { fakeCheck, fakeCheckCommand } from './helpers/review-sandbox.ts';
+import { fakeCheck, fakeCheckCommand } from './helpers/fake-check.ts';
 
 /** A new temporary directory by its real path, removed when the test `t` ends. */
 function temporaryDirectory(t: TestContext): string {

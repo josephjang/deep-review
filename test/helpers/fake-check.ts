@@ -16,10 +16,18 @@
 // worker keeps too).
 // Started as a script it runs in a process of its own, as a real check
 // does; checkFake runs it on any host (fake-host.ts). It imports nothing of
-// the other helpers but fake-host.ts, so a check starts as fast as a real one.
+// the other helpers but fake-host.ts, and of the engine only a type, so a
+// check starts as fast as a real one.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import type { CheckKind } from '../../src/review/vocabulary.ts';
 import { holdIfNamed, processHost, type FakeHost } from './fake-host.ts';
+
+/** The stand-in check's script, steered by FAKE_CHECKS (see the top of this file). */
+export const fakeCheck = resolve(import.meta.dirname, 'fake-check.ts');
+
+/** The command line of the stand-in check of one kind, with this Node, quoted for either platform shell. */
+export const fakeCheckCommand = (kind: CheckKind): string => `"${process.execPath}" "${fakeCheck}" ${kind}`;
 
 type Rule =
   | 'pass'

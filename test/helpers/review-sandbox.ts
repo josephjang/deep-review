@@ -18,6 +18,7 @@ import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
+import { fakeCheck, fakeCheckCommand } from './fake-check.ts';
 import type { Script } from './fake-runtime.ts';
 import { inProcessRunProbe, inProcessRunProcess } from './in-process-runner.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
@@ -42,9 +43,6 @@ export const loadedRunnerTimeoutMs = 120_000;
  */
 export const hangTimeoutMs = 4000;
 
-/** The stand-in check command, steered by FAKE_CHECKS (see fake-check.ts). */
-export const fakeCheck = resolve(import.meta.dirname, 'fake-check.ts');
-
 /** The engine that writes the events `addUnknownEvent` inserts: a build that declares one this engine does not. */
 export const otherEngine = '9.9.9+newer';
 
@@ -54,8 +52,8 @@ export const unknownEvent = { kind: 'phase.finished', version: 99 } as const;
 /** The engine's own entry from the sources, which a fixer's snapshot command runs. */
 export const cliEntry = resolve(import.meta.dirname, '../../src/cli.ts');
 
-/** The command line of the stand-in check of one kind, with this Node, quoted for either platform shell. */
-export const fakeCheckCommand = (kind: CheckKind): string => `"${process.execPath}" "${fakeCheck}" ${kind}`;
+/** The stand-in check's script and command line, which live beside the check (fake-check.ts) so the in-process runner imports them too. */
+export { fakeCheck, fakeCheckCommand };
 
 /**
  * The checkpoint as a command that picks a run sees it, with `act` run once

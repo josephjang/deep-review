@@ -20,10 +20,11 @@ import { shellInvocation } from '../../src/review/checks/run.ts';
 import { comparable, spellingsOf } from '../../src/runtime/environment.ts';
 import { runProbe, type ProbeRequest, type ProbeRunner } from '../../src/runtime/preflight.ts';
 import { runProcess, type ProcessRequest, type ProcessResult, type ProcessRunner } from '../../src/runtime/process.ts';
-import { checkFake, checkStartsGrandchild } from './fake-check.ts';
+import { checkFake, checkStartsGrandchild, fakeCheck } from './fake-check.ts';
 import { claudeFake } from './fake-claude.ts';
 import { codexFake } from './fake-codex.ts';
 import type { FakeHost } from './fake-host.ts';
+import { fakeClaude, fakeCodex } from './launcher.ts';
 
 /** A fake to run, its name, and the arguments after its script. */
 export interface FakeCall {
@@ -35,12 +36,9 @@ export interface FakeCall {
 
 /** The fakes a worker or a probe starts, by the script `node` is given first. */
 const runtimeFakes: ReadonlyMap<string, Omit<FakeCall, 'args'>> = new Map([
-  [resolve(import.meta.dirname, 'fake-claude.ts'), { name: 'claude', run: claudeFake }],
-  [resolve(import.meta.dirname, 'fake-codex.ts'), { name: 'codex', run: codexFake }],
+  [fakeClaude, { name: 'claude', run: claudeFake }],
+  [fakeCodex, { name: 'codex', run: codexFake }],
 ]);
-
-/** The stand-in check's script: `fakeCheck` of review-sandbox.ts, which imports this module, so it is not imported back. */
-const fakeCheckScript = resolve(import.meta.dirname, 'fake-check.ts');
 
 /** A path as the platform compares it: without case on Windows. */
 const comparablePath = (path: string): string => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
@@ -55,7 +53,7 @@ export function runtimeFakeOf(executable: string, args: readonly string[]): Fake
 /**
  * The kind of the stand-in check a check's request runs, or null: the
  * platform shell, as shellInvocation gives it, running exactly the
- * command fakeCheckCommand in review-sandbox.ts writes for one kind.
+ * command fakeCheckCommand in fake-check.ts writes for one kind.
  */
 function checkKindOf(request: ProcessRequest): string | null {
   const shell = shellInvocation('', process.platform);
@@ -63,7 +61,7 @@ function checkKindOf(request: ProcessRequest): string | null {
   const line = process.platform === 'win32' ? /^"(.*)"$/s.exec(request.args[3] ?? '')?.[1] : request.args[1];
   if (line === undefined) return null;
   const match = /^"([^"]+)" "([^"]+)" (\w+)$/.exec(line);
-  if (match === null || comparablePath(match[1]!) !== comparablePath(process.execPath) || comparablePath(match[2]!) !== comparablePath(fakeCheckScript)) return null;
+  if (match === null || comparablePath(match[1]!) !== comparablePath(process.execPath) || comparablePath(match[2]!) !== comparablePath(fakeCheck)) return null;
   return match[3]!;
 }
 
