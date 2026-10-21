@@ -105,7 +105,7 @@ function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /** A host inside this process: output goes to `sink`, and once `signal` aborts every wait and write rejects with FakeEnded. */
 function inProcessHost(args: readonly string[], environment: NodeJS.ProcessEnv, cwd: string, stdin: () => string, sink: (stream: 'stdout' | 'stderr', bytes: Buffer) => void, signal: AbortSignal): FakeHost {
   hosts += 1;
-  const ended = (): Promise<never> => Promise.reject(new FakeEnded('the runner ended the fake'));
+  const ended = (): FakeEnded => new FakeEnded('the runner ended the fake');
   return {
     args,
     environment: childEnvironment(environment),
@@ -114,14 +114,15 @@ function inProcessHost(args: readonly string[], environment: NodeJS.ProcessEnv, 
     id: `${String(process.pid)}-${String(hosts)}`,
     readStdin: stdin,
     write: (stream, bytes) => {
-      if (signal.aborted) return ended();
+      if (signal.aborted) return Promise.reject(ended());
       sink(stream, Buffer.from(bytes));
       return Promise.resolve();
     },
+    // Settles only on the abort, so its listener goes with it.
     hang: () =>
       new Promise<never>((_, reject) => {
-        if (signal.aborted) reject(new FakeEnded('the runner ended the fake'));
-        else signal.addEventListener('abort', () => reject(new FakeEnded('the runner ended the fake')), { once: true });
+        if (signal.aborted) reject(ended());
+        else signal.addEventListener('abort', () => reject(ended()), { once: true });
       }),
     startGrandchild: () => {
       throw new Error('A fake in the test\'s own process cannot start a grandchild; in-process-runner.ts must leave this request to the real runner');
@@ -129,14 +130,19 @@ function inProcessHost(args: readonly string[], environment: NodeJS.ProcessEnv, 
     sleep: (ms) =>
       new Promise<void>((done, reject) => {
         if (signal.aborted) {
-          reject(new FakeEnded('the runner ended the fake'));
+          reject(ended());
           return;
         }
-        const timer = setTimeout(done, ms);
-        signal.addEventListener('abort', () => {
+        // Each sleep's listener goes when its timer fires, so a fake that polls leaves none behind on the signal.
+        const onAbort = (): void => {
           clearTimeout(timer);
-          reject(new FakeEnded('the runner ended the fake'));
-        }, { once: true });
+          reject(ended());
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort);
+          done();
+        }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
       }),
   };
 }
