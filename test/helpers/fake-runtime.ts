@@ -313,6 +313,17 @@ export function hangWithGrandchild(host: FakeHost, pidFile: string): Promise<nev
   return host.hang();
 }
 
+/**
+ * Whether a fake runtime may start a grandchild under `environment`:
+ * FAKE_HANG, under which it hangs with one (hangWithGrandchild), or
+ * FAKE_START_DIR, under which a worker FAKE_HOLD names holds with one
+ * (holdIfNamed in fake-host.ts). Only a fake in a process of its own has
+ * a tree for the engine to kill (see FakeHost.startGrandchild).
+ */
+export function runtimeStartsGrandchild(environment: NodeJS.ProcessEnv): boolean {
+  return environment.FAKE_HANG !== undefined || environment.FAKE_START_DIR !== undefined;
+}
+
 /** The value after `flag` in argv, or undefined. */
 export function option(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag);

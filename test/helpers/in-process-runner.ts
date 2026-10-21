@@ -24,6 +24,7 @@ import { checkFake, checkStartsGrandchild, fakeCheck } from './fake-check.ts';
 import { claudeFake } from './fake-claude.ts';
 import { codexFake } from './fake-codex.ts';
 import type { FakeHost } from './fake-host.ts';
+import { runtimeStartsGrandchild } from './fake-runtime.ts';
 import { fakeClaude, fakeCodex } from './launcher.ts';
 
 /** A fake to run, its name, and the arguments after its script. */
@@ -70,8 +71,7 @@ export function processFakeOf(request: ProcessRequest): FakeCall | null {
   // A working directory that is not there is the spawn's error to report, as the real runner does.
   if (!existsSync(request.cwd)) return null;
   const runtime = runtimeFakeOf(request.executable, request.args);
-  // FAKE_HANG starts a grandchild, and FAKE_START_DIR may hold with one (fake-runtime.ts).
-  if (runtime !== null) return request.environment.FAKE_HANG !== undefined || request.environment.FAKE_START_DIR !== undefined ? null : runtime;
+  if (runtime !== null) return runtimeStartsGrandchild(request.environment) ? null : runtime;
   const kind = checkKindOf(request);
   if (kind === null || checkStartsGrandchild(request.environment, kind)) return null;
   return { name: `check ${kind}`, run: checkFake, args: [kind] };
