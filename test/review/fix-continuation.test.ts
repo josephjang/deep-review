@@ -146,8 +146,10 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual(pinned.notFollowed, [{ name: 'checks.test', repository: 'npm test', value: flags.commands.test, layer: 'clone' }]);
     assert.deepEqual((pinned.ignored as { name: string }[]).map((entry) => entry.name), ['report.formats']);
     const report = box.checkpoint.evidence.read(state.review!.report!.report).toString('utf8');
-    assert.ok(report.includes(`- Not followed: checks.test: the repository's "npm test", this run's ${JSON.stringify(flags.commands.test)} from the clone's file.`), report);
-    assert.match(report, /^- Ignored: report\.formats in .*clone\.toml: no such setting\.$/m);
+    // The facts of the run give the settings' lines beside the Settings: line, where the clone's file may be named by its path (R15 of the brief of a run).
+    const facts = report.slice(report.indexOf('\n## The run\n'));
+    assert.ok(facts.includes(`\nNot followed: checks.test: the repository's "npm test", this run's ${JSON.stringify(flags.commands.test)} from the clone's file.\n`), report);
+    assert.match(facts, /^Ignored: report\.formats in .*clone\.toml: no such setting\.$/m);
     assert.deepEqual(state.review!.configuration.checks, { timeoutMs: 30 * 60_000 }, 'the repository\'s check timeout');
     assert.deepEqual(state.review!.fix!.checks.planned!.checks.map((check) => [check.kind, check.layer]), [['build', 'repository'], ['typecheck', 'flag'], ['lint', 'repository'], ['test', 'clone']]);
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 }, 'the settings settle every kind, so no surveyor runs');
