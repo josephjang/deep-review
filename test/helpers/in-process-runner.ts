@@ -223,16 +223,24 @@ async function probeInProcess(request: ProbeRequest, call: FakeCall): Promise<st
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let printed = 0;
+  let overflowed = false;
   const controller = new AbortController();
+  // As runProbe: output past the limit ends the probe at once, whatever it would do next, and is not kept.
   const sink = (stream: 'stdout' | 'stderr', bytes: Buffer): void => {
+    if (overflowed) return;
     printed += bytes.length;
+    if (printed > request.maxOutputBytes) {
+      overflowed = true;
+      controller.abort();
+      return;
+    }
     (stream === 'stdout' ? stdout : stderr).push(bytes);
   };
   // A probe's stdin is empty, and it runs in the engine's working directory.
   const host = inProcessHost(call.args, request.environment, process.cwd(), () => '', sink, controller.signal);
   const first = await endOrTimeout(call, host, controller, request.timeoutMs);
+  if (overflowed) throw new Error(`it printed more than ${String(request.maxOutputBytes)} bytes`);
   if (first === 'timeout') throw new Error(`it did not finish within ${String(request.timeoutMs)} ms`);
-  if (printed > request.maxOutputBytes) throw new Error(`it printed more than ${String(request.maxOutputBytes)} bytes`);
   if (first === 0) return Buffer.concat(stdout).toString('utf8');
   const printedError = Buffer.concat(stderr).toString('utf8').trim();
   throw new Error(printedError === '' ? `it exited with code ${String(first)}` : printedError);
