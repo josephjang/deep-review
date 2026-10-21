@@ -11,7 +11,7 @@
  */
 import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision } from '../checkpoint/events.ts';
-import { budgetStoppedUnits, committedRevisions, lastRecordedRun, type FixState } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, committedRevisions, lastRecordedRun, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
@@ -308,14 +308,29 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
   }
   const unapplied: readonly [FindingOutcome, string][] = [['deferred', 'its fixer put it off'], ['blocked', 'its fixer could not apply it'], ['not attempted', 'no fixer attempted it']];
+  // What went to a fixer, by its decision: a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
+  const decidedOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision?.decision ?? null]));
+  const wentToFixer = (id: string): string => {
+    switch (decidedOf.get(id)) {
+      case 'ask':
+        return `The default of the question on ${id} went to a fixer`;
+      case 'fix':
+        return `${id} was decided as a fix`;
+      default:
+        return `${id} went to a fixer`;
+    }
+  };
   for (const [outcome, words] of unapplied) {
-    for (const id of withOutcome(context, outcome)) gaps.push({ kind: 'fix', text: `${id} was decided as a fix, and ${words}.` });
+    for (const id of withOutcome(context, outcome)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${words}.` });
   }
   const stopped = budgetStoppedUnits(fix);
   if (stopped.length > 0) {
-    const batches = stopped.filter((unit) => unit.phase === 'fixes').length;
-    const what = [...(batches === 0 ? [] : [counted(batches, 'batch of fixes', 'batches of fixes')]), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : [])].join(' and ');
-    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${what} started. The facts of the run at the end of the report give the command that continues them.` });
+    // In plain words, the findings the stopped batches hold, since the brief names no batch (R12).
+    const keys = new Set(stopped.filter((unit) => unit.phase === 'fixes').map((unit) => unit.key));
+    const findings = allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).length;
+    const parts = [...(keys.size === 0 ? [] : [findings === 0 ? 'some of the fixes' : counted(findings, 'finding', 'findings')]), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : [])];
+    const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? 'was' : 'were';
+    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${parts.join(' and ')} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
   }
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
   return gaps;

@@ -126,12 +126,20 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       }
     });
 
+    it('says of a question whose default a fixer did not apply that the default went to a fixer, not that it was decided as a fix', () => {
+      const asked = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'deferred').fold());
+      assert.ok(asked.notCovered.some((gap) => gap.kind === 'fix' && gap.text === 'The default of the question on RIPPLE-1 went to a fixer, and its fixer put it off.'), JSON.stringify(asked.notCovered));
+    });
+
     it('lists the work the run budget did not start, and points at the facts of the run for the command that continues it', () => {
       const state = decidedFixRun().fold();
       const fix = state.review!.fix!;
-      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-2': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
+      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
       const gap = briefOf(stopped as RunState).notCovered.find((entry) => entry.kind === 'budget');
-      assert.equal(gap?.text, 'The run budget stopped the fixes before 1 batch of fixes and the repair of the checks started. The facts of the run at the end of the report give the command that continues them.');
+      // In plain words: the findings its batches hold, not the batches (R12 of the brief of a run).
+      assert.equal(gap?.text, 'The run budget stopped the fixes before 1 finding and the repair of the checks were attempted. The facts of the run at the end of the report give the command that continues them.');
+      const repairOnly = { ...stopped, review: { ...stopped.review, fix: { ...stopped.review.fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
+      assert.equal(briefOf(repairOnly as RunState).notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before the repair of the checks was attempted. The facts of the run at the end of the report give the command that continues them.');
     });
 
     it('lists a worker a stop ended whose work did not run again, and not one that ran again', () => {

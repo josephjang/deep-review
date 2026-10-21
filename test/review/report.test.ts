@@ -252,7 +252,8 @@ describe('renderReport', () => {
       const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-9': { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
       const report = renderReport(stopped, { ...reportInput, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: 'node "/opt/e/main.mjs" review --fix --budget-usd 31' } });
       assert.match(report, /\n## The run\n[\s\S]*\n\nThe run budget stopped the fix pass: 1 batch did not start\. `node "\/opt\/e\/main\.mjs" review --fix --budget-usd 31` continues it and reviews nothing again\.\n$/);
-      assert.match(report, /^- The run budget stopped the fixes before 1 batch of fixes started\. The facts of the run at the end of the report give the command that continues them\.$/m);
+      assert.match(report, /^- The run budget stopped the fixes before [^\n]+ (was|were) attempted\. The facts of the run at the end of the report give the command that continues them\.$/m);
+      assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /batch/, 'the brief names no batch (R12 of the brief of a run)');
     });
   });
 
