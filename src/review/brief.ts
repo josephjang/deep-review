@@ -389,8 +389,18 @@ function headlineText(questions: number, departures: number): string {
   return `${counted(total, 'thing needs', 'things need')} you: ${parts.join(' and ')}. ${waits}`;
 }
 
-/** The sentence that says the run covered everything R10 names, for a run with no gap. */
-const coveredText = (fixed: boolean): string => (fixed ? 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.' : 'Each angle ran, and a verifier examined each candidate.');
+/**
+ * The sentence that says the run covered everything R10 names, for a run
+ * with no gap: the checks of a fix run ran before the fixes, and after
+ * them unless no fix changed a file, when no check runs again.
+ */
+function coveredText(fix: FixState | null): string {
+  if (fix === null) return 'Each angle ran, and a verifier examined each candidate.';
+  const after = checksOf(fix).every((check) => check.after !== null);
+  return after
+    ? 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.'
+    : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
+}
 
 /** The core of the change from the triage's account: cut to what the brief shows, or why the run has none. */
 function changeOf(account: TriageAccount): BriefChange {
@@ -419,7 +429,7 @@ export function briefOf(state: RunState): Brief {
     questions,
     departures,
     notCovered,
-    covered: notCovered.length === 0 ? coveredText(review.fix !== null) : null,
+    covered: notCovered.length === 0 ? coveredText(review.fix) : null,
     look: lookOf(context, departures),
     changed: changedOf(context),
   };

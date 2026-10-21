@@ -253,3 +253,19 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.deepEqual(answered.slice(2, 4), ['Questions: none open; each is answered', 'Against a written rule: no fix left to review']);
   });
 });
+
+describe('the line that says the run covered everything (R10 of the brief of a run)', () => {
+  /** A fix run with no gap of R10: every angle ran, every group was verified, and each planned check has a command. */
+  const covered = (status: string): RunState => {
+    const state = decidedFixRun(answerableDecisions(), status).fold();
+    const review = state.review!;
+    const fix = review.fix!;
+    const planned = fix.checks.planned!;
+    return { ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] }, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.filter((check) => check.command !== null) } } } } };
+  };
+
+  it('says each check ran before and after the fixes only when they ran after them', () => {
+    assert.equal(briefOf(covered('applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.');
+    assert.equal(briefOf(covered('already-applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.');
+  });
+});
