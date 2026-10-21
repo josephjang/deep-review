@@ -17,10 +17,11 @@
 import { closeSync, existsSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { shellInvocation } from '../../src/review/checks/run.ts';
+import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { comparable, spellingsOf } from '../../src/runtime/environment.ts';
 import { runProbe, type ProbeRequest, type ProbeRunner } from '../../src/runtime/preflight.ts';
 import { runProcess, type ProcessRequest, type ProcessResult, type ProcessRunner } from '../../src/runtime/process.ts';
-import { checkFake, checkStartsGrandchild, fakeCheck } from './fake-check.ts';
+import { checkFake, checkStartsGrandchild, fakeCheckCommand } from './fake-check.ts';
 import { claudeFake } from './fake-claude.ts';
 import { codexFake } from './fake-codex.ts';
 import type { FakeHost } from './fake-host.ts';
@@ -54,16 +55,16 @@ export function runtimeFakeOf(executable: string, args: readonly string[]): Fake
 /**
  * The kind of the stand-in check a check's request runs, or null: the
  * platform shell, as shellInvocation gives it, running exactly the
- * command fakeCheckCommand in fake-check.ts writes for one kind.
+ * command fakeCheckCommand in fake-check.ts writes for one kind. Each
+ * kind's request is built forward and compared, so the command's format
+ * and the shell's layout of its arguments each stay in one place.
  */
-function checkKindOf(request: ProcessRequest): string | null {
-  const shell = shellInvocation('', process.platform);
-  if (comparablePath(request.executable) !== comparablePath(shell.executable)) return null;
-  const line = process.platform === 'win32' ? /^"(.*)"$/s.exec(request.args[3] ?? '')?.[1] : request.args[1];
-  if (line === undefined) return null;
-  const match = /^"([^"]+)" "([^"]+)" (\w+)$/.exec(line);
-  if (match === null || comparablePath(match[1]!) !== comparablePath(process.execPath) || comparablePath(match[2]!) !== comparablePath(fakeCheck)) return null;
-  return match[3]!;
+function checkKindOf(request: ProcessRequest): CheckKind | null {
+  const runs = (kind: CheckKind): boolean => {
+    const shell = shellInvocation(fakeCheckCommand(kind), process.platform);
+    return comparablePath(request.executable) === comparablePath(shell.executable) && request.args.length === shell.args.length && request.args.every((arg, at) => arg === shell.args[at]);
+  };
+  return checkKinds.find(runs) ?? null;
 }
 
 /** The fake a worker's or a check's request starts, unless it may start a grandchild; null to leave the request to the real runner. What inProcessRunProcess runs in this process. */

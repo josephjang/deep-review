@@ -105,12 +105,14 @@ describe('the in-process runner', () => {
       assert.equal(processFakeOf(checkRequestIn(directory, fakeCheckCommand('lint'), { FAKE_CHECKS: checks }))?.name, 'check lint');
     });
 
-    it('leaves every other request to the real runner: another script or executable, a command around the check, another shell, and a working directory that is not there', (t) => {
+    it('leaves every other request to the real runner: another script or executable, a command around the check, a kind no check has, another shell, and a working directory that is not there', (t) => {
       const directory = temporaryDirectory(t);
       assert.equal(processFakeOf(requestIn(directory, process.execPath, ['-e', ''])), null);
       assert.equal(processFakeOf(requestIn(directory, join(directory, 'claude'), [fakeClaude])), null);
       assert.equal(processFakeOf(checkRequestIn(directory, `${fakeCheckCommand('build')} && echo more`)), null);
       assert.equal(processFakeOf(checkRequestIn(directory, `node "${fakeCheck}" build`)), null);
+      // Only the command fakeCheckCommand writes for a kind of checkKinds is the stand-in check.
+      assert.equal(processFakeOf(checkRequestIn(directory, `"${process.execPath}" "${fakeCheck}" format`)), null);
       const shell = shellInvocation(fakeCheckCommand('build'), process.platform, join(directory, 'another-shell'));
       assert.equal(processFakeOf(requestIn(directory, shell.executable, shell.args)), null);
       assert.equal(processFakeOf(requestIn(directory, process.execPath, [fakeClaude], {}, { cwd: join(directory, 'missing') })), null);
