@@ -68,7 +68,7 @@ In CI, `test/scope/capture.test.ts` and `test/review/fix-pass-claims.test.ts` to
 
 ### 1. The sandbox repository from a template
 
-A review sandbox (`ReviewSandbox` in `test/helpers/review-sandbox.ts`) is the temporary repository, roles and checkpoint that a review test runs in. Its repository took eleven git calls to make: `git init`, six `git config` calls, and two adds and commits. Now `createRepository` in `test/helpers/repository.ts` appends the settings to the config file `git init` wrote, in one write. `sandboxRepository` makes the sandbox repository once per test process and copies it to each sandbox, then refreshes the copy's index with one git call. On POSIX, a copy's files have other inodes and times than its index records, and the engine's first git command would otherwise rewrite the index during a test.
+A review sandbox (`ReviewSandbox` in `test/helpers/review-sandbox.ts`) is the temporary repository, roles and checkpoint that a review test runs in. Its repository took eleven git calls to make: `git init`, six `git config` calls, and two adds and commits. Now `createRepository` in `test/helpers/repository.ts` appends the settings to the config file `git init` wrote, in one write. `sandboxRepository` makes the sandbox repository once per test process and copies it to each sandbox, then refreshes the copy's index with one git call. A copy made later than the template has other stat data than its index records on every system: new inodes and times on POSIX, and on Windows a new creation time, which Git for Windows reads as the ctime. Without the refresh, the engine's first git command would rewrite the index during a test.
 
 Measured: 4,194 fewer git starts per run (30,167 to 25,973). The wall time did not move beyond the noise locally (Table 3). The 2026-10-14 report measured a git start on the Windows runner at 19 times its cost on Ubuntu, so the change may show there. That is not measured yet.
 
@@ -126,7 +126,7 @@ Settled by the author on 2026-10-22.
 ## Open questions
 
 1. **The effect in CI**, the Windows job in particular, where a process start and a git start cost the most. The pull request's runs answer it.
-2. **The index refresh of a copied sandbox on POSIX.** `test/repository.test.ts` checks that no file of a copy is stat-dirty. On Windows the copy keeps each file's write time and git compares no inode, so the test passes there with or without the refresh. It guards the refresh only on the Ubuntu and macOS runners, and no run there has yet shown it failing without the refresh.
+2. **The index refresh of a copied sandbox in CI.** `test/repository.test.ts` checks that no file of a copy is stat-dirty. On the Windows machine of this report, a copy made a few seconds after its repository's commit listed every file in `git diff-files` until `git update-index --refresh` ran, so the test guards the refresh on Windows too. No CI run has yet shown the test failing without the refresh, on any of the three systems.
 
 ## Appendix: measurement scripts
 

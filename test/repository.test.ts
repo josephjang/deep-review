@@ -49,8 +49,8 @@ describe('sandboxRepository', () => {
   it('leaves no file of a copy stat-dirty in its index, as a freshly made repository has none', (t) => {
     const repo = sandboxRepository(join(temporaryDirectory(t), 'repo'));
     // diff-files compares the files' stat data with the index without refreshing it, so a copied index that was not refreshed lists every
-    // file where the copy changes that data: on POSIX, whose copies get new inodes and times. On Windows the copy keeps each file's write
-    // time and git compares no inode, so this guards the POSIX runners.
+    // file where the copy changes that data. Every system's copy does once it is made later than the template: on POSIX it gets new inodes
+    // and times, and on Windows a new creation time, which Git for Windows reads as the ctime. So this guards the refresh on every runner.
     assert.equal(git(repo, 'diff-files', '--name-only'), '');
   });
 
