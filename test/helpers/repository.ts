@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { git } from './git.ts';
 
@@ -15,20 +15,40 @@ export interface RepositoryOptions {
 }
 
 /**
+ * The settings of every test repository, as lines of a git config file:
+ * the deterministic identity, no signing, the line endings the test asks
+ * for, and no automatic maintenance.
+ */
+const repositorySettings = (options: RepositoryOptions): string =>
+  [
+    '[user]',
+    '\tname = Test',
+    '\temail = test@example.invalid',
+    '[commit]',
+    '\tgpgsign = false',
+    '[core]',
+    `\tautocrlf = ${String(options.autocrlf ?? false)}`,
+    '[maintenance]',
+    '\tauto = false',
+    '[gc]',
+    '\tauto = 0',
+    '',
+  ].join('\n');
+
+/**
  * A fresh repository on `main` with a deterministic identity and no
  * commits. Git's automatic maintenance is off: a commit would otherwise
  * start it detached, and its lock under `.git/objects` would come and go
- * while a test compares the repository's files.
+ * while a test compares the repository's files. The settings are appended
+ * to the config file `git init` wrote, in one write rather than a git call
+ * per setting, since the suite makes hundreds of repositories and each git
+ * start is costly on Windows; git reads a section that appears twice, such
+ * as `[core]`, as one.
  */
 export function createRepository(directory: string, options: RepositoryOptions = {}): string {
   mkdirSync(directory, { recursive: true });
   git(directory, 'init', '-q', '-b', 'main');
-  git(directory, 'config', 'user.name', 'Test');
-  git(directory, 'config', 'user.email', 'test@example.invalid');
-  git(directory, 'config', 'commit.gpgsign', 'false');
-  git(directory, 'config', 'core.autocrlf', String(options.autocrlf ?? false));
-  git(directory, 'config', 'maintenance.auto', 'false');
-  git(directory, 'config', 'gc.auto', '0');
+  appendFileSync(join(directory, '.git', 'config'), repositorySettings(options));
   return realpathSync.native(directory);
 }
 

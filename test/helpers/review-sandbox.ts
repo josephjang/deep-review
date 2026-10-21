@@ -20,7 +20,7 @@ import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import type { Script } from './fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
-import { commitAll, repositoryWith, write } from './repository.ts';
+import { commitAll, git, repositoryWith, write } from './repository.ts';
 
 /**
  * The timeout of everything in a sandbox's runs that answers: every worker
@@ -120,6 +120,56 @@ export const reportText = (outcome: ReviewOutcome): string => {
 };
 
 /**
+ * Make the repository every sandbox starts from in `directory`: one commit,
+ * then a change: one file edited, one added, one removed. The first commit
+ * also holds a package.json whose scripts run the stand-in checks, and
+ * npm's lock file, for discovery.
+ */
+function makeSandboxRepository(directory: string): string {
+  const script = (kind: CheckKind): string => `node "${fakeCheck.replaceAll('\\', '/')}" ${kind}`;
+  const repo = repositoryWith(directory, {
+    'src/a.ts': 'export function parse(text: string) {\n  return text.length;\n}\n',
+    'src/gone.ts': 'export const gone = 1;\n',
+    'AGENTS.md': '# Rules\n\nQuote every glob.\n',
+    'package.json': `${JSON.stringify({ name: 'sandbox', private: true, scripts: Object.fromEntries(checkKinds.map((kind) => [kind, script(kind)])) }, null, 2)}\n`,
+    'package-lock.json': '{ "name": "sandbox", "lockfileVersion": 3, "requires": true, "packages": {} }\n',
+  });
+  write(repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n\nexport function other() {\n  return parse(null);\n}\n');
+  write(repo, 'src/b.ts', 'export const b = parse("x");\n');
+  rmSync(join(repo, 'src', 'gone.ts'));
+  commitAll(repo, 'the change under review');
+  return repo;
+}
+
+/** This process's copy source for sandboxRepository, made at its first use and removed when the process exits. */
+let sandboxTemplate: string | null = null;
+
+/**
+ * The sandbox repository (makeSandboxRepository) at `directory`, copied
+ * from one this process made at its first call. Making it costs eleven git
+ * calls and copying it one, and the suite makes a sandbox for most of its
+ * review tests. Every copy has the same commits, ids and all; what the
+ * engine keeps of a run (its checkpoint, scratch and home) is under the
+ * sandbox's own directory, so no two sandboxes share it. On POSIX the
+ * copy's files have other inodes and times than its index records, so the
+ * index is refreshed once here, as a freshly made repository needs no
+ * refresh: otherwise the engine's first git command would rewrite it
+ * during a test.
+ */
+export function sandboxRepository(directory: string): string {
+  if (sandboxTemplate === null) {
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-template-')));
+    process.once('exit', () => {
+      rmSync(root, { recursive: true, force: true });
+    });
+    sandboxTemplate = makeSandboxRepository(join(root, 'repo'));
+  }
+  cpSync(sandboxTemplate, directory, { recursive: true });
+  git(directory, 'update-index', '-q', '--refresh');
+  return realpathSync.native(directory);
+}
+
+/**
  * How many tests of one file run at once, each in a sandbox of its own (see
  * ReviewSandbox.forTest). A review starts dozens of processes, so the
  * machine's CPU, not the test process, is what runs out: past this, the
@@ -157,20 +207,7 @@ export class ReviewSandbox {
 
   constructor() {
     this.directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-review-')));
-    // A repository with one commit, then a change: one file edited, one added, one removed. The first commit
-    // also holds a package.json whose scripts run the stand-in checks, and npm's lock file, for discovery.
-    const script = (kind: CheckKind): string => `node "${fakeCheck.replaceAll('\\', '/')}" ${kind}`;
-    this.repo = repositoryWith(join(this.directory, 'repo'), {
-      'src/a.ts': 'export function parse(text: string) {\n  return text.length;\n}\n',
-      'src/gone.ts': 'export const gone = 1;\n',
-      'AGENTS.md': '# Rules\n\nQuote every glob.\n',
-      'package.json': `${JSON.stringify({ name: 'sandbox', private: true, scripts: Object.fromEntries(checkKinds.map((kind) => [kind, script(kind)])) }, null, 2)}\n`,
-      'package-lock.json': '{ "name": "sandbox", "lockfileVersion": 3, "requires": true, "packages": {} }\n',
-    });
-    write(this.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n\nexport function other() {\n  return parse(null);\n}\n');
-    write(this.repo, 'src/b.ts', 'export const b = parse("x");\n');
-    rmSync(join(this.repo, 'src', 'gone.ts'));
-    commitAll(this.repo, 'the change under review');
+    this.repo = sandboxRepository(join(this.directory, 'repo'));
     // The repository's roles with a policy whose timeouts fit a test.
     this.rolesRoot = join(this.directory, 'roles');
     cpSync(repositoryRolesRoot(), this.rolesRoot, { recursive: true });
