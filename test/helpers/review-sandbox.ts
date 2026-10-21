@@ -145,6 +145,33 @@ function makeSandboxRepository(directory: string): string {
 /** This process's copy source for sandboxRepository, made at its first use and removed when the process exits. */
 let sandboxTemplate: string | null = null;
 
+/** The start of the name of a process's template root in tmpdir: `deep-review-template-<pid>-`, then mkdtemp's suffix. */
+const templatePrefix = 'deep-review-template-';
+
+/** Whether the process `pid` is still running: only ESRCH says it is not, so a pid this process may not signal counts as live. */
+function processRuns(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/**
+ * Remove each template root in `directory` whose process no longer runs:
+ * the root of a test process that was killed, whose 'exit' handler never
+ * ran. A root whose process runs, its own or another test file's, stays.
+ */
+export function removeEndedTemplates(directory: string = tmpdir()): void {
+  for (const entry of readdirSync(directory)) {
+    const pid = new RegExp(`^${templatePrefix}(\\d+)-`).exec(entry)?.[1];
+    if (pid === undefined || processRuns(Number(pid))) continue;
+    // Windows may refuse a file of git's objects for a moment while a scanner or indexer holds it.
+    rmSync(join(directory, entry), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
 /**
  * The sandbox repository (makeSandboxRepository) at `directory`, copied
  * from one this process made at its first call. Making it costs eleven git
@@ -155,11 +182,14 @@ let sandboxTemplate: string | null = null;
  * copy's files have other inodes and times than its index records, so the
  * index is refreshed once here, as a freshly made repository needs no
  * refresh: otherwise the engine's first git command would rewrite it
- * during a test.
+ * during a test. The template is removed when the process exits; one that
+ * a killed process left, which never ran its 'exit' handler, the next test
+ * process that makes a template removes, by the pid in its name.
  */
 export function sandboxRepository(directory: string): string {
   if (sandboxTemplate === null) {
-    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-template-')));
+    removeEndedTemplates();
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), `${templatePrefix}${String(process.pid)}-`)));
     process.once('exit', () => {
       rmSync(root, { recursive: true, force: true });
     });
