@@ -902,7 +902,10 @@ next two pairs compare lever E with A.
   angles that the vocabulary of the engine fixes (`angles` in
   `src/review/vocabulary.ts`). The sandbox copies the own roles of the
   repository. A lighter manifest is an engine option that exists for
-  the tests alone.
+  the tests alone. (2026-10-22: the engine has since taken an option
+  that the tests use alone, the runner of a process and of a probe. It
+  changes how a child starts, not what a review does, which is the line
+  `docs/reports/2026-10-22-test-suite-after-resumable-runs.md` draws.)
 - **The probes of the preflight at the same time** (lever C of the last
   report). Decided against on 2026-10-10. Nothing here changes the
   trade-off.
