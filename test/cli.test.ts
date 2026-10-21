@@ -250,6 +250,17 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       checkpoint.close();
     }
     assert.match((await run(box, 'report', '--fix')).stderr, /--fix does not apply to report/);
+
+    // A copy that cannot be written leaves the record's path last, and stderr says why (TD6 of the brief of a run).
+    const reports = join(locateCheckpoint(box.repo).root, 'reports');
+    rmSync(reports, { recursive: true, force: true });
+    writeFileSync(reports, 'not a directory');
+    const fallback = await run(box, 'report', '--run', firstId);
+    assert.equal(fallback.status, 0, fallback.stderr);
+    assert.match(fallback.stdout.trim().split('\n').at(-1)!, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
+    assert.match(fallback.stderr, new RegExp(`run ${firstId}: could not write the copy of the report to `));
+    const fallbackJson = briefJsonV1.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
+    assert.equal(fallbackJson.local.copy, null);
   });
 
   it('ends with the path of the record when the copy cannot be written, and says why on stderr (R13, TD6 of the brief of a run)', async (t) => {

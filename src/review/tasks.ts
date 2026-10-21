@@ -191,12 +191,15 @@ const fieldNote =
 
 /**
  * The commit messages of the change as the triage's task gets them (R6 of
- * the brief of a run): those git gave, none for a change of the working
- * tree, or why git could not give them, which costs the triage the words
- * of the commits and never the run.
+ * the brief of a run): those git gave from the base to the head, which
+ * can be none, as for a ref the head descends from; none for a change of
+ * the working tree alone, whose base is its head; or why git could not
+ * give them, which costs the triage the words of the commits and never
+ * the run.
  */
 export type ChangeMessages =
   | { readonly kind: 'read'; readonly messages: readonly CommitMessage[] }
+  | { readonly kind: 'working-tree' }
   | { readonly kind: 'unreadable'; readonly reason: string };
 
 /** The most bytes of commit subjects the triage's task lists, and of subjects and whole messages together (R6 of the brief of a run). */
@@ -233,10 +236,9 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
   if (words.kind === 'unreadable') {
     return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
   }
+  if (words.kind === 'working-tree') return ['The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits.'];
   const { messages } = words;
-  if (messages.length === 0) {
-    return ['The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits.'];
-  }
+  if (messages.length === 0) return ['The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.'];
   const shown = (commit: string): string => commit.slice(0, shownCommitLength);
   const subjects = withinBytes(messages.map(({ commit, message }) => `${shown(commit)} ${message.split('\n', 1)[0] ?? ''}`), commitSubjectsLimitBytes);
   const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);

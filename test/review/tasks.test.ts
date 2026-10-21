@@ -177,7 +177,13 @@ describe('the task texts', () => {
     });
 
     it('says a change of the working tree has no commits', () => {
-      assert.match(triageTask({ kind: 'read', messages: [] }), /^### The change's own words\n\nThe change has no commits: it is a change of the working tree\./m);
+      assert.match(triageTask({ kind: 'working-tree' }), /^### The change's own words\n\nThe change has no commits: it is a change of the working tree\./m);
+    });
+
+    it('says a change whose base is not its head, and with no commit from one to the other, has none, and not that it is of the working tree', () => {
+      const task = triageTask({ kind: 'read', messages: [] });
+      assert.match(task, /^### The change's own words\n\nThe change has no commits from its base to its head\. It states a reason only in the documents it adds or edits\.$/m);
+      assert.doesNotMatch(task, /change of the working tree/);
     });
 
     it('lists the subjects first and then the whole messages, each oldest first, fenced, with no line about limits when nothing is left out', () => {

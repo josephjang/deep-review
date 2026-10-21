@@ -587,6 +587,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      */
     const changeMessages = once((): ChangeMessages => {
       try {
+        // A change of the working tree alone has no commits to read; any other names the commits from its base to its head, which may be none.
+        if (scope.base === scope.head) return { kind: 'working-tree' };
         return { kind: 'read', messages: commitMessages(options.worktree, scope.base, scope.head) };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);

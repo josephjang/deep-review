@@ -231,7 +231,7 @@ describe('renderReport', () => {
       for (const link of links) assert.ok(anchors.includes(link) || link === 'the-change-in-full', link);
     });
 
-    it('names no local path the engine writes before the facts of the run, and a path under the home directory with ~', () => {
+    it('names no local path the engine writes before the facts of the run, and names each there (a path under ~ is in survey-report.test.ts)', () => {
       const state = fixRun().fold();
       const input = { ...reportInput, engineEntry: '/opt/engine/main.mjs', store: '/w/.git/deep-review-checkpoint/artifacts', fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: null } };
       const report = renderReport({ ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, executable: '/usr/local/bin/claude' } } }, input);

@@ -68,10 +68,8 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
 }
 
 /** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that every command the report names is built from. */
-const answerArguments = (id: string, choice: string): string => `answer --finding ${id} ${choice}`;
+export const answerArguments = (id: string, choice: string): string => `answer --finding ${id} ${choice}`;
 
-/** The command that answers a question, its finding and its options' numbers filled in, as a reader runs it. */
-export const answerCommand = (id: string, options: number): string => `deep-review ${answerArguments(id, `--option <${options === 1 ? '1' : `1..${String(options)}`}>`)}`;
 
 /** The command that reviews a departure, its finding filled in, as a reader runs it. */
 export const reviewCommand = (id: string): string => `deep-review ${answerArguments(id, '--accept')}`;
