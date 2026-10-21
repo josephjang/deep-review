@@ -162,6 +162,24 @@ async function exitOf(call: FakeCall, host: FakeHost): Promise<number | null> {
   }
 }
 
+/**
+ * Run `call` on `host` to its exit code, or past `timeoutMs` end it
+ * through `controller` and resolve 'timeout' once it has ended.
+ */
+async function endOrTimeout(call: FakeCall, host: FakeHost, controller: AbortController, timeoutMs: number): Promise<number | null | 'timeout'> {
+  const exited = exitOf(call, host);
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<'timeout'>((done) => {
+    timer = setTimeout(() => done('timeout'), timeoutMs);
+  });
+  const first = await Promise.race([exited, timedOut]);
+  clearTimeout(timer);
+  if (first !== 'timeout') return first;
+  controller.abort();
+  await exited;
+  return 'timeout';
+}
+
 /** Run a fake to its end or its timeout, as runProcess runs a process, with its streams in the request's files. */
 async function runInProcess(request: ProcessRequest, call: FakeCall): Promise<ProcessResult> {
   const startedAt = new Date().toISOString();
@@ -173,16 +191,8 @@ async function runInProcess(request: ProcessRequest, call: FakeCall): Promise<Pr
     const [stdout, stderr] = descriptors as [number, number];
     const controller = new AbortController();
     const host = inProcessHost(call.args, request.environment, request.cwd, () => readFileSync(request.stdinFile, 'utf8'), (stream, bytes) => writeSync(stream === 'stdout' ? stdout : stderr, bytes), controller.signal);
-    const exited = exitOf(call, host);
-    let timer: NodeJS.Timeout | undefined;
-    const timedOut = new Promise<'timeout'>((done) => {
-      timer = setTimeout(() => done('timeout'), request.timeoutMs);
-    });
-    const first = await Promise.race([exited, timedOut]);
-    clearTimeout(timer);
+    const first = await endOrTimeout(call, host, controller, request.timeoutMs);
     if (first === 'timeout') {
-      controller.abort();
-      await exited;
       // What the guard reports of a tree kill: taskkill's exit code 1 on Windows, SIGKILL of the group elsewhere.
       const end = process.platform === 'win32' ? { exitCode: 1, signal: null } : { exitCode: null, signal: 'SIGKILL' };
       return { termination: 'killed', ...end, treeKillError: null, startedAt, endedAt: new Date().toISOString() };
@@ -205,18 +215,8 @@ async function probeInProcess(request: ProbeRequest, call: FakeCall): Promise<st
   };
   // A probe's stdin is empty, and it runs in the engine's working directory.
   const host = inProcessHost(call.args, request.environment, process.cwd(), () => '', sink, controller.signal);
-  const exited = exitOf(call, host);
-  let timer: NodeJS.Timeout | undefined;
-  const timedOut = new Promise<'timeout'>((done) => {
-    timer = setTimeout(() => done('timeout'), request.timeoutMs);
-  });
-  const first = await Promise.race([exited, timedOut]);
-  clearTimeout(timer);
-  if (first === 'timeout') {
-    controller.abort();
-    await exited;
-    throw new Error(`it did not finish within ${String(request.timeoutMs)} ms`);
-  }
+  const first = await endOrTimeout(call, host, controller, request.timeoutMs);
+  if (first === 'timeout') throw new Error(`it did not finish within ${String(request.timeoutMs)} ms`);
   if (printed > request.maxOutputBytes) throw new Error(`it printed more than ${String(request.maxOutputBytes)} bytes`);
   if (first === 0) return Buffer.concat(stdout).toString('utf8');
   const printedError = Buffer.concat(stderr).toString('utf8').trim();
