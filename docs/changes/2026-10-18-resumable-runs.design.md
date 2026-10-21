@@ -498,7 +498,7 @@ A fix run on the fakes appends a few hundred events, and each point runs two com
 
 ### R1 and R2: The contract
 
-`test/review/resume-contract.test.ts` runs the fixed set of points in the four ways, on the three systems of CI, against a run with no stop. Each point checks the five parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each point in each way that applies to it.
+`test/review/resume-contract.test.ts` runs the fixed set of points in the four ways, on the three systems of CI, against a run with no stop. Each point checks the five parts of the contract in the Design. Step 1 records the points that fail on the engine as it is, and each later step removes the marks that it closes. The script runs each point in each way that applies to it. (2026-10-22: the file is now `test/review/resumable-runs.contract.ts`, run by `npm run test:contract` and the `contract` job of CI on the same three systems, not by `npm test`; see `docs/reports/2026-10-22-test-suite-after-resumable-runs.md`.)
 
 ### R3: A check that a stop cut short runs again
 
