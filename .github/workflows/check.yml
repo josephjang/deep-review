@@ -32,3 +32,27 @@ jobs:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
       - run: npm run verify
+
+  # The contract test of resumable runs stops a fix run as a real process
+  # at each of its points and runs it again, which makes it the costliest
+  # file of the tests by far. It runs here, beside the check job, rather
+  # than in `npm run check`. Its marks of known failures differ by system,
+  # so it runs on all three.
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+      - run: npm ci
+      - run: npm run test:contract
+        # The workspace disk for the sandboxes on Windows, as in the check job.
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}

@@ -6,8 +6,8 @@
 // point and way, with each part of the contract the stop broke, and exits
 // with 1 on a result the marks of the known failures
 // (test/helpers/resume-marks.ts) do not expect: a broken part with no mark,
-// a mark whose part held, or a point the run did not reach. The gate runs it; the suite runs a fixed set
-// of the points (test/review/resume-contract.test.ts):
+// a mark whose part held, or a point the run did not reach. The gate runs it; `npm run test:contract` runs a
+// fixed set of the points (test/review/resumable-runs.contract.ts):
 //   npm run resume-test -- [--point <text>]... [--way signal|kill|tree|child] [--concurrency <n>] [--json <file>]
 // --point keeps the points whose name holds the text, --way one way; a
 // selection that keeps no case exits with 2 before it runs anything.

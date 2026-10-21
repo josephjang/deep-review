@@ -15,7 +15,8 @@ Windows is what runs on macOS and Linux.
 
 ```sh
 npm ci            # locked development dependencies
-npm run check     # lint, typecheck, test; what CI runs
+npm run check     # lint, typecheck, test; what CI runs, but for the contract test
+npm run test:contract   # the contract test of resumable runs; CI runs it as its own job
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ is what skill/ produces, byte for byte
 ```
@@ -51,7 +52,11 @@ older ledger.
 
 ## Before every commit
 
-`npm run check` must pass at every commit. `npm run verify` must pass at
+`npm run check` must pass at every commit. `npm run test:contract`, the
+contract test of resumable runs, is left out of it because it is by far
+the costliest file of the tests: run it before a commit that changes how the
+engine stops, resumes, launches a child or appends to the ledger, and CI
+runs it as its own job on every pull request. `npm run verify` must pass at
 every head that is pushed, a pull request's head and `main`, since those
 are the commits the plugin marketplace and the Codex skill install from;
 a commit in the middle of a series may leave `dist/` stale, and the

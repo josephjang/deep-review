@@ -691,6 +691,7 @@ measurement.
 ```sh
 npm ci
 npm run check     # lint, typecheck, test
+npm run test:contract   # the contract test of resumable runs, left out of check
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ matches skill/ byte for byte
 npm run golden -- --output test/fixtures/checkpoints/schema-<schema>-<serial>   # after a ledger schema or registry change
@@ -710,7 +711,12 @@ beside it, then copies the skill sources; `npm run verify` assembles both
 artifacts into a temporary tree and compares them with the committed
 `dist/`, bundle included, so a commit that claims to change only where
 text lives can be checked rather than trusted. Continuous integration
-runs both on Windows, macOS and Linux.
+runs both on Windows, macOS and Linux. `npm run test:contract` stops a
+fix run on the fakes at a fixed set of points and runs the same command
+again (the contract of resumable runs); it starts the engine as a real
+process for each case, which makes it the costliest file of the tests, so
+`npm run check` leaves it out and continuous integration runs it as a job
+of its own on the same three systems.
 
 The suite never calls a model: fake Claude and Codex CLIs stand in for the
 real ones, and for the review they answer from a script per role and

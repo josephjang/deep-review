@@ -3,7 +3,7 @@
  * fix run on the fakes through the command line, stop the engine at a
  * point of its work in one of four ways, run the same command again, and
  * check the five parts of the contract against the same run with no stop.
- * test/review/resume-contract.test.ts runs a fixed set of points, and
+ * `npm run test:contract` (test/review/resumable-runs.contract.ts) runs a fixed set of points, and
  * `npm run resume-test` (scripts/resume-test.ts) runs each one.
  *
  * The run holds each case a way needs: the first attempt of the finder

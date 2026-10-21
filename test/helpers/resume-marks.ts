@@ -4,7 +4,7 @@
  * systems that show it, the part of the contract that fails there, and the
  * requirement that closes it. A marked case must fail its part, so a case
  * that starts to pass fails the test until the step that closed it removes
- * its mark. The suite (test/review/resume-contract.test.ts) and
+ * its mark. `npm run test:contract` (test/review/resumable-runs.contract.ts) and
  * `npm run resume-test` read the same marks.
  */
 import type { ContractPart, StopWay } from './resume-contract.ts';
