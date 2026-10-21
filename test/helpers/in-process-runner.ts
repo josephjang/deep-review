@@ -17,6 +17,7 @@
 import { closeSync, existsSync, openSync, readFileSync, writeSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { shellInvocation } from '../../src/review/checks/run.ts';
+import { comparable, spellingsOf } from '../../src/runtime/environment.ts';
 import { runProbe, type ProbeRequest, type ProbeRunner } from '../../src/runtime/preflight.ts';
 import { runProcess, type ProcessRequest, type ProcessResult, type ProcessRunner } from '../../src/runtime/process.ts';
 import { checkFake, checkStartsGrandchild } from './fake-check.ts';
@@ -42,12 +43,12 @@ const runtimeFakes: ReadonlyMap<string, Omit<FakeCall, 'args'>> = new Map([
 const fakeCheckScript = resolve(import.meta.dirname, 'fake-check.ts');
 
 /** A path as the platform compares it: without case on Windows. */
-const comparable = (path: string): string => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
+const comparablePath = (path: string): string => (process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path));
 
 /** The fake a `node <script> <args>` command starts, or null for any other command: what inProcessRunProbe runs in this process. */
 export function runtimeFakeOf(executable: string, args: readonly string[]): FakeCall | null {
-  if (comparable(executable) !== comparable(process.execPath) || args[0] === undefined) return null;
-  const fake = [...runtimeFakes].find(([script]) => comparable(script) === comparable(args[0]!))?.[1];
+  if (comparablePath(executable) !== comparablePath(process.execPath) || args[0] === undefined) return null;
+  const fake = [...runtimeFakes].find(([script]) => comparablePath(script) === comparablePath(args[0]!))?.[1];
   return fake === undefined ? null : { ...fake, args: args.slice(1) };
 }
 
@@ -58,11 +59,11 @@ export function runtimeFakeOf(executable: string, args: readonly string[]): Fake
  */
 function checkKindOf(request: ProcessRequest): string | null {
   const shell = shellInvocation('', process.platform);
-  if (comparable(request.executable) !== comparable(shell.executable)) return null;
+  if (comparablePath(request.executable) !== comparablePath(shell.executable)) return null;
   const line = process.platform === 'win32' ? /^"(.*)"$/s.exec(request.args[3] ?? '')?.[1] : request.args[1];
   if (line === undefined) return null;
   const match = /^"([^"]+)" "([^"]+)" (\w+)$/.exec(line);
-  if (match === null || comparable(match[1]!) !== comparable(process.execPath) || comparable(match[2]!) !== comparable(fakeCheckScript)) return null;
+  if (match === null || comparablePath(match[1]!) !== comparablePath(process.execPath) || comparablePath(match[2]!) !== comparablePath(fakeCheckScript)) return null;
   return match[3]!;
 }
 
@@ -86,12 +87,20 @@ let hosts = 0;
 /**
  * The environment as a child's `process.env` reads it: the variables the
  * engine gave, without those it left undefined, and on Windows found by
- * name without case, as Windows finds them.
+ * name without case, as Windows finds them. Of the spellings Windows takes
+ * for one name, Node passes a child only the one that sorts first by code
+ * unit (src/runtime/environment.ts), and leaves it out when its value is
+ * undefined, whatever another spelling holds.
  */
 function childEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const given: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
-  if (process.platform !== 'win32') return given;
-  const nameOf = (name: string): string | undefined => (Object.hasOwn(given, name) ? name : Object.keys(given).find((key) => key.toUpperCase() === name.toUpperCase()));
+  const defined = (entries: [string, string | undefined][]): NodeJS.ProcessEnv => Object.fromEntries(entries.filter(([, value]) => value !== undefined));
+  if (process.platform !== 'win32') return defined(Object.entries(environment));
+  const passed = new Map<string, [string, string | undefined]>();
+  for (const name of Object.keys(environment).sort()) {
+    if (!passed.has(comparable(name, 'win32'))) passed.set(comparable(name, 'win32'), [name, environment[name]]);
+  }
+  const given = defined([...passed.values()]);
+  const nameOf = (name: string): string | undefined => spellingsOf(given, name, 'win32')[0]?.[0];
   return new Proxy(given, {
     get: (target, name) => {
       if (typeof name !== 'string') return Reflect.get(target, name);
