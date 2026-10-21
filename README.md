@@ -730,7 +730,9 @@ runner that runs those fakes and the stand-in check inside the test's
 own process (`test/helpers/in-process-runner.ts`), so a whole review
 starts no process for them; a fake that must hang with a grandchild, the
 runtime tests and the contract test start them as real processes, as a
-real run does. `npm run smoke` is the real-runtime check, for each CLI named
+real run does. So does a check the survey finds in the sandbox's
+`package.json`: it runs as `npm run <kind>` through the real runner, which
+starts npm, a shell and the stand-in check. `npm run smoke` is the real-runtime check, for each CLI named
 on its command line, installed and signed in. Per runtime it runs three
 workers: a read-only worker asked to create a file with its shell, that
 worker's session continued and asked the same again, and an editor with
