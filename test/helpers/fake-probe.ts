@@ -17,8 +17,7 @@
 //                    without it first fails
 import { existsSync } from 'node:fs';
 import { delimiter } from 'node:path';
-
-export const environment = process.env;
+import type { FakeHost } from './fake-host.ts';
 
 /** How many spaces follow the version output while FAKE_PADDED_WHEN exists: far past the help texts' few hundred bytes. */
 export const paddedVersionBytes = 16 * 1024;
@@ -29,7 +28,8 @@ export const paddedVersionBytes = 16 * 1024;
  * FAKE_VERSION or the runtime's usual output, padded with spaces while
  * FAKE_PADDED_WHEN exists.
  */
-export function versionOutput(usual: string): string {
+export function versionOutput(host: FakeHost, usual: string): string {
+  const environment = host.environment;
   const broken = environment.FAKE_UNQUALIFIED_WHEN;
   if (broken !== undefined && existsSync(broken)) return 'an unrelated program 1.0';
   const first = environment.FAKE_QUALIFIED_FIRST_ON_PATH;
@@ -40,7 +40,7 @@ export function versionOutput(usual: string): string {
 }
 
 /** Print a help text listing every flag but FAKE_HELP_OMIT. */
-export function printHelp(flags: readonly string[]): void {
-  const omit = environment.FAKE_HELP_OMIT;
-  process.stdout.write(`Usage: fake [options]\n\nOptions:\n${flags.filter((flag) => flag !== omit).map((flag) => `  ${flag} <value>  a flag\n`).join('')}`);
+export function printHelp(host: FakeHost, flags: readonly string[]): Promise<void> {
+  const omit = host.environment.FAKE_HELP_OMIT;
+  return host.write('stdout', `Usage: fake [options]\n\nOptions:\n${flags.filter((flag) => flag !== omit).map((flag) => `  ${flag} <value>  a flag\n`).join('')}`);
 }

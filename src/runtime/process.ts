@@ -75,6 +75,12 @@ export type ProcessResult =
       readonly endedAt: string;
     };
 
+/**
+ * What runs one process to its end: `runProcess`, unless a test gives a
+ * stand-in that runs a fake runtime or check inside the test's own process.
+ */
+export type ProcessRunner = (request: ProcessRequest) => Promise<ProcessResult>;
+
 /** The result for a process that never existed, and why; it ended when the attempt did, `endedAt` by default now. */
 export function notStarted(error: string, startedAt: string, endedAt: string = new Date().toISOString()): Extract<ProcessResult, { termination: 'not-started' }> {
   return { termination: 'not-started', exitCode: null, signal: null, error, startedAt, endedAt };

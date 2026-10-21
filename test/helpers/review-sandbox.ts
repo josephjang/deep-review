@@ -19,6 +19,7 @@ import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import type { Script } from './fake-runtime.ts';
+import { inProcessRunProbe, inProcessRunProcess } from './in-process-runner.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
 import { commitAll, git, repositoryWith, write } from './repository.ts';
 
@@ -41,8 +42,8 @@ export const loadedRunnerTimeoutMs = 120_000;
  */
 export const hangTimeoutMs = 4000;
 
-/** The stand-in check command, steered by FAKE_CHECKS (see fake-check.mjs). */
-export const fakeCheck = resolve(import.meta.dirname, 'fake-check.mjs');
+/** The stand-in check command, steered by FAKE_CHECKS (see fake-check.ts). */
+export const fakeCheck = resolve(import.meta.dirname, 'fake-check.ts');
 
 /** The engine that writes the events `addUnknownEvent` inserts: a build that declares one this engine does not. */
 export const otherEngine = '9.9.9+newer';
@@ -244,7 +245,7 @@ export class ReviewSandbox {
     writeFileSync(this.scriptFile, JSON.stringify(script));
   }
 
-  /** Write the rules the stand-in checks follow (see fake-check.mjs); their counters and their record of runs start over. */
+  /** Write the rules the stand-in checks follow (see fake-check.ts); their counters and their record of runs start over. */
   checks(rules: Readonly<Record<string, unknown>>): void {
     for (const name of readdirSync(this.directory).filter((entry) => entry.startsWith('checks.json.'))) rmSync(join(this.directory, name), { force: true });
     writeFileSync(this.checksFile, JSON.stringify(rules));
@@ -271,8 +272,16 @@ export class ReviewSandbox {
     return this.#checkpoint;
   }
 
-  /** Run a review through the fake of the given runtime, with the flags given, reviewing the last commit (the automatic scope of a clean tree) unless a scope is given. */
+  /**
+   * Run a review through the fake of the given runtime, with the flags
+   * given, reviewing the last commit (the automatic scope of a clean tree)
+   * unless a scope is given. The fakes and the stand-in checks run in this
+   * process (in-process-runner.ts) unless `change` names another runner,
+   * and so do the preflight's probes, whatever other limits `change` gives
+   * them.
+   */
   review(runtime: 'claude' | 'codex' = 'claude', change: Partial<ReviewOptions> = {}, fake: Record<string, string> = {}): Promise<ReviewOutcome> {
+    const { preflightOptions, ...rest } = change;
     return runReview({
       checkpoint: this.checkpoint,
       worktree: this.repo,
@@ -290,8 +299,9 @@ export class ReviewSandbox {
       log: (line) => {
         this.logs.push(line);
       },
-      preflightOptions: { timeoutMs: loadedRunnerTimeoutMs },
-      ...change,
+      runProcess: inProcessRunProcess,
+      preflightOptions: { timeoutMs: loadedRunnerTimeoutMs, runProbe: inProcessRunProbe, ...preflightOptions },
+      ...rest,
     });
   }
 

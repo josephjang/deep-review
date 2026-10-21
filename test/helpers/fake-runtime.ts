@@ -1,6 +1,7 @@
 // What the fake runtime CLIs share. A fake is run as `node fake-<runtime>.ts
-// <args>`, so the launcher spawns it exactly as it spawns a real CLI, and
-// is steered by environment variables the test sets:
+// <args>`, so the launcher spawns it exactly as it spawns a real CLI, or
+// in the test's own process by in-process-runner.ts, through the host it is
+// given (fake-host.ts). It is steered by environment variables the test sets:
 //   FAKE_RECORD      file to write what the fake received as JSON
 //   FAKE_WAIT_FOR    file to wait for before answering
 //   FAKE_STDOUT      stdout to print instead of a successful answer; {session} becomes the session id
@@ -15,13 +16,12 @@
 //   FAKE_HOLD        the start of a scripted worker that holds there; see holdIfNamed
 // The answers to the preflight's probes are in fake-probe.ts, which lists the
 // variables they read; a fake loads this module only to act as a worker.
-import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
-
-const environment = process.env;
+import { waitForFile, type FakeHost } from './fake-host.ts';
 
 /**
  * One edit a scripted fixer makes before it answers, in order: the files
@@ -70,12 +70,12 @@ export interface ScriptStep {
 export type Script = Readonly<Record<string, ScriptStep | readonly ScriptStep[]>>;
 
 /** How many attempts of `key` this script has answered before, kept beside the script so every fake process sees the same count. */
-function nextAttempt(script: string, key: string): number {
+function nextAttempt(script: string, key: string, id: string): number {
   const directory = `${script}.counts`;
   mkdirSync(directory, { recursive: true });
   const file = join(directory, key.replaceAll(/[^A-Za-z0-9_-]/g, '_'));
   const count = existsSync(file) ? Number(readFileSync(file, 'utf8')) : 0;
-  writeWhole(file, String(count + 1));
+  writeWhole(file, String(count + 1), id);
   return count;
 }
 
@@ -208,28 +208,49 @@ function claimCommand(prompt: string): { entry: string; unit: string; into: stri
   return { entry: match[1]!, unit: match[2]!, into: match[3]! };
 }
 
+/**
+ * Run Node with `args` from the fake's working directory and environment,
+ * as a fixer runs a command its prompt quotes, and give its exit code and
+ * stderr. It does not block: a fake in the test's own process would
+ * otherwise stop every other fake, and the engine, until it ended.
+ */
+function runNode(host: FakeHost, args: readonly string[]): Promise<{ readonly status: number | null; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [...args], { cwd: host.cwd, env: host.environment, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    const stderr: Buffer[] = [];
+    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.once('error', reject);
+    child.once('close', (status) => {
+      resolve({ status, stderr: Buffer.concat(stderr).toString('utf8') });
+    });
+  });
+}
+
 /** Claim one file as a fixer does, from its working directory, and throw when the outcome is not the one the script expects. */
-function claim(prompt: string, path: string, expected: ScriptEdit['expectClaim']): void {
+async function claim(host: FakeHost, prompt: string, path: string, expected: ScriptEdit['expectClaim']): Promise<void> {
   const { entry, unit, into } = claimCommand(prompt);
-  const result = spawnSync(process.execPath, [entry, 'claim', '--path', path, '--unit', unit, '--in', into], { cwd: process.cwd(), encoding: 'utf8', windowsHide: true });
+  const result = await runNode(host, [entry, 'claim', '--path', path, '--unit', unit, '--in', into]);
   const outcome = result.status === 0 ? 'claimed' : result.status === 2 ? 'refused' : null;
   if (outcome === null || (expected !== undefined && outcome !== expected)) throw new Error(`The claim of ${path} by ${unit} exited ${String(result.status)}, not as the script expects (${expected ?? 'claimed or refused'}): ${result.stderr}`);
 }
 
 /** Make a scripted fixer's edits in its working directory, running the claim and snapshot commands its prompt quotes where a step asks. */
-export function applyEdits(edits: readonly ScriptEdit[], prompt: string): void {
+export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], prompt: string): Promise<void> {
   for (const edit of edits) {
-    if (edit.waitFor !== undefined) waitForMarkerSync(edit.waitFor);
-    for (const path of edit.claims ?? []) claim(prompt, path, edit.expectClaim);
+    if (edit.waitFor !== undefined) await waitForFile(host, edit.waitFor);
+    for (const path of edit.claims ?? []) await claim(host, prompt, path, edit.expectClaim);
     for (const [path, content] of Object.entries(edit.writes ?? {})) {
-      const file = join(process.cwd(), ...path.split('/'));
+      const file = join(host.cwd, ...path.split('/'));
       mkdirSync(join(file, '..'), { recursive: true });
       writeFileSync(file, content);
     }
-    for (const path of edit.deletes ?? []) rmSync(join(process.cwd(), ...path.split('/')), { force: true });
+    for (const path of edit.deletes ?? []) rmSync(join(host.cwd, ...path.split('/')), { force: true });
     if (edit.snapshot !== undefined) {
       const { entry, into } = snapshotCommand(prompt);
-      execFileSync(process.execPath, [entry, 'snapshot', '--finding', String(edit.snapshot), '--into', into], { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'inherit'], windowsHide: true });
+      const result = await runNode(host, [entry, 'snapshot', '--finding', String(edit.snapshot), '--into', into]);
+      // The snapshot's own errors go where a fixer's would: its stderr.
+      if (result.stderr !== '') await host.write('stderr', result.stderr);
+      if (result.status !== 0) throw new Error(`The snapshot of finding ${String(edit.snapshot)} exited ${String(result.status)}`);
     }
   }
 }
@@ -240,47 +261,41 @@ export function applyEdits(edits: readonly ScriptEdit[], prompt: string): void {
  * script names none; null when the fake is not scripted or the prompt is
  * not a review worker's.
  */
-export function scriptedStep(prompt: string): { readonly role: string; readonly unit: string; readonly step: ScriptStep & { readonly output: unknown } } | null {
-  const file = environment.FAKE_SCRIPT;
+export function scriptedStep(host: FakeHost, prompt: string): { readonly role: string; readonly unit: string; readonly step: ScriptStep & { readonly output: unknown } } | null {
+  const file = host.environment.FAKE_SCRIPT;
   if (file === undefined) return null;
   const header = readTaskHeader(prompt);
   if (header === null) return null;
   const script = JSON.parse(readFileSync(file, 'utf8')) as Script;
   const key = [`${header.role}:${header.phase}:${header.unitKey}`, `${header.role}:${header.unitKey}`, header.role, '*'].find((candidate) => Object.hasOwn(script, candidate));
   const entry = key === undefined ? {} : script[key]!;
-  const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`), entry.length - 1)] ?? {}) : (entry as ScriptStep);
+  const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`, host.id), entry.length - 1)] ?? {}) : (entry as ScriptStep);
   return { role: header.role, unit: header.unitKey, step: { ...step, output: step.output ?? defaultOutput(header.role, prompt) } };
 }
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
 
-/** Write a file whole, under a temporary name and then renamed, so a polling test never reads it empty or half written. */
-function writeWhole(file: string, text: string): void {
-  const temporary = `${file}.${String(process.pid)}.tmp`;
+/** Write a file whole, under a temporary name unique to the fake (`id`) and then renamed, so a polling test never reads it empty or half written. */
+function writeWhole(file: string, text: string, id: string): void {
+  const temporary = `${file}.${id}.tmp`;
   writeFileSync(temporary, text);
   renameSync(temporary, file);
 }
 
 /** Write what the fake was given, for the test to assert on. */
-export function record(argv: readonly string[], stdin: string): void {
-  const file = environment.FAKE_RECORD;
+export function record(host: FakeHost, stdin: string): void {
+  const file = host.environment.FAKE_RECORD;
   if (file === undefined) return;
   const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH'];
-  const seen = Object.fromEntries(Object.entries(process.env).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
-  writeWhole(file, JSON.stringify({ argv, stdin, cwd: process.cwd(), environment: seen }));
+  const seen = Object.fromEntries(Object.entries(host.environment).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
+  writeWhole(file, JSON.stringify({ argv: host.args, stdin, cwd: host.cwd, environment: seen }), host.id);
 }
 
-/** Block the process until the marker file exists, for an edit that waits, which runs synchronously. */
-function waitForMarkerSync(marker: string): void {
-  const pause = new Int32Array(new SharedArrayBuffer(4));
-  while (!existsSync(marker)) Atomics.wait(pause, 0, 0, 20);
-}
-
-/** Block until the marker file exists. */
-export async function waitForMarker(marker: string | undefined = environment.FAKE_WAIT_FOR): Promise<void> {
+/** Wait until the marker file exists: FAKE_WAIT_FOR by default, nothing to wait for when it is unset. */
+export async function waitForMarker(host: FakeHost, marker: string | undefined = host.environment.FAKE_WAIT_FOR): Promise<void> {
   if (marker === undefined) return;
-  while (!existsSync(marker)) await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitForFile(host, marker);
 }
 
 /**
@@ -290,25 +305,24 @@ export async function waitForMarker(marker: string | undefined = environment.FAK
  * hold: start a grandchild, write both pids to `started.json` in the
  * directory, and wait for its `release` file, with the grandchild waiting
  * for it too. The contract test of resumable runs (resume-contract.ts)
- * stops the engine while such a worker holds. fake-check.mjs keeps the
+ * stops the engine while such a worker holds. fake-check.ts keeps the
  * same protocol for a check.
  */
-async function holdIfNamed(name: string): Promise<void> {
-  const directory = environment.FAKE_START_DIR;
+async function holdIfNamed(host: FakeHost, name: string): Promise<void> {
+  const directory = host.environment.FAKE_START_DIR;
   if (directory === undefined) return;
   appendFileSync(join(directory, 'starts'), `${name}\n`);
-  const hold = environment.FAKE_HOLD;
+  const hold = host.environment.FAKE_HOLD;
   const at = hold === undefined ? -1 : hold.lastIndexOf('#');
   if (hold === undefined || at === -1 || hold.slice(0, at) !== name) return;
   const counter = join(directory, 'held.count');
   const count = (existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0) + 1;
-  writeWhole(counter, String(count));
+  writeWhole(counter, String(count), host.id);
   if (count !== Number(hold.slice(at + 1))) return;
   const release = join(directory, 'release');
-  const wait = `const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`;
-  const grandchild = spawn(process.execPath, ['-e', wait], { stdio: 'ignore', windowsHide: true, detached: process.platform === 'win32' });
-  writeWhole(join(directory, 'started.json'), JSON.stringify({ pid: process.pid, grandchild: grandchild.pid }));
-  await waitForMarker(release);
+  const grandchild = host.startGrandchild(`const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`);
+  writeWhole(join(directory, 'started.json'), JSON.stringify({ pid: host.pid, grandchild }), host.id);
+  await waitForFile(host, release);
 }
 
 /**
@@ -316,36 +330,21 @@ async function holdIfNamed(name: string): Promise<void> {
  * tree, hold where FAKE_HOLD names this start, wait, hang, or print
  * stderr. Returns the exit code the step asks for.
  */
-export async function beginScriptedStep(step: ScriptStep, prompt: string): Promise<number> {
-  applyEdits(step.edits ?? [], prompt);
+export async function beginScriptedStep(host: FakeHost, step: ScriptStep, prompt: string): Promise<number> {
+  await applyEdits(host, step.edits ?? [], prompt);
   const header = readTaskHeader(prompt);
-  if (header !== null) await holdIfNamed(`${header.role} ${header.phase}:${header.unitKey}`);
-  await waitForMarker(step.waitFor);
-  if (step.hang === true) {
-    setInterval(() => {}, 1000);
-    await new Promise<never>(() => {});
-  }
-  if (step.stderr !== undefined) process.stderr.write(step.stderr);
+  if (header !== null) await holdIfNamed(host, `${header.role} ${header.phase}:${header.unitKey}`);
+  await waitForMarker(host, step.waitFor);
+  if (step.hang === true) await host.hang();
+  if (step.stderr !== undefined) await host.write('stderr', step.stderr);
   return step.exit ?? 0;
 }
 
-/**
- * Start a grandchild that never exits, write its pid, and never exit either.
- * On Windows the grandchild is detached: libuv otherwise puts it in a job
- * that dies with the fake, so it would die even if the launcher killed only
- * the fake, and the test could not tell a tree kill from a root kill. On
- * POSIX it stays in the fake's process group, which is what the launcher kills.
- */
-export function hangWithGrandchild(pidFile: string): void {
-  const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true, detached: process.platform === 'win32' });
-  if (grandchild.pid === undefined) throw new Error('The grandchild did not start');
-  writeWhole(pidFile, String(grandchild.pid));
-  setInterval(() => {}, 1000);
-}
-
-/** Read all of stdin: the prompt the launcher wrote to a file. */
-export function readStdin(): string {
-  return readFileSync(0, 'utf8');
+/** Start a grandchild that never exits, write its pid, and never end either (see FakeHost.startGrandchild). */
+export function hangWithGrandchild(host: FakeHost, pidFile: string): Promise<never> {
+  const grandchild = host.startGrandchild('setInterval(() => {}, 1000)');
+  writeWhole(pidFile, String(grandchild), host.id);
+  return host.hang();
 }
 
 /** The value after `flag` in argv, or undefined. */
@@ -354,30 +353,23 @@ export function option(argv: readonly string[], flag: string): string | undefine
   return index === -1 ? undefined : argv[index + 1];
 }
 
-/** Write to a stream and wait until it has taken the bytes. */
-function write(stream: NodeJS.WriteStream, bytes: string | Uint8Array): Promise<void> {
-  return new Promise((resolve, reject) => stream.write(bytes, (error) => (error ? reject(error) : resolve())));
-}
-
 /**
  * Do what the environment asks after the fake has received its input:
- * hang, print a huge stream, or print the scripted or default answer,
- * then exit with the scripted code.
+ * hang, print a huge stream, or print the scripted or default answer;
+ * returns the exit code FAKE_EXIT asks for.
  */
-export async function answer(defaultStdout: () => string, session: string): Promise<void> {
-  await waitForMarker();
-  if (environment.FAKE_HANG !== undefined) {
-    hangWithGrandchild(environment.FAKE_HANG);
-    return;
-  }
-  if (environment.FAKE_STDERR !== undefined) process.stderr.write(environment.FAKE_STDERR);
+export async function answer(host: FakeHost, defaultStdout: () => string, session: string): Promise<number> {
+  const environment = host.environment;
+  await waitForMarker(host);
+  if (environment.FAKE_HANG !== undefined) return hangWithGrandchild(host, environment.FAKE_HANG);
+  if (environment.FAKE_STDERR !== undefined) await host.write('stderr', environment.FAKE_STDERR);
   const huge = environment.FAKE_HUGE === undefined ? null : Number(environment.FAKE_HUGE);
-  const hugeStream = environment.FAKE_HUGE_STREAM === 'stderr' ? process.stderr : process.stdout;
-  const stdout = environment.FAKE_STDOUT ?? (huge !== null && hugeStream === process.stdout ? '' : defaultStdout());
-  await write(process.stdout, stdout.replaceAll('{session}', session));
+  const hugeStream = environment.FAKE_HUGE_STREAM === 'stderr' ? 'stderr' : 'stdout';
+  const stdout = environment.FAKE_STDOUT ?? (huge !== null && hugeStream === 'stdout' ? '' : defaultStdout());
+  await host.write('stdout', stdout.replaceAll('{session}', session));
   if (huge !== null) {
     const chunk = Buffer.alloc(1024 * 1024, 'x');
-    for (let left = huge; left > 0; left -= chunk.length) await write(hugeStream, chunk.subarray(0, Math.min(left, chunk.length)));
+    for (let left = huge; left > 0; left -= chunk.length) await host.write(hugeStream, chunk.subarray(0, Math.min(left, chunk.length)));
   }
-  process.exitCode = Number(environment.FAKE_EXIT ?? '0');
+  return Number(environment.FAKE_EXIT ?? '0');
 }

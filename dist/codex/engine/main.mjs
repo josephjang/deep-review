@@ -30954,7 +30954,7 @@ function positiveLimit(name, value) {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`The preflight ${name} must be a positive whole number, not ${String(value)}`);
   return value;
 }
-function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
+function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes: maxOutputBytes2 }) {
   return new Promise((resolve13, reject) => {
     let child;
     try {
@@ -31021,10 +31021,11 @@ function runProbe(executable, args, environment, timeoutMs, maxOutputBytes2) {
 async function preflight(adapter, executable, executableArgs, environment, options2 = {}) {
   const timeoutMs = positiveLimit("timeout", options2.timeoutMs ?? preflightTimeoutMs);
   const maxOutputBytes2 = positiveLimit("output limit", options2.maxOutputBytes ?? maxProbeOutputBytes);
+  const run2 = options2.runProbe ?? runProbe;
   const probe = async (args) => {
     const argv = [...executableArgs, ...args];
     try {
-      return await runProbe(executable, argv, environment, timeoutMs, maxOutputBytes2);
+      return await run2({ executable, args: argv, environment, timeoutMs, maxOutputBytes: maxOutputBytes2 });
     } catch (error62) {
       throw new PreflightError(`The ${adapter.name} preflight could not run ${[executable, ...argv].join(" ")}: ${error62.message}`);
     }
@@ -31508,7 +31509,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
   }
   let result;
   try {
-    result = await runProcess({
+    result = await (options2.runProcess ?? runProcess)({
       executable: invocation.executable,
       args: [...invocation.executableArgs, ...command.args],
       cwd: state.worktree,
@@ -32065,7 +32066,7 @@ async function runCheck(evidence, request) {
     const shell = shellInvocation(request.command, process.platform, request.shell);
     let result;
     try {
-      result = await runProcess({
+      result = await (request.runProcess ?? runProcess)({
         executable: shell.executable,
         args: shell.args,
         verbatimArguments: shell.verbatimArguments,
@@ -34325,7 +34326,15 @@ async function runReview(options2) {
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
       state = append(checkpoint, state, [{ kind: "check.started", version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } }]);
       const manifest = prepareCheckManifest(join29(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
-      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options2.worktree, environment, toolsPath, timeoutMs, ioDirectory: join29(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`) });
+      const result = await runCheck(checkpoint.evidence, {
+        command: due.command,
+        worktree: options2.worktree,
+        environment,
+        toolsPath,
+        timeoutMs,
+        ioDirectory: join29(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`),
+        ...options2.runProcess === void 0 ? {} : { runProcess: options2.runProcess }
+      });
       const cutAgain = secondCut(due.replaces, attempt, result.outcome);
       const outcome = cutAgain ? "failed" : result.outcome;
       const error62 = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces.run)}, then with ${killMarkWords(result)}` : result.error;
@@ -34444,7 +34453,8 @@ async function runReview(options2) {
               toolsPath,
               platform,
               ...options2.scratchRoot === void 0 ? {} : { scratchRoot: options2.scratchRoot },
-              ...options2.preflightOptions === void 0 ? {} : { preflightOptions: options2.preflightOptions }
+              ...options2.preflightOptions === void 0 ? {} : { preflightOptions: options2.preflightOptions },
+              ...options2.runProcess === void 0 ? {} : { runProcess: options2.runProcess }
             }).then((receipt) => ({ unit, receipt }), (error62) => ({ unit, error: error62 }));
             inFlight.set(unitName(unit.phase, unit.key), inFlightOf(unit, startedAt, running));
           }

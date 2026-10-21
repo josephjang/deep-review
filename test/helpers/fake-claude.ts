@@ -6,19 +6,28 @@
 // review worker's prompt on stdin, the scripted step decides the answer.
 // A probe loads only fake-probe.ts, and the help text's flags from the
 // adapter; fake-runtime.ts is loaded only when the fake acts as a worker.
+// Started as a script it runs in a process of its own; claudeFake runs it
+// on any host (fake-host.ts).
 import { writeFileSync } from 'node:fs';
-import { environment, printHelp, versionOutput } from './fake-probe.ts';
+import { processHost, type FakeHost } from './fake-host.ts';
+import { printHelp, versionOutput } from './fake-probe.ts';
 
-const argv = process.argv.slice(2);
-if (argv[0] === '--version') {
-  process.stdout.write(`${versionOutput('2.1.283 (Claude Code)')}\n`);
-} else if (argv[0] === '--help') {
-  const { claudeFlags } = await import('../../src/runtime/claude.ts');
-  printHelp(claudeFlags);
-} else {
-  const { answer, beginScriptedStep, option, readStdin, record, scriptedStep } = await import('./fake-runtime.ts');
-  const stdin = readStdin();
-  record(argv, stdin);
+/** Act as Claude Code on `host`, and give the exit code. */
+export async function claudeFake(host: FakeHost): Promise<number> {
+  const argv = host.args;
+  const environment = host.environment;
+  if (argv[0] === '--version') {
+    await host.write('stdout', `${versionOutput(host, '2.1.283 (Claude Code)')}\n`);
+    return 0;
+  }
+  if (argv[0] === '--help') {
+    const { claudeFlags } = await import('../../src/runtime/claude.ts');
+    await printHelp(host, claudeFlags);
+    return 0;
+  }
+  const { answer, beginScriptedStep, option, record, scriptedStep } = await import('./fake-runtime.ts');
+  const stdin = host.readStdin();
+  record(host, stdin);
   if (environment.FAKE_CLAUDE_ENV !== undefined) {
     const claude = Object.fromEntries(Object.entries(environment).filter(([name]) => name.toUpperCase().startsWith('CLAUDE')));
     writeFileSync(environment.FAKE_CLAUDE_ENV, JSON.stringify(claude));
@@ -36,12 +45,11 @@ if (argv[0] === '--version') {
       usage: { input_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 2 },
       total_cost_usd: costUsd,
     });
-  const scripted = scriptedStep(stdin);
-  if (scripted === null) {
-    await answer(() => envelope(JSON.parse(environment.FAKE_OUTPUT ?? '{"answer":"ok"}') as unknown, 0.001), session);
-  } else {
-    const exit = await beginScriptedStep(scripted.step, stdin);
-    process.stdout.write(envelope(scripted.step.malformed === true ? 'not the shape the schema describes' : scripted.step.output, scripted.step.costUsd ?? 0.001, scripted.step.limit));
-    process.exitCode = exit;
-  }
+  const scripted = scriptedStep(host, stdin);
+  if (scripted === null) return answer(host, () => envelope(JSON.parse(environment.FAKE_OUTPUT ?? '{"answer":"ok"}') as unknown, 0.001), session);
+  const exit = await beginScriptedStep(host, scripted.step, stdin);
+  await host.write('stdout', envelope(scripted.step.malformed === true ? 'not the shape the schema describes' : scripted.step.output, scripted.step.costUsd ?? 0.001, scripted.step.limit));
+  return exit;
 }
+
+if (import.meta.main) process.exitCode = await claudeFake(processHost());

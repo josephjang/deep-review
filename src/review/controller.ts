@@ -33,6 +33,7 @@ import { PreflightError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
+import type { ProcessRunner } from '../runtime/process.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
@@ -148,8 +149,10 @@ export interface ReviewOptions {
   readonly home?: string;
   /** Progress, one line at a time; stderr by default. */
   readonly log?: (line: string) => void;
-  /** The limits of the preflight's probes, at startup and before every worker; the preflight's own by default. */
+  /** The limits of the preflight's probes, at startup and before every worker, and what runs them; the preflight's own by default. */
   readonly preflightOptions?: PreflightOptions;
+  /** What runs each worker's and each check's process; `runProcess` by default. */
+  readonly runProcess?: ProcessRunner;
   /**
    * The fix pass a run not yet configured pins (R1 of the fix pass): null
    * or absent for the read-only review, else the `--check` and
@@ -653,7 +656,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
       state = append(checkpoint, state, [{ kind: 'check.started', version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
       const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
-      const result = await runCheck(checkpoint.evidence, { command: due.command, worktree: options.worktree, environment, toolsPath, timeoutMs, ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`) });
+      const result = await runCheck(checkpoint.evidence, {
+        command: due.command,
+        worktree: options.worktree,
+        environment,
+        toolsPath,
+        timeoutMs,
+        ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`),
+        ...(options.runProcess === undefined ? {} : { runProcess: options.runProcess }),
+      });
       // The second cut of a kind in one attempt is its result, a failure that names both marks (R4 of resumable runs).
       const cutAgain = secondCut(due.replaces, attempt, result.outcome);
       const outcome = cutAgain ? 'failed' : result.outcome;
@@ -784,6 +795,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
               platform,
               ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }),
               ...(options.preflightOptions === undefined ? {} : { preflightOptions: options.preflightOptions }),
+              ...(options.runProcess === undefined ? {} : { runProcess: options.runProcess }),
             })
               .then((receipt): Settled => ({ unit, receipt }), (error: unknown): Settled => ({ unit, error }));
             inFlight.set(unitName(unit.phase, unit.key), inFlightOf(unit, startedAt, running));

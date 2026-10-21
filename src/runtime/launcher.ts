@@ -13,7 +13,7 @@ import { withPathFirst, workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
 import { preflight, type PreflightOptions } from './preflight.ts';
 import { endedByKill, killMarkWords } from './kill-marks.ts';
-import { notStarted, runProcess, type ProcessResult } from './process.ts';
+import { notStarted, runProcess, type ProcessResult, type ProcessRunner } from './process.ts';
 import type { RuntimeRegistry } from './registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from './runtimes.ts';
 import { checkpointScratchKey, chooseScratch, chooseShared, defaultScratchRoot } from './scratch.ts';
@@ -96,6 +96,8 @@ export interface RunWorkerOptions {
   readonly pinned?: PinnedRuntimeOptions;
   /** The directories of `tools.path` the run recorded, first on the worker's PATH (R11, TD10 of the configuration); none by default. */
   readonly toolsPath?: readonly string[];
+  /** What runs the worker's process; `runProcess` by default. */
+  readonly runProcess?: ProcessRunner;
   /**
    * Return the worker's `worker.finished` in the receipt instead of
    * appending it, for a caller that appends it with what the worker
@@ -221,7 +223,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
   // the launch and the finish's append.
   let result: ProcessResult;
   try {
-    result = await runProcess({
+    result = await (options.runProcess ?? runProcess)({
       executable: invocation.executable,
       args: [...invocation.executableArgs, ...command.args],
       cwd: state.worktree,

@@ -9,12 +9,30 @@ export const preflightTimeoutMs = 10_000;
 /** Output a probe may print before it is refused; a help text is a few kilobytes. */
 const maxProbeOutputBytes = 4 * 1024 * 1024;
 
-/** Limits on each probe; the defaults are what a launch uses, and tests shorten them. */
+/** One probe: the command, its environment, and the limits it runs under. */
+export interface ProbeRequest {
+  readonly executable: string;
+  readonly args: readonly string[];
+  readonly environment: NodeJS.ProcessEnv;
+  readonly timeoutMs: number;
+  readonly maxOutputBytes: number;
+}
+
+/**
+ * What runs one probe and gives its stdout, or rejects with why it failed:
+ * `runProbe`, unless a test gives a stand-in that answers for a fake
+ * runtime inside the test's own process.
+ */
+export type ProbeRunner = (request: ProbeRequest) => Promise<string>;
+
+/** Limits on each probe, and what runs it; the defaults are what a launch uses, and tests shorten them. */
 export interface PreflightOptions {
   /** How long one probe may take before it is killed with its process tree. */
   readonly timeoutMs?: number;
   /** How many bytes one probe may print on stdout and stderr together before it is killed with its process tree. */
   readonly maxOutputBytes?: number;
+  /** What runs each probe; `runProbe` by default. */
+  readonly runProbe?: ProbeRunner;
 }
 
 /** Whether `text` mentions `flag` as a whole flag, so `--settings` is not found inside `--setting-sources`. */
@@ -43,7 +61,7 @@ function positiveLimit(name: string, value: number): number {
  * on POSIX, is interrupted, the probe is killed with its tree, which its own
  * process group would otherwise keep out of reach of the terminal's signals.
  */
-function runProbe(executable: string, args: readonly string[], environment: NodeJS.ProcessEnv, timeoutMs: number, maxOutputBytes: number): Promise<string> {
+export function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes }: ProbeRequest): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let child: ChildProcess;
     try {
@@ -129,10 +147,11 @@ export async function preflight(
 ): Promise<string> {
   const timeoutMs = positiveLimit('timeout', options.timeoutMs ?? preflightTimeoutMs);
   const maxOutputBytes = positiveLimit('output limit', options.maxOutputBytes ?? maxProbeOutputBytes);
+  const run = options.runProbe ?? runProbe;
   const probe = async (args: readonly string[]): Promise<string> => {
     const argv = [...executableArgs, ...args];
     try {
-      return await runProbe(executable, argv, environment, timeoutMs, maxOutputBytes);
+      return await run({ executable, args: argv, environment, timeoutMs, maxOutputBytes });
     } catch (error) {
       throw new PreflightError(`The ${adapter.name} preflight could not run ${[executable, ...argv].join(' ')}: ${(error as Error).message}`);
     }

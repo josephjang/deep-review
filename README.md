@@ -725,7 +725,12 @@ failures, hangs, a killed engine and a drifted tree where a case needs
 them. A scripted fixer edits the tree and runs the claim and snapshot
 commands its prompt quotes, and a stand-in check passes, fails, hangs or
 writes as a control file says, so a whole fix run runs there too, no
-toolchain needed. `npm run smoke` is the real-runtime check, for each CLI named
+toolchain needed. In a review sandbox the engine is given a process
+runner that runs those fakes and the stand-in check inside the test's
+own process (`test/helpers/in-process-runner.ts`), so a whole review
+starts no process for them; a fake that must hang with a grandchild, the
+runtime tests and the contract test start them as real processes, as a
+real run does. `npm run smoke` is the real-runtime check, for each CLI named
 on its command line, installed and signed in. Per runtime it runs three
 workers: a read-only worker asked to create a file with its shell, that
 worker's session continued and asked the same again, and an editor with

@@ -97,7 +97,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(text, /^### 3\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
     assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 2 to fix, 1 to leave, 0 to ask the author\./m);
     // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
-    assert.match(text, /^\| build \| ".*fake-check\.mjs" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
+    assert.match(text, /^\| build \| ".*fake-check\.ts" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
     assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
     // c1's fixer wrote the test without claiming it first, so its answer claimed it late (R6 of commit series integrity).
     assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
@@ -483,7 +483,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const repair = box.promptOf(state, 'fixer repair:repair');
     assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the fixers' edits\./m);
     assert.match(repair, /^ {4}It passed before any fixer edited the tree\.$/m);
-    assert.match(repair, /^\[0\] test: .*fake-check\.mjs" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
+    assert.match(repair, /^\[0\] test: .*fake-check\.ts" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
     assert.match(repair, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n/);
     assert.match(repair, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);
   });
