@@ -178,11 +178,12 @@ export function removeEndedTemplates(directory: string = tmpdir()): void {
  * calls and copying it one, and the suite makes a sandbox for most of its
  * review tests. Every copy has the same commits, ids and all; what the
  * engine keeps of a run (its checkpoint, scratch and home) is under the
- * sandbox's own directory, so no two sandboxes share it. On POSIX the
- * copy's files have other inodes and times than its index records, so the
- * index is refreshed once here, as a freshly made repository needs no
- * refresh: otherwise the engine's first git command would rewrite it
- * during a test. The template is removed when the process exits; one that
+ * sandbox's own directory, so no two sandboxes share it. A copy made later
+ * than the template has other stat data than its index records on every
+ * system: new inodes and times on POSIX, and on Windows a new creation
+ * time, which Git for Windows reads as the ctime. So the index is refreshed
+ * once here, as a freshly made repository needs no refresh: otherwise the
+ * engine's first git command would rewrite it during a test. The template is removed when the process exits; one that
  * a killed process left, which never ran its 'exit' handler, the next test
  * process that makes a template removes, by the pid in its name.
  */
