@@ -53,6 +53,16 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.ok(logs[0]!.startsWith(`run run-1: could not write the copy of the report to ${path}: `), logs.join(' '));
   });
 
+  it('logs a copy it cannot render and gives null, failing nothing (TD6 of the brief of a run)', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    // A fix pass the run budget stopped names the command that continues it, which reads the engine's own roles.
+    const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-2': { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
+    const broken: CopyContext = { ...context, ownRolesDigest: () => { throw new Error('the roles cannot be read'); } };
+    assert.equal(refreshReportCopy(checkpointAt(join(sandbox, 'checkpoint')), stopped, broken, log), null);
+    assert.deepEqual(logs, [`run ${stopped.id}: could not render the copy of the report: the roles cannot be read`]);
+  });
+
   it('renders the report from the ledger as it is now, so it names an answer the record of its moment does not', () => {
     const root = join(sandbox, 'checkpoint');
     const state = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).fold();

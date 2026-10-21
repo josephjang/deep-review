@@ -87,9 +87,18 @@ export function writeReportCopy(path: string, text: string, runId: string, log: 
  * Render the run's report from the ledger as it is now and write it as its
  * copy, giving the copy's path; null, writing nothing, while the run has no
  * current report, as while an answer pass, a continuation or a reopened fix
- * pass works again, and when the copy cannot be written.
+ * pass works again, and when the copy cannot be rendered or written, which
+ * it logs.
  */
 export function refreshReportCopy(checkpoint: Pick<Checkpoint, 'root' | 'engine' | 'evidence'>, state: RunState, context: CopyContext, log: (line: string) => void): string | null {
   if (state.review?.report === null || state.review?.report === undefined) return null;
-  return writeReportCopy(reportCopyPath(checkpoint.root, state), renderReport(state, reportInputOf(checkpoint, state, context)), state.id, log);
+  let text: string;
+  try {
+    text = renderReport(state, reportInputOf(checkpoint, state, context));
+  } catch (error) {
+    // A copy never fails a command, whatever stops its render: the roles it names, the statistics or the report itself (TD6).
+    log(`run ${state.id}: could not render the copy of the report: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+  return writeReportCopy(reportCopyPath(checkpoint.root, state), text, state.id, log);
 }

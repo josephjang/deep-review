@@ -242,7 +242,12 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
         return outcome('pass', checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.pass', version: 1, payload: { ids } }]));
       } finally {
         // The copy of the report shows the answer, also when the pass is then refused; an opened pass clears the report, so no copy is written until the pass writes its own (R14 of the brief of a run).
-        options.refreshCopy?.(checkpoint.fold(run.id));
+        // A copy never fails the command, nor hides the refusal that ends it (TD6 of the brief of a run).
+        try {
+          options.refreshCopy?.(checkpoint.fold(run.id));
+        } catch (error) {
+          options.log(`run ${run.id}: could not write the copy of the report: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     } finally {
       release();

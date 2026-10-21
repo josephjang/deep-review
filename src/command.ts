@@ -849,9 +849,10 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
     const record = checkpoint.evidence.pathOf(review.report.report);
     const brief = briefOf(state);
     if (values.json === true) {
-      const own = review.configuration.rolesDigest === rolesDigest(assembleRoles(engineRolesRoot()));
+      // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
       const spend = budgetStoppedRun(state) ? budgetSpendOf(state, defaultRuntimes().get(review.configuration.runtime)).usd : null;
-      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, io.engineEntry ?? sourceEntry, own ? null : rolesPlaceholder, spend) };
+      const roles = (): string | null => (review.configuration.rolesDigest === rolesDigest(assembleRoles(engineRolesRoot())) ? null : rolesPlaceholder);
+      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, io.engineEntry ?? sourceEntry, roles(), spend) };
       io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
       return 0;
     }
