@@ -174,7 +174,7 @@ export function removeEndedTemplates(directory: string = tmpdir()): void {
 
 /**
  * The sandbox repository (makeSandboxRepository) at `directory`, copied
- * from one this process made at its first call. Making it costs eleven git
+ * from one this process made at its first call. Making it costs seven git
  * calls and copying it one, and the suite makes a sandbox for most of its
  * review tests. Every copy has the same commits, ids and all; what the
  * engine keeps of a run (its checkpoint, scratch and home) is under the
