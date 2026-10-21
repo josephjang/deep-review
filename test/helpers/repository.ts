@@ -43,11 +43,17 @@ const repositorySettings = (options: RepositoryOptions): string =>
  * to the config file `git init` wrote, in one write rather than a git call
  * per setting, since the suite makes hundreds of repositories and each git
  * start is costly on Windows; git reads a section that appears twice, such
- * as `[core]`, as one.
+ * as `[core]`, as one. `git init` copies no template, so a machine's
+ * init.templateDir puts no config of its own there, and each setting has
+ * exactly one value, which a test's `git config <key> <value>` can replace.
+ * The `info` and `hooks` directories a template would bring are made here,
+ * for a test that writes `.git/info/exclude` or a hook.
  */
 export function createRepository(directory: string, options: RepositoryOptions = {}): string {
   mkdirSync(directory, { recursive: true });
-  git(directory, 'init', '-q', '-b', 'main');
+  git(directory, 'init', '-q', '-b', 'main', '--template=');
+  mkdirSync(join(directory, '.git', 'info'), { recursive: true });
+  mkdirSync(join(directory, '.git', 'hooks'), { recursive: true });
   appendFileSync(join(directory, '.git', 'config'), repositorySettings(options));
   return realpathSync.native(directory);
 }
