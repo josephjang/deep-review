@@ -24,9 +24,9 @@ import { answeringLine, decisionLine, decisionsSection } from './decision-report
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell, type LocalPlaces } from './markdown.ts';
+import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell } from './markdown.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { settingsHeaderLine, settingsNotes } from './settings-report.ts';
+import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
@@ -246,9 +246,10 @@ export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): strin
  * that did not run, the groups no verifier examined, the paths the
  * settings left out, the files too large to freeze, the checks not
  * available and the work the run budget did not start, whose command is in
- * the facts of the run. Each line names a local path as `places` gives it.
+ * the facts of the run; and less the settings' lines, which the facts of
+ * the run give beside the `Settings:` line.
  */
-function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput, places: LocalPlaces): string[] {
+function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   const drifted = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.drifted);
   // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
@@ -274,7 +275,6 @@ function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, inp
     const matching = unlocated.filter((candidate) => whyUnlocated(scope, candidate) === reason);
     if (matching.length > 0) lines.push(`- Unlocated candidates ${unlocatedWording[reason]}: ${matching.map((candidate) => `${candidate.id} (${rawAt(candidate)})`).join(', ')}.`);
   }
-  lines.push(...settingsNotes(review.configuration, (path) => localPathWords(path, places)).map((line) => `- ${inlineText(line)}`));
   lines.push(...surveyLimitations(review));
   lines.push(...fixLimitations(review));
   // What a stop did, and what the resumed run did about it (R15 of resumable runs).
@@ -391,6 +391,8 @@ function factsOfRun(state: RunState, scope: ScopeState, review: ReviewState, inp
     `Roles digest: ${configuration.rolesDigest}`,
     // A run configured before the settings renders no line of them; status says it is older than them (R17 of the configuration).
     ...(configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
+    // What the settings left unexamined or unfollowed, beside the line that names them: each path left out, each value not followed and each setting ignored, whose file may be a local path (R7 of the configuration; R15 of the brief of a run).
+    ...[...excludedLines(scope), ...settingsNotes(configuration)].map(inlineText),
     ...continuedLine(review),
     ...answersLines(review),
     ...reopenedLine(review),
@@ -428,7 +430,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
   const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
-  const notesSection = ['## Notes of the run', '', ...notesOfRun(state, scope, review, input, places)];
+  const notesSection = ['## Notes of the run', '', ...notesOfRun(state, scope, review, input)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
   const fixed = input.fix === undefined ? [] : fixSections(state, storeNameOf, input.fix.patches.map(storeNameOf));
   return [
