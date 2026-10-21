@@ -12,13 +12,14 @@
 // Every run appends `<kind>` to `<FAKE_CHECKS>.runs`, so a test sees what ran and in what order.
 // With FAKE_START_DIR set, every run also appends `check <kind>` to its
 // `starts` file, and the run FAKE_HOLD names holds after the writes of its
-// rule, before it exits (see holdIfNamed).
+// rule, before it exits (see holdIfNamed in fake-host.ts, the protocol a
+// worker keeps too).
 // Started as a script it runs in a process of its own, as a real check
 // does; checkFake runs it on any host (fake-host.ts). It imports nothing of
 // the other helpers but fake-host.ts, so a check starts as fast as a real one.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { processHost, waitForFile, type FakeHost } from './fake-host.ts';
+import { holdIfNamed, processHost, type FakeHost } from './fake-host.ts';
 
 type Rule =
   | 'pass'
@@ -45,34 +46,6 @@ export function checkStartsGrandchild(environment: NodeJS.ProcessEnv, kind: stri
   if (environment.FAKE_START_DIR !== undefined) return true;
   const rule = rulesOf(environment)[kind];
   return rule === 'hang' || (Array.isArray(rule) && rule.includes('hang'));
-}
-
-/**
- * When FAKE_START_DIR is set, record this start as `check <kind>` and, when
- * FAKE_HOLD names this start as `<name>#<n>`, the n-th start of the name,
- * hold: start a grandchild, write both pids to `started.json` in the
- * directory, and wait for its `release` file, with the grandchild waiting
- * for it too. The contract test of resumable runs (test/helpers/
- * resume-contract.ts) stops the engine while such a child holds. The same
- * protocol is in fake-runtime.ts for a worker.
- */
-async function holdIfNamed(host: FakeHost, name: string): Promise<void> {
-  const directory = host.environment.FAKE_START_DIR;
-  if (directory === undefined) return;
-  appendFileSync(join(directory, 'starts'), `${name}\n`);
-  const hold = host.environment.FAKE_HOLD;
-  const at = hold === undefined ? -1 : hold.lastIndexOf('#');
-  if (hold === undefined || at === -1 || hold.slice(0, at) !== name) return;
-  const counter = join(directory, 'held.count');
-  const count = (existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0) + 1;
-  writeFileSync(counter, String(count));
-  if (count !== Number(hold.slice(at + 1))) return;
-  const release = join(directory, 'release');
-  const grandchild = host.startGrandchild(`const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`);
-  const temporary = join(directory, `started.${host.id}.tmp`);
-  writeFileSync(temporary, JSON.stringify({ pid: host.pid, grandchild }));
-  renameSync(temporary, join(directory, 'started.json'));
-  await waitForFile(host, release);
 }
 
 /** Run the check of the kind `host.args` names, as its rule says, and give the exit code. */

@@ -4,10 +4,13 @@
 // CLI. Run by the in-process runner (in-process-runner.ts), it gets a host
 // over the request the engine would have spawned, inside the test's own
 // process, which costs no process start. No fake reads `process` itself,
-// so both ways run the same code. This module imports only Node's own, so
-// a fake that loads it still starts fast.
+// so both ways run the same code. It also holds what the fakes share of
+// the files they write: writeWhole, and the hold protocol (holdIfNamed)
+// that a worker and a check both keep. This module imports only Node's
+// own, so a fake that loads it still starts fast.
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface FakeHost {
   /** The arguments after the fake's script. */
@@ -16,7 +19,7 @@ export interface FakeHost {
   readonly environment: NodeJS.ProcessEnv;
   /** The working directory the engine gave the process. */
   readonly cwd: string;
-  /** The process the fake runs in, which a test that holds a fake kills (see holdIfNamed in fake-runtime.ts). */
+  /** The process the fake runs in, which a test that holds a fake kills (see holdIfNamed). */
   readonly pid: number;
   /** A name unique among the fakes running at once, for a temporary file's name. */
   readonly id: string;
@@ -72,4 +75,37 @@ export function processHost(): FakeHost {
 /** Wait until `marker` exists, looking every 20 ms. */
 export async function waitForFile(host: FakeHost, marker: string): Promise<void> {
   while (!existsSync(marker)) await host.sleep(20);
+}
+
+/** Write a file whole, under a temporary name unique to the fake (`id`) and then renamed, so a polling test never reads it empty or half written. */
+export function writeWhole(file: string, text: string, id: string): void {
+  const temporary = `${file}.${id}.tmp`;
+  writeFileSync(temporary, text);
+  renameSync(temporary, file);
+}
+
+/**
+ * When FAKE_START_DIR is set, record this start as `name` (a worker's
+ * `<role> <phase>:<unit>`, as the engine labels its launch, or a check's
+ * `check <kind>`) and, when FAKE_HOLD names it as `<name>#<n>`, the n-th
+ * start of the name, hold: start a grandchild, write both pids to
+ * `started.json` in the directory, and wait for its `release` file, with
+ * the grandchild waiting for it too. The contract test of resumable runs
+ * (resume-contract.ts) stops the engine while such a fake holds.
+ */
+export async function holdIfNamed(host: FakeHost, name: string): Promise<void> {
+  const directory = host.environment.FAKE_START_DIR;
+  if (directory === undefined) return;
+  appendFileSync(join(directory, 'starts'), `${name}\n`);
+  const hold = host.environment.FAKE_HOLD;
+  const at = hold === undefined ? -1 : hold.lastIndexOf('#');
+  if (hold === undefined || at === -1 || hold.slice(0, at) !== name) return;
+  const counter = join(directory, 'held.count');
+  const count = (existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0) + 1;
+  writeWhole(counter, String(count), host.id);
+  if (count !== Number(hold.slice(at + 1))) return;
+  const release = join(directory, 'release');
+  const grandchild = host.startGrandchild(`const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`);
+  writeWhole(join(directory, 'started.json'), JSON.stringify({ pid: host.pid, grandchild }), host.id);
+  await waitForFile(host, release);
 }

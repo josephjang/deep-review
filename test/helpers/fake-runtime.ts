@@ -13,15 +13,15 @@
 //   FAKE_HANG        start a grandchild, write its pid to this file, and never exit
 //   FAKE_SCRIPT      a JSON file scripting the answer per review role and unit; see scriptedStep
 //   FAKE_START_DIR   a directory whose `starts` file records each scripted worker's start
-//   FAKE_HOLD        the start of a scripted worker that holds there; see holdIfNamed
+//   FAKE_HOLD        the start of a scripted worker that holds there; see holdIfNamed in fake-host.ts
 // The answers to the preflight's probes are in fake-probe.ts, which lists the
 // variables they read; a fake loads this module only to act as a worker.
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
-import { waitForFile, type FakeHost } from './fake-host.ts';
+import { holdIfNamed, waitForFile, writeWhole, type FakeHost } from './fake-host.ts';
 
 /**
  * One edit a scripted fixer makes before it answers, in order: the files
@@ -276,13 +276,6 @@ export function scriptedStep(host: FakeHost, prompt: string): { readonly role: s
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
 
-/** Write a file whole, under a temporary name unique to the fake (`id`) and then renamed, so a polling test never reads it empty or half written. */
-function writeWhole(file: string, text: string, id: string): void {
-  const temporary = `${file}.${id}.tmp`;
-  writeFileSync(temporary, text);
-  renameSync(temporary, file);
-}
-
 /** Write what the fake was given, for the test to assert on. */
 export function record(host: FakeHost, stdin: string): void {
   const file = host.environment.FAKE_RECORD;
@@ -296,33 +289,6 @@ export function record(host: FakeHost, stdin: string): void {
 export async function waitForMarker(host: FakeHost, marker: string | undefined = host.environment.FAKE_WAIT_FOR): Promise<void> {
   if (marker === undefined) return;
   await waitForFile(host, marker);
-}
-
-/**
- * When FAKE_START_DIR is set, record this start of the worker labelled
- * `name` (`<role> <phase>:<unit>`, as the engine labels its launch) and,
- * when FAKE_HOLD names it as `<name>#<n>`, the n-th start of the name,
- * hold: start a grandchild, write both pids to `started.json` in the
- * directory, and wait for its `release` file, with the grandchild waiting
- * for it too. The contract test of resumable runs (resume-contract.ts)
- * stops the engine while such a worker holds. fake-check.ts keeps the
- * same protocol for a check.
- */
-async function holdIfNamed(host: FakeHost, name: string): Promise<void> {
-  const directory = host.environment.FAKE_START_DIR;
-  if (directory === undefined) return;
-  appendFileSync(join(directory, 'starts'), `${name}\n`);
-  const hold = host.environment.FAKE_HOLD;
-  const at = hold === undefined ? -1 : hold.lastIndexOf('#');
-  if (hold === undefined || at === -1 || hold.slice(0, at) !== name) return;
-  const counter = join(directory, 'held.count');
-  const count = (existsSync(counter) ? Number(readFileSync(counter, 'utf8')) : 0) + 1;
-  writeWhole(counter, String(count), host.id);
-  if (count !== Number(hold.slice(at + 1))) return;
-  const release = join(directory, 'release');
-  const grandchild = host.startGrandchild(`const { existsSync } = require('node:fs'); setInterval(() => { if (existsSync(${JSON.stringify(release)})) process.exit(0); }, 50);`);
-  writeWhole(join(directory, 'started.json'), JSON.stringify({ pid: host.pid, grandchild }), host.id);
-  await waitForFile(host, release);
 }
 
 /**
