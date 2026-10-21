@@ -79,39 +79,37 @@ export async function checkFake(host: FakeHost): Promise<number> {
     writeFileSync(`${control!}.${kind}.pid`, String(host.startGrandchild('setInterval(() => {}, 1000)')));
     return host.hang();
   }
-  // Another string, or no object at all, is an unknown rule; `in` would throw on it.
-  if (typeof rule !== 'object' || rule === null) {
-    await host.write('stderr', `fake-check: unknown rule ${JSON.stringify(rule)}\n`);
-    return 2;
-  }
-  if ('write' in rule) {
-    for (const [path, text] of Object.entries(rule.write)) {
-      mkdirSync(join(file(path), '..'), { recursive: true });
-      writeFileSync(file(path), text);
+  // `in` would throw on a value that is no object; another string, or such a value, is an unknown rule.
+  if (typeof rule === 'object' && rule !== null) {
+    if ('write' in rule) {
+      for (const [path, text] of Object.entries(rule.write)) {
+        mkdirSync(join(file(path), '..'), { recursive: true });
+        writeFileSync(file(path), text);
+      }
+      await holdIfNamed(host, `check ${kind}`);
+      if (rule.hang === true) return host.hang();
+      return rule.exit ?? 0;
     }
-    await holdIfNamed(host, `check ${kind}`);
-    if (rule.hang === true) return host.hang();
-    return rule.exit ?? 0;
-  }
-  if ('exit' in rule) {
-    await holdIfNamed(host, `check ${kind}`);
-    return rule.exit;
-  }
-  if ('replace' in rule) {
-    for (const [path, { from, to }] of Object.entries(rule.replace)) {
-      if (!existsSync(file(path))) continue;
-      const text = readFileSync(file(path), 'utf8');
-      if (text.includes(from)) writeFileSync(file(path), text.replaceAll(from, to));
+    if ('exit' in rule) {
+      await holdIfNamed(host, `check ${kind}`);
+      return rule.exit;
     }
-    await holdIfNamed(host, `check ${kind}`);
-    return 0;
-  }
-  if ('failIfContains' in rule) {
-    await holdIfNamed(host, `check ${kind}`);
-    const broken = Object.entries(rule.failIfContains).filter(([path, text]) => existsSync(file(path)) && readFileSync(file(path), 'utf8').includes(text));
-    if (broken.length === 0) return 0;
-    await host.write('stdout', `${kind}: ${broken.map(([path]) => path).join(', ')} is broken\n`);
-    return 1;
+    if ('replace' in rule) {
+      for (const [path, { from, to }] of Object.entries(rule.replace)) {
+        if (!existsSync(file(path))) continue;
+        const text = readFileSync(file(path), 'utf8');
+        if (text.includes(from)) writeFileSync(file(path), text.replaceAll(from, to));
+      }
+      await holdIfNamed(host, `check ${kind}`);
+      return 0;
+    }
+    if ('failIfContains' in rule) {
+      await holdIfNamed(host, `check ${kind}`);
+      const broken = Object.entries(rule.failIfContains).filter(([path, text]) => existsSync(file(path)) && readFileSync(file(path), 'utf8').includes(text));
+      if (broken.length === 0) return 0;
+      await host.write('stdout', `${kind}: ${broken.map(([path]) => path).join(', ')} is broken\n`);
+      return 1;
+    }
   }
   await host.write('stderr', `fake-check: unknown rule ${JSON.stringify(rule)}\n`);
   return 2;
