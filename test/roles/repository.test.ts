@@ -194,7 +194,10 @@ describe('the repository\'s roles/', () => {
       assert.match(prompt, /A refusal that\s+comes after you edited leaves those edits in place: list them under the\s+finding's `edits`, with a message that says the change is partial\./, key);
       assert.ok(prompt.indexOf('**Claim before the first edit for a finding.**') < prompt.indexOf('**Snapshot after each finding.**'), `${key} claims before it snapshots`);
       assert.match(prompt, /Before each snapshot,\s+run the checks your task gives that finish quickly, such as a typecheck\s+and a lint, on what the finding touched, and correct within the finding\s+what they show/, key);
-      assert.match(prompt, /the full suite stays at the end of your batch\./, key);
+      // The whole suite is the engine's, once every fix worker returned (R7 of commit series integrity, amended 2026-10-22).
+      assert.match(prompt, /At the end of your batch, run the tests that cover\s+what you changed, not the whole suite: the engine runs every check, the\s+whole suite included, once the fix workers are done/, key);
+      assert.doesNotMatch(prompt, /full suite stays at the end/, key);
+      assert.match(prompt, /It runs\s+the project's checks once before any fix and again once every fix\s+worker has returned/, key);
       assert.match(prompt, /A\s+failure they show in a file you do not hold is a sibling's work in\s+flight, not yours: leave it and read past it/, key);
       assert.match(prompt, /A generator's output is not the\s+fix: restore what a build, an install or a test rewrote before the\s+snapshot/, key);
       assert.match(prompt, /run a tool that writes over\s+the files you hold, never over the whole tree\./, key);

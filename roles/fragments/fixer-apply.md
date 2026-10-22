@@ -31,8 +31,10 @@ not snapshot is folded into the next one's commit. Before each snapshot,
 run the checks your task gives that finish quickly, such as a typecheck
 and a lint, on what the finding touched, and correct within the finding
 what they show, since each snapshot becomes a commit the repository must
-accept on its own; the full suite stays at the end of your batch. A
-failure they show in a file you do not hold is a sibling's work in
+accept on its own. At the end of your batch, run the tests that cover
+what you changed, not the whole suite: the engine runs every check, the
+whole suite included, once the fix workers are done, and other fix
+workers share this tree and this machine with you. A failure they show in a file you do not hold is a sibling's work in
 flight, not yours: leave it and read past it, and run the lint over the
 files you changed where the tool allows. A generator's output is not the
 fix: restore what a build, an install or a test rewrote before the
