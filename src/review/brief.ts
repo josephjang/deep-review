@@ -552,14 +552,19 @@ export const howToAnswer = 'To answer, ask your agent with the deep-review skill
 /** An answer a person gave, as a line of the brief. */
 const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
 
+/** Why a run has no account of the change, by the state of the account: the one sentence of the brief's part "The change" and of the evidence's "The change, in full". */
+export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>> = {
+  unrecorded: 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.',
+  none: 'The triage of this run gave no account of the change.',
+};
+
 /** The part "The change": the core of the change, marked as the triage's unverified account, or why the run has none. */
 function changePart(change: BriefChange): string[] {
   const lines = ['## The change', ''];
   switch (change.state) {
     case 'unrecorded':
-      return [...lines, 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.'];
     case 'none':
-      return [...lines, 'The triage of this run gave no account of the change.'];
+      return [...lines, missingAccountWords[change.state]];
     case 'given': {
       const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
       const why = change.why === null

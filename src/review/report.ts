@@ -19,7 +19,7 @@ import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.t
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import { briefMarkdown, briefOf } from './brief.ts';
+import { briefMarkdown, briefOf, missingAccountWords } from './brief.ts';
 import { answeringLine, decisionLine, decisionsSection } from './decision-report.ts';
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
@@ -339,9 +339,8 @@ function changeInFull(review: ReviewState): string[] {
   const lines = ['## The change, in full', ''];
   switch (review.change.kind) {
     case 'unrecorded':
-      return [...lines, 'The triage of this run recorded no account of the change: an engine before the account reviewed it.'];
     case 'none':
-      return [...lines, 'The triage of this run gave no account of the change.'];
+      return [...lines, missingAccountWords[review.change.kind]];
     case 'given': {
       const { reading } = review.change;
       const sources = (list: readonly string[]): string => (list.length === 0 ? 'none named' : list.map(inlineText).join(', '));

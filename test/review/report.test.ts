@@ -45,6 +45,17 @@ describe('renderReport', () => {
     assert.ok(report.endsWith('\n') && !report.endsWith('\n\n'));
   });
 
+  it('says why a run has no account of the change in one sentence, the same in the brief and in the evidence', () => {
+    const state = reported().fold();
+    const expected = { unrecorded: 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.', none: 'The triage of this run gave no account of the change.' };
+    for (const kind of ['unrecorded', 'none'] as const) {
+      const report = renderReport({ ...state, review: { ...state.review!, change: { kind } } }, reportInput);
+      const after = (heading: string): string => report.slice(report.indexOf(`\n${heading}\n\n`) + heading.length + 3).split('\n')[0]!;
+      assert.equal(after('## The change'), expected[kind], kind);
+      assert.equal(after('## The change, in full'), expected[kind], kind);
+    }
+  });
+
   it('names the Codex Windows sandbox a Codex run on Windows pinned, after the runtime, and nothing for a run that pins none (R7 of the Codex sandbox)', () => {
     const state = reported().fold();
     const pinning = (codex: ReviewConfiguration['codex']): RunState => ({ ...state, review: { ...state.review!, configuration: { ...state.review!.configuration, runtime: 'codex', codex } } });

@@ -25,7 +25,7 @@ The evidence for each statement above follows.
 
 ## The change, in full
 
-The triage of this run recorded no account of the change: an engine before the account reviewed it.
+The triage of this run did not record the core of the change, because an engine before this change reviewed it.
 
 ## Findings
 
