@@ -75,7 +75,7 @@ export interface BriefQuestion {
   readonly id: string;
   readonly question: string;
   /** The default, the option that is the easiest to take back. */
-  readonly inPlace: number;
+  readonly default: number;
   /**
    * Whether the default is in place: one that keeps the code is; one that
    * edits it is once a fixer applied it, and never in a run that only
@@ -273,7 +273,7 @@ function questionsOf(context: BriefContext): BriefQuestion[] {
     return {
       id: decision.id,
       question: ask.question,
-      inPlace: ask.applied + 1,
+      default: ask.applied + 1,
       defaultApplied: defaultInPlace(context.review, decision),
       choice: ask.recommended + 1,
       options: ask.options.map((option, index) => ({ number: index + 1, option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
@@ -582,14 +582,14 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
   const standing = answer !== null
     ? `${answeredWords(answer)} deep-review's choice was option ${String(question.choice)}.`
     : question.defaultApplied
-      ? question.inPlace === question.choice
-        ? `In place now: option ${String(question.inPlace)}, which is also deep-review's choice, because it is the easiest to take back.`
-        : `In place now: option ${String(question.inPlace)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`
-      : `The default: option ${String(question.inPlace)}, because it is the easiest to take back; ${fixed ? 'its fixer did not apply it' : 'this run only reviewed, so `review --fix` applies it'}. deep-review's choice: option ${String(question.choice)}.`;
-  const inPlaceLabel = question.defaultApplied ? 'in place now' : 'the default';
+      ? question.default === question.choice
+        ? `In place now: option ${String(question.default)}, which is also deep-review's choice, because it is the easiest to take back.`
+        : `In place now: option ${String(question.default)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`
+      : `The default: option ${String(question.default)}, because it is the easiest to take back; ${fixed ? 'its fixer did not apply it' : 'this run only reviewed, so `review --fix` applies it'}. deep-review's choice: option ${String(question.choice)}.`;
+  const defaultLabel = question.defaultApplied ? 'in place now' : 'the default';
   const label = (option: BriefOption): string => [
     String(option.number),
-    ...(answer === null && option.number === question.inPlace ? [inPlaceLabel] : []),
+    ...(answer === null && option.number === question.default ? [defaultLabel] : []),
     ...(option.number === answered ? ['your answer'] : []),
     ...(option.number === question.choice ? ['deep-review\'s choice'] : []),
   ].join(', ');

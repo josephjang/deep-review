@@ -33080,7 +33080,7 @@ function questionsOf(context) {
     return {
       id: decision.id,
       question: ask.question,
-      inPlace: ask.applied + 1,
+      default: ask.applied + 1,
       defaultApplied: defaultInPlace(context.review, decision),
       choice: ask.recommended + 1,
       options: ask.options.map((option, index2) => ({ number: index2 + 1, option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
@@ -33287,11 +33287,11 @@ function changePart(change) {
 function questionBlock(question, position, fixed) {
   const { answer: answer3 } = question;
   const answered2 = answer3?.option ?? null;
-  const standing = answer3 !== null ? `${answeredWords(answer3)} deep-review's choice was option ${String(question.choice)}.` : question.defaultApplied ? question.inPlace === question.choice ? `In place now: option ${String(question.inPlace)}, which is also deep-review's choice, because it is the easiest to take back.` : `In place now: option ${String(question.inPlace)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.` : `The default: option ${String(question.inPlace)}, because it is the easiest to take back; ${fixed ? "its fixer did not apply it" : "this run only reviewed, so `review --fix` applies it"}. deep-review's choice: option ${String(question.choice)}.`;
-  const inPlaceLabel = question.defaultApplied ? "in place now" : "the default";
+  const standing = answer3 !== null ? `${answeredWords(answer3)} deep-review's choice was option ${String(question.choice)}.` : question.defaultApplied ? question.default === question.choice ? `In place now: option ${String(question.default)}, which is also deep-review's choice, because it is the easiest to take back.` : `In place now: option ${String(question.default)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.` : `The default: option ${String(question.default)}, because it is the easiest to take back; ${fixed ? "its fixer did not apply it" : "this run only reviewed, so `review --fix` applies it"}. deep-review's choice: option ${String(question.choice)}.`;
+  const defaultLabel = question.defaultApplied ? "in place now" : "the default";
   const label = (option) => [
     String(option.number),
-    ...answer3 === null && option.number === question.inPlace ? [inPlaceLabel] : [],
+    ...answer3 === null && option.number === question.default ? [defaultLabel] : [],
     ...option.number === answered2 ? ["your answer"] : [],
     ...option.number === question.choice ? ["deep-review's choice"] : []
   ].join(", ");
@@ -35962,7 +35962,7 @@ function briefJson(brief, local) {
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,
-      inPlace: question.inPlace,
+      default: question.default,
       defaultApplied: question.defaultApplied,
       choice: question.choice,
       options: question.options.map((option) => ({ option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
@@ -36012,7 +36012,7 @@ var init_brief_json = __esm({
       questions: external_exports.array(external_exports.strictObject({
         id: text2,
         question: text2,
-        inPlace: external_exports.number().int().min(1),
+        default: external_exports.number().int().min(1),
         defaultApplied: external_exports.boolean(),
         choice: external_exports.number().int().min(1),
         options: external_exports.array(external_exports.strictObject({ option: text2, cost: text2, rule: text2, edits: external_exports.boolean() })),

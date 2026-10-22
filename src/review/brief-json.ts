@@ -29,7 +29,7 @@ export const briefJsonV1 = z.strictObject({
   questions: z.array(z.strictObject({
     id: text,
     question: text,
-    inPlace: z.number().int().min(1),
+    default: z.number().int().min(1),
     defaultApplied: z.boolean(),
     choice: z.number().int().min(1),
     options: z.array(z.strictObject({ option: text, cost: text, rule: text, edits: z.boolean() })),
@@ -88,7 +88,7 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,
-      inPlace: question.inPlace,
+      default: question.default,
       defaultApplied: question.defaultApplied,
       choice: question.choice,
       options: question.options.map((option) => ({ option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),

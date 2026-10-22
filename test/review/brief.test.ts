@@ -96,7 +96,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.ok(question !== undefined);
       assert.equal(question.id, 'SWEEP-1');
       assert.equal(question.question, 'Should parse accept an empty input?');
-      assert.deepEqual([question.inPlace, question.choice], [1, 2]);
+      assert.deepEqual([question.default, question.choice], [1, 2]);
       assert.deepEqual(question.options.map((option) => [option.number, option.option, option.edits]), [[1, 'keep accepting it', false], [2, 'accept it and return an empty result', true]]);
       assert.equal(question.command, 'deep-review answer --finding SWEEP-1 --option 2');
       assert.equal(question.answer, null);
