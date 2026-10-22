@@ -383,11 +383,19 @@ describe('the Decisions section (R8 of the decision step)', () => {
   it('says no question\'s default was applied, neither in a read-only run, which ran no fixer, nor in a fix run, whose Fixes says whether a fixer edited it', () => {
     const readOnly = render(decidedOf(reported(), [decisions[0], askDecision('SWEEP-1', true)]).fold());
     assert.match(readOnly, /^None of these held the run up: [^\n]*This run does not fix: no fixer ran, and the tree is unchanged\./m);
-    assert.match(readOnly, /^- 2\\\. SWEEP-1: not answered; the default in place is reject it with an error$/m);
+    assert.match(readOnly, /^- 2\\\. SWEEP-1: not answered; the default is reject it with an error, which this run did not apply$/m, 'a default that edits is not in place in a run that only reviewed');
+    assert.doesNotMatch(readOnly, /the default in place is/);
     const fixing = render(decidedOf(fixRun(), [decisions[0], askDecision('SWEEP-1', false)]).fold());
     assert.match(fixing, /^None of these held the run up: [^\n]*A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing\./m);
     assert.doesNotMatch(fixing, /no fixer ran/);
     for (const report of [readOnly, fixing]) assert.doesNotMatch(report, /applied as written|^ {2}- Applied: |ask the author, applying /m);
+  });
+
+  it('says an unanswered default that edits is in place in a fix run only once its fixer applied it', () => {
+    const asked = (status: string): string => render(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], status).fold());
+    assert.match(asked('applied'), /^- 1\\\. RIPPLE-1: not answered; the default in place is reject it with an error$/m);
+    for (const status of ['deferred', 'blocked']) assert.match(asked(status), /^- 1\\\. RIPPLE-1: not answered; the default is reject it with an error, which this run did not apply$/m, status);
+    assert.match(asked('deferred'), /^- 2\\\. SWEEP-1: not answered; the default in place is keep accepting it \(no edit\)$/m, 'a default that keeps the code is in place');
   });
 
   it('lists each finding to fix with its approach, the options rejected and the rule it departs from, and each finding left with its reason', () => {

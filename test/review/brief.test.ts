@@ -324,6 +324,15 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.equal(changeLine('Is it new? Yes.'), 'The change: Is it new?');
   });
 
+  it('says the defaults are in place only when the tree holds each open one, as the headline does', () => {
+    const questionsLine = (state: RunState): string => briefShortForm(briefOf(state))[2]!;
+    assert.equal(questionsLine(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold()), 'Questions: 1, each with a default: SWEEP-1', 'a run that only reviewed applied no default that edits');
+    const fixed = (status: string): RunState => decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], status).fold();
+    assert.equal(questionsLine(fixed('applied')), 'Questions: 2, each with a default in place: RIPPLE-1 and SWEEP-1');
+    assert.equal(questionsLine(fixed('deferred')), 'Questions: 2, each with a default: RIPPLE-1 and SWEEP-1', 'the fixer put off one default');
+    for (const status of ['applied', 'deferred']) assert.equal(questionsLine(fixed(status)).includes('in place'), briefOf(fixed(status)).headline.text.endsWith('default in place.'), status);
+  });
+
   it('shows at most 8 ids of a list and counts the rest, and keeps its lines however many findings the run has', () => {
     const brief = briefOf(answerable());
     const question = brief.questions[0]!;

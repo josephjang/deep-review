@@ -145,7 +145,9 @@ export function decisionsSection(review: ReviewState): string[] | null {
     const { decision } = entry;
     if (decision.decision !== 'ask') return [];
     const standing = standingAnswer(review, decision.id);
-    return [`- ${label(entry)}: ${standing === null ? `not answered; the default in place is ${defaultOption(decision.ask)}` : `answered ${answerSummary(review, standing, 'the option the tree held')}`}`];
+    // A default is in place only when the tree holds it, as the brief says it (R7 of the brief of a run).
+    const unanswered = defaultInPlace(review, decision) ? `the default in place is ${defaultOption(decision.ask)}` : `the default is ${defaultOption(decision.ask)}, which this run did not apply`;
+    return [`- ${label(entry)}: ${standing === null ? `not answered; ${unanswered}` : `answered ${answerSummary(review, standing, 'the option the tree held')}`}`];
   });
   const fixes = numbered.flatMap((entry) => {
     const { decision } = entry;

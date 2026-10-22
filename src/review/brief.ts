@@ -730,7 +730,10 @@ function changedWords(changed: BriefChanged): string {
  * prints the path of the report after them, the last line.
  */
 export function briefShortForm(brief: Brief): string[] {
-  const openQuestions = brief.questions.filter((question) => question.answer === null).map((question) => question.id);
+  const open = brief.questions.filter((question) => question.answer === null);
+  const openQuestions = open.map((question) => question.id);
+  // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run).
+  const defaults = open.every((question) => question.defaultApplied) ? 'each with a default in place' : 'each with a default';
   const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
   const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
   const gaps = brief.notCovered;
@@ -738,7 +741,7 @@ export function briefShortForm(brief: Brief): string[] {
   const lines = [
     `${inlineText(brief.title)} (run ${brief.run.slice(0, 8)})`,
     `The change: ${change}`,
-    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, each with a default in place: ${idWords(openQuestions)}`,
+    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
     `Not covered: ${notCovered}`,
     `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
