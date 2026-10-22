@@ -106,6 +106,15 @@ describe('localPathWords (R15 of the brief of a run)', () => {
     assert.equal(localPathWords('/home/me/repo/src/a.ts', { worktree: '/home/me/repo', home: '/home/me' }), 'src/a.ts');
   });
 
+  it('keeps every character of a Windows path whose root changes length in lower case', () => {
+    // 'İ' (U+0130) is one code unit, and two in lower case.
+    const places = { worktree: 'C:\\Users\\İlker\\proj', home: 'C:\\Users\\İlker' };
+    assert.equal(localPathWords('C:\\Users\\İlker\\.codex\\AGENTS.md', places), '~/.codex/AGENTS.md');
+    assert.equal(localPathWords('C:\\Users\\İlker\\proj\\src\\x.ts', places), 'src/x.ts');
+    assert.equal(localPathWords('c:\\users\\İlker\\proj', places), '.');
+    assert.equal(localPathWords('C:\\Users\\İlkers\\x.ts', places), 'C:\\Users\\İlkers\\x.ts', 'a sibling that shares a prefix is not inside');
+  });
+
   it('names nothing relative to an empty root', () => {
     assert.equal(localPathWords('/x/y', { worktree: '', home: '' }), '/x/y');
   });

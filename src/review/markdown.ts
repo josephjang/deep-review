@@ -56,10 +56,14 @@ export function localPathWords(path: string, places: LocalPlaces): string {
   const inside = (root: string): string | null => {
     if (root === '') return null;
     const windows = /^[A-Za-z]:|^\\\\/.test(root);
-    const [whole, base] = windows ? [path.toLowerCase(), root.toLowerCase()] : [path, root];
-    const trimmed = base.replace(/[\\/]+$/, '');
-    if (whole === trimmed) return '';
-    return whole.startsWith(`${trimmed}/`) || (windows && whole.startsWith(`${trimmed}\\`)) ? path.slice(trimmed.length + 1) : null;
+    const trimmed = root.replace(/[\\/]+$/, '');
+    // Only the prefix is lower-cased, never the slice's length: a letter
+    // such as 'İ' changes length in lower case.
+    const prefix = path.slice(0, trimmed.length);
+    if (windows ? prefix.toLowerCase() !== trimmed.toLowerCase() : prefix !== trimmed) return null;
+    const separator = path.charAt(trimmed.length);
+    if (separator === '') return '';
+    return separator === '/' || (windows && separator === '\\') ? path.slice(trimmed.length + 1) : null;
   };
   const inWorktree = inside(places.worktree);
   if (inWorktree !== null) return inWorktree === '' ? '.' : inWorktree.replaceAll('\\', '/');
