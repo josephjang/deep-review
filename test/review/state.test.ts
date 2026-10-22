@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { FixState } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { budgetStoppedRun, compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPendingPhase, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { budgetStoppedRun, compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
 import { baselined, configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -43,6 +43,26 @@ describe('budgetStoppedRun', () => {
     assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': { cause: 'failures', reason: 'failed twice' } }, repair: {} })), false, 'left after failures, not the budget');
     assert.equal(budgetStoppedRun(run({ fixes: {}, repair: {} })), false);
     assert.equal(budgetStoppedRun({ ...run({ fixes: { 'c1-2': spent }, repair: {} }), status: 'abandoned' }), false, 'abandoned');
+  });
+});
+
+describe('ranAgain', () => {
+  type WorkerState = RunState['workers'][string];
+  const launched = (workerId: string, label: string | null, launchedAt: string): WorkerState => ({ launch: { workerId, label }, launchedAt }) as unknown as WorkerState;
+
+  it('holds only for a later worker of the same label', () => {
+    const first = launched('w1', 'finder finders:WRAPPERS', '2026-10-01T00:00:01.000Z');
+    const rerun = launched('w2', 'finder finders:WRAPPERS', '2026-10-01T00:00:02.000Z');
+    const other = launched('w3', 'finder finders:RIPPLE', '2026-10-01T00:00:03.000Z');
+    assert.equal(ranAgain([first, rerun, other], first), true);
+    assert.equal(ranAgain([first, rerun, other], rerun), false, 'an earlier worker of the label is not its rerun');
+    assert.equal(ranAgain([first, other], first), false, 'a later worker of another label');
+    assert.equal(ranAgain([first], first), false, 'the worker alone');
+  });
+
+  it('matches no worker with no label, not even a later one with none', () => {
+    const unlabelled = launched('w1', null, '2026-10-01T00:00:01.000Z');
+    assert.equal(ranAgain([unlabelled, launched('w2', null, '2026-10-01T00:00:02.000Z')], unlabelled), false);
   });
 });
 

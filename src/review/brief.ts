@@ -18,7 +18,7 @@ import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
-import { rankedFindings, type ReportFinding } from './state.ts';
+import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import type { CheckKind } from './vocabulary.ts';
 
@@ -403,7 +403,7 @@ function gapsOf(context: BriefContext): BriefGap[] {
   if (review.fix !== null) gaps.push(...fixGaps(context, review.fix));
   // A worker a stop ended, by a kill or with its engine, whose unit no later worker of the same label ran again.
   const workers = Object.values(state.workers);
-  const stopped = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !workers.some((other) => other.launch.label !== null && other.launch.label === worker.launch.label && other.launchedAt > worker.launchedAt));
+  const stopped = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !ranAgain(workers, worker));
   if (stopped.length > 0) gaps.push({ kind: 'stop', text: `A stop ended ${counted(stopped.length, 'worker', 'workers')} whose work did not run again; the notes of the run name ${stopped.length === 1 ? 'it' : 'them'}.` });
   return gaps;
 }

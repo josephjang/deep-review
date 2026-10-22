@@ -27,6 +27,16 @@ export function budgetStoppedRun(state: RunState): boolean {
   return reviewStatus(state) === 'complete' && fix !== null && budgetStoppedUnits(fix).length > 0;
 }
 
+/**
+ * Whether a later worker of the same label, its unit's rerun, was launched
+ * after `worker`; a worker with no label is matched by none. The one rule
+ * of the brief's gap of a stop and the notes of the run it points to.
+ */
+export function ranAgain(all: readonly RunState['workers'][string][], worker: RunState['workers'][string]): boolean {
+  const label = worker.launch.label;
+  return label !== null && all.some((other) => other.launch.label === label && other.launchedAt > worker.launchedAt);
+}
+
 /** The phase that is running or blocked, or null when none is. */
 export function currentPhase(review: ReviewState): Phase | null {
   return phases.find((phase) => review.phases[phase].status === 'running' || review.phases[phase].status === 'blocked') ?? null;

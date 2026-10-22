@@ -25,7 +25,7 @@ import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './f
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell } from './markdown.ts';
-import { rankedFindings, refuted, type ReportFinding } from './state.ts';
+import { ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
@@ -223,12 +223,8 @@ type WorkerState = RunState['workers'][string];
 
 const workerLabel = (worker: WorkerState): string => worker.launch.label ?? worker.launch.workerId;
 
-/** Whether a later worker of the same label, its unit's rerun, was launched; a worker with no label is matched by none. */
-function ranAgainWords(all: readonly WorkerState[], worker: WorkerState): string {
-  const label = worker.launch.label;
-  const again = label !== null && all.some((other) => other.launch.label === label && other.launchedAt > worker.launchedAt);
-  return again ? 'ran again' : 'did not run again';
-}
+/** Whether a later worker of the same label, its unit's rerun, was launched, in words, by `ranAgain`. */
+const ranAgainWords = (all: readonly WorkerState[], worker: WorkerState): string => (ranAgain(all, worker) ? 'ran again' : 'did not run again');
 
 /**
  * Each block for the provider's usage limit that the run resumed after
