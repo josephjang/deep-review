@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
+import { briefLimits } from '../../src/review/brief.ts';
 import { claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import type { CommitMessage } from '../../src/scope/git.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
@@ -167,8 +168,13 @@ describe('the task texts', () => {
       for (const field of ['title', 'what', 'why', 'whyFrom', 'restsOn', 'publicInterface', 'wideEffect']) assert.match(task, new RegExp(`^- \`${field}\`: `, 'm'), field);
       assert.match(task, /Never give a reason of your own\./);
       assert.match(task, /Write null when they state no reason\./);
-      assert.match(task, /in at most 80 characters/);
       assert.match(task, /in at most five sentences of plain words/);
+    });
+
+    it('asks for the title and the reason within the lengths the brief cuts them at', () => {
+      const task = triageTask({ kind: 'read', messages: [] });
+      assert.ok(task.includes(`- \`title\`: what the change is, in at most ${String(briefLimits.title)} characters.`), 'the title');
+      assert.ok(task.includes(`Keep \`why\` within ${String(briefLimits.why)} characters.`), 'the reason');
     });
 
     it('says when the engine could not read the commit messages, with git\'s reason on one line', () => {
