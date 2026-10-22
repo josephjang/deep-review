@@ -15,7 +15,7 @@ import { allBatches, budgetStoppedUnits, committedRevisions, lastCurrentRun, las
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
-import { answerArguments, defaultInPlace } from './decision-report.ts';
+import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { rankedFindings, type ReportFinding } from './state.ts';
@@ -195,9 +195,6 @@ export function cutAtWord(text: string, max: number): string {
 
 /** A count and the noun it counts, singular for one. */
 export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
-
-/** The command that answers `id` with `choice`, such as `--option 2` or `--accept`, as the brief names it: with no path, since no executable named deep-review is installed (R8). */
-export const answerCommandOf = (id: string, choice: string): string => `deep-review ${answerArguments(id, choice)}`;
 
 /** The title of a run whose triage gave no account: the change from its base to its head, or the uncommitted change on its head. */
 function scopeTitle(state: RunState): string {

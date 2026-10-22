@@ -85,9 +85,11 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
 /** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that every command the report names is built from. */
 export const answerArguments = (id: string, choice: string): string => `answer --finding ${id} ${choice}`;
 
+/** The command that answers `id` with `choice`, such as `--option 2` or `--accept`, as the report and the brief name it: with no path, since no executable named deep-review is installed (R8 of the brief of a run). */
+export const answerCommandOf = (id: string, choice: string): string => `deep-review ${answerArguments(id, choice)}`;
 
 /** The command that reviews a departure, its finding filled in, as a reader runs it. */
-export const reviewCommand = (id: string): string => `deep-review ${answerArguments(id, '--accept')}`;
+export const reviewCommand = (id: string): string => answerCommandOf(id, '--accept');
 
 
 /**
