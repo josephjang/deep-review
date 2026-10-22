@@ -54,7 +54,7 @@ import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktree
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
-import { continueCommand, namedRoles } from './continue-command.ts';
+import { continueCommand, namedRoles, rolesPlaceholder } from './continue-command.ts';
 import { headOf, resetSettledIndex, seriesSettleOf, unstagedLine } from './commit.ts';
 import { attemptOwner, attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
@@ -728,8 +728,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           return { kind: 'blocked', runId, blocker: step.blocker };
         case 'complete': {
           // A run complete before this invocation wrote nothing now; its copy is rendered from the ledger, as a later command renders it.
-          const own = namedRoles(options.rolesRoot) === null;
-          copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, ownRolesDigest: () => (own ? configuration.rolesDigest : ''), ...(options.home === undefined ? {} : { home: options.home }) }, log) };
+          const roles = namedRoles(options.rolesRoot) === null ? null : rolesPlaceholder;
+          copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, continueRoles: () => roles, ...(options.home === undefined ? {} : { home: options.home }) }, log) };
           return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefShortForm(briefOf(state)) };
         }
         case 'start-phase':

@@ -56,7 +56,7 @@ import { continueCommand, rolesPlaceholder } from './review/continue-command.ts'
 import { refreshReportCopy, reportCopyPath, type CopyContext } from './review/report-copy.ts';
 import { readableRuns } from './review/runs.ts';
 import { budgetSpendOf } from './review/spend.ts';
-import { describeRun } from './review/status.ts';
+import { describeRun, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside, sameDirectory } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -450,14 +450,17 @@ export function noteOf(values: Values): string | null {
  * What a command renders the copy of a run's report with (R14 of the
  * brief of a run): the engine that writes it, the adapter of the run's
  * runtime, and the digest of the engine's own roles, read once, when the
- * copy names the command that continues a stopped fix pass.
+ * copy or `status` names the command that continues a stopped fix pass,
+ * which names the run's roles by a placeholder when they are not those.
  */
-function copyContextOf(io: CommandIo, run: RunState): CopyContext {
+function copyContextOf(io: CommandIo, run: RunState): CopyContext & StatusContinuation {
   let own: string | undefined;
+  const ownRolesDigest = (): string => (own ??= rolesDigest(assembleRoles(engineRolesRoot())));
   return {
     engineEntry: io.engineEntry ?? sourceEntry,
     adapter: defaultRuntimes().get(run.review?.configuration.runtime ?? 'claude'),
-    ownRolesDigest: () => (own ??= rolesDigest(assembleRoles(engineRolesRoot()))),
+    ownRolesDigest,
+    continueRoles: () => (run.review?.configuration.rolesDigest === ownRolesDigest() ? null : rolesPlaceholder),
   };
 }
 
@@ -871,8 +874,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       if (values.json === true) {
         // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
         const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
-        const roles = (): string | null => (review.configuration.rolesDigest === context.ownRolesDigest() ? null : rolesPlaceholder);
-        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, roles(), spend) };
+        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, context.continueRoles(), spend) };
         io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
         return 0;
       }

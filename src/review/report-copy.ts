@@ -15,7 +15,7 @@ import { writeFileAtomic } from '../atomic-write.ts';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { continueCommand, rolesPlaceholder } from './continue-command.ts';
+import { continueCommand } from './continue-command.ts';
 import { renderReport, type ReportInput } from './report.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { budgetStoppedRun } from './state.ts';
@@ -32,11 +32,16 @@ export function reportCopyPath(checkpointRoot: string, state: Pick<RunState, 'id
   return join(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${state.id.slice(0, 8)}.md`);
 }
 
-/** What a render outside the step `write-report` needs beyond the ledger: the engine, its entry, the runtime adapter of the run, the home directory, and whether the run's roles are the engine's own. */
+/**
+ * What a render outside the step `write-report` needs beyond the ledger:
+ * the engine, its entry, the runtime adapter of the run, the home
+ * directory, and the roles the command that continues a stopped fix pass
+ * names: null for the engine's own, else `rolesPlaceholder`.
+ */
 export interface CopyContext {
   readonly engineEntry: string;
   readonly adapter: Pick<RuntimeAdapter, 'summarizeUsage' | 'capabilities'>;
-  readonly ownRolesDigest: () => string;
+  readonly continueRoles: () => string | null;
   readonly home?: string;
 }
 
@@ -54,8 +59,7 @@ export function reportInputOf(checkpoint: Pick<Checkpoint, 'engine' | 'evidence'
   const statistics = statisticsOf(state, context.adapter);
   const budgetCheck = statistics.budgetApplied ? budgetSpendOf(state, context.adapter) : null;
   const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
-  const roles = review.configuration.rolesDigest === context.ownRolesDigest() ? null : rolesPlaceholder;
-  const continuing = spend === null ? null : continueCommand(state, context.engineEntry, roles, spend);
+  const continuing = spend === null ? null : continueCommand(state, context.engineEntry, context.continueRoles(), spend);
   return {
     engine: checkpoint.engine,
     engineEntry: context.engineEntry,
