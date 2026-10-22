@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { codeSpan, findingAnchor, findingLink, inlineText, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
+import { codeSpan, counted, findingAnchor, findingLink, inlineText, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
   it('quotes plain text in single backticks', () => {
@@ -32,6 +32,15 @@ describe('inlineText', () => {
     assert.equal(inlineText('a  \n\n  ## b'), 'a ## b');
     assert.equal(inlineText('no break'), 'no break');
     assert.equal(inlineText(''), '');
+  });
+});
+
+describe('counted', () => {
+  it('takes the singular noun for one and the plural for every other count, zero included', () => {
+    assert.equal(counted(1, 'fix goes', 'fixes go'), '1 fix goes');
+    assert.equal(counted(0, 'fix goes', 'fixes go'), '0 fixes go');
+    assert.equal(counted(2, 'fix goes', 'fixes go'), '2 fixes go');
+    assert.equal(counted(1000, 'file', 'files'), '1000 files');
   });
 });
 

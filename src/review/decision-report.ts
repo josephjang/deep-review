@@ -12,7 +12,7 @@ import { answerWords, madeTheEdit, passOf, standingAnswer, type RecordedAnswer }
 import type { RecordedDecision } from '../checkpoint/events.ts';
 import { appliedOptionOf, lastFixesAnswerOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
-import { codeSpan, inlineText, sentenceText as sentence } from './markdown.ts';
+import { codeSpan, counted, inlineText, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
 import { rankedFindings } from './state.ts';
 import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
@@ -160,14 +160,13 @@ export function decisionsSection(review: ReviewState): string[] | null {
     ];
   });
   const left = numbered.flatMap(({ number, decision }) => (decision.decision === 'leave' ? [`- ${label({ number, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []));
-  const count = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
   const defaults = review.fix === null ? 'This run does not fix: no fixer ran, and the tree is unchanged.' : 'A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.';
   // What an answer does, and that it is not yet carried to the next review (PD3 of answers); how a person types it at a terminal is in the facts of the run, which name the engine's path (R15 of the brief of a run).
   const answering = questions.length === 0 && departures === 0 ? [] : ['', 'An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again.'];
   return [
     '## Decisions',
     '',
-    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? '' : `; ${count(departures, 'fix departs', 'fixes depart')} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
+    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? '' : `; ${counted(departures, 'fix departs', 'fixes depart')} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
     ...answering,
     ...(questions.length === 0 ? [] : ['', '### Asked', '', `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} The brief at the top of this report gives each question with its options.`, '', ...questions]),
     ...(fixes.length === 0 ? [] : ['', '### To fix', '', ...fixes]),

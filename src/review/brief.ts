@@ -17,7 +17,7 @@ import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../che
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { counted, findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import type { CheckKind } from './vocabulary.ts';
@@ -193,9 +193,6 @@ export function cutAtWord(text: string, max: number): string {
   const kept = (space > max / 2 ? room.slice(0, space) : room).replace(/[\s,;:.]+$/, '');
   return `${kept}...`;
 }
-
-/** A count and the noun it counts, singular for one. */
-export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
 
 /**
  * What a change is made of, which the mode of its scope settles: the

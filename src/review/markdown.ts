@@ -15,6 +15,9 @@ export const tableCell = (text: string): string => text.replaceAll('|', '\\|').r
  */
 export const inlineText = (text: string): string => text.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, ' ');
 
+/** A count and the noun it counts, singular for one. */
+export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
+
 /**
  * Text as a Markdown code span the text cannot close, the CommonMark way:
  * a delimiter one backtick longer than the longest run the text holds,
