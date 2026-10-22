@@ -34751,7 +34751,7 @@ var init_report = __esm({
 });
 
 // src/review/report-copy.ts
-import { mkdirSync as mkdirSync9 } from "node:fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync9, rmSync as rmSync9 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { dirname as dirname5, join as join29 } from "node:path";
 function reportCopyPath(checkpointRoot, state) {
@@ -34777,28 +34777,40 @@ function reportInputOf(checkpoint, state, context) {
     ...review2.fix === null ? {} : { fix: { patches: review2.report.patches, continueCommand: continuing } }
   };
 }
-function writeReportCopy(path, text3, runId, log) {
+function removeStaleCopy(path, runId, log) {
+  if (!existsSync9(path)) return;
+  try {
+    rmSync9(path, { force: true });
+    log(`run ${runId}: removed the copy of the report at ${path}, which is older than the report`);
+  } catch (error62) {
+    log(`run ${runId}: could not remove the copy of the report at ${path}, which is older than the report: ${messageOf2(error62)}`);
+  }
+}
+function writeReportCopy(path, text3, runId, log, write = writeFileAtomic) {
   try {
     mkdirSync9(dirname5(path), { recursive: true });
-    writeFileAtomic(path, text3);
+    write(path, text3);
     return path;
   } catch (error62) {
-    log(`run ${runId}: could not write the copy of the report to ${path}: ${error62 instanceof Error ? error62.message : String(error62)}`);
+    log(`run ${runId}: could not write the copy of the report to ${path}: ${messageOf2(error62)}`);
+    removeStaleCopy(path, runId, log);
     return null;
   }
 }
 function refreshReportCopy(checkpoint, state, context, log) {
   if (state.review?.report === null || state.review?.report === void 0) return null;
+  const path = reportCopyPath(checkpoint.root, state);
   let text3;
   try {
     text3 = renderReport(state, reportInputOf(checkpoint, state, context));
   } catch (error62) {
-    log(`run ${state.id}: could not render the copy of the report: ${error62 instanceof Error ? error62.message : String(error62)}`);
+    log(`run ${state.id}: could not render the copy of the report: ${messageOf2(error62)}`);
+    removeStaleCopy(path, state.id, log);
     return null;
   }
-  return writeReportCopy(reportCopyPath(checkpoint.root, state), text3, state.id, log);
+  return writeReportCopy(path, text3, state.id, log);
 }
-var reportsDirectoryName;
+var reportsDirectoryName, messageOf2;
 var init_report_copy = __esm({
   "src/review/report-copy.ts"() {
     "use strict";
@@ -34808,6 +34820,7 @@ var init_report_copy = __esm({
     init_spend();
     init_state();
     reportsDirectoryName = "reports";
+    messageOf2 = (error62) => error62 instanceof Error ? error62.message : String(error62);
   }
 });
 
@@ -36177,7 +36190,7 @@ __export(command_exports, {
   scopeRequestOf: () => scopeRequestOf,
   usage: () => usage
 });
-import { existsSync as existsSync9, mkdirSync as mkdirSync10, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync10, mkdirSync as mkdirSync10, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname6, join as join32, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -36565,7 +36578,7 @@ async function configCommand(values, rest, io) {
     const layer = chosen2[0];
     const path = layer === "repository" ? repositoryConfigFile(location.worktree) : layer === "clone" ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
     if (path === null) throw new ReviewRefusedError("the operator's file is under APPDATA, which has no value here; set it, or write the file by hand");
-    if (existsSync9(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
+    if (existsSync10(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
     mkdirSync10(dirname6(path), { recursive: true });
     writeFileSync9(path, initText(layer, readPolicy(values.roles ?? engineRolesRoot())), { flag: "wx" });
     io.stdout(`${path}
@@ -36592,7 +36605,7 @@ async function configCommand(values, rest, io) {
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync9(join32(root, ledgerFileName))) return null;
+  if (!create && !existsSync10(join32(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 function invocationOf(values, io, worktree, commonDir) {
@@ -36691,7 +36704,7 @@ function status2(values, io, root) {
     }
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync9(copy) ? copy : null);
+    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync10(copy) ? copy : null);
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}
 ` : `${described.lines.join("\n")}
 `);
