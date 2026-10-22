@@ -508,6 +508,9 @@ describe('the fixer\'s task', () => {
   it('names each check\'s command or why it has none, or that none is available', () => {
     const task = fixerTask(input);
     assert.match(task, /^- build: not available \(nothing names it\)\n- typecheck: npm run typecheck\n- lint: not available \(dropped by --no-check\)\n- test: npm run test$/m);
+    // The engine checks once every fixer has returned, so a fixer runs what covers its change, not the whole suite (R7 of commit series integrity, amended 2026-10-22).
+    assert.match(task, /^The engine runs these checks, in this order, before any fixer edits and again once every fixer has returned:$/m);
+    assert.match(task, /^Run what covers your change before you return: the tests of what you changed, not the whole suite, which the engine runs\. Report what you ran in `suite`\.$/m);
     const none = fixerTask({ ...input, checks: input.checks.map((check) => ({ ...check, command: null, origin: 'none' as const, reason: 'nothing' })) });
     assert.match(none, /No check is available/);
     assert.doesNotMatch(none, /- build:/);

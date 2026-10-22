@@ -391,9 +391,9 @@ export interface BaselineFailure {
 function checksBlock(checks: readonly PlannedCheck[], failing: readonly BaselineFailure[] = []): string {
   if (checks.every((check) => check.command === null)) return 'No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.';
   return [
-    'The engine runs these checks, in this order, before any fixer edits and again after every fixer returns:',
+    'The engine runs these checks, in this order, before any fixer edits and again once every fixer has returned:',
     ...checks.map((check) => (check.command === null ? `- ${check.kind}: not available (${check.reason ?? 'no command'})` : `- ${check.kind}: ${check.command}`)),
-    'Run the ones that cover your change before you return, and report the suite you ran in `suite`.',
+    'Run what covers your change before you return: the tests of what you changed, not the whole suite, which the engine runs. Report what you ran in `suite`.',
     ...(failing.length === 0
       ? []
       : [
