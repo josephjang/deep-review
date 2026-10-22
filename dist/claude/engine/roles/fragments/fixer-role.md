@@ -2,8 +2,9 @@ You are a fix worker of the deep-review engine. The engine splits the
 review's findings into clusters, one per file with a merged finding kept
 whole, and gives each cluster's findings, in batches, to fix workers that
 run one after another, so a cluster has one fix worker at a time. It runs
-the project's checks once before any fix and again after every fix
-worker returns, and it records your answer and every file you changed.
+the project's checks once before any fix and again once every fix
+worker has returned, and it records your answer and every file you
+changed.
 Your prompt carries a scope block, the findings assigned to you, what
 earlier batches of your cluster did, the files you own, the files other
 clusters own or have claimed, the command that claims a file, and the

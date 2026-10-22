@@ -32489,6 +32489,940 @@ var init_prompts = __esm({
   }
 });
 
+// src/review/tasks.ts
+function standingLines(standing) {
+  return [
+    "This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.",
+    "",
+    "Convention sources recorded:",
+    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`),
+    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`)]
+  ];
+}
+function authorshipLine(authorship) {
+  const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
+  if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
+}
+function shellOf(platform, elevatedSandbox) {
+  if (platform !== "win32") return { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
+  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : "`where.exe <tool>`" };
+}
+function surveyTask(input2) {
+  if (input2.standing !== null) {
+    if (!input2.fix) throw new Error("A survey asked for the checks alone is a continued run's, which fixes");
+    return [...standingLines(input2.standing), "", ...fixChecks(input2)].join("\n");
+  }
+  const userRules = input2.offered.length > 0 ? [
+    "User-level rules files offered:",
+    ...input2.offered.map((path) => `- ${path}`),
+    "",
+    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.",
+    "",
+    authorshipLine(input2.authorship)
+  ] : [
+    "User-level rules files offered: none",
+    "",
+    input2.policySettlesUserRules ? "The review policy settles whether the reviewer's own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`." : "No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`."
+  ];
+  const checks = input2.fix ? fixChecks(input2) : [kindsToChooseLine(input2)];
+  return [
+    "Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source's `appliesTo` is judged against.",
+    "",
+    ...userRules,
+    "",
+    ...checks
+  ].join("\n");
+}
+function fixChecks(input2) {
+  const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
+  const byFlags = input2.settled.every((entry) => entry.layer === "flag");
+  const settledLine = (entry) => {
+    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
+    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
+  };
+  const settled3 = input2.settled.length === 0 ? [] : [
+    byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
+    ...input2.settled.map(settledLine),
+    ""
+  ];
+  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled3, "Every kind is settled, so return `checks` empty."];
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
+  return [
+    kindsToChooseLine(input2),
+    "",
+    ...settled3,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    "",
+    "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
+    ...hints
+  ];
+}
+function describeLocation(candidate) {
+  const location = repositoryLocation(candidate);
+  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
+  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
+}
+function candidateItem(index2, candidate, extra = []) {
+  return [
+    `[${String(index2)}] ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}`,
+    `    summary: ${candidate.summary}`,
+    `    detail: ${candidate.detail}`,
+    ...extra.map((line) => `    ${line}`)
+  ].join("\n");
+}
+function withinBytes(items, limit) {
+  const kept = [];
+  let used = 0;
+  for (const item of items) {
+    const bytes = utf8Bytes(item) + 1;
+    if (used + bytes > limit) continue;
+    kept.push(item);
+    used += bytes;
+  }
+  return kept;
+}
+function commitMessagesSection(words) {
+  if (words.kind === "unreadable") {
+    return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
+  }
+  if (words.kind === "working-tree") return ["The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits."];
+  const { messages } = words;
+  const tree = words.withTree ? ["", "The change may also hold uncommitted changes of the working tree, which no commit message covers."] : [];
+  if (messages.length === 0) return ["The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.", ...tree];
+  const shown = (commit2) => commit2.slice(0, shownCommitLength);
+  const subjects = withinBytes(messages.map(({ commit: commit2, message }) => `${shown(commit2)} ${message.split(/\r?\n/, 1)[0] ?? ""}`), commitSubjectsLimitBytes);
+  const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
+  const wholes = withinBytes(messages.map(({ commit: commit2, message }) => `commit ${shown(commit2)}
+${message}
+`), commitMessagesLimitBytes - used);
+  const fenced = (text3) => {
+    const fence = fenceFor(text3);
+    return [`${fence}text`, text3, fence];
+  };
+  const leftSubjects = messages.length - subjects.length;
+  const leftWholes = messages.length - wholes.length;
+  return [
+    `The subjects of the ${String(messages.length)} commit${messages.length === 1 ? "" : "s"} of the change, oldest first:`,
+    "",
+    ...fenced(subjects.join("\n")),
+    "",
+    "The whole messages, oldest first:",
+    "",
+    ...wholes.length === 0 ? ["(none fit within the limit)"] : fenced(wholes.join("\n").trimEnd()),
+    ...leftSubjects === 0 && leftWholes === 0 ? [] : ["", `${String(leftSubjects)} subject${leftSubjects === 1 ? "" : "s"} and ${String(leftWholes)} whole message${leftWholes === 1 ? "" : "s"} are left out at the limits.`],
+    ...tree
+  ];
+}
+function triageTask(messages) {
+  return [
+    "Run the `SCAN` angle over every hunk of the patch below and the enclosing function of each. Return your candidates, up to 12.",
+    "",
+    `Then, for EACH of the nine other angles, in this order (${finderAngles.join(", ")}), return one lead: a concrete file, symbol or mechanism the finder of that angle should inspect first, grounded in what you read, or null when the diff supports none. A lead is never a skip; every angle runs whatever you return, so name what you saw and nothing more.`,
+    "",
+    "Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:",
+    "",
+    `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
+    "- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.",
+    "- `why`: why the change does it, in the change's own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.",
+    "- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.",
+    "- `restsOn`: the files and commits that `what` rests on, at least one.",
+    "- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.",
+    "- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.",
+    "",
+    `Keep \`why\` within ${String(accountLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
+    "",
+    "### The change's own words",
+    "",
+    ...commitMessagesSection(messages),
+    "",
+    fieldNote
+  ].join("\n");
+}
+function finderTask(angle, lead) {
+  const leadLine = lead === null || lead.lead === null ? "Lead: none" : `SCAN lead: ${lead.lead}`;
+  return [
+    `Angle: ${angle}`,
+    leadLine,
+    "",
+    `Run the ${angle} angle as your role prompt defines it, over the whole change below. Check the lead first when there is one, then complete the full search of your angle; a lead is neither a finding nor a boundary. Return your candidates, up to 12; an empty list is a valid answer.`,
+    "",
+    fieldNote
+  ].join("\n");
+}
+function deduplicationTask(candidates) {
+  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
+  return [
+    `Below are ${String(candidates.length)} candidates, numbered [0] to [${String(candidates.length - 1)}]. Group the ones that describe the same defect at the same location for the same reason; a group has two or more members, named by their indexes, and one \`keep\`, the member whose fourth field is the most concrete, which stays on the working list. A candidate in no group stands alone; leave it out of \`groups\`. Two candidates at one line for different reasons are not duplicates. Return \`groups\` empty when nothing repeats.`,
+    "",
+    list
+  ].join("\n");
+}
+function verifierTask(groupId, candidates) {
+  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
+  return [
+    `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? "" : "s"}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
+    "",
+    list
+  ].join("\n");
+}
+function sweepTask(inputs) {
+  const verified = inputs.verified.length === 0 ? "(none)" : inputs.verified.map(({ candidate, verdict, unverified }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary} [${verdict}${unverified ? ", unverified" : ""}]`).join("\n");
+  const refuted2 = inputs.refuted.length === 0 ? "(none)" : inputs.refuted.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary}; refuted because: ${evidence}`).join("\n");
+  const notRun = Object.entries(inputs.anglesNotRun);
+  const angles2 = notRun.length === 0 ? "Every angle ran." : `These angles did not run, so their territory is yours to cover: ${notRun.map(([angle, reason]) => `${angle} (${reason})`).join("; ")}.`;
+  return [
+    "Re-read the diff and the enclosing functions looking ONLY for gaps: candidates no angle below already lists. Do not re-derive or re-confirm anything already there.",
+    "",
+    angles2,
+    "",
+    "Verified candidates (already on the working list):",
+    verified,
+    "",
+    "Refuted candidates (already judged; do not resurface them):",
+    refuted2,
+    "",
+    "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
+  ].join("\n");
+}
+function checksBlock(checks, failing = []) {
+  if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
+  return [
+    "The engine runs these checks, in this order, before any fixer edits and again once every fixer has returned:",
+    ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
+    "Run what covers your change before you return: the tests of what you changed, not the whole suite, which the engine runs. Report what you ran in `suite`.",
+    ...failing.length === 0 ? [] : [
+      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:",
+      ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
+    ]
+  ].join("\n");
+}
+function claimBlock(command) {
+  return [
+    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
+    `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
+    "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
+    "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
+  ].join("\n");
+}
+function snapshotBlock(command, unit) {
+  return [
+    `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
+  ].join("\n");
+}
+function earlierWork(unit, unfinished) {
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
+  if (unfinished.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
+}
+function candidateLines(head2, candidate) {
+  return [
+    head2,
+    `        summary: ${candidate.summary}`,
+    `        detail: ${candidate.detail}`,
+    `        evidence: ${evidenceWords(candidate.evidence)}`
+  ];
+}
+function decidedLines(decision, answered2) {
+  if (decision.decision === "fix") {
+    const { fix, departure } = decision;
+    return [
+      `    decided: fix. ${decision.grounds}`,
+      `        approach: ${fix.approach}`,
+      ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
+      ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`],
+      ...answered2 === null ? [] : answeredLines(answered2)
+    ];
+  }
+  const { ask } = decision;
+  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
+  return [
+    `    decided: ask the author, applying a default now. ${decision.grounds}`,
+    `        apply: ${appliedOptionOf(ask).option}`,
+    `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`,
+    ...answered2 === null ? [] : answeredLines(answered2)
+  ];
+}
+function answeredLines(answered2) {
+  const note = answered2.note === null ? "" : ` Note: ${inlineText(answered2.note)}`;
+  const line = `${answerLine(answered2)}${note}`;
+  const before = answered2.before;
+  const did = before === null ? "no fixer saw it before" : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? "" : `, in ${before.files.join(", ")}`}`;
+  const applied = answered2.appliedByPass === null ? [] : [`        the answer pass ${answered2.appliedByPass} already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again`];
+  return [`        ${line}`, `        before the answer: ${did}`, ...applied];
+}
+function answerLine(answered2) {
+  switch (answered2.kind) {
+    case "option":
+      return `answered by the author: option ${String(answered2.option + 1)}, "${answered2.chosen.option}", for which the decider wrote the rule "${answered2.chosen.rule}".`;
+    case "reject":
+      return `the author rejected the departure: follow the rule "${answered2.departure.rule}" as ${answered2.departure.source} states it, and restore what the fix changed in that statement.`;
+    case "accept":
+      return "the author accepted the departure.";
+  }
+}
+function unitLines(input2) {
+  switch (input2.kind) {
+    case "answer-pass":
+      return {
+        head: `Answer pass ${input2.batch}`,
+        round: [],
+        ownership: [
+          "Files you own: every file the run revised, and the files these findings are located in.",
+          fileList(input2.owned),
+          "",
+          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served."
+        ]
+      };
+    case "batch": {
+      const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
+      const held = [...input2.owned, ...input2.claimed.filter((path) => !input2.owned.includes(path)).map((path) => `${path} (claimed)`)];
+      return {
+        head: `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}`,
+        round: [
+          ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
+          ...input2.earlier.length === 0 ? [] : [
+            input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
+            input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
+            ""
+          ]
+        ],
+        ownership: [
+          "Files you own while this batch runs, which no other worker edits:",
+          fileList(held),
+          "",
+          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
+          others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
+          "",
+          claimBlock(input2.claimCommand)
+        ]
+      };
+    }
+  }
+}
+function fixerTask(input2) {
+  const count2 = input2.findings.length;
+  const findings = input2.findings.map((finding, index2) => [
+    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
+    `    summary: ${finding.summary}`,
+    `    reason: ${finding.reason}`,
+    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
+    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
+    ...finding.decision === null ? [] : decidedLines(finding.decision, finding.answered),
+    ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
+    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
+  ].join("\n"));
+  const decided = input2.findings.some((finding) => finding.decision !== null);
+  const answered2 = input2.findings.some((finding) => finding.answered !== null);
+  const { head: head2, round, ownership } = unitLines(input2);
+  return [
+    `${head2}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
+    "",
+    ...findings,
+    "",
+    ...decided ? [decidedRule, ""] : [],
+    ...answered2 ? [answeredRule, ""] : [],
+    ...round,
+    ...ownership,
+    "",
+    checksBlock(input2.checks, input2.baselineFailures),
+    "",
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
+    snapshotBlock(input2.snapshotCommand, "finding"),
+    "",
+    ...input2.mayHoldWork ? [earlierWork("finding", input2.unfinished), ""] : [],
+    answerFields("finding"),
+    "",
+    scratchRule
+  ].join("\n");
+}
+function outputTail(name, tail, path) {
+  const text3 = tail.toString("utf8");
+  if (text3.trim() === "") return `    ${name}: empty (frozen at ${path})`;
+  const fence = fenceFor(text3);
+  return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text3.endsWith("\n") ? text3.slice(0, -1) : text3, fence].join("\n");
+}
+function repairCheckEnd(check2) {
+  if (check2.outcome === "timeout") return "ran past its timeout and was killed";
+  const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
+  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
+}
+function repairTask(input2) {
+  const count2 = input2.checks.length;
+  const checks = input2.checks.map((check2, index2) => [
+    `[${String(index2)}] ${check2.kind}: ${check2.command}`,
+    `    ${repairCheckEnd(check2)}`,
+    outputTail("stdout", check2.stdout.tail, check2.stdout.path),
+    outputTail("stderr", check2.stderr.tail, check2.stderr.path),
+    ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
+      "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
+      outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
+      outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
+    ]
+  ].join("\n"));
+  return [
+    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    "",
+    ...checks,
+    "",
+    "Files you own: every file the fixers changed.",
+    fileList(input2.owned),
+    "",
+    "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
+    "",
+    "What each fixer did:",
+    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer3) => `- ${answer3.batch} ${answer3.id} ${answer3.status}: ${answer3.note}`).join("\n"),
+    "",
+    checksBlock(input2.allChecks),
+    "",
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
+    snapshotBlock(input2.snapshotCommand, "check"),
+    "",
+    ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
+    `${answerFields("check")} The message in an applied check's \`edits\` describes what the repair changed.`,
+    "",
+    scratchRule
+  ].join("\n");
+}
+function deciderTask(findings) {
+  const count2 = findings.length;
+  const list = findings.map((finding, position) => [
+    `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
+    `    merge and rank: ${finding.reason}`,
+    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate))
+  ].join("\n"));
+  return [
+    `The review's ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
+    "",
+    ...list,
+    "",
+    "For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing."
+  ].join("\n");
+}
+function mergeRankTask(inputs) {
+  const list = inputs.map(
+    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
+  ).join("\n");
+  return [
+    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor), a \`summary\` that names the other sites when there are any, and a \`reason\`; a \`CONVENTIONS\` violation takes the severity of the rule it breaks. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
+    "",
+    list
+  ].join("\n");
+}
+var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, snapshotIndexPlaceholder, claimPathPlaceholder, answerFields, scratchRule, unelevatedSandboxRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
+var init_tasks = __esm({
+  "src/review/tasks.ts"() {
+    "use strict";
+    init_fix_state();
+    init_review_fold();
+    init_markdown();
+    init_prompts();
+    init_kill_marks();
+    init_survey();
+    init_vocabulary();
+    kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
+    elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+    fieldNote = "In your JSON, each candidate has `file`, `line`, `summary` and `detail`; `detail` is the fourth field of the finder output contract, the `failure_scenario` or the `value_statement` your angle asks for. Do not invent an id: the engine assigns one to each candidate you return.";
+    commitSubjectsLimitBytes = 16 * 1024;
+    commitMessagesLimitBytes = 32 * 1024;
+    shownCommitLength = 12;
+    utf8Bytes = (text3) => Buffer.byteLength(text3, "utf8");
+    accountLimits = { title: 80, why: 400 };
+    snapshotIndexPlaceholder = "<index>";
+    claimPathPlaceholder = "<path>";
+    answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+    scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
+    unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
+    fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
+    verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
+    evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
+    answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
+    decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
+    repairTailBytes = 16 * 1024;
+  }
+});
+
+// src/review/phases.ts
+import { join as join28 } from "node:path";
+function requireReview2(state) {
+  if (state.review === null) throw new Error(`Run ${state.id} is not configured for review`);
+  return state.review;
+}
+function groupCandidates(review2, phase, groupId) {
+  const group = review2.plans[phase]?.find((candidate) => candidate.id === groupId);
+  if (group === void 0) throw new Error(`Phase ${phase} has no planned group ${groupId}`);
+  return group.candidateIds.map((id) => {
+    const candidate = review2.candidates[id];
+    if (candidate === void 0) throw new Error(`Group ${groupId} names candidate ${id}, which the run never recorded`);
+    return candidate;
+  });
+}
+function mayHoldWork(review2, phase, key, owned, ownCluster = []) {
+  if (review2.phases[phase].attempt > 1 || (review2.units[phase][key]?.failures.length ?? 0) > 0) return true;
+  const sourceKey = (revision) => revision.source.kind === "check" ? null : revision.source.key;
+  return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? "") && revision.files.some((file2) => owned.includes(file2.path)));
+}
+function unfinishedIds(review2, phase, key) {
+  const ids2 = (review2.fix?.revisions ?? []).filter((revision) => revision.phase === phase && revision.source.kind === "attempt" && revision.source.key === key).flatMap((revision) => revision.change.findings);
+  return [...new Set(ids2)];
+}
+function firstRoundBlock(review2, firstBatches, id, requiredFiles) {
+  const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
+  const fix = review2.fix;
+  const note = (batch === void 0 ? void 0 : fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? "blocked";
+  const owned = new Set((fix?.plan?.clusters ?? []).flatMap((cluster) => cluster.files));
+  const claimedBy = (path) => {
+    if (fix === null || owned.has(path)) return null;
+    return lastClaimOf(fix, 1, path, batch?.cluster)?.cluster ?? null;
+  };
+  return { note, requiredFiles: requiredFiles.map((path) => ({ path, claimedBy: claimedBy(path) })) };
+}
+function batchOutcomes(review2, batch) {
+  const answer3 = review2.fix?.answers.fixes[batch.key];
+  return batch.findingIds.map((id) => {
+    const finding = answer3?.findings.find((candidate) => candidate.id === id);
+    return { batch: batch.key, id, outcome: finding?.status ?? "not attempted", note: finding?.note ?? null };
+  });
+}
+function taskCandidate(candidate) {
+  const resolution = resolutionOf(candidate);
+  if (resolution === null) throw new Error(`Candidate ${candidate.id} is ranked with no verdict and no unverified mark`);
+  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence };
+}
+function deciderFindings(review2) {
+  return rankedFindings(review2).map((entry) => ({
+    id: entry.finding.id,
+    severity: entry.finding.severity,
+    verdict: entry.resolution.verdict,
+    summary: entry.finding.summary,
+    reason: entry.finding.reason,
+    candidates: [entry.primary, ...entry.members].map(taskCandidate)
+  }));
+}
+function answeredFor(review2, decision, id) {
+  const standing = standingAnswer(review2, id);
+  if (standing === null || decision === null) return null;
+  const appliedBy = standing.appliedBy;
+  if (appliedBy !== null && (appliedBy === "tree" || appliedBy.phase !== "answer")) return null;
+  const fix = review2.fix;
+  const last = fix === null ? null : lastAnswerOf(fix, id);
+  const files = last === null || fix === null ? [] : [...new Set(unitRevisions(fix, last.phase, last.key).filter((revision) => revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
+  const shared2 = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files }, appliedByPass: appliedBy === null ? null : appliedBy.key };
+  const answer3 = standing.answer;
+  switch (answer3.kind) {
+    case "option": {
+      const chosen = decision.decision === "ask" ? decision.ask.options[answer3.option] : void 0;
+      if (chosen === void 0) throw new Error(`Finding ${id} is answered with an option its decision does not offer`);
+      return { ...shared2, kind: "option", option: answer3.option, chosen: { option: chosen.option, rule: chosen.rule, edits: chosen.edits } };
+    }
+    case "reject": {
+      const departure = decision.decision === "fix" ? decision.departure : null;
+      if (departure === null) throw new Error(`Finding ${id} rejects a departure its decision does not make`);
+      return { ...shared2, kind: "reject", departure };
+    }
+    case "accept":
+      return { ...shared2, kind: "accept" };
+  }
+}
+function fixerTaskOf(unit, review2, editing, evidence) {
+  const plan = fixPlanOf(review2);
+  const second = review2.fix?.secondRound ?? null;
+  const all = [...plan.batches, ...second?.batches ?? []];
+  const batch = all.find((candidate) => candidate.key === unit.key);
+  if (batch === void 0) throw new Error(`The fix plan has no batch ${unit.key}`);
+  const inSecondRound = second?.batches.some((candidate) => candidate.key === batch.key) ?? false;
+  const clusters = inSecondRound ? second.clusters : plan.clusters;
+  const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
+  if (cluster === void 0) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
+  const siblings = all.filter((candidate) => candidate.cluster === cluster.id);
+  const earlier = siblings.slice(0, siblings.indexOf(batch));
+  const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
+  const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
+  const fix = review2.fix;
+  const round = roundOf(fix, batch.key);
+  const othersHeld2 = /* @__PURE__ */ new Map();
+  for (const [path, holder] of heldByOthers(fix, batch.key, exactPath)) othersHeld2.set(holder.cluster, [...othersHeld2.get(holder.cluster) ?? [], { path, by: holder.by }]);
+  if (editing.claimCommand === null) throw new Error(`The fixer of ${batch.key} needs its claim command`);
+  const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
+  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
+  const findings = batch.findingIds.map((id) => {
+    const entry = ranked.get(id);
+    if (entry === void 0) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
+    const decision = decidedFor(review2, decided, id);
+    return {
+      ...taskFinding(review2, ranked, entry, decision),
+      firstRound: inSecondRound ? firstRoundBlock(review2, plan.batches, id, blockedOn.get(id) ?? []) : null
+    };
+  });
+  return fixerTask({
+    kind: "batch",
+    cluster: cluster.id,
+    batch: batch.key,
+    secondRound: inSecondRound,
+    findings,
+    earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review2, sibling)),
+    owned: cluster.files,
+    claimed: clusterClaims(fix, round, cluster.id),
+    othersHeld: [...othersHeld2].map(([held, files]) => ({ cluster: held, files })),
+    checks: review2.fix?.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    claimCommand: editing.claimCommand,
+    unelevatedSandbox: editing.unelevatedSandbox,
+    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
+    unfinished: unfinishedIds(review2, "fixes", unit.key),
+    baselineFailures: baselineFailuresOf(review2, evidence)
+  });
+}
+function taskFinding(review2, ranked, entry, decision) {
+  const id = entry.finding.id;
+  return {
+    id,
+    severity: entry.finding.severity,
+    verdict: entry.resolution.verdict,
+    unverified: entry.resolution.unverified,
+    summary: entry.finding.summary,
+    reason: entry.finding.reason,
+    primary: taskCandidate(entry.primary),
+    members: entry.members.map(taskCandidate),
+    decision,
+    supersedes: (review2.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
+      const leftEntry = ranked.get(left.id);
+      return leftEntry === void 0 ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary }];
+    }),
+    answered: answeredFor(review2, decision, id)
+  };
+}
+function answerTaskOf(unit, review2, editing, evidence) {
+  const pass = passOf(review2, unit.key);
+  if (pass === null) throw new Error(`The answer pass ${unit.key} is not recorded`);
+  const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
+  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
+  const findings = [...ranked.values()].filter((entry) => pass.ids.includes(entry.finding.id)).map((entry) => {
+    const decision = decidedFor(review2, decided, entry.finding.id, true);
+    const finding = { ...taskFinding(review2, ranked, entry, decision), firstRound: null };
+    if (finding.answered === null) throw new Error(`Finding ${entry.finding.id} is in answer pass ${unit.key} with no answer owing an edit`);
+    return finding;
+  });
+  const mayHold = review2.phases.answer.attempt > pass.openedAt.answer + 1 || (review2.units.answer[unit.key]?.failures.length ?? 0) > 0;
+  return fixerTask({
+    kind: "answer-pass",
+    batch: unit.key,
+    findings,
+    owned: ownedFiles(review2, "answer", unit.key),
+    checks: review2.fix?.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    unelevatedSandbox: editing.unelevatedSandbox,
+    mayHoldWork: mayHold,
+    unfinished: unfinishedIds(review2, "answer", unit.key),
+    baselineFailures: baselineFailuresOf(review2, evidence)
+  });
+}
+function decidedFor(review2, decided, id, answered2 = false) {
+  const decision = decided.get(id) ?? null;
+  if (decision === null && (answered2 || review2.phases.decision.status !== "skipped")) throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
+  if (decision?.decision === "leave") throw new Error(`Finding ${id} goes to a fixer though its decision leaves it`);
+  return decision;
+}
+function baselineFailuresOf(review2, evidence) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  return (fix.checks.planned?.checks ?? []).flatMap((check2) => {
+    const run2 = failedAtBaseline(fix, check2.kind) ? lastFreshRun(fix, "baseline-checks", check2.kind) : null;
+    return run2 === null ? [] : [{ kind: check2.kind, stdout: run2.stdout === null ? "none" : evidence.pathOf(run2.stdout), stderr: run2.stderr === null ? "none" : evidence.pathOf(run2.stderr) }];
+  });
+}
+function tailOf(evidence, reference) {
+  if (reference === null) return { tail: Buffer.alloc(0), path: "none" };
+  const bytes = evidence.read(reference);
+  return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
+}
+function repairTaskOf(review2, editing, evidence) {
+  const fix = review2.fix;
+  if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
+  const checks = repairTargets(fix).map((kind) => {
+    const run2 = lastFreshRun(fix, "checks", kind);
+    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, "baseline-checks", kind) : null;
+    return {
+      kind,
+      command: run2.command,
+      outcome: run2.outcome === "timeout" ? "timeout" : "failed",
+      exitCode: run2.exitCode,
+      signal: run2.signal,
+      stdout: tailOf(evidence, run2.stdout),
+      stderr: tailOf(evidence, run2.stderr),
+      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
+    };
+  });
+  const owned = fixesRevisedPaths(fix);
+  const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
+  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+}
+function standingSurvey(review2) {
+  if (review2.continuedFrom === null || (review2.fix?.checks.planned ?? null) !== null) return null;
+  const answer3 = review2.survey === null ? null : lastSurvey(review2.survey);
+  if (answer3 === null) throw new Error("A continued run asks its survey for the checks with no answer of it recorded");
+  return answer3;
+}
+function surveyTaskOf(review2, inputs) {
+  const setting = review2.configuration.survey.userRules;
+  const fix = review2.fix !== null;
+  const unsettled2 = fix ? unsettledKinds(inputs.checkSettings) : [];
+  return surveyTask({
+    platform: inputs.platform,
+    fix,
+    settled: fix ? settledKinds(inputs.checkSettings) : [],
+    unsettled: unsettled2,
+    hints: inputs.hints.filter((hint) => unsettled2.includes(hint.kind)),
+    offered: offeredUserFiles(setting, inputs),
+    policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
+    elevatedSandbox: pinnedWindowsSandbox(review2.configuration, inputs.platform) === "elevated",
+    standing: standingSurvey(review2),
+    get authorship() {
+      return inputs.authorship;
+    }
+  });
+}
+function taskFor(unit, review2, options2 = {}) {
+  const editing = options2.editing ?? null;
+  const evidence = options2.evidence ?? null;
+  const requireEditing = () => {
+    if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
+    return editing;
+  };
+  switch (unit.phase) {
+    case "survey":
+      if (options2.survey === void 0 || options2.survey === null) throw new Error("The surveyor's task names what the invocation knows for the survey and needs it");
+      return surveyTaskOf(review2, options2.survey);
+    case "triage":
+      if (options2.commitMessages === void 0 || options2.commitMessages === null) throw new Error("The triage's task lists the commit messages of the change and needs them");
+      return triageTask(options2.commitMessages);
+    case "finders": {
+      const angle = unit.key;
+      return finderTask(angle, review2.leads?.find((lead) => lead.angle === angle) ?? null);
+    }
+    case "deduplication":
+    case "sweep-deduplication":
+      return deduplicationTask(poolCandidates(review2, unit.phase));
+    case "verification":
+    case "sweep-verification":
+      return verifierTask(unit.key, groupCandidates(review2, unit.phase, unit.key));
+    case "sweep":
+      return sweepTask({
+        verified: survivors(review2, "verification").map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified })),
+        refuted: refutedIn(review2, "verification"),
+        anglesNotRun: review2.anglesNotRun
+      });
+    case "merge-rank":
+      return mergeRankTask(mergeRankInput(review2).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
+    case "decision":
+      return deciderTask(deciderFindings(review2));
+    case "fixes":
+      if (evidence === null) throw new Error("The fixer task names the baseline checks' frozen outputs and needs the evidence store");
+      return fixerTaskOf(unit, review2, requireEditing(), evidence);
+    case "repair":
+      if (evidence === null) throw new Error("The repair task quotes frozen logs and needs the evidence store");
+      return repairTaskOf(review2, requireEditing(), evidence);
+    case "answer":
+      if (evidence === null) throw new Error("The answer pass's task names the baseline checks' frozen outputs and needs the evidence store");
+      return answerTaskOf(unit, review2, requireEditing(), evidence);
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
+    case "answer-checks":
+      throw new Error(`The ${unit.phase} phase runs checks, not workers`);
+    case "report":
+      throw new Error("The report phase has no worker");
+  }
+}
+function invocationFor(unit, context) {
+  const role = context.roles.get(unit.role);
+  if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
+  const policy = pinnedRole(context.configuration.roles, unit.role);
+  const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
+  const shared2 = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
+  const live2 = unit.phase === "fixes" ? context.claims.live(unit.key) : null;
+  const review2 = requireReview2(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join28(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
+  const survey = unit.phase === "survey" ? context.survey() : null;
+  const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2 }) }, context.scopeBlock(unit.phase));
+  return {
+    runtime: context.configuration.runtime,
+    executable: context.configuration.executable,
+    executableArgs: [...context.configuration.executableArgs],
+    model: policy.model,
+    effort: policy.effort,
+    access: scratch === null ? "read-only" : "edit",
+    shell: true,
+    prompt,
+    outputSchema: outputSchemaOf(unit.role),
+    timeoutMs: policy.timeoutMs,
+    ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
+    ...scratch === null ? {} : { scratch },
+    ...shared2 === null ? {} : { shared: shared2 },
+    label: unitLabel(unit.role, unit.phase, unit.key)
+  };
+}
+function failed(unit, receipt, reason, fault) {
+  return { kind: "attempt.failed", version: fault === "cut" || fault === "limit" ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+}
+function recordCandidates2(phase, key, candidates, state, worktree) {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const prefix = candidateIdPrefix(phase, key);
+  const locations = normalizeLocations(state.scope, worktree, candidates);
+  return candidates.map((candidate, index2) => {
+    const location = locations[index2];
+    return {
+      id: `${prefix}-${String(index2 + 1)}`,
+      angle: candidate.angle,
+      file: location.file,
+      line: location.line,
+      located: location.located,
+      inScope: location.inScope,
+      rawFile: candidate.file,
+      rawLine: candidate.line,
+      summary: candidate.summary,
+      detail: candidate.detail
+    };
+  });
+}
+function orderedLeads(leads) {
+  return finderAngles.map((angle) => leads.find((lead) => lead.angle === angle));
+}
+function orderedRanking(review2, output2, input2) {
+  const findings = output2.findings.map((finding) => ({
+    id: input2[finding.primary].candidate.id,
+    members: finding.members.map((member) => input2[member].candidate.id),
+    severity: finding.severity,
+    summary: finding.summary,
+    reason: finding.reason
+  }));
+  return rankedFindings(review2, findings).map((entry) => entry.finding);
+}
+function recordedDecisions(output2, findings) {
+  const idAt = (position) => findings[position].finding.id;
+  return output2.decisions.map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
+    id: idAt(index2),
+    ...decided,
+    leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) }
+  }));
+}
+function contributionOf(unit, receipt, context) {
+  if (unit.phase === "fixes" && context.claimsLost) return failedWithEdits(unit, receipt, "the claims directory was removed while the unit ran", context, "environment");
+  if (receipt.outcome !== "completed") return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`, context, receipt.cause ?? "unit");
+  const review2 = requireReview2(context.state);
+  try {
+    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context)];
+  } catch (error62) {
+    if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error62.message}`, context);
+    throw error62;
+  }
+}
+function failedWithEdits(unit, receipt, reason, context, fault = "unit") {
+  const failure2 = failed(unit, receipt, reason, fault);
+  if (!isEditingPhase(unit.phase)) return [failure2];
+  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason, "failed");
+  return [...attempt.claims, failure2, ...attempt.revisions];
+}
+function contributionEvent(unit, receipt, review2, context) {
+  const { state, worktree } = context;
+  switch (unit.phase) {
+    case "survey": {
+      const output2 = receipt.output;
+      const checked = checkSurveyAnswer(output2, { worktree, lookup: worktreeLookup(worktree), setting: review2.configuration.survey.userRules, fix: review2.fix !== null, inputs: context.survey(), standing: standingSurvey(review2) });
+      return { kind: "survey.recorded", version: 1, payload: { workerId: receipt.workerId, ...checked } };
+    }
+    case "triage": {
+      const output2 = receipt.output;
+      checkTriageLeads(output2);
+      const candidates = recordCandidates2("triage", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle: "SCAN" })), state, worktree);
+      return { kind: "candidates.recorded", version: 2, payload: { phase: "triage", key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output2.leads), change: normalizeTriageChange(output2.change) } };
+    }
+    case "finders": {
+      const output2 = receipt.output;
+      const angle = unit.key;
+      const candidates = recordCandidates2("finders", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
+      return { kind: "candidates.recorded", version: 2, payload: { phase: "finders", key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
+    }
+    case "sweep": {
+      const output2 = receipt.output;
+      const candidates = recordCandidates2("sweep", unit.key, output2.candidates, state, worktree);
+      return { kind: "candidates.recorded", version: 2, payload: { phase: "sweep", key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
+    }
+    case "deduplication":
+    case "sweep-deduplication": {
+      const output2 = receipt.output;
+      const pool = poolCandidates(review2, unit.phase);
+      checkDeduplication(output2, pool.length);
+      const groups = output2.groups.map((group) => ({ members: group.members.map((member) => pool[member].id), keep: pool[group.keep].id, reason: group.reason }));
+      return { kind: "deduplication.recorded", version: 1, payload: { phase: unit.phase, workerId: receipt.workerId, groups } };
+    }
+    case "verification":
+    case "sweep-verification": {
+      const output2 = receipt.output;
+      const group = groupCandidates(review2, unit.phase, unit.key);
+      checkVerdicts(output2, group.length);
+      const verdicts2 = output2.verdicts.map((verdict) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence }));
+      return { kind: "verdicts.recorded", version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts2 } };
+    }
+    case "merge-rank": {
+      const output2 = receipt.output;
+      const input2 = mergeRankInput(review2);
+      checkMergeRank(output2, input2.length);
+      return { kind: "ranking.recorded", version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review2, output2, input2) } };
+    }
+    case "decision": {
+      const output2 = receipt.output;
+      const findings = rankedFindings(review2);
+      checkDecisions(output2, findings.length);
+      return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
+    }
+    case "fixes":
+    case "repair":
+    case "answer":
+      throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
+    case "baseline-checks":
+    case "checks":
+    case "repair-checks":
+    case "answer-checks":
+    case "report":
+      throw new Error(`The ${unit.phase} phase has no worker`);
+  }
+}
+var init_phases = __esm({
+  "src/review/phases.ts"() {
+    "use strict";
+    init_events();
+    init_answer_state();
+    init_fix_state();
+    init_review_fold();
+    init_survey_state();
+    init_claim_events();
+    init_errors6();
+    init_fix_events();
+    init_labels();
+    init_locations();
+    init_policy();
+    init_prompts();
+    init_snapshot();
+    init_schemas3();
+    init_discover();
+    init_survey();
+    init_state();
+    init_steps();
+    init_tasks();
+    init_vocabulary();
+  }
+});
+
 // src/review/decision-report.ts
 function reviewedLine(review2, id) {
   const standing = standingAnswer(review2, id);
@@ -33183,7 +34117,8 @@ function gapsOf(context) {
 function lookOf(context, departures) {
   const { review: review2 } = context;
   const look = [];
-  if (departures.length > 0) look.push({ condition: "departure", findings: departures.map((departure) => departure.id), text: `${counted2(departures.length, "fix goes", "fixes go")} against a written rule` });
+  const unreviewed = departures.filter((departure) => departure.review === null);
+  if (unreviewed.length > 0) look.push({ condition: "departure", findings: unreviewed.map((departure) => departure.id), text: `${counted2(unreviewed.length, "fix goes", "fixes go")} against a written rule` });
   const plausible = context.findings.filter(({ entry, decision }) => entry.resolution.verdict === "PLAUSIBLE" && (review2.fix === null ? decision?.decision === "fix" : context.outcomes.get(entry.finding.id)?.last === "applied")).map(({ entry }) => entry.finding.id);
   if (plausible.length > 0) {
     const what = review2.fix === null ? counted2(plausible.length, "finding decided as a fix rests", "findings decided as fixes rest") : counted2(plausible.length, "fix rests", "fixes rest");
@@ -33224,7 +34159,7 @@ function headlineText(questions, departures, defaultsInPlace) {
   const total = questions + departures;
   if (total === 0) return "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
   const parts = [...questions === 0 ? [] : [counted2(questions, "question", "questions")], ...departures === 0 ? [] : [counted2(departures, "fix that goes against a written rule", "fixes that go against a written rule")]];
-  const waits = questions === 0 ? "Nothing waits for you: the run went on as it decided." : `Nothing waits for you: each question has a default${defaultsInPlace ? " in place" : ""}.`;
+  const waits = questions === 0 ? "Nothing waits for you: the run went on as it decided." : `Nothing waits for you: ${questions === 1 ? "the" : "each"} question has a default${defaultsInPlace ? " in place" : ""}.`;
   return `${counted2(total, "thing needs", "things need")} you: ${parts.join(" and ")}. ${waits}`;
 }
 function coveredText(review2) {
@@ -33233,12 +34168,10 @@ function coveredText(review2) {
   const after = checksOf({ answerPasses: review2.answerPasses, fix }).every((check2) => check2.after !== null);
   return after ? "Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes." : "Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.";
 }
-function changeOf(account, title) {
+function changeOf(account) {
   if (account.kind !== "given") return { state: account.kind };
   const { reading } = account;
-  const what = cutAtWord(reading.what, briefLimits.what);
-  const why = reading.why === null ? null : cutAtWord(reading.why, briefLimits.why);
-  return { state: "given", what, why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, cut: what !== reading.what || why !== reading.why, titleCut: title !== reading.title };
+  return { state: "given", what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect };
 }
 function briefOf(state) {
   const review2 = state.review;
@@ -33249,12 +34182,11 @@ function briefOf(state) {
   const openQuestions = questions.filter((question) => question.answer === null).length;
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
-  const title = review2.change.kind === "given" ? cutAtWord(review2.change.reading.title, briefLimits.title) : scopeTitle(state);
   return {
     run: state.id,
-    title,
+    title: review2.change.kind === "given" ? review2.change.reading.title : scopeTitle(state),
     headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures, questions.every((question) => question.answer !== null || question.defaultApplied)) },
-    change: changeOf(review2.change, title),
+    change: changeOf(review2.change),
     questions,
     departures,
     notCovered,
@@ -33279,8 +34211,7 @@ function changePart(change) {
       const sources = (list) => list.map(inlineText).join(", ");
       const why = change.why === null ? "The change states no reason." : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? "the triage named no source" : `from ${sources(change.whyFrom)}`}).`;
       const restsOn = change.restsOn.length === 0 ? "" : ` It rests on ${sources(change.restsOn)}.`;
-      const whole = change.cut || change.titleCut ? " The whole account is under [The change, in full](#the-change-in-full)." : "";
-      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn}${whole}`];
+      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn}`];
     }
   }
 }
@@ -33323,9 +34254,7 @@ function departureBlock(departure, position, fixed) {
     "",
     `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
     "",
-    `The fact against it: ${sentenceText(departure.fact)}`,
-    "",
-    `What the fix does: ${sentenceText(departure.fix)} ${fate}`,
+    `Why deep-review went against it: ${sentenceText(departure.fact)} ${fate}`,
     "",
     reviewLine
   ];
@@ -33396,7 +34325,8 @@ function changedWords(changed) {
 function briefShortForm(brief) {
   const open2 = brief.questions.filter((question) => question.answer === null);
   const openQuestions = open2.map((question) => question.id);
-  const defaults = open2.every((question) => question.defaultApplied) ? "each with a default in place" : "each with a default";
+  const inPlace = open2.every((question) => question.defaultApplied);
+  const defaults = open2.length === 1 ? inPlace ? "with its default in place" : "with a default" : inPlace ? "each with a default in place" : "each with a default";
   const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
   const change = brief.change.state === "given" ? firstSentence(brief.change.what) : brief.change.state === "none" ? "the triage gave no account of it" : "not recorded; an engine before the account reviewed this run";
   const gaps = brief.notCovered;
@@ -33412,7 +34342,7 @@ function briefShortForm(brief) {
   ];
   return lines.map((line) => cutAtWord(line, shortLineLimit));
 }
-var briefLimits, briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -33425,7 +34355,6 @@ var init_brief = __esm({
     init_markdown();
     init_state();
     init_survey_report();
-    briefLimits = { title: 80, what: 600, why: 400 };
     briefFates = ["applied", "already-in-tree", "deferred", "blocked", "not-attempted", "not-fixed"];
     gapKinds = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop"];
     lookConditions = ["departure", "plausible", "public-interface", "wide-effect"];
@@ -33482,940 +34411,6 @@ var init_brief = __esm({
           return "an effect on many files";
       }
     };
-  }
-});
-
-// src/review/tasks.ts
-function standingLines(standing) {
-  return [
-    "This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.",
-    "",
-    "Convention sources recorded:",
-    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`),
-    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`)]
-  ];
-}
-function authorshipLine(authorship) {
-  const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
-  if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
-  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
-}
-function shellOf(platform, elevatedSandbox) {
-  if (platform !== "win32") return { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
-  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : "`where.exe <tool>`" };
-}
-function surveyTask(input2) {
-  if (input2.standing !== null) {
-    if (!input2.fix) throw new Error("A survey asked for the checks alone is a continued run's, which fixes");
-    return [...standingLines(input2.standing), "", ...fixChecks(input2)].join("\n");
-  }
-  const userRules = input2.offered.length > 0 ? [
-    "User-level rules files offered:",
-    ...input2.offered.map((path) => `- ${path}`),
-    "",
-    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.",
-    "",
-    authorshipLine(input2.authorship)
-  ] : [
-    "User-level rules files offered: none",
-    "",
-    input2.policySettlesUserRules ? "The review policy settles whether the reviewer's own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`." : "No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`."
-  ];
-  const checks = input2.fix ? fixChecks(input2) : [kindsToChooseLine(input2)];
-  return [
-    "Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source's `appliesTo` is judged against.",
-    "",
-    ...userRules,
-    "",
-    ...checks
-  ].join("\n");
-}
-function fixChecks(input2) {
-  const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
-  const byFlags = input2.settled.every((entry) => entry.layer === "flag");
-  const settledLine = (entry) => {
-    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
-    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
-  };
-  const settled3 = input2.settled.length === 0 ? [] : [
-    byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
-    ...input2.settled.map(settledLine),
-    ""
-  ];
-  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled3, "Every kind is settled, so return `checks` empty."];
-  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
-  return [
-    kindsToChooseLine(input2),
-    "",
-    ...settled3,
-    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
-    "",
-    "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
-    ...hints
-  ];
-}
-function describeLocation(candidate) {
-  const location = repositoryLocation(candidate);
-  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
-  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
-}
-function candidateItem(index2, candidate, extra = []) {
-  return [
-    `[${String(index2)}] ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}`,
-    `    summary: ${candidate.summary}`,
-    `    detail: ${candidate.detail}`,
-    ...extra.map((line) => `    ${line}`)
-  ].join("\n");
-}
-function withinBytes(items, limit) {
-  const kept = [];
-  let used = 0;
-  for (const item of items) {
-    const bytes = utf8Bytes(item) + 1;
-    if (used + bytes > limit) continue;
-    kept.push(item);
-    used += bytes;
-  }
-  return kept;
-}
-function commitMessagesSection(words) {
-  if (words.kind === "unreadable") {
-    return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
-  }
-  if (words.kind === "working-tree") return ["The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits."];
-  const { messages } = words;
-  const tree = words.withTree ? ["", "The change may also hold uncommitted changes of the working tree, which no commit message covers."] : [];
-  if (messages.length === 0) return ["The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.", ...tree];
-  const shown = (commit2) => commit2.slice(0, shownCommitLength);
-  const subjects = withinBytes(messages.map(({ commit: commit2, message }) => `${shown(commit2)} ${message.split(/\r?\n/, 1)[0] ?? ""}`), commitSubjectsLimitBytes);
-  const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
-  const wholes = withinBytes(messages.map(({ commit: commit2, message }) => `commit ${shown(commit2)}
-${message}
-`), commitMessagesLimitBytes - used);
-  const fenced = (text3) => {
-    const fence = fenceFor(text3);
-    return [`${fence}text`, text3, fence];
-  };
-  const leftSubjects = messages.length - subjects.length;
-  const leftWholes = messages.length - wholes.length;
-  return [
-    `The subjects of the ${String(messages.length)} commit${messages.length === 1 ? "" : "s"} of the change, oldest first:`,
-    "",
-    ...fenced(subjects.join("\n")),
-    "",
-    "The whole messages, oldest first:",
-    "",
-    ...wholes.length === 0 ? ["(none fit within the limit)"] : fenced(wholes.join("\n").trimEnd()),
-    ...leftSubjects === 0 && leftWholes === 0 ? [] : ["", `${String(leftSubjects)} subject${leftSubjects === 1 ? "" : "s"} and ${String(leftWholes)} whole message${leftWholes === 1 ? "" : "s"} are left out at the limits.`],
-    ...tree
-  ];
-}
-function triageTask(messages) {
-  return [
-    "Run the `SCAN` angle over every hunk of the patch below and the enclosing function of each. Return your candidates, up to 12.",
-    "",
-    `Then, for EACH of the nine other angles, in this order (${finderAngles.join(", ")}), return one lead: a concrete file, symbol or mechanism the finder of that angle should inspect first, grounded in what you read, or null when the diff supports none. A lead is never a skip; every angle runs whatever you return, so name what you saw and nothing more.`,
-    "",
-    "Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:",
-    "",
-    `- \`title\`: what the change is, in at most ${String(briefLimits.title)} characters.`,
-    "- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.",
-    "- `why`: why the change does it, in the change's own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.",
-    "- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.",
-    "- `restsOn`: the files and commits that `what` rests on, at least one.",
-    "- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.",
-    "- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.",
-    "",
-    `Keep \`why\` within ${String(briefLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
-    "",
-    "### The change's own words",
-    "",
-    ...commitMessagesSection(messages),
-    "",
-    fieldNote
-  ].join("\n");
-}
-function finderTask(angle, lead) {
-  const leadLine = lead === null || lead.lead === null ? "Lead: none" : `SCAN lead: ${lead.lead}`;
-  return [
-    `Angle: ${angle}`,
-    leadLine,
-    "",
-    `Run the ${angle} angle as your role prompt defines it, over the whole change below. Check the lead first when there is one, then complete the full search of your angle; a lead is neither a finding nor a boundary. Return your candidates, up to 12; an empty list is a valid answer.`,
-    "",
-    fieldNote
-  ].join("\n");
-}
-function deduplicationTask(candidates) {
-  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
-  return [
-    `Below are ${String(candidates.length)} candidates, numbered [0] to [${String(candidates.length - 1)}]. Group the ones that describe the same defect at the same location for the same reason; a group has two or more members, named by their indexes, and one \`keep\`, the member whose fourth field is the most concrete, which stays on the working list. A candidate in no group stands alone; leave it out of \`groups\`. Two candidates at one line for different reasons are not duplicates. Return \`groups\` empty when nothing repeats.`,
-    "",
-    list
-  ].join("\n");
-}
-function verifierTask(groupId, candidates) {
-  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
-  return [
-    `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? "" : "s"}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
-    "",
-    list
-  ].join("\n");
-}
-function sweepTask(inputs) {
-  const verified = inputs.verified.length === 0 ? "(none)" : inputs.verified.map(({ candidate, verdict, unverified }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary} [${verdict}${unverified ? ", unverified" : ""}]`).join("\n");
-  const refuted2 = inputs.refuted.length === 0 ? "(none)" : inputs.refuted.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary}; refuted because: ${evidence}`).join("\n");
-  const notRun = Object.entries(inputs.anglesNotRun);
-  const angles2 = notRun.length === 0 ? "Every angle ran." : `These angles did not run, so their territory is yours to cover: ${notRun.map(([angle, reason]) => `${angle} (${reason})`).join("; ")}.`;
-  return [
-    "Re-read the diff and the enclosing functions looking ONLY for gaps: candidates no angle below already lists. Do not re-derive or re-confirm anything already there.",
-    "",
-    angles2,
-    "",
-    "Verified candidates (already on the working list):",
-    verified,
-    "",
-    "Refuted candidates (already judged; do not resurface them):",
-    refuted2,
-    "",
-    "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
-  ].join("\n");
-}
-function checksBlock(checks, failing = []) {
-  if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
-  return [
-    "The engine runs these checks, in this order, before any fixer edits and again after every fixer returns:",
-    ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
-    "Run the ones that cover your change before you return, and report the suite you ran in `suite`.",
-    ...failing.length === 0 ? [] : [
-      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:",
-      ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
-    ]
-  ].join("\n");
-}
-function claimBlock(command) {
-  return [
-    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
-    "",
-    `    ${command}`,
-    "",
-    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
-    `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
-    "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
-    "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
-  ].join("\n");
-}
-function snapshotBlock(command, unit) {
-  return [
-    `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
-    "",
-    `    ${command}`,
-    "",
-    `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
-  ].join("\n");
-}
-function earlierWork(unit, unfinished) {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
-  if (unfinished.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
-}
-function candidateLines(head2, candidate) {
-  return [
-    head2,
-    `        summary: ${candidate.summary}`,
-    `        detail: ${candidate.detail}`,
-    `        evidence: ${evidenceWords(candidate.evidence)}`
-  ];
-}
-function decidedLines(decision, answered2) {
-  if (decision.decision === "fix") {
-    const { fix, departure } = decision;
-    return [
-      `    decided: fix. ${decision.grounds}`,
-      `        approach: ${fix.approach}`,
-      ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
-      ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`],
-      ...answered2 === null ? [] : answeredLines(answered2)
-    ];
-  }
-  const { ask } = decision;
-  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
-  return [
-    `    decided: ask the author, applying a default now. ${decision.grounds}`,
-    `        apply: ${appliedOptionOf(ask).option}`,
-    `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`,
-    ...answered2 === null ? [] : answeredLines(answered2)
-  ];
-}
-function answeredLines(answered2) {
-  const note = answered2.note === null ? "" : ` Note: ${inlineText(answered2.note)}`;
-  const line = `${answerLine(answered2)}${note}`;
-  const before = answered2.before;
-  const did = before === null ? "no fixer saw it before" : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? "" : `, in ${before.files.join(", ")}`}`;
-  const applied = answered2.appliedByPass === null ? [] : [`        the answer pass ${answered2.appliedByPass} already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again`];
-  return [`        ${line}`, `        before the answer: ${did}`, ...applied];
-}
-function answerLine(answered2) {
-  switch (answered2.kind) {
-    case "option":
-      return `answered by the author: option ${String(answered2.option + 1)}, "${answered2.chosen.option}", for which the decider wrote the rule "${answered2.chosen.rule}".`;
-    case "reject":
-      return `the author rejected the departure: follow the rule "${answered2.departure.rule}" as ${answered2.departure.source} states it, and restore what the fix changed in that statement.`;
-    case "accept":
-      return "the author accepted the departure.";
-  }
-}
-function unitLines(input2) {
-  switch (input2.kind) {
-    case "answer-pass":
-      return {
-        head: `Answer pass ${input2.batch}`,
-        round: [],
-        ownership: [
-          "Files you own: every file the run revised, and the files these findings are located in.",
-          fileList(input2.owned),
-          "",
-          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served."
-        ]
-      };
-    case "batch": {
-      const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
-      const held = [...input2.owned, ...input2.claimed.filter((path) => !input2.owned.includes(path)).map((path) => `${path} (claimed)`)];
-      return {
-        head: `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}`,
-        round: [
-          ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
-          ...input2.earlier.length === 0 ? [] : [
-            input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
-            input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
-            ""
-          ]
-        ],
-        ownership: [
-          "Files you own while this batch runs, which no other worker edits:",
-          fileList(held),
-          "",
-          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
-          others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
-          "",
-          claimBlock(input2.claimCommand)
-        ]
-      };
-    }
-  }
-}
-function fixerTask(input2) {
-  const count2 = input2.findings.length;
-  const findings = input2.findings.map((finding, index2) => [
-    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
-    `    summary: ${finding.summary}`,
-    `    reason: ${finding.reason}`,
-    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
-    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
-    ...finding.decision === null ? [] : decidedLines(finding.decision, finding.answered),
-    ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
-    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
-  ].join("\n"));
-  const decided = input2.findings.some((finding) => finding.decision !== null);
-  const answered2 = input2.findings.some((finding) => finding.answered !== null);
-  const { head: head2, round, ownership } = unitLines(input2);
-  return [
-    `${head2}: ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], in the order to apply them.`,
-    "",
-    ...findings,
-    "",
-    ...decided ? [decidedRule, ""] : [],
-    ...answered2 ? [answeredRule, ""] : [],
-    ...round,
-    ...ownership,
-    "",
-    checksBlock(input2.checks, input2.baselineFailures),
-    "",
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, "finding"),
-    "",
-    ...input2.mayHoldWork ? [earlierWork("finding", input2.unfinished), ""] : [],
-    answerFields("finding"),
-    "",
-    scratchRule
-  ].join("\n");
-}
-function outputTail(name, tail, path) {
-  const text3 = tail.toString("utf8");
-  if (text3.trim() === "") return `    ${name}: empty (frozen at ${path})`;
-  const fence = fenceFor(text3);
-  return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text3.endsWith("\n") ? text3.slice(0, -1) : text3, fence].join("\n");
-}
-function repairCheckEnd(check2) {
-  if (check2.outcome === "timeout") return "ran past its timeout and was killed";
-  const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
-  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
-}
-function repairTask(input2) {
-  const count2 = input2.checks.length;
-  const checks = input2.checks.map((check2, index2) => [
-    `[${String(index2)}] ${check2.kind}: ${check2.command}`,
-    `    ${repairCheckEnd(check2)}`,
-    outputTail("stdout", check2.stdout.tail, check2.stdout.path),
-    outputTail("stderr", check2.stderr.tail, check2.stderr.path),
-    ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
-      "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
-      outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
-      outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
-    ]
-  ].join("\n"));
-  return [
-    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
-    "",
-    ...checks,
-    "",
-    "Files you own: every file the fixers changed.",
-    fileList(input2.owned),
-    "",
-    "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
-    "",
-    "What each fixer did:",
-    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer3) => `- ${answer3.batch} ${answer3.id} ${answer3.status}: ${answer3.note}`).join("\n"),
-    "",
-    checksBlock(input2.allChecks),
-    "",
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, "check"),
-    "",
-    ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
-    `${answerFields("check")} The message in an applied check's \`edits\` describes what the repair changed.`,
-    "",
-    scratchRule
-  ].join("\n");
-}
-function deciderTask(findings) {
-  const count2 = findings.length;
-  const list = findings.map((finding, position) => [
-    `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
-    `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate))
-  ].join("\n"));
-  return [
-    `The review's ${String(count2)} finding${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
-    "",
-    ...list,
-    "",
-    "For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing."
-  ].join("\n");
-}
-function mergeRankTask(inputs) {
-  const list = inputs.map(
-    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
-  ).join("\n");
-  return [
-    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor), a \`summary\` that names the other sites when there are any, and a \`reason\`; a \`CONVENTIONS\` violation takes the severity of the rule it breaks. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
-    "",
-    list
-  ].join("\n");
-}
-var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, snapshotIndexPlaceholder, claimPathPlaceholder, answerFields, scratchRule, unelevatedSandboxRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
-var init_tasks = __esm({
-  "src/review/tasks.ts"() {
-    "use strict";
-    init_fix_state();
-    init_review_fold();
-    init_brief();
-    init_markdown();
-    init_prompts();
-    init_kill_marks();
-    init_survey();
-    init_vocabulary();
-    kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
-    elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
-    fieldNote = "In your JSON, each candidate has `file`, `line`, `summary` and `detail`; `detail` is the fourth field of the finder output contract, the `failure_scenario` or the `value_statement` your angle asks for. Do not invent an id: the engine assigns one to each candidate you return.";
-    commitSubjectsLimitBytes = 16 * 1024;
-    commitMessagesLimitBytes = 32 * 1024;
-    shownCommitLength = 12;
-    utf8Bytes = (text3) => Buffer.byteLength(text3, "utf8");
-    snapshotIndexPlaceholder = "<index>";
-    claimPathPlaceholder = "<path>";
-    answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
-    scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
-    unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
-    fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
-    verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
-    evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
-    answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
-    decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
-    repairTailBytes = 16 * 1024;
-  }
-});
-
-// src/review/phases.ts
-import { join as join28 } from "node:path";
-function requireReview2(state) {
-  if (state.review === null) throw new Error(`Run ${state.id} is not configured for review`);
-  return state.review;
-}
-function groupCandidates(review2, phase, groupId) {
-  const group = review2.plans[phase]?.find((candidate) => candidate.id === groupId);
-  if (group === void 0) throw new Error(`Phase ${phase} has no planned group ${groupId}`);
-  return group.candidateIds.map((id) => {
-    const candidate = review2.candidates[id];
-    if (candidate === void 0) throw new Error(`Group ${groupId} names candidate ${id}, which the run never recorded`);
-    return candidate;
-  });
-}
-function mayHoldWork(review2, phase, key, owned, ownCluster = []) {
-  if (review2.phases[phase].attempt > 1 || (review2.units[phase][key]?.failures.length ?? 0) > 0) return true;
-  const sourceKey = (revision) => revision.source.kind === "check" ? null : revision.source.key;
-  return (review2.fix?.revisions ?? []).some((revision) => revision.phase === phase && !ownCluster.includes(sourceKey(revision) ?? "") && revision.files.some((file2) => owned.includes(file2.path)));
-}
-function unfinishedIds(review2, phase, key) {
-  const ids2 = (review2.fix?.revisions ?? []).filter((revision) => revision.phase === phase && revision.source.kind === "attempt" && revision.source.key === key).flatMap((revision) => revision.change.findings);
-  return [...new Set(ids2)];
-}
-function firstRoundBlock(review2, firstBatches, id, requiredFiles) {
-  const batch = firstBatches.find((candidate) => candidate.findingIds.includes(id));
-  const fix = review2.fix;
-  const note = (batch === void 0 ? void 0 : fix?.answers.fixes[batch.key]?.findings.find((finding) => finding.id === id)?.note) ?? "blocked";
-  const owned = new Set((fix?.plan?.clusters ?? []).flatMap((cluster) => cluster.files));
-  const claimedBy = (path) => {
-    if (fix === null || owned.has(path)) return null;
-    return lastClaimOf(fix, 1, path, batch?.cluster)?.cluster ?? null;
-  };
-  return { note, requiredFiles: requiredFiles.map((path) => ({ path, claimedBy: claimedBy(path) })) };
-}
-function batchOutcomes(review2, batch) {
-  const answer3 = review2.fix?.answers.fixes[batch.key];
-  return batch.findingIds.map((id) => {
-    const finding = answer3?.findings.find((candidate) => candidate.id === id);
-    return { batch: batch.key, id, outcome: finding?.status ?? "not attempted", note: finding?.note ?? null };
-  });
-}
-function taskCandidate(candidate) {
-  const resolution = resolutionOf(candidate);
-  if (resolution === null) throw new Error(`Candidate ${candidate.id} is ranked with no verdict and no unverified mark`);
-  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence };
-}
-function deciderFindings(review2) {
-  return rankedFindings(review2).map((entry) => ({
-    id: entry.finding.id,
-    severity: entry.finding.severity,
-    verdict: entry.resolution.verdict,
-    summary: entry.finding.summary,
-    reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map(taskCandidate)
-  }));
-}
-function answeredFor(review2, decision, id) {
-  const standing = standingAnswer(review2, id);
-  if (standing === null || decision === null) return null;
-  const appliedBy = standing.appliedBy;
-  if (appliedBy !== null && (appliedBy === "tree" || appliedBy.phase !== "answer")) return null;
-  const fix = review2.fix;
-  const last = fix === null ? null : lastAnswerOf(fix, id);
-  const files = last === null || fix === null ? [] : [...new Set(unitRevisions(fix, last.phase, last.key).filter((revision) => revision.change.findings.includes(id)).flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
-  const shared2 = { note: standing.note, before: last === null ? null : { status: last.finding.status, note: last.finding.note, files }, appliedByPass: appliedBy === null ? null : appliedBy.key };
-  const answer3 = standing.answer;
-  switch (answer3.kind) {
-    case "option": {
-      const chosen = decision.decision === "ask" ? decision.ask.options[answer3.option] : void 0;
-      if (chosen === void 0) throw new Error(`Finding ${id} is answered with an option its decision does not offer`);
-      return { ...shared2, kind: "option", option: answer3.option, chosen: { option: chosen.option, rule: chosen.rule, edits: chosen.edits } };
-    }
-    case "reject": {
-      const departure = decision.decision === "fix" ? decision.departure : null;
-      if (departure === null) throw new Error(`Finding ${id} rejects a departure its decision does not make`);
-      return { ...shared2, kind: "reject", departure };
-    }
-    case "accept":
-      return { ...shared2, kind: "accept" };
-  }
-}
-function fixerTaskOf(unit, review2, editing, evidence) {
-  const plan = fixPlanOf(review2);
-  const second = review2.fix?.secondRound ?? null;
-  const all = [...plan.batches, ...second?.batches ?? []];
-  const batch = all.find((candidate) => candidate.key === unit.key);
-  if (batch === void 0) throw new Error(`The fix plan has no batch ${unit.key}`);
-  const inSecondRound = second?.batches.some((candidate) => candidate.key === batch.key) ?? false;
-  const clusters = inSecondRound ? second.clusters : plan.clusters;
-  const cluster = clusters.find((candidate) => candidate.id === batch.cluster);
-  if (cluster === void 0) throw new Error(`Batch ${batch.key} names cluster ${batch.cluster}, which the fix plan does not have`);
-  const siblings = all.filter((candidate) => candidate.cluster === cluster.id);
-  const earlier = siblings.slice(0, siblings.indexOf(batch));
-  const firstRoundInFiles = inSecondRound ? plan.batches.filter((candidate) => plan.clusters.find((owner) => owner.id === candidate.cluster)?.files.some((path) => cluster.files.includes(path)) ?? false) : [];
-  const blockedOn = new Map((second?.blocked ?? []).map((entry) => [entry.id, entry.requiredFiles]));
-  const fix = review2.fix;
-  const round = roundOf(fix, batch.key);
-  const othersHeld2 = /* @__PURE__ */ new Map();
-  for (const [path, holder] of heldByOthers(fix, batch.key, exactPath)) othersHeld2.set(holder.cluster, [...othersHeld2.get(holder.cluster) ?? [], { path, by: holder.by }]);
-  if (editing.claimCommand === null) throw new Error(`The fixer of ${batch.key} needs its claim command`);
-  const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
-  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
-  const findings = batch.findingIds.map((id) => {
-    const entry = ranked.get(id);
-    if (entry === void 0) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
-    const decision = decidedFor(review2, decided, id);
-    return {
-      ...taskFinding(review2, ranked, entry, decision),
-      firstRound: inSecondRound ? firstRoundBlock(review2, plan.batches, id, blockedOn.get(id) ?? []) : null
-    };
-  });
-  return fixerTask({
-    kind: "batch",
-    cluster: cluster.id,
-    batch: batch.key,
-    secondRound: inSecondRound,
-    findings,
-    earlier: [...firstRoundInFiles, ...earlier].flatMap((sibling) => batchOutcomes(review2, sibling)),
-    owned: cluster.files,
-    claimed: clusterClaims(fix, round, cluster.id),
-    othersHeld: [...othersHeld2].map(([held, files]) => ({ cluster: held, files })),
-    checks: review2.fix?.checks.planned?.checks ?? [],
-    snapshotCommand: editing.snapshotCommand,
-    claimCommand: editing.claimCommand,
-    unelevatedSandbox: editing.unelevatedSandbox,
-    mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
-    unfinished: unfinishedIds(review2, "fixes", unit.key),
-    baselineFailures: baselineFailuresOf(review2, evidence)
-  });
-}
-function taskFinding(review2, ranked, entry, decision) {
-  const id = entry.finding.id;
-  return {
-    id,
-    severity: entry.finding.severity,
-    verdict: entry.resolution.verdict,
-    unverified: entry.resolution.unverified,
-    summary: entry.finding.summary,
-    reason: entry.finding.reason,
-    primary: taskCandidate(entry.primary),
-    members: entry.members.map(taskCandidate),
-    decision,
-    supersedes: (review2.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
-      const leftEntry = ranked.get(left.id);
-      return leftEntry === void 0 ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary }];
-    }),
-    answered: answeredFor(review2, decision, id)
-  };
-}
-function answerTaskOf(unit, review2, editing, evidence) {
-  const pass = passOf(review2, unit.key);
-  if (pass === null) throw new Error(`The answer pass ${unit.key} is not recorded`);
-  const ranked = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
-  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
-  const findings = [...ranked.values()].filter((entry) => pass.ids.includes(entry.finding.id)).map((entry) => {
-    const decision = decidedFor(review2, decided, entry.finding.id, true);
-    const finding = { ...taskFinding(review2, ranked, entry, decision), firstRound: null };
-    if (finding.answered === null) throw new Error(`Finding ${entry.finding.id} is in answer pass ${unit.key} with no answer owing an edit`);
-    return finding;
-  });
-  const mayHold = review2.phases.answer.attempt > pass.openedAt.answer + 1 || (review2.units.answer[unit.key]?.failures.length ?? 0) > 0;
-  return fixerTask({
-    kind: "answer-pass",
-    batch: unit.key,
-    findings,
-    owned: ownedFiles(review2, "answer", unit.key),
-    checks: review2.fix?.checks.planned?.checks ?? [],
-    snapshotCommand: editing.snapshotCommand,
-    unelevatedSandbox: editing.unelevatedSandbox,
-    mayHoldWork: mayHold,
-    unfinished: unfinishedIds(review2, "answer", unit.key),
-    baselineFailures: baselineFailuresOf(review2, evidence)
-  });
-}
-function decidedFor(review2, decided, id, answered2 = false) {
-  const decision = decided.get(id) ?? null;
-  if (decision === null && (answered2 || review2.phases.decision.status !== "skipped")) throw new Error(`Finding ${id} goes to a fixer with no decision recorded for it`);
-  if (decision?.decision === "leave") throw new Error(`Finding ${id} goes to a fixer though its decision leaves it`);
-  return decision;
-}
-function baselineFailuresOf(review2, evidence) {
-  const fix = review2.fix;
-  if (fix === null) return [];
-  return (fix.checks.planned?.checks ?? []).flatMap((check2) => {
-    const run2 = failedAtBaseline(fix, check2.kind) ? lastFreshRun(fix, "baseline-checks", check2.kind) : null;
-    return run2 === null ? [] : [{ kind: check2.kind, stdout: run2.stdout === null ? "none" : evidence.pathOf(run2.stdout), stderr: run2.stderr === null ? "none" : evidence.pathOf(run2.stderr) }];
-  });
-}
-function tailOf(evidence, reference) {
-  if (reference === null) return { tail: Buffer.alloc(0), path: "none" };
-  const bytes = evidence.read(reference);
-  return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
-}
-function repairTaskOf(review2, editing, evidence) {
-  const fix = review2.fix;
-  if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
-  const checks = repairTargets(fix).map((kind) => {
-    const run2 = lastFreshRun(fix, "checks", kind);
-    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, "baseline-checks", kind) : null;
-    return {
-      kind,
-      command: run2.command,
-      outcome: run2.outcome === "timeout" ? "timeout" : "failed",
-      exitCode: run2.exitCode,
-      signal: run2.signal,
-      stdout: tailOf(evidence, run2.stdout),
-      stderr: tailOf(evidence, run2.stderr),
-      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
-    };
-  });
-  const owned = fixesRevisedPaths(fix);
-  const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
-}
-function standingSurvey(review2) {
-  if (review2.continuedFrom === null || (review2.fix?.checks.planned ?? null) !== null) return null;
-  const answer3 = review2.survey === null ? null : lastSurvey(review2.survey);
-  if (answer3 === null) throw new Error("A continued run asks its survey for the checks with no answer of it recorded");
-  return answer3;
-}
-function surveyTaskOf(review2, inputs) {
-  const setting = review2.configuration.survey.userRules;
-  const fix = review2.fix !== null;
-  const unsettled2 = fix ? unsettledKinds(inputs.checkSettings) : [];
-  return surveyTask({
-    platform: inputs.platform,
-    fix,
-    settled: fix ? settledKinds(inputs.checkSettings) : [],
-    unsettled: unsettled2,
-    hints: inputs.hints.filter((hint) => unsettled2.includes(hint.kind)),
-    offered: offeredUserFiles(setting, inputs),
-    policySettlesUserRules: setting !== "judge" && inputs.userFiles.length > 0,
-    elevatedSandbox: pinnedWindowsSandbox(review2.configuration, inputs.platform) === "elevated",
-    standing: standingSurvey(review2),
-    get authorship() {
-      return inputs.authorship;
-    }
-  });
-}
-function taskFor(unit, review2, options2 = {}) {
-  const editing = options2.editing ?? null;
-  const evidence = options2.evidence ?? null;
-  const requireEditing = () => {
-    if (editing === null) throw new Error(`The ${unit.phase} unit ${unit.key} needs its snapshot command`);
-    return editing;
-  };
-  switch (unit.phase) {
-    case "survey":
-      if (options2.survey === void 0 || options2.survey === null) throw new Error("The surveyor's task names what the invocation knows for the survey and needs it");
-      return surveyTaskOf(review2, options2.survey);
-    case "triage":
-      if (options2.commitMessages === void 0 || options2.commitMessages === null) throw new Error("The triage's task lists the commit messages of the change and needs them");
-      return triageTask(options2.commitMessages);
-    case "finders": {
-      const angle = unit.key;
-      return finderTask(angle, review2.leads?.find((lead) => lead.angle === angle) ?? null);
-    }
-    case "deduplication":
-    case "sweep-deduplication":
-      return deduplicationTask(poolCandidates(review2, unit.phase));
-    case "verification":
-    case "sweep-verification":
-      return verifierTask(unit.key, groupCandidates(review2, unit.phase, unit.key));
-    case "sweep":
-      return sweepTask({
-        verified: survivors(review2, "verification").map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified })),
-        refuted: refutedIn(review2, "verification"),
-        anglesNotRun: review2.anglesNotRun
-      });
-    case "merge-rank":
-      return mergeRankTask(mergeRankInput(review2).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
-    case "decision":
-      return deciderTask(deciderFindings(review2));
-    case "fixes":
-      if (evidence === null) throw new Error("The fixer task names the baseline checks' frozen outputs and needs the evidence store");
-      return fixerTaskOf(unit, review2, requireEditing(), evidence);
-    case "repair":
-      if (evidence === null) throw new Error("The repair task quotes frozen logs and needs the evidence store");
-      return repairTaskOf(review2, requireEditing(), evidence);
-    case "answer":
-      if (evidence === null) throw new Error("The answer pass's task names the baseline checks' frozen outputs and needs the evidence store");
-      return answerTaskOf(unit, review2, requireEditing(), evidence);
-    case "baseline-checks":
-    case "checks":
-    case "repair-checks":
-    case "answer-checks":
-      throw new Error(`The ${unit.phase} phase runs checks, not workers`);
-    case "report":
-      throw new Error("The report phase has no worker");
-  }
-}
-function invocationFor(unit, context) {
-  const role = context.roles.get(unit.role);
-  if (role === void 0) throw new Error(`No assembled prompt for role ${unit.role}`);
-  const policy = pinnedRole(context.configuration.roles, unit.role);
-  const scratch = isEditingPhase(unit.phase) ? context.newScratch() : null;
-  const shared2 = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
-  const live2 = unit.phase === "fixes" ? context.claims.live(unit.key) : null;
-  const review2 = requireReview2(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join28(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
-  const survey = unit.phase === "survey" ? context.survey() : null;
-  const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2 }) }, context.scopeBlock(unit.phase));
-  return {
-    runtime: context.configuration.runtime,
-    executable: context.configuration.executable,
-    executableArgs: [...context.configuration.executableArgs],
-    model: policy.model,
-    effort: policy.effort,
-    access: scratch === null ? "read-only" : "edit",
-    shell: true,
-    prompt,
-    outputSchema: outputSchemaOf(unit.role),
-    timeoutMs: policy.timeoutMs,
-    ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
-    ...scratch === null ? {} : { scratch },
-    ...shared2 === null ? {} : { shared: shared2 },
-    label: unitLabel(unit.role, unit.phase, unit.key)
-  };
-}
-function failed(unit, receipt, reason, fault) {
-  return { kind: "attempt.failed", version: fault === "cut" || fault === "limit" ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
-}
-function recordCandidates2(phase, key, candidates, state, worktree) {
-  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const prefix = candidateIdPrefix(phase, key);
-  const locations = normalizeLocations(state.scope, worktree, candidates);
-  return candidates.map((candidate, index2) => {
-    const location = locations[index2];
-    return {
-      id: `${prefix}-${String(index2 + 1)}`,
-      angle: candidate.angle,
-      file: location.file,
-      line: location.line,
-      located: location.located,
-      inScope: location.inScope,
-      rawFile: candidate.file,
-      rawLine: candidate.line,
-      summary: candidate.summary,
-      detail: candidate.detail
-    };
-  });
-}
-function orderedLeads(leads) {
-  return finderAngles.map((angle) => leads.find((lead) => lead.angle === angle));
-}
-function orderedRanking(review2, output2, input2) {
-  const findings = output2.findings.map((finding) => ({
-    id: input2[finding.primary].candidate.id,
-    members: finding.members.map((member) => input2[member].candidate.id),
-    severity: finding.severity,
-    summary: finding.summary,
-    reason: finding.reason
-  }));
-  return rankedFindings(review2, findings).map((entry) => entry.finding);
-}
-function recordedDecisions(output2, findings) {
-  const idAt = (position) => findings[position].finding.id;
-  return output2.decisions.map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
-    id: idAt(index2),
-    ...decided,
-    leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) }
-  }));
-}
-function contributionOf(unit, receipt, context) {
-  if (unit.phase === "fixes" && context.claimsLost) return failedWithEdits(unit, receipt, "the claims directory was removed while the unit ran", context, "environment");
-  if (receipt.outcome !== "completed") return failedWithEdits(unit, receipt, `${receipt.outcome}: ${receipt.error ?? "no reason recorded"}`, context, receipt.cause ?? "unit");
-  const review2 = requireReview2(context.state);
-  try {
-    return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context)];
-  } catch (error62) {
-    if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error62.message}`, context);
-    throw error62;
-  }
-}
-function failedWithEdits(unit, receipt, reason, context, fault = "unit") {
-  const failure2 = failed(unit, receipt, reason, fault);
-  if (!isEditingPhase(unit.phase)) return [failure2];
-  const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason, "failed");
-  return [...attempt.claims, failure2, ...attempt.revisions];
-}
-function contributionEvent(unit, receipt, review2, context) {
-  const { state, worktree } = context;
-  switch (unit.phase) {
-    case "survey": {
-      const output2 = receipt.output;
-      const checked = checkSurveyAnswer(output2, { worktree, lookup: worktreeLookup(worktree), setting: review2.configuration.survey.userRules, fix: review2.fix !== null, inputs: context.survey(), standing: standingSurvey(review2) });
-      return { kind: "survey.recorded", version: 1, payload: { workerId: receipt.workerId, ...checked } };
-    }
-    case "triage": {
-      const output2 = receipt.output;
-      checkTriageLeads(output2);
-      const candidates = recordCandidates2("triage", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle: "SCAN" })), state, worktree);
-      return { kind: "candidates.recorded", version: 2, payload: { phase: "triage", key: unit.key, workerId: receipt.workerId, candidates, leads: orderedLeads(output2.leads), change: normalizeTriageChange(output2.change) } };
-    }
-    case "finders": {
-      const output2 = receipt.output;
-      const angle = unit.key;
-      const candidates = recordCandidates2("finders", unit.key, output2.candidates.map((candidate) => ({ ...candidate, angle })), state, worktree);
-      return { kind: "candidates.recorded", version: 2, payload: { phase: "finders", key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
-    }
-    case "sweep": {
-      const output2 = receipt.output;
-      const candidates = recordCandidates2("sweep", unit.key, output2.candidates, state, worktree);
-      return { kind: "candidates.recorded", version: 2, payload: { phase: "sweep", key: unit.key, workerId: receipt.workerId, candidates, leads: null, change: null } };
-    }
-    case "deduplication":
-    case "sweep-deduplication": {
-      const output2 = receipt.output;
-      const pool = poolCandidates(review2, unit.phase);
-      checkDeduplication(output2, pool.length);
-      const groups = output2.groups.map((group) => ({ members: group.members.map((member) => pool[member].id), keep: pool[group.keep].id, reason: group.reason }));
-      return { kind: "deduplication.recorded", version: 1, payload: { phase: unit.phase, workerId: receipt.workerId, groups } };
-    }
-    case "verification":
-    case "sweep-verification": {
-      const output2 = receipt.output;
-      const group = groupCandidates(review2, unit.phase, unit.key);
-      checkVerdicts(output2, group.length);
-      const verdicts2 = output2.verdicts.map((verdict) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence }));
-      return { kind: "verdicts.recorded", version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts2 } };
-    }
-    case "merge-rank": {
-      const output2 = receipt.output;
-      const input2 = mergeRankInput(review2);
-      checkMergeRank(output2, input2.length);
-      return { kind: "ranking.recorded", version: 1, payload: { workerId: receipt.workerId, findings: orderedRanking(review2, output2, input2) } };
-    }
-    case "decision": {
-      const output2 = receipt.output;
-      const findings = rankedFindings(review2);
-      checkDecisions(output2, findings.length);
-      return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
-    }
-    case "fixes":
-    case "repair":
-    case "answer":
-      throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
-    case "baseline-checks":
-    case "checks":
-    case "repair-checks":
-    case "answer-checks":
-    case "report":
-      throw new Error(`The ${unit.phase} phase has no worker`);
-  }
-}
-var init_phases = __esm({
-  "src/review/phases.ts"() {
-    "use strict";
-    init_events();
-    init_answer_state();
-    init_fix_state();
-    init_review_fold();
-    init_survey_state();
-    init_claim_events();
-    init_errors6();
-    init_fix_events();
-    init_labels();
-    init_locations();
-    init_policy();
-    init_prompts();
-    init_snapshot();
-    init_schemas3();
-    init_discover();
-    init_survey();
-    init_state();
-    init_steps();
-    init_tasks();
-    init_vocabulary();
   }
 });
 
@@ -35958,7 +35953,7 @@ function briefJson(brief, local) {
     title: brief.title,
     headline: { ...brief.headline },
     changeState: change.state,
-    change: change.state !== "given" ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, cut: change.cut },
+    change: change.state !== "given" ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] } },
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,
@@ -36008,7 +36003,7 @@ var init_brief_json = __esm({
       headline: external_exports.strictObject({ text: text2, questions: external_exports.number().int().min(0), departures: external_exports.number().int().min(0) }),
       /** Whether the triage gave the core of the change, gave none, or recorded none, as an engine before the account did. */
       changeState: external_exports.enum(["given", "none", "unrecorded"]),
-      change: external_exports.strictObject({ what: text2, why: text2.nullable(), whyFrom: external_exports.array(text2), restsOn: external_exports.array(text2), publicInterface: condition, wideEffect: condition, cut: external_exports.boolean() }).nullable(),
+      change: external_exports.strictObject({ what: text2, why: text2.nullable(), whyFrom: external_exports.array(text2), restsOn: external_exports.array(text2), publicInterface: condition, wideEffect: condition }).nullable(),
       questions: external_exports.array(external_exports.strictObject({
         id: text2,
         question: text2,

@@ -58,7 +58,12 @@ probe or a trace. A preference is not one.
 - When you have that fact and the departure is reversible and inside
   the change, depart: decide `fix`, name the rule in `departure`, and
   make the fix amend what states the rule (the comment, the test, the
-  document) so it no longer says what you departed from.
+  document) so it no longer says what you departed from. Write the rule
+  and your reason in `departure` as you write a question: for a person
+  who did not read the change, in plain words, with no file, line,
+  requirement number or internal name of the code; `source` says where
+  the rule is written. The reason says why the rule does not reach this
+  case, and what the fix does instead.
 - When the rule is public or hard to take back, follow it, and ask
   whether it should change, the rule as the default.
 - When you cannot carry the burden, follow the rule.
