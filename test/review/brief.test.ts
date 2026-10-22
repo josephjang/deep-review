@@ -239,6 +239,13 @@ describe('cutAtWord', () => {
     assert.equal(cutAtWord('x'.repeat(20), 10), `${'x'.repeat(7)}...`, 'a word longer than the room is cut where the limit falls');
     assert.equal(cutAtWord('abc', 3), 'abc');
   });
+
+  it('never splits a character of two UTF-16 units where the limit falls', () => {
+    const cut = cutAtWord(`Fix ${'x'.repeat(72)}😀😀😀😀`, 80);
+    assert.ok(cut.isWellFormed(), JSON.stringify(cut));
+    assert.equal(cut, `Fix ${'x'.repeat(72)}...`);
+    assert.equal(cutAtWord(`Fix ${'x'.repeat(71)}😀😀😀😀`, 80), `Fix ${'x'.repeat(71)}😀...`, 'a whole character before the limit stays');
+  });
 });
 
 

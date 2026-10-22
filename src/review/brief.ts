@@ -179,11 +179,13 @@ export interface Brief {
 /**
  * `text` cut at a word to at most `max` characters, three periods
  * included, or as it is when it fits. A text with no space early enough
- * is cut where the limit falls.
+ * is cut where the limit falls, short of a character the limit would
+ * split in two, so the result stays well formed.
  */
 export function cutAtWord(text: string, max: number): string {
   if (text.length <= max) return text;
-  const room = text.slice(0, max - 3);
+  // The limit counts UTF-16 units, as every limit here does; a cut after a high surrogate drops it rather than leave half a character.
+  const room = text.slice(0, max - 3).replace(/[\uD800-\uDBFF]$/, '');
   const space = room.lastIndexOf(' ');
   const kept = (space > max / 2 ? room.slice(0, space) : room).replace(/[\s,;:.]+$/, '');
   return `${kept}...`;
