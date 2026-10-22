@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ChangeReading } from '../../src/checkpoint/events.ts';
+import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefFates, briefLimits, briefMarkdown, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { briefFates, briefLimits, briefMarkdown, briefOf, briefShortForm, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
@@ -72,13 +72,21 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('says an older run has no core, and titles it from its scope', () => {
       const brief = briefOf(answerable());
       assert.deepEqual(brief.change, { state: 'unrecorded' });
-      assert.equal(brief.title, `The change from ${'1'.repeat(8)} to ${'2'.repeat(8)}`);
+      assert.equal(brief.title, `The uncommitted change on ${'2'.repeat(8)}`);
       assert.deepEqual(briefOf(withAccount(answerable(), { kind: 'none' })).change, { state: 'none' });
     });
 
-    it('titles a change of the working tree as the uncommitted change on its head', () => {
+    it('titles the change by the mode of its scope: the working tree, one commit, or commits with the working tree', () => {
       const state = answerable();
-      assert.equal(briefOf({ ...state, scope: { ...state.scope!, base: state.scope!.head } }).title, `The uncommitted change on ${state.scope!.head.slice(0, 8)}`);
+      const titled = (mode: ScopeMode, base = state.scope!.base): string => briefOf({ ...state, scope: { ...state.scope!, mode, base } }).title;
+      assert.equal(titled('worktree', state.scope!.head), `The uncommitted change on ${'2'.repeat(8)}`);
+      assert.equal(titled('last-commit'), `The commit ${'2'.repeat(8)}`);
+      // A root commit's base is the empty tree, which the title never names as a commit.
+      const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+      assert.equal(titled('last-commit', emptyTree), `The commit ${'2'.repeat(8)}`);
+      for (const mode of ['ref', 'range'] as const) assert.equal(titled(mode), `The change from ${'1'.repeat(8)} to ${'2'.repeat(8)}, with the working tree`, mode);
+      assert.equal(titled('ref', state.scope!.head), `The change from ${'2'.repeat(8)} to ${'2'.repeat(8)}, with the working tree`, 'a ref at HEAD is still a ref scope');
+      assert.deepEqual((['worktree', 'last-commit', 'ref', 'range'] as const).map((mode) => changeShapeOf({ mode })), ['working-tree', 'commit', 'commits-and-tree', 'commits-and-tree']);
     });
   });
 

@@ -193,13 +193,14 @@ const fieldNote =
 /**
  * The commit messages of the change as the triage's task gets them (R6 of
  * the brief of a run): those git gave from the base to the head, which
- * can be none, as for a ref the head descends from; none for a change of
- * the working tree alone, whose base is its head; or why git could not
- * give them, which costs the triage the words of the commits and never
- * the run.
+ * can be none, as for a ref the head descends from, with whether the
+ * change also holds what the working tree holds uncommitted, as a ref or
+ * range scope does; none for a change of the working tree alone, whose
+ * base is its head; or why git could not give them, which costs the
+ * triage the words of the commits and never the run.
  */
 export type ChangeMessages =
-  | { readonly kind: 'read'; readonly messages: readonly CommitMessage[] }
+  | { readonly kind: 'read'; readonly messages: readonly CommitMessage[]; readonly withTree: boolean }
   | { readonly kind: 'working-tree' }
   | { readonly kind: 'unreadable'; readonly reason: string };
 
@@ -235,8 +236,10 @@ function withinBytes(items: readonly string[], limit: number): string[] {
  * TD3 of the brief of a run): the subject of each commit, oldest first,
  * that fits within `commitSubjectsLimitBytes`; then each whole message,
  * oldest first, that fits while the two lists together stay within
- * `commitMessagesLimitBytes`; and how many of each the limits left out.
- * A subject ends at the first line break, CRLF or LF. Each list is
+ * `commitMessagesLimitBytes`; how many of each the limits left out; and,
+ * for a change that also holds the working tree, that no commit message
+ * covers its uncommitted part. A subject ends at the first line break,
+ * CRLF or LF. Each list is
  * fenced, so a line of a message cannot open a section of the prompt.
  */
 export function commitMessagesSection(words: ChangeMessages): string[] {
@@ -245,7 +248,8 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
   }
   if (words.kind === 'working-tree') return ['The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits.'];
   const { messages } = words;
-  if (messages.length === 0) return ['The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.'];
+  const tree = words.withTree ? ['', 'The change may also hold uncommitted changes of the working tree, which no commit message covers.'] : [];
+  if (messages.length === 0) return ['The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.', ...tree];
   const shown = (commit: string): string => commit.slice(0, shownCommitLength);
   const subjects = withinBytes(messages.map(({ commit, message }) => `${shown(commit)} ${message.split(/\r?\n/, 1)[0] ?? ''}`), commitSubjectsLimitBytes);
   const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
@@ -265,6 +269,7 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
     '',
     ...(wholes.length === 0 ? ['(none fit within the limit)'] : fenced(wholes.join('\n').trimEnd())),
     ...(leftSubjects === 0 && leftWholes === 0 ? [] : ['', `${String(leftSubjects)} subject${leftSubjects === 1 ? '' : 's'} and ${String(leftWholes)} whole message${leftWholes === 1 ? '' : 's'} are left out at the limits.`]),
+    ...tree,
   ];
 }
 

@@ -301,12 +301,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.ok(existsSync(reportPath), reportPath);
     // The short form of the brief comes first, at most seven lines, and the last line is the path of the copy beside the ledger (R13, R14 of the brief of a run).
     assert.equal(lines.length, 8, result.stdout);
-    assert.match(lines[0]!, /^The change from [0-9a-f]{8} to [0-9a-f]{8} \(run [0-9a-f]{8}\)$/);
+    assert.match(lines[0]!, /^The commit [0-9a-f]{8} \(run [0-9a-f]{8}\)$/);
     assert.deepEqual(lines.slice(1, 7).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);
     assert.match(reportPath, /[\\/]deep-review-checkpoint[\\/]reports[\\/]\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\.md$/);
     // The report starts with the brief, titled from the scope when the triage gave no account, and ends with the facts of the run (R12 of the brief of a run).
     const report = readFileSync(reportPath, 'utf8');
-    assert.match(report, /^# The change from [0-9a-f]{8} to [0-9a-f]{8}\n/);
+    assert.match(report, /^# The commit [0-9a-f]{8}\n/);
     assert.match(report, /\n## The run\n\nRepository: /);
     assert.match(result.stderr, /run [0-9a-f-]+: created\n/);
     assert.match(result.stderr, /phase triage: started \(attempt 1\)/);

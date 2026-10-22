@@ -231,6 +231,20 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(state.review!.change, { kind: 'none' });
   });
 
+  it('tells the triage of a ref scope that the working tree may hold changes no commit message covers, and titles it with the working tree (R6 of the brief of a run)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    write(box.repo, 'src/b.ts', 'export const b = 2;\n');
+    commitAll(box.repo, 'feat: Add b');
+    write(box.repo, 'src/b.ts', 'export const b = 3;\n');
+    const report = reportText(await box.review('claude', { scope: scopeSource(() => ({ ref: 'HEAD~1', paths: ['src'] })) }));
+    const state = box.run();
+    assert.equal(state.scope!.mode, 'ref');
+    const triage = box.promptOf(state, 'triage triage:SCAN');
+    assert.match(triage, /^The subjects of the 1 commit of the change, oldest first:$/m);
+    assert.match(triage, /^The change may also hold uncommitted changes of the working tree, which no commit message covers\.$/m);
+    assert.match(report, /^# The change from [0-9a-f]{8} to [0-9a-f]{8}, with the working tree\n/);
+  });
+
   it('reviews on the fake Codex, with no budget and no cost, and the report says the budget did not apply', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({});

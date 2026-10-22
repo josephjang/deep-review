@@ -48,7 +48,7 @@ const leads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESI
 
 describe('taskFor', () => {
   it('writes each phase its task from the fold', () => {
-    assert.match(taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [] } }), /Run the `SCAN` angle/);
+    assert.match(taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [], withTree: false } }), /Run the `SCAN` angle/);
     assert.match(taskFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), triaged().review()), /^Angle: RIPPLE\nSCAN lead: the callers of parse\(\)/);
     assert.match(taskFor(unit('finders', 'DESIGN', 'finder-DESIGN'), triaged().review()), /^Angle: DESIGN\nLead: none/);
     assert.match(taskFor(unit('deduplication', 'deduplication', 'deduplication'), found().review()), /2 candidates, numbered \[0\] to \[1\]\.[\s\S]*\[0\] SCAN-1[\s\S]*\[1\] RIPPLE-1/);
@@ -103,7 +103,7 @@ describe('the answer pass\'s task (R5, R7 of answers)', () => {
   });
 
   it('lists the commit messages it is given in the triage\'s task, and refuses a triage without them (R6 of the brief of a run)', () => {
-    const task = taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input\n\nAn empty file is valid.' }] } });
+    const task = taskFor(unit('triage', 'SCAN', 'triage'), configured().review(), { commitMessages: { kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input\n\nAn empty file is valid.' }], withTree: false } });
     assert.match(task, /^c{12} feat: Parse the input$/m);
     assert.match(task, /^An empty file is valid\.$/m);
     assert.throws(() => taskFor(unit('triage', 'SCAN', 'triage'), configured().review()), /The triage's task lists the commit messages of the change and needs them/);
@@ -123,7 +123,7 @@ describe('invocationFor', () => {
     configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: role === 'finder-RIPPLE' ? 'sonnet' : 'opus', effort: 'high' as const, budgetUsd: role === 'triage' ? null : 8, timeoutMs: 600_000 })) },
     scopeBlock: () => '## Scope\n\nRepository: /w',
     survey: () => noSurveyInputs,
-    commitMessages: () => ({ kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input' }] }),
+    commitMessages: () => ({ kind: 'read', messages: [{ commit: 'c'.repeat(40), message: 'feat: Parse the input' }], withTree: false }),
     evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
@@ -151,7 +151,7 @@ describe('invocationFor', () => {
     assert.equal('budgetUsd' in invocation, false);
     assert.match(invocation.prompt, /^c{12} feat: Parse the input$/m, 'the triage\'s task lists the commit messages its context reads');
     let read = 0;
-    invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), commitMessages: () => { read += 1; return { kind: 'read', messages: [] }; } });
+    invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), commitMessages: () => { read += 1; return { kind: 'read', messages: [], withTree: false }; } });
     assert.equal(read, 0, 'no other unit reads them');
     assert.throws(() => invocationFor(unit('finders', 'RIPPLE', 'finder-RIPPLE'), { ...context(), roles: new Map() }), /No assembled prompt for role finder-RIPPLE/);
   });

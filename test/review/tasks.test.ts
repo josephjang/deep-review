@@ -149,7 +149,7 @@ describe('the survey task', () => {
 
 describe('the task texts', () => {
   it('tell the triage to run SCAN and return one lead per other angle, never a skip', () => {
-    const task = triageTask({ kind: 'read', messages: [] });
+    const task = triageTask({ kind: 'read', messages: [], withTree: false });
     assert.match(task, /Run the `SCAN` angle/);
     assert.match(task, new RegExp(finderAngles.join(', ')));
     assert.match(task, /or null when the diff supports none/);
@@ -159,10 +159,10 @@ describe('the task texts', () => {
 
   describe('the triage\'s account of the change (R3, R4, R6 of the brief of a run)', () => {
     const commit = (n: number): string => `${String(n).padStart(3, '0')}${'a'.repeat(37)}`;
-    const read = (messages: readonly CommitMessage[]): ChangeMessages => ({ kind: 'read', messages });
+    const read = (messages: readonly CommitMessage[]): ChangeMessages => ({ kind: 'read', messages, withTree: false });
 
     it('asks for the account after the leads, for a person and the later workers, with the reason only from the change\'s own words', () => {
-      const task = triageTask({ kind: 'read', messages: [] });
+      const task = triageTask({ kind: 'read', messages: [], withTree: false });
       assert.ok(task.indexOf('return one lead') < task.indexOf('Then describe the change in `change`'), 'the account comes after the leads');
       assert.match(task, /for a person who did not read it and for the workers that review it after you/);
       for (const field of ['title', 'what', 'why', 'whyFrom', 'restsOn', 'publicInterface', 'wideEffect']) assert.match(task, new RegExp(`^- \`${field}\`: `, 'm'), field);
@@ -172,7 +172,7 @@ describe('the task texts', () => {
     });
 
     it('asks for the title and the reason within the lengths the brief cuts them at', () => {
-      const task = triageTask({ kind: 'read', messages: [] });
+      const task = triageTask({ kind: 'read', messages: [], withTree: false });
       assert.ok(task.includes(`- \`title\`: what the change is, in at most ${String(briefLimits.title)} characters.`), 'the title');
       assert.ok(task.includes(`Keep \`why\` within ${String(briefLimits.why)} characters.`), 'the reason');
     });
@@ -187,9 +187,18 @@ describe('the task texts', () => {
     });
 
     it('says a change whose base is not its head, and with no commit from one to the other, has none, and not that it is of the working tree', () => {
-      const task = triageTask({ kind: 'read', messages: [] });
+      const task = triageTask({ kind: 'read', messages: [], withTree: false });
       assert.match(task, /^### The change's own words\n\nThe change has no commits from its base to its head\. It states a reason only in the documents it adds or edits\.$/m);
       assert.doesNotMatch(task, /change of the working tree/);
+    });
+
+    it('says of a ref or range scope that the working tree may hold changes no commit message covers, with commits or none', () => {
+      const tree = 'The change may also hold uncommitted changes of the working tree, which no commit message covers.';
+      const none = commitMessagesSection({ kind: 'read', messages: [], withTree: true });
+      assert.deepEqual(none, ['The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.', '', tree]);
+      const some = commitMessagesSection({ kind: 'read', messages: [{ commit: commit(1), message: 'fix: Guard the empty input' }], withTree: true });
+      assert.equal(some.at(-1), tree, 'after the messages');
+      assert.ok(!commitMessagesSection(read([{ commit: commit(1), message: 'fix: Guard the empty input' }])).includes(tree), 'a commit alone holds no working tree');
     });
 
     it('lists the subjects first and then the whole messages, each oldest first, fenced, with no line about limits when nothing is left out', () => {

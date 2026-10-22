@@ -10,7 +10,7 @@
  * each render this one value.
  */
 import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
-import type { ChangeCondition, RecordedDecision } from '../checkpoint/events.ts';
+import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState } from '../checkpoint/events.ts';
 import { allBatches, budgetStoppedUnits, committedRevisions, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
@@ -197,11 +197,34 @@ export function cutAtWord(text: string, max: number): string {
 /** A count and the noun it counts, singular for one. */
 export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
 
-/** The title of a run whose triage gave no account: the change from its base to its head, or the uncommitted change on its head. */
+/**
+ * What a change is made of, which the mode of its scope settles: the
+ * working tree alone (`worktree`, whose base is HEAD); one commit
+ * (`last-commit`, its head against its parent, or the empty tree for a
+ * root commit); or the commits from its base to HEAD with whatever the
+ * working tree holds uncommitted (`ref` and `range`, which diff the base
+ * against the working tree).
+ */
+export type ChangeShape = 'working-tree' | 'commit' | 'commits-and-tree';
+
+const shapeOfMode: Record<ScopeMode, ChangeShape> = { worktree: 'working-tree', 'last-commit': 'commit', ref: 'commits-and-tree', range: 'commits-and-tree' };
+
+/** The shape of a scope's change, from its mode alone. */
+export const changeShapeOf = (scope: Pick<ScopeState, 'mode'>): ChangeShape => shapeOfMode[scope.mode];
+
+/** The title of a run whose triage gave no account, by the shape of its change: the uncommitted change on its head, the commit, or the change from its base to its head with the working tree. */
 function scopeTitle(state: RunState): string {
   const scope = state.scope!;
   const short = (commit: string): string => commit.slice(0, 8);
-  return scope.base === scope.head ? `The uncommitted change on ${short(scope.head)}` : `The change from ${short(scope.base)} to ${short(scope.head)}`;
+  switch (changeShapeOf(scope)) {
+    case 'working-tree':
+      return `The uncommitted change on ${short(scope.head)}`;
+    case 'commit':
+      // A root commit's base is the empty tree, which is no commit to name.
+      return `The commit ${short(scope.head)}`;
+    case 'commits-and-tree':
+      return `The change from ${short(scope.base)} to ${short(scope.head)}, with the working tree`;
+  }
 }
 
 

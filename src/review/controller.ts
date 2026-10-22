@@ -63,7 +63,7 @@ import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
-import { briefOf, briefShortForm } from './brief.ts';
+import { briefOf, briefShortForm, changeShapeOf } from './brief.ts';
 import { renderReport } from './report.ts';
 import { refreshReportCopy, reportCopyPath, writeReportCopy } from './report-copy.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
@@ -587,9 +587,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      */
     const changeMessages = once((): ChangeMessages => {
       try {
-        // A change of the working tree alone has no commits to read; any other names the commits from its base to its head, which may be none.
-        if (scope.base === scope.head) return { kind: 'working-tree' };
-        return { kind: 'read', messages: commitMessages(options.worktree, scope.base, scope.head) };
+        // A change of the working tree alone has no commits to read; any other names the commits from its base to its head, which may be none, and a ref or range scope also holds the working tree.
+        const shape = changeShapeOf(scope);
+        if (shape === 'working-tree') return { kind: 'working-tree' };
+        return { kind: 'read', messages: commitMessages(options.worktree, scope.base, scope.head), withTree: shape === 'commits-and-tree' };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         log(`run ${runId}: could not read the commit messages of the change, so the triage reads none: ${reason}`);

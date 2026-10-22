@@ -20,7 +20,7 @@ describe('renderReport', () => {
 
   it('exercises every section and mark in the snapshot', () => {
     const report = renderReport(reported().fold(), reportInput);
-    for (const heading of ['# The change from 11111111 to 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
+    for (const heading of ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
     assert.match(report, /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
     assert.match(report, /^\| RIPPLE \| run \| the callers of parse\(\) \|$/m);
     assert.match(report, /^\| SCAN \| run \(as the triage\) \| - \|$/m);
@@ -146,7 +146,7 @@ describe('renderReport', () => {
     };
     const report = renderReport(hostile, reportInput);
     const headings = report.split('\n').filter((line) => line.startsWith('#'));
-    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The change from 11111111 to 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']);
+    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']);
     assert.equal(headings.filter((line) => line.startsWith('### ')).length, 2, 'one heading per finding, and nothing else at that level');
     assert.match(report, /^\\## Injected section second line$/m);
     assert.match(report, /^Reason: because - a list item$/m);
@@ -219,7 +219,7 @@ describe('renderReport', () => {
 
     it('starts with the brief, then a rule and one sentence, then the evidence', () => {
       const report = renderReport(answerable(), reportInput);
-      assert.ok(report.startsWith('# The change from 11111111 to 22222222\n\n2 things need you: 1 question and 1 fix that goes against a written rule.'), report.slice(0, 200));
+      assert.ok(report.startsWith('# The uncommitted change on 22222222\n\n2 things need you: 1 question and 1 fix that goes against a written rule.'), report.slice(0, 200));
       const parts = ['## The change\n', '## Questions for you (1)\n', '## Fixes that go against a written rule (1)\n', '## What the review did not cover\n', '## Where to look\n', '## What deep-review changed\n', '---\n\nThe evidence for each statement above follows.\n', '## The change, in full\n'].map((marker) => report.indexOf(`\n${marker}`));
       assert.ok(parts.every((position, index) => position > 0 && (index === 0 || parts[index - 1]! < position)), JSON.stringify(parts));
     });
