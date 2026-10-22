@@ -503,7 +503,9 @@ Three text commits, each recording the roles' hashes in Verification:
    gives that finish quickly, such as a typecheck and a lint, on what
    the finding touched, and correct within the finding what they show,
    since each snapshot becomes a commit the repository must accept on
-   its own; the full suite stays at the end; and a failure in a file
+   its own; at the end of the batch, the tests that cover what it
+   changed, the whole suite being the engine's once the fix workers are
+   done (amended 2026-10-22, R7); and a failure in a file
    you do not hold is a sibling's work in flight, not yours, to leave
    and read past, with the lint scoped to the files you changed where
    the tool allows (R7, F6). The same paragraph says

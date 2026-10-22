@@ -293,8 +293,14 @@ two clusters in either run (review of 2026-10-09, F11).
   where the tool allows, since the typecheck reads the whole tree
   (added 2026-10-09, review F6, from run `71ae22a2`, where `c8-1` had
   to filter `c2`'s half-made `fix-report.ts` out of its typecheck
-  output by its own judgment). The full suite stays at the end of the
-  batch. Which of the checks are quick is the fixer's judgment; the
+  output by its own judgment). At the end of the batch the fixer runs
+  the tests that cover what it changed, and leaves the whole suite to
+  the engine, which runs every check once the fix workers are done
+  (amended 2026-10-22: the sentence "the full suite stays at the end
+  of the batch" read as an order to run the whole suite, and in the
+  gate of the brief of a run four fixers ran it at once in one tree,
+  15 to 19 minutes each, with false failures under the load; three
+  batches timed out twice). Which of the checks are quick is the fixer's judgment; the
   engine runs no check per snapshot. A generator's output is not the fixer's fix: when
   a build, an install or a test it ran rewrote generated files, the
   fixer restores them to their launch state before the snapshot, and
