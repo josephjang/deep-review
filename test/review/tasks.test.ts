@@ -237,6 +237,34 @@ describe('the task texts', () => {
       assert.ok(lines.includes('(none fit within the limit)'));
       assert.equal(lines.at(-1), '0 subjects and 1 whole message are left out at the limits.');
     });
+
+    it('leaves out a message too long to fit and still lists the later ones that fit', () => {
+      const lines = commitMessagesSection(read([
+        { commit: commit(1), message: `feat: One\n\n${'z'.repeat(40 * 1024)}` },
+        { commit: commit(2), message: 'fix: Two\n\nShort.' },
+      ]));
+      assert.ok(!lines.includes('(none fit within the limit)'), 'a later message fits');
+      const wholes = lines.slice(lines.indexOf('The whole messages, oldest first:')).join('\n');
+      assert.ok(wholes.includes(`commit ${commit(2).slice(0, 12)}\nfix: Two\n\nShort.`), 'the later short message is listed');
+      assert.ok(!wholes.includes(`commit ${commit(1).slice(0, 12)}`), 'the long one is not');
+      assert.equal(lines.at(-1), '0 subjects and 1 whole message are left out at the limits.');
+    });
+
+    it('leaves out a subject too long to fit and still lists the later subjects', () => {
+      const lines = commitMessagesSection(read([
+        { commit: commit(1), message: `feat: ${'s'.repeat(commitSubjectsLimitBytes)}` },
+        { commit: commit(2), message: 'fix: Two' },
+      ]));
+      assert.ok(lines.includes(`${commit(2).slice(0, 12)} fix: Two`), 'the later subject is listed');
+      assert.ok(!lines.some((line) => line.startsWith(`${commit(1).slice(0, 12)} `)), 'the long one is not');
+      assert.equal(lines.at(-1), '1 subject and 0 whole messages are left out at the limits.', 'the whole message still fits in 32 KiB');
+    });
+
+    it('ends a subject at a CRLF line break, with no carriage return in it', () => {
+      const lines = commitMessagesSection(read([{ commit: commit(1), message: 'fix: Guard the input\r\n\r\nThe body.' }]));
+      assert.ok(lines.includes(`${commit(1).slice(0, 12)} fix: Guard the input`), 'the subject without its CR');
+      assert.ok(lines.every((line) => !line.startsWith(commit(1).slice(0, 12)) || !line.includes('\r')));
+    });
   });
 
   it('give a finder its angle and its lead, or Lead: none', () => {

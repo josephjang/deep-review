@@ -212,13 +212,18 @@ const shownCommitLength = 12;
 
 const utf8Bytes = (text: string): number => Buffer.byteLength(text, 'utf8');
 
-/** The lines of `items`, oldest first, while their bytes, with a line break after each, stay within `limit`. */
+/**
+ * The lines of `items`, oldest first, that fit with their bytes, with a
+ * line break after each, within `limit`: one that does not fit is left
+ * out and the later ones are still tried, so one long line cannot cost
+ * the shorter lines after it.
+ */
 function withinBytes(items: readonly string[], limit: number): string[] {
   const kept: string[] = [];
   let used = 0;
   for (const item of items) {
     const bytes = utf8Bytes(item) + 1;
-    if (used + bytes > limit) break;
+    if (used + bytes > limit) continue;
     kept.push(item);
     used += bytes;
   }
@@ -228,10 +233,11 @@ function withinBytes(items: readonly string[], limit: number): string[] {
 /**
  * The commit messages of the change as the triage's task lists them (R6,
  * TD3 of the brief of a run): the subject of each commit, oldest first,
- * up to `commitSubjectsLimitBytes`; then each whole message, oldest first,
- * while the two lists together stay within `commitMessagesLimitBytes`;
- * and how many of each the limits left out. Each list is fenced, so a
- * line of a message cannot open a section of the prompt.
+ * that fits within `commitSubjectsLimitBytes`; then each whole message,
+ * oldest first, that fits while the two lists together stay within
+ * `commitMessagesLimitBytes`; and how many of each the limits left out.
+ * A subject ends at the first line break, CRLF or LF. Each list is
+ * fenced, so a line of a message cannot open a section of the prompt.
  */
 export function commitMessagesSection(words: ChangeMessages): string[] {
   if (words.kind === 'unreadable') {
@@ -241,7 +247,7 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
   const { messages } = words;
   if (messages.length === 0) return ['The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.'];
   const shown = (commit: string): string => commit.slice(0, shownCommitLength);
-  const subjects = withinBytes(messages.map(({ commit, message }) => `${shown(commit)} ${message.split('\n', 1)[0] ?? ''}`), commitSubjectsLimitBytes);
+  const subjects = withinBytes(messages.map(({ commit, message }) => `${shown(commit)} ${message.split(/\r?\n/, 1)[0] ?? ''}`), commitSubjectsLimitBytes);
   const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
   const wholes = withinBytes(messages.map(({ commit, message }) => `commit ${shown(commit)}\n${message}\n`), commitMessagesLimitBytes - used);
   const fenced = (text: string): string[] => {
