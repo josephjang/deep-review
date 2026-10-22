@@ -264,6 +264,19 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     for (const line of lines) assert.ok(line.length <= shortLineLimit, line);
   });
 
+  it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {
+    const changeLine = (what: string): string => briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    assert.equal(changeLine('Adds a flag, e.g. --json, to report. More.'), 'The change: Adds a flag, e.g. --json, to report.');
+    assert.equal(changeLine('Reads i.e. parses the input, vs. the old cf. path. More.'), 'The change: Reads i.e. parses the input, vs. the old cf. path.');
+    assert.equal(changeLine('Keeps the paths, the names, etc. in the report. More.'), 'The change: Keeps the paths, the names, etc. in the report.');
+    assert.equal(changeLine('Keeps the paths, the names, etc. More.'), 'The change: Keeps the paths, the names, etc.', 'etc. ends a sentence before an upper-case word');
+    assert.equal(changeLine('Closes issue No. 5 of the parser. More.'), 'The change: Closes issue No. 5 of the parser.');
+    assert.equal(changeLine('Says No. More follows.'), 'The change: Says No.', 'No. ends a sentence before a word');
+    assert.equal(changeLine('Reads the input\u2028and parses it. More.'), 'The change: Reads the input and parses it.');
+    assert.equal(changeLine('Reads the input \u2029 and parses it'), 'The change: Reads the input and parses it');
+    assert.equal(changeLine('Is it new? Yes.'), 'The change: Is it new?');
+  });
+
   it('shows at most 8 ids of a list and counts the rest, and keeps its lines however many findings the run has', () => {
     const brief = briefOf(answerable());
     const question = brief.questions[0]!;

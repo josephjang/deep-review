@@ -653,8 +653,25 @@ export function briefMarkdown(brief: Brief): string[] {
 /** The most characters of a line of the short form; the path that ends it has no limit, since a path cannot be cut (R13 of the brief of a run). */
 export const shortLineLimit = 200;
 
-/** The first sentence of a text, or the whole text when it has no sentence end. */
-const firstSentence = (text: string): string => /^.*?[.!?](?=\s|$)/.exec(inlineText(text))?.[0] ?? inlineText(text);
+/**
+ * Whether the period that ends `before` ends an abbreviation, not a
+ * sentence, given the text `after` it: `e.g.`, `i.e.`, `vs.` and `cf.`
+ * always do, `etc.` before a lower-case word, and `No.` before a digit.
+ */
+const endsAbbreviation = (before: string, after: string): boolean =>
+  /(?:^|[^\p{L}\p{N}])(?:e\.g|i\.e|vs|cf)\.$/iu.test(before)
+  || (/(?:^|[^\p{L}\p{N}])etc\.$/iu.test(before) && /^\s+\p{Ll}/u.test(after))
+  || (/(?:^|[^\p{L}\p{N}])No\.$/u.test(before) && /^\s+\p{N}/u.test(after));
+
+/** The first sentence of a text, or the whole text when it has no sentence end; a line or paragraph separator counts as a space, as a line break does. */
+function firstSentence(text: string): string {
+  const inline = inlineText(text).replaceAll(/[ \t]*[\u2028\u2029]+[ \t]*/g, ' ');
+  for (const end of inline.matchAll(/[.!?](?=\s|$)/g)) {
+    const stop = end.index + 1;
+    if (end[0] !== '.' || !endsAbbreviation(inline.slice(0, stop), inline.slice(stop))) return inline.slice(0, stop);
+  }
+  return inline;
+}
 
 /** A condition of principle 8 in a few words, for the short form. */
 const lookWords = (entry: BriefLook): string => {
