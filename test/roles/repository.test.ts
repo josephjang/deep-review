@@ -240,6 +240,11 @@ describe('the repository\'s roles/', () => {
     assert.ok(decider.includes('Write the question, each option and each cost for a person who did not read the change: plain words, and no file, line, requirement number or internal name of the code. A command, a flag or a setting that a user types is fine. Put the rest in where you looked and in your grounds, one step below the question.'));
   });
 
+  it('has the decider write a departure\'s rule and reason as it writes a question, the reason saying what the fix does instead (R9 of the brief of a run)', () => {
+    const decider = roles.find((role) => role.key === 'decider')!.prompt.replace(/\s+/g, ' ');
+    assert.ok(decider.includes('Write the rule and your reason in `departure` as you write a question: for a person who did not read the change, in plain words, with no file, line, requirement number or internal name of the code; `source` says where the rule is written. The reason says why the rule does not reach this case, and what the fix does instead.'));
+  });
+
   it('gives the triage its account of the change as its third job, the reason from the change\'s own words alone (R3 of the brief of a run)', () => {
     const triage = roles.find((role) => role.key === 'triage')!.prompt.replace(/\s+/g, ' ');
     assert.ok(triage.includes('That worker has three jobs:'));
