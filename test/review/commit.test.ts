@@ -5,10 +5,12 @@ import { join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it, type TestContext } from 'node:test';
 import { UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import type { CommitsPrepared } from '../../src/checkpoint/events.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import { runHead } from '../../src/checkpoint/fix-state.ts';
 import { commitRun, currentBranch, moveFailure, settleOpenSeries } from '../../src/review/commit.ts';
 import { reportCopyPath } from '../../src/review/report-copy.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { acquireRunLock } from '../../src/review/lock.ts';
 import { freezeLimitBytes } from '../../src/scope/capture.ts';
 import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment, type Finished, node } from '../helpers/launcher.ts';
@@ -297,6 +299,52 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       assert.equal(fix.commits.length, 1);
       assert.equal(git(box.repo, 'rev-parse', 'HEAD'), outcome.commits.at(-1)!.sha);
       assert.equal(git(box.repo, 'status', '--porcelain'), '');
+    });
+
+    /** A refreshCopy that records the run it is given and whether the run's lock was still held then. */
+    const copyRecorder = (): { copied: { sequence: number; held: boolean }[]; refreshCopy: (run: RunState) => void } => {
+      const copied: { sequence: number; held: boolean }[] = [];
+      const refreshCopy = (run: RunState): void => {
+        let held = false;
+        try {
+          acquireRunLock(box.checkpoint.root, run.id)();
+        } catch (error) {
+          held = error instanceof ReviewRefusedError && error.code === 'lock-held';
+        }
+        copied.push({ sequence: run.lastSequence, held });
+      };
+      return { copied, refreshCopy };
+    };
+
+    it('writes the copy of the report again under the run\'s lock, from the run with its commits (R14 of the brief of a run)', () => {
+      const { copied, refreshCopy } = copyRecorder();
+      commitRun({ checkpoint: box.checkpoint, worktree: box.repo, refreshCopy });
+      assert.deepEqual(copied, [{ sequence: box.checkpoint.ledger.lastSequence(runId), held: true }], 'once, holding the commits, before the lock is released');
+    });
+
+    it('writes the copy again when the command stops after the series is prepared, and a failed copy only logs (R14, TD6 of the brief of a run)', () => {
+      const { copied, refreshCopy } = copyRecorder();
+      assert.throws(() => commitRun({
+        checkpoint: box.checkpoint,
+        worktree: box.repo,
+        refreshCopy,
+        beforeMove: () => {
+          throw new Error('stopped before update-ref');
+        },
+      }), /stopped before update-ref/);
+      assert.ok(box.run().review!.fix!.openSeries !== null);
+      assert.deepEqual(copied, [{ sequence: box.checkpoint.ledger.lastSequence(runId), held: true }], 'the copy sees the open series');
+      const logs: string[] = [];
+      const outcome = commitRun({
+        checkpoint: box.checkpoint,
+        worktree: box.repo,
+        log: (line) => logs.push(line),
+        refreshCopy: () => {
+          throw new Error('disk full');
+        },
+      });
+      assert.equal(outcome.commits.length, 2, 'a copy never fails the command');
+      assert.ok(logs.includes(`run ${runId}: could not write the copy of the report: disk full`), JSON.stringify(logs));
     });
 
     it('completes a series a stop cut short after the ref moved, at the next commit, which makes no commit of its own (R9 of resumable runs)', () => {

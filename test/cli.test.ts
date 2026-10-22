@@ -226,6 +226,19 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     await run(box, 'report');
     assert.ok(existsSync(lines.at(-1)!), 'report writes the copy again');
 
+    // While another engine holds the run's lock, report writes no copy and names the record, since that engine writes the copy (R14, TD6 of the brief of a run).
+    rmSync(lines.at(-1)!);
+    const release = acquireRunLock(locateCheckpoint(box.repo).root, secondId);
+    try {
+      const held = await run(box, 'report');
+      assert.equal(held.status, 0, held.stderr);
+      assert.match(held.stdout.trim().split('\n').at(-1)!, /[\\/]artifacts[\\/][0-9a-f]{64}$/, 'the record\'s path');
+      assert.match(held.stderr, new RegExp(`run ${secondId}: the copy of the report is not written again, since [^\\n]*is running run ${secondId}`));
+      assert.equal(existsSync(lines.at(-1)!), false, 'no copy is written under another engine\'s lock');
+    } finally {
+      release();
+    }
+
     // --run names an older run; --json gives version 1 of the JSON form, with the local facts.
     const named = await run(box, 'report', '--run', firstId, '--json');
     assert.equal(named.status, 0, named.stderr);

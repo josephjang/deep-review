@@ -44,6 +44,8 @@ export interface CommitOptions {
   readonly beforeMove?: () => void;
   /** Where a line for each run passed over is written; stderr when absent. */
   readonly log?: (line: string) => void;
+  /** Write the copy of the run's report again from the run as it is once the command ends, under the run's lock and however it ends (R14 of the brief of a run); none for a caller that keeps no copy. */
+  readonly refreshCopy?: (run: RunState) => void;
 }
 
 /** One commit the command made, as it prints it. */
@@ -391,7 +393,8 @@ const commitCount = (count: number): string => `${String(count)} commit${count =
  * settle completed and that has nothing left to commit gives that series
  * as what the command made. The staged paths the settle's index reset
  * unstaged are given with the outcome's, or logged when the command then
- * refuses.
+ * refuses. The copy of the run's report is written again before the
+ * run's lock is released, however the command ends (`refreshCopy`).
  */
 export function commitRun(options: CommitOptions): CommitOutcome {
   const { checkpoint, worktree } = options;
@@ -419,6 +422,13 @@ export function commitRun(options: CommitOptions): CommitOutcome {
         throw error;
       }
     } finally {
+      // The copy names the commits, or a series git left open, also when the command then fails; written under the run's lock, so no older fold writes over it (R14 of the brief of a run).
+      // A copy never fails the command, nor hides the refusal that ends it (TD6 of the brief of a run).
+      try {
+        options.refreshCopy?.(checkpoint.fold(chosen.id));
+      } catch (error) {
+        log(`run ${chosen.id}: could not write the copy of the report: ${error instanceof Error ? error.message : String(error)}`);
+      }
       release();
     }
   } finally {

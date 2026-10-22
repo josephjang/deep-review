@@ -41,7 +41,7 @@ import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from '
 import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { resolveExecutable } from './review/executable.ts';
-import { acquireRunLock, acquireStartLock } from './review/lock.ts';
+import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
 import { budgetStoppedRun, reviewStatus } from './review/state.ts';
@@ -400,11 +400,12 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
       log: (line) => io.stderr(`${line}\n`),
       ...(values.run === undefined ? {} : { runId: values.run }),
       ...(values['change-message'] === undefined ? {} : { changeMessage: values['change-message'] }),
+      // The copy of the report names the commits now, which the record of its moment does not (R14 of the brief of a run).
+      refreshCopy: (run) => {
+        refreshReportCopy(checkpoint, run, copyContextOf(io, run), (line) => io.stderr(`${line}\n`));
+      },
     });
     for (const made of outcome.commits) io.stdout(`${made.sha.slice(0, 12)} ${made.subject}\n`);
-    // The copy of the report names the commits now, which the record of its moment does not (R14 of the brief of a run).
-    const run = checkpoint.fold(outcome.runId);
-    refreshReportCopy(checkpoint, run, copyContextOf(io, run), (line) => io.stderr(`${line}\n`));
     io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? '' : 's'} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit\n`);
     if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(', ')}\n`);
     return 0;
@@ -823,12 +824,24 @@ function status(values: Values, io: CommandIo, root: string): number {
   }
 }
 
+/** The run's lock for writing its copy, or null, said in `log`, while another engine holds it. */
+function runLockForCopy(checkpointRoot: string, runId: string, log: (line: string) => void): ReleaseLock | null {
+  try {
+    return acquireRunLock(checkpointRoot, runId);
+  } catch (error) {
+    if (!(error instanceof ReviewRefusedError) || error.code !== 'lock-held') throw error;
+    log(`run ${runId}: the copy of the report is not written again, since ${error.message}`);
+    return null;
+  }
+}
+
 /**
  * `deep-review report` (R16, PD11 of the brief of a run): the brief of a
  * run, the one `--run` names or else the newest run of this worktree by
- * the time it started. It writes the copy of the report again, then prints
- * the short form and the path of the copy last, or with `--json` version 1
- * of the JSON form. A worktree with no run, and a run with no current
+ * the time it started. It writes the copy of the report again under the
+ * run's lock, or not while another engine holds it, then prints the short
+ * form and the path of the copy, or else of the record, last, or with
+ * `--json` version 1 of the JSON form. A worktree with no run, and a run with no current
  * report, are refused with exit 2, naming `status`: such a run is not done,
  * or works again in an answer pass, a continuation or a reopened fix pass.
  */
@@ -837,29 +850,37 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
   if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a report; deep-review status says so too');
   try {
     const log = (line: string): void => io.stderr(`${line}\n`);
-    const state = values.run !== undefined
+    const found = values.run !== undefined
       ? resolveRun(checkpoint, values.run, io)!
       : readableRuns(checkpoint, log).filter((run) => sameDirectory(run.worktree, worktree)).reduce<RunState | null>((newest, run) => (newest === null || run.createdAt > newest.createdAt ? run : newest), null);
-    if (state === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
-    const review = state.review;
-    if (review === null || review.report === null) {
-      throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
-    }
-    // One context for the copy and the JSON form, so the engine's own roles are read at most once.
-    const context = copyContextOf(io, state);
-    const copy = refreshReportCopy(checkpoint, state, context, log);
-    const record = checkpoint.evidence.pathOf(review.report.report);
-    const brief = briefOf(state);
-    if (values.json === true) {
-      // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
-      const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
-      const roles = (): string | null => (review.configuration.rolesDigest === context.ownRolesDigest() ? null : rolesPlaceholder);
-      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, roles(), spend) };
-      io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
+    if (found === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+    // Under the run's lock, as every other writer of the copy, so this fold cannot write over the copy of a command that appended since (R14 of the brief of a run).
+    // An engine that holds it writes the copy itself; this command then writes none and names the record, since a copy never fails a command (TD6).
+    const release = runLockForCopy(checkpoint.root, found.id, log);
+    try {
+      const state = checkpoint.fold(found.id);
+      const review = state.review;
+      if (review === null || review.report === null) {
+        throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
+      }
+      // One context for the copy and the JSON form, so the engine's own roles are read at most once.
+      const context = copyContextOf(io, state);
+      const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
+      const record = checkpoint.evidence.pathOf(review.report.report);
+      const brief = briefOf(state);
+      if (values.json === true) {
+        // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
+        const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
+        const roles = (): string | null => (review.configuration.rolesDigest === context.ownRolesDigest() ? null : rolesPlaceholder);
+        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, roles(), spend) };
+        io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
+        return 0;
+      }
+      io.stdout(`${[...briefShortForm(brief), copy ?? record].join('\n')}\n`);
       return 0;
+    } finally {
+      release?.();
     }
-    io.stdout(`${[...briefShortForm(brief), copy ?? record].join('\n')}\n`);
-    return 0;
   } finally {
     checkpoint.close();
   }
