@@ -403,15 +403,18 @@ const judgedWords = (condition: ChangeCondition): string => `${condition.what ==
 
 /**
  * The conditions of principle 8 that hold (R11 of the brief of a run),
- * each with its findings: the fixes that go against a written rule; the
- * fixes a fixer applied on a verdict that is only PLAUSIBLE, or in a run
- * that only reviewed, the findings decided as fixes on one; and the two
- * judgments of the triage, marked as its own.
+ * each with its findings: the fixes that go against a written rule and
+ * that no person has accepted or rejected yet; the fixes a fixer applied
+ * on a verdict that is only PLAUSIBLE, or in a run that only reviewed,
+ * the findings decided as fixes on one; and the two judgments of the
+ * triage, marked as its own.
  */
 function lookOf(context: BriefContext, departures: readonly BriefDeparture[]): BriefLook[] {
   const { review } = context;
   const look: BriefLook[] = [];
-  if (departures.length > 0) look.push({ condition: 'departure', findings: departures.map((departure) => departure.id), text: `${counted(departures.length, 'fix goes', 'fixes go')} against a written rule` });
+  // A departure a person reviewed has been looked at; the departures part says what they decided.
+  const unreviewed = departures.filter((departure) => departure.review === null);
+  if (unreviewed.length > 0) look.push({ condition: 'departure', findings: unreviewed.map((departure) => departure.id), text: `${counted(unreviewed.length, 'fix goes', 'fixes go')} against a written rule` });
   const plausible = context.findings
     .filter(({ entry, decision }) => entry.resolution.verdict === 'PLAUSIBLE' && (review.fix === null ? decision?.decision === 'fix' : context.outcomes.get(entry.finding.id)?.last === 'applied'))
     .map(({ entry }) => entry.finding.id);

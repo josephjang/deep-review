@@ -229,6 +229,18 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       ]);
     });
 
+    it('leaves out a departure a person accepted or rejected, in the brief and in its short form, and keeps one nobody reviewed', () => {
+      const lookAt = (state: RunState): string => briefShortForm(briefOf(state))[5]!;
+      for (const review of ['accept', 'reject'] as const) {
+        const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', review)).fold();
+        assert.ok(!briefOf(state).look.some((entry) => entry.condition === 'departure'), review);
+        assert.equal(briefOf(state).departures.length, 1, `the departures part keeps it with its ${review}`);
+        assert.equal(lookAt(state), 'Look at: nothing', review);
+      }
+      const two = readOnlyReported([{ ...decisions[0], departure }, { ...decisions[0], id: 'SWEEP-1', departure }]).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
+      assert.deepEqual(briefOf(two).look.filter((entry) => entry.condition === 'departure').map((entry) => [entry.findings, entry.text]), [[['SWEEP-1'], '1 fix goes against a written rule']], 'the unreviewed one stays, counted alone');
+    });
+
     it('counts in a run that fixed only the fixes a fixer applied on a PLAUSIBLE verdict', () => {
       const brief = briefOf(decidedFixRun().fold());
       assert.deepEqual(brief.look.map((entry) => entry.condition), ['departure'], 'RIPPLE-1 is CONFIRMED, and SWEEP-1 was asked, not fixed');
