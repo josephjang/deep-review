@@ -30,7 +30,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
   it('counts the open questions and departures in its headline, and says that nothing waits', () => {
     const brief = briefOf(answerable());
     assert.deepEqual([brief.headline.questions, brief.headline.departures], [1, 1]);
-    assert.equal(brief.headline.text, '2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: each question has a default in place.');
+    assert.equal(brief.headline.text, '2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: the question has a default in place.');
   });
 
   it('takes a question out of the headline once a person answers it, and a departure once a person accepts or rejects it', () => {
@@ -313,7 +313,7 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.deepEqual(lines, [
       `Parse an empty input (run ${answerable().id.slice(0, 8)})`,
       'The change: The parser returns no value for an empty input, where it threw before.',
-      'Questions: 1, each with a default in place: SWEEP-1',
+      'Questions: 1, with its default in place: SWEEP-1',
       'Against a written rule: 1 fix: RIPPLE-1',
       'Not covered: 2 gaps, the first: The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later...',
       'Look at: 1 departure, a change to a public interface',
@@ -347,9 +347,10 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
 
   it('says the defaults are in place only when the tree holds each open one, as the headline does', () => {
     const questionsLine = (state: RunState): string => briefShortForm(briefOf(state))[2]!;
-    assert.equal(questionsLine(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold()), 'Questions: 1, each with a default: SWEEP-1', 'a run that only reviewed applied no default that edits');
+    assert.equal(questionsLine(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold()), 'Questions: 1, with a default: SWEEP-1', 'a run that only reviewed applied no default that edits');
     const fixed = (status: string): RunState => decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], status).fold();
     assert.equal(questionsLine(fixed('applied')), 'Questions: 2, each with a default in place: RIPPLE-1 and SWEEP-1');
+    assert.match(briefOf(fixed('applied')).headline.text, /Nothing waits for you: each question has a default in place\.$/, 'several questions read as several');
     assert.equal(questionsLine(fixed('deferred')), 'Questions: 2, each with a default: RIPPLE-1 and SWEEP-1', 'the fixer put off one default');
     for (const status of ['applied', 'deferred']) assert.equal(questionsLine(fixed(status)).includes('in place'), briefOf(fixed(status)).headline.text.endsWith('default in place.'), status);
   });
@@ -413,7 +414,7 @@ describe('the words of a question and a departure once a person answered (R8, R9
     const text = markdown(state);
     assert.match(text, /^The default: option 1, because it is the easiest to take back; this run only reviewed, so `review --fix` applies it\. deep-review's choice: option 2\.$/m);
     assert.match(text, /^\| 1, the default \| /m);
-    assert.match(brief.headline.text, /Nothing waits for you: each question has a default\.$/);
+    assert.match(brief.headline.text, /Nothing waits for you: the question has a default\.$/);
     assert.equal(briefOf(readOnlyReported([decisions[0], askDecision('SWEEP-1', false)]).fold()).questions[0]!.defaultApplied, true, 'a default that keeps the code is in place');
   });
 

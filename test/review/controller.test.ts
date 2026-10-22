@@ -154,7 +154,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(workers.some((worker) => worker.launch.label === 'decider decision:decision' && worker.launch.access === 'read-only' && worker.launch.shell), 'one decider, read-only with a shell');
     assert.ok(box.logs.includes('worker decider decision:decision: decided 1 to fix, 0 to leave, 1 to ask the author'), box.logs.join('\n'));
     // The report starts with the brief: the triage's title and account, then the question (R2, R12 of the brief of a run).
-    assert.match(text, /^# Parse with a guard\n\n1 thing needs you: 1 question\. Nothing waits for you: each question has a default in place\.\n\n## The change\n\nThe parser reads the length of its input, and another function calls it\.\n/);
+    assert.match(text, /^# Parse with a guard\n\n1 thing needs you: 1 question\. Nothing waits for you: the question has a default in place\.\n\n## The change\n\nThe parser reads the length of its input, and another function calls it\.\n/);
     assert.match(text, /^### 1\. fake question for \[1\]\? \(\[SWEEP-1\]\(#finding-sweep-1\)\)$/m);
     assert.match(text, /^## The change, in full\n\nThe triage's account, as it gave it\./m);
     assert.match(text, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);

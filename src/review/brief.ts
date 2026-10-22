@@ -457,7 +457,7 @@ function headlineText(questions: number, departures: number, defaultsInPlace: bo
   const total = questions + departures;
   if (total === 0) return 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.';
   const parts = [...(questions === 0 ? [] : [counted(questions, 'question', 'questions')]), ...(departures === 0 ? [] : [counted(departures, 'fix that goes against a written rule', 'fixes that go against a written rule')])];
-  const waits = questions === 0 ? 'Nothing waits for you: the run went on as it decided.' : `Nothing waits for you: each question has a default${defaultsInPlace ? ' in place' : ''}.`;
+  const waits = questions === 0 ? 'Nothing waits for you: the run went on as it decided.' : `Nothing waits for you: ${questions === 1 ? 'the' : 'each'} question has a default${defaultsInPlace ? ' in place' : ''}.`;
   return `${counted(total, 'thing needs', 'things need')} you: ${parts.join(' and ')}. ${waits}`;
 }
 
@@ -750,8 +750,9 @@ function changedWords(changed: BriefChanged): string {
 export function briefShortForm(brief: Brief): string[] {
   const open = brief.questions.filter((question) => question.answer === null);
   const openQuestions = open.map((question) => question.id);
-  // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run).
-  const defaults = open.every((question) => question.defaultApplied) ? 'each with a default in place' : 'each with a default';
+  // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run); one question reads as one.
+  const inPlace = open.every((question) => question.defaultApplied);
+  const defaults = open.length === 1 ? (inPlace ? 'with its default in place' : 'with a default') : inPlace ? 'each with a default in place' : 'each with a default';
   const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
   const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
   const gaps = brief.notCovered;
