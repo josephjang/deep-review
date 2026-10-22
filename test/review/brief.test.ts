@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefLimits, briefMarkdown, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { briefFates, briefLimits, briefMarkdown, briefOf, briefShortForm, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
@@ -108,6 +108,10 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('shows each fate of its fix in a run that fixed', () => {
       const fates: [string, string][] = [['applied', 'applied'], ['already-applied', 'already-in-tree'], ['deferred', 'deferred'], ['blocked', 'blocked']];
       for (const [status, fate] of fates) assert.equal(briefOf(decidedFixRun(answerableDecisions(), status).fold()).departures[0]!.fate, fate, status);
+    });
+
+    it('names every fate the JSON form allows', () => {
+      assert.deepEqual([...briefFates], ['applied', 'already-in-tree', 'deferred', 'blocked', 'not-attempted', 'not-fixed']);
     });
   });
 

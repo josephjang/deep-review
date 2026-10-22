@@ -9,7 +9,7 @@
  * evidence store, and the command that continues a stopped fix pass.
  */
 import { z } from 'zod';
-import { gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
+import { briefFates, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
 import { checkKinds } from './vocabulary.ts';
 
 const text = z.string();
@@ -44,7 +44,7 @@ export const briefJsonV1 = z.strictObject({
     source: text,
     fact: text,
     fix: text,
-    fate: z.enum(['applied', 'already-in-tree', 'deferred', 'blocked', 'not-attempted', 'not-fixed']),
+    fate: z.enum(briefFates),
     review: answer.nullable(),
     accept: text,
     reject: text,

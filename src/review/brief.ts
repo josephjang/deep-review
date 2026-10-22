@@ -97,7 +97,8 @@ export interface BriefQuestion {
  * in a run that only reviewed. The brief's plain words for each are in
  * the table of the design (`fateWords`).
  */
-export type BriefFate = 'applied' | 'already-in-tree' | 'deferred' | 'blocked' | 'not-attempted' | 'not-fixed';
+export const briefFates = ['applied', 'already-in-tree', 'deferred', 'blocked', 'not-attempted', 'not-fixed'] as const;
+export type BriefFate = (typeof briefFates)[number];
 
 /** A fix that goes against a written rule (R9 of the brief of a run). */
 export interface BriefDeparture {
