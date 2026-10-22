@@ -11,7 +11,7 @@
  */
 import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, committedRevisions, lastRecordedRun, type FixState } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, committedRevisions, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
@@ -133,7 +133,7 @@ export interface BriefLook {
   readonly text: string;
 }
 
-/** One check's outcome before the fixes and after the last pass that ran it, or null where it did not run. */
+/** One check's outcome before the fixes and after them, by its current run, else the run that checked the newest tree, or null where it did not run. */
 export interface BriefCheck {
   readonly kind: CheckKind;
   readonly before: string | null;
@@ -284,12 +284,22 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
 /** The ids of a list as words: each of them, joined. */
 const idList = (ids: readonly string[]): string => ids.join(', ');
 
-/** Each check with a command, its outcome before the fixes and after the last pass that ran it. */
-function checksOf(fix: FixState): BriefCheck[] {
+/** The checks phases after the fixes, the latest first. */
+const afterPhases = ['answer-checks', 'repair-checks', 'checks'] as const;
+
+/**
+ * Each check with a command, its outcome before the fixes and after them:
+ * the current run (`lastCurrentRun`) of the latest phase that has one, so
+ * no run a later revision made old stands for the tree; or when none is
+ * current, the run that checked the newest tree.
+ */
+function checksOf(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: FixState }): BriefCheck[] {
+  const { fix } = review;
   return (fix.checks.planned?.checks ?? []).filter((check) => check.command !== null).map((check) => {
     const before = lastRecordedRun(fix, 'baseline-checks', check.kind)?.outcome ?? null;
-    const after = (['answer-checks', 'repair-checks', 'checks'] as const).map((phase) => lastRecordedRun(fix, phase, check.kind)).find((run) => run !== null)?.outcome ?? null;
-    return { kind: check.kind, before, after };
+    const current = afterPhases.map((phase) => lastCurrentRun(review, phase, check.kind)).find((run) => run !== null);
+    const newest = afterPhases.map((phase) => lastRecordedRun(fix, phase, check.kind)).reduce<CheckRunState | null>((found, run) => (run !== null && (found === null || run.revisionsBefore > found.revisionsBefore) ? run : found), null);
+    return { kind: check.kind, before, after: (current ?? newest)?.outcome ?? null };
   });
 }
 
@@ -303,7 +313,7 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
     if (check.command === null) gaps.push({ kind: 'check', text: `No ${check.kind} check ran: ${droppedByOperator(context.review.survey, check) ?? check.reason ?? 'the run has no command for it'}.` });
   }
-  for (const check of checksOf(fix)) {
+  for (const check of checksOf({ answerPasses: context.review.answerPasses, fix })) {
     const unfinished = [check.before, check.after].map(unfinishedWords).filter((words) => words !== null);
     if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
   }
@@ -405,7 +415,7 @@ function changedOf(context: BriefContext): BriefChanged {
     patches: fix.revisions.length,
     // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
     left: [...left, ...withOutcome(context, 'held for the author')],
-    checks: checksOf(fix),
+    checks: checksOf({ answerPasses: context.review.answerPasses, fix }),
   };
 }
 
@@ -423,9 +433,10 @@ function headlineText(questions: number, departures: number, defaultsInPlace: bo
  * with no gap: the checks of a fix run ran before the fixes, and after
  * them unless no fix changed a file, when no check runs again.
  */
-function coveredText(fix: FixState | null): string {
+function coveredText(review: ReviewState): string {
+  const { fix } = review;
   if (fix === null) return 'Each angle ran, and a verifier examined each candidate.';
-  const after = checksOf(fix).every((check) => check.after !== null);
+  const after = checksOf({ answerPasses: review.answerPasses, fix }).every((check) => check.after !== null);
   return after
     ? 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.'
     : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
@@ -458,7 +469,7 @@ export function briefOf(state: RunState): Brief {
     questions,
     departures,
     notCovered,
-    covered: notCovered.length === 0 ? coveredText(review.fix) : null,
+    covered: notCovered.length === 0 ? coveredText(review) : null,
     look: lookOf(context, departures),
     changed: changedOf(context),
   };

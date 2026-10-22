@@ -204,6 +204,25 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'blocked').fold()).changed.blocked, ['RIPPLE-1']);
     });
 
+    it('says a check failed after the fixes when its newest run failed, not what a repair-checks run a later revision made old said', () => {
+      const state = decidedFixRun().fold();
+      const review = state.review!;
+      const fix = review.fix!;
+      const ran = fix.checks.runs.checks.find((run) => run.kind === 'test')!;
+      const fixes = fix.revisions[0]!;
+      // The checks failed, the repair revised and its checks passed; a reopened fix pass revised again, the checks failed, and the repair made no revision, so its checks did not run again.
+      const reopened = {
+        ...fix,
+        revisions: [fixes, { ...fixes, phase: 'repair' as const }, fixes],
+        checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: [{ ...ran, outcome: 'failed' as const, revisionsBefore: 1 }, { ...ran, attempt: 2, outcome: 'failed' as const, revisionsBefore: 3 }], 'repair-checks': [{ ...ran, phase: 'repair-checks' as const, revisionsBefore: 2 }] } },
+      };
+      const brief = briefOf({ ...state, review: { ...review, fix: reopened } });
+      assert.deepEqual(brief.changed.checks.find((check) => check.kind === 'test'), { kind: 'test', before: 'passed', after: 'failed' });
+      // With no current run, the run that checked the newest tree stands.
+      const stale = { ...reopened, revisions: [...reopened.revisions, fixes] };
+      assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).changed.checks.find((check) => check.kind === 'test')?.after, 'failed');
+    });
+
     it('names the commits that hold the edits once deep-review commit made them', () => {
       const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
       const committed = briefOf(decidedFixRun().add('commits.created', series).fold()).changed;
