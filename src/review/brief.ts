@@ -15,8 +15,8 @@ import { allBatches, budgetStoppedUnits, committedRevisions, lastRecordedRun, ty
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
-import { answerArguments } from './decision-report.ts';
-import { findingOutcome, type FindingOutcome } from './fix-report.ts';
+import { answerArguments, defaultInPlace } from './decision-report.ts';
+import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
@@ -221,15 +221,15 @@ interface BriefContext {
   readonly review: ReviewState;
   /** The ranked findings in rank order, each with its decision, or null in a run configured before the decision step. */
   readonly findings: readonly { readonly entry: ReportFinding; readonly decision: RecordedDecision | null }[];
-  /** In a fix run, each ranked finding's outcome by its id; empty in a run that only reviewed. */
-  readonly outcomes: ReadonlyMap<string, FindingOutcome>;
+  /** In a fix run, each ranked finding's outcomes by its id, the last pass's and the fix pass's; empty in a run that only reviewed. */
+  readonly outcomes: ReadonlyMap<string, FindingOutcomes>;
 }
 
 function contextOf(state: RunState, review: ReviewState): BriefContext {
   const byId = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = rankedFindings(review).map((entry) => ({ entry, decision: byId.get(entry.finding.id) ?? null }));
   const fix = review.fix;
-  const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcome(review, fix, entry.finding.id)] as const));
+  const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review, fix, entry.finding.id)] as const));
   return { state, review, findings, outcomes };
 }
 
@@ -238,20 +238,18 @@ function decisionsOf<K extends RecordedDecision['decision']>(context: BriefConte
   return context.findings.flatMap(({ decision }) => (decision !== null && decision.decision === kind ? [decision as Extract<RecordedDecision, { decision: K }>] : []));
 }
 
-/** The ids of the findings a fix run left with `outcome`, in rank order. */
-const withOutcome = (context: BriefContext, outcome: FindingOutcome): string[] => [...context.outcomes].filter(([, found]) => found === outcome).map(([id]) => id);
+/** The ids of the findings a fix run left with `outcome` as Fixes names it, the last pass's, in rank order. */
+const withOutcome = (context: BriefContext, outcome: FindingOutcome): string[] => [...context.outcomes].filter(([, found]) => found.last === outcome).map(([id]) => id);
 
 function questionsOf(context: BriefContext): BriefQuestion[] {
   return decisionsOf(context, 'ask').map((decision) => {
     const { ask } = decision;
     const standing = standingAnswer(context.review, decision.id);
-    const outcome = context.outcomes.get(decision.id);
-    const edits = ask.options[ask.applied]?.edits ?? false;
     return {
       id: decision.id,
       question: ask.question,
       inPlace: ask.applied + 1,
-      defaultApplied: !edits || outcome === 'applied' || outcome === 'already applied',
+      defaultApplied: defaultInPlace(context.review, decision),
       choice: ask.recommended + 1,
       options: ask.options.map((option, index) => ({ number: index + 1, option: option.option, cost: option.cost, rule: option.rule, edits: option.edits })),
       lookedIn: ask.searched,
@@ -266,7 +264,8 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
   return decisionsOf(context, 'fix').flatMap((decision) => {
     if (decision.departure === null) return [];
     const standing = standingAnswer(context.review, decision.id);
-    const outcome = context.outcomes.get(decision.id);
+    // The fate of the decided fix is the fix pass's: an answer pass after it worked the person's answer, not the fix.
+    const outcome = context.outcomes.get(decision.id)?.fixPass;
     return [{
       id: decision.id,
       rule: decision.departure.rule,
@@ -309,9 +308,10 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
   }
   const unapplied: readonly [FindingOutcome, string][] = [['deferred', 'its fixer put it off'], ['blocked', 'its fixer could not apply it'], ['not attempted', 'no fixer attempted it']];
-  // What went to a fixer, by its decision: a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
+  // What went to a fixer: a person's answer, when an answer pass gave the outcome; else by its decision, a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
   const decidedOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision?.decision ?? null]));
   const wentToFixer = (id: string): string => {
+    if (context.outcomes.get(id)?.byAnswerPass === true) return `The answer on ${id} went to a fixer`;
     switch (decidedOf.get(id)) {
       case 'ask':
         return `The default of the question on ${id} went to a fixer`;
@@ -370,7 +370,7 @@ function lookOf(context: BriefContext, departures: readonly BriefDeparture[]): B
   const look: BriefLook[] = [];
   if (departures.length > 0) look.push({ condition: 'departure', findings: departures.map((departure) => departure.id), text: `${counted(departures.length, 'fix goes', 'fixes go')} against a written rule` });
   const plausible = context.findings
-    .filter(({ entry, decision }) => entry.resolution.verdict === 'PLAUSIBLE' && (review.fix === null ? decision?.decision === 'fix' : context.outcomes.get(entry.finding.id) === 'applied'))
+    .filter(({ entry, decision }) => entry.resolution.verdict === 'PLAUSIBLE' && (review.fix === null ? decision?.decision === 'fix' : context.outcomes.get(entry.finding.id)?.last === 'applied'))
     .map(({ entry }) => entry.finding.id);
   if (plausible.length > 0) {
     const what = review.fix === null ? counted(plausible.length, 'finding decided as a fix rests', 'findings decided as fixes rest') : counted(plausible.length, 'fix rests', 'fixes rest');

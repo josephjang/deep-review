@@ -8,9 +8,9 @@
  * it; and what it left and why. A run configured before the decision step
  * has none of these.
  */
-import { answerWords, passOf, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
+import { answerWords, madeTheEdit, passOf, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { RecordedDecision } from '../checkpoint/events.ts';
-import { appliedOptionOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
+import { appliedOptionOf, lastFixesAnswerOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, inlineText, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
@@ -49,6 +49,21 @@ function answerSummary(review: Pick<ReviewState, 'answerPasses'>, standing: Reco
 function defaultOption(ask: DecidedAsk): string {
   const chosen = appliedOptionOf(ask);
   return `${inlineText(chosen.option)}${chosen.edits ? '' : ' (no edit)'}`;
+}
+
+/**
+ * Whether the tree holds an ask's default (R7 of the brief of a run): one
+ * that keeps the code does; one that edits it does once the fix pass
+ * applied it or found it applied, and never in a run that only reviewed,
+ * whatever an answer pass did with a person's answer after. An answer of
+ * another option the tree holds took its place.
+ */
+export function defaultInPlace(review: Pick<ReviewState, 'answers' | 'fix'>, decision: Extract<RecordedDecision, { decision: 'ask' }>): boolean {
+  const standing = standingAnswer(review, decision.id);
+  if (standing !== null && standing.appliedBy !== null) return standing.answer.kind === 'option' && standing.answer.option === decision.ask.applied;
+  if (!appliedOptionOf(decision.ask).edits) return true;
+  const fixes = review.fix === null ? null : lastFixesAnswerOf(review.fix, decision.id);
+  return fixes !== null && madeTheEdit(fixes.finding.status);
 }
 
 /** What applied a standing answer, as the report says it: the fix pass, an answer pass and when it was opened, the tree that held it already, or nothing yet. */

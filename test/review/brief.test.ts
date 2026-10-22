@@ -312,4 +312,23 @@ describe('the words of a question and a departure once a person answered (R8, R9
     const accepted = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
     assert.match(markdown(accepted), /^What the fix does: guard the null once, before parse reads it\. A fixer applied it\.$/m, 'an acceptance keeps the fix as applied');
   });
+
+  it('keeps a default the fix pass applied in place when an answer pass cannot apply the person\'s answer, and says the answer went to the fixer', () => {
+    const asked = decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)]).add('answer.recorded', answer('RIPPLE-1', 1)).add('answer.pass', { ids: ['RIPPLE-1'] });
+    const brief = briefOf(passToReport(asked, 1, [['RIPPLE-1', 'blocked']], 1).fold());
+    const question = brief.questions.find((entry) => entry.id === 'RIPPLE-1')!;
+    assert.equal(question.defaultApplied, true, 'the fix pass applied the default, and the tree still holds it');
+    assert.equal(question.answer?.applied, false);
+    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
+    assert.deepEqual(brief.changed.blocked, ['RIPPLE-1'], 'the changed lists keep the last pass\'s outcome, as Fixes does');
+  });
+
+  it('keeps the fix pass\'s fate of a departing fix when an answer pass cannot apply the fix a person chose that follows the rule', () => {
+    const rejected = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] });
+    const state = passToReport(rejected, 1, [['RIPPLE-1', 'blocked']], 1).fold();
+    const brief = briefOf(state);
+    assert.equal(brief.departures[0]!.fate, 'applied', 'the fix pass applied the departing fix');
+    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
+    assert.match(markdown(state), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
+  });
 });

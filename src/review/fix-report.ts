@@ -8,7 +8,7 @@
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
@@ -70,8 +70,10 @@ function heldOutcome(decision: RecordedDecision | null): FindingOutcome {
   throw new Error(`Finding ${decision.id} is decided fix but held from every fixer`);
 }
 
-function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
-  const last = lastAnswerOf(fix, id);
+/** A finding's fate as the last pass that worked it left it, or with `passes` 'skipped', as the fix pass left it, whatever an answer pass did after. */
+function fateOf(review: ReviewState, fix: FixState, id: string, passes: 'read' | 'skipped' = 'read'): FindingFate {
+  const fixes = passes === 'skipped' ? lastFixesAnswerOf(fix, id) : null;
+  const last = passes === 'read' ? lastAnswerOf(fix, id) : fixes === null ? null : { phase: 'fixes' as const, ...fixes };
   // An answer pass's fixer worked it last, whatever its route was (R10 of answers).
   if (last?.phase === 'answer') {
     const pass = passOf(review, last.key);
@@ -99,9 +101,20 @@ function fateOf(review: ReviewState, fix: FixState, id: string): FindingFate {
   return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
 
-/** What became of one ranked finding in a fix run, as Fixes names it: the outcome alone, which the brief of a run reads too (R2, R9 of the brief of a run). */
-export function findingOutcome(review: ReviewState, fix: FixState, id: string): FindingOutcome {
-  return fateOf(review, fix, id).outcome;
+/** What became of one ranked finding in a fix run, in the two halves the brief of a run reads apart (R2, R9 of the brief of a run). */
+export interface FindingOutcomes {
+  /** The outcome as Fixes names it, the last pass's (R10 of answers). */
+  readonly last: FindingOutcome;
+  /** Whether an answer pass's fixer gave `last`, working a person's answer rather than the decision. */
+  readonly byAnswerPass: boolean;
+  /** What the fix pass did with the decision, which no later answer pass changes. */
+  readonly fixPass: FindingOutcome;
+}
+
+/** One ranked finding's outcomes in a fix run: the last pass's, and the fix pass's. */
+export function findingOutcomes(review: ReviewState, fix: FixState, id: string): FindingOutcomes {
+  const last = fateOf(review, fix, id);
+  return { last: last.outcome, byAnswerPass: last.pass !== null, fixPass: fateOf(review, fix, id, 'skipped').outcome };
 }
 
 /**
