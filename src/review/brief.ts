@@ -245,6 +245,9 @@ function decisionsOf<K extends RecordedDecision['decision']>(context: BriefConte
 /** The ids of the findings a fix run left with `outcome` as Fixes names it, the last pass's, in rank order. */
 const withOutcome = (context: BriefContext, outcome: FindingOutcome): string[] => [...context.outcomes].filter(([, found]) => found.last === outcome).map(([id]) => id);
 
+/** The ids of the findings whose last outcome is `fate` in the brief's vocabulary, in rank order. */
+const withFate = (context: BriefContext, fate: BriefFate): string[] => [...context.outcomes].filter(([, found]) => fateWordsOf[found.last] === fate).map(([id]) => id);
+
 function questionsOf(context: BriefContext): BriefQuestion[] {
   return decisionsOf(context, 'ask').map((decision) => {
     const { ask } = decision;
@@ -325,18 +328,18 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     const unfinished = [check.before, check.after].map(unfinishedWords).filter((words) => words !== null);
     if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
   }
-  // A fix not attempted says why, as the fold records it, in plain words that name no batch (R12).
-  const notAttemptedWords = (id: string): string => {
+  // A fix not attempted says why, as the fold records it, in plain words that name no batch (R12); a deferred or blocked one says its fate.
+  const unappliedWords = (fate: BriefFate, id: string): string => {
+    if (fate !== 'not-attempted') return fateClause(fate);
     switch (context.outcomes.get(id)?.unattempted) {
       case 'budget':
-        return 'no fixer attempted it before the run budget was reached';
+        return `${fateClause(fate)} before the run budget was reached`;
       case 'failures':
         return 'its fixer failed twice and gave no answer';
       default:
-        return 'no fixer attempted it';
+        return fateClause(fate);
     }
   };
-  const unapplied: readonly [FindingOutcome, (id: string) => string][] = [['deferred', () => 'its fixer put it off'], ['blocked', () => 'its fixer could not apply it'], ['not attempted', notAttemptedWords]];
   // What went to a fixer: a person's answer, when an answer pass gave the outcome; else by its decision, a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
   const decidedOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision?.decision ?? null]));
   const wentToFixer = (id: string): string => {
@@ -350,8 +353,8 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
         return `${id} went to a fixer`;
     }
   };
-  for (const [outcome, words] of unapplied) {
-    for (const id of withOutcome(context, outcome)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${words(id)}.` });
+  for (const fate of ['deferred', 'blocked', 'not-attempted'] as const) {
+    for (const id of withFate(context, fate)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${unappliedWords(fate, id)}.` });
   }
   const stopped = budgetStoppedUnits(fix);
   if (stopped.length > 0) {
@@ -514,6 +517,12 @@ export const fateWords: Readonly<Record<BriefFate, string>> = {
   blocked: 'Its fixer could not apply it.',
   'not-attempted': 'No fixer attempted it.',
   'not-fixed': 'This run only reviewed, so no fixer applied it; `review --fix` applies it.',
+};
+
+/** What became of a decided fix as a clause that ends a sentence: its words of `fateWords` with a lower-case first letter and no period. */
+const fateClause = (fate: BriefFate): string => {
+  const words = fateWords[fate];
+  return `${words.charAt(0).toLowerCase()}${words.slice(1).replace(/[.]$/, '')}`;
 };
 
 /** How a person runs a command the brief gives, said once, with no path (R8 of the brief of a run). */
