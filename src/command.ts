@@ -812,10 +812,10 @@ function status(values: Values, io: CommandIo, root: string): number {
       io.stdout(values.json === true ? 'null\n' : 'No active run.\n');
       return 0;
     }
-    const adapter = defaultRuntimes().get(state.review?.configuration.runtime ?? 'claude');
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
+    const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const described = describeRun(state, adapter, (reference) => checkpoint.evidence.pathOf(reference), { engineEntry: io.engineEntry ?? sourceEntry, ownRolesDigest: () => rolesDigest(assembleRoles(engineRolesRoot())) }, existsSync(copy) ? copy : null);
+    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync(copy) ? copy : null);
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
   } finally {
@@ -845,14 +845,16 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
     if (review === null || review.report === null) {
       throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
     }
-    const copy = refreshReportCopy(checkpoint, state, copyContextOf(io, state), log);
+    // One context for the copy and the JSON form, so the engine's own roles are read at most once.
+    const context = copyContextOf(io, state);
+    const copy = refreshReportCopy(checkpoint, state, context, log);
     const record = checkpoint.evidence.pathOf(review.report.report);
     const brief = briefOf(state);
     if (values.json === true) {
       // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
-      const spend = budgetStoppedRun(state) ? budgetSpendOf(state, defaultRuntimes().get(review.configuration.runtime)).usd : null;
-      const roles = (): string | null => (review.configuration.rolesDigest === rolesDigest(assembleRoles(engineRolesRoot())) ? null : rolesPlaceholder);
-      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, io.engineEntry ?? sourceEntry, roles(), spend) };
+      const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
+      const roles = (): string | null => (review.configuration.rolesDigest === context.ownRolesDigest() ? null : rolesPlaceholder);
+      const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, roles(), spend) };
       io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
       return 0;
     }
