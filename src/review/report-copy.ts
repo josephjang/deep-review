@@ -46,6 +46,17 @@ export interface CopyContext {
 }
 
 /**
+ * The command that continues a fix pass the run budget stopped, with the
+ * roles the context names, or null for any other run: the one rule for the
+ * copy's facts and `report --json`, so the two cannot name different
+ * commands.
+ */
+export function stoppedContinueCommand(state: RunState, context: Pick<CopyContext, 'engineEntry' | 'adapter' | 'continueRoles'>): string | null {
+  const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
+  return spend === null ? null : continueCommand(state, context.engineEntry, context.continueRoles(), spend);
+}
+
+/**
  * The input of `renderReport` for a run with a current report, read from
  * the ledger as `status` reads it: the statistics and the budget check
  * from the fold and the adapter of the run's runtime, the patches from the
@@ -58,8 +69,7 @@ export function reportInputOf(checkpoint: Pick<Checkpoint, 'engine' | 'evidence'
   if (review === null || review.report === null) throw new Error(`Run ${state.id} has no current report`);
   const statistics = statisticsOf(state, context.adapter);
   const budgetCheck = statistics.budgetApplied ? budgetSpendOf(state, context.adapter) : null;
-  const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
-  const continuing = spend === null ? null : continueCommand(state, context.engineEntry, context.continueRoles(), spend);
+  const continuing = stoppedContinueCommand(state, context);
   return {
     engine: checkpoint.engine,
     engineEntry: context.engineEntry,

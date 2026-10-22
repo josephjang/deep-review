@@ -7,7 +7,7 @@ import type { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { continueCommand, rolesPlaceholder } from '../../src/review/continue-command.ts';
 import { renderReport } from '../../src/review/report.ts';
-import { refreshReportCopy, reportCopyPath, reportInputOf, reportsDirectoryName, writeReportCopy, type CopyContext } from '../../src/review/report-copy.ts';
+import { refreshReportCopy, reportCopyPath, reportInputOf, reportsDirectoryName, stoppedContinueCommand, writeReportCopy, type CopyContext } from '../../src/review/report-copy.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { answer, decidedFixRun, pin, readOnlyReported } from '../helpers/review-history.ts';
@@ -115,6 +115,17 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.equal(own, continueCommand(stopped, context.engineEntry, null, spend), 'the engine\'s own roles go unnamed');
     assert.equal(reportInputOf(checkpointAt(sandbox), stopped, context).fix?.continueCommand, continueCommand(stopped, context.engineEntry, rolesPlaceholder, spend));
     assert.equal(reportInputOf(checkpointAt(sandbox), state, context).fix?.continueCommand, null, 'a run the budget did not stop');
+  });
+
+  it('gives report --json the command the copy names, and reads no roles for a run the budget did not stop', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-2': { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
+    const spend = budgetSpendOf(stopped, claudeAdapter).usd!;
+    assert.equal(stoppedContinueCommand(stopped, context), continueCommand(stopped, context.engineEntry, rolesPlaceholder, spend));
+    assert.equal(stoppedContinueCommand(stopped, context), reportInputOf(checkpointAt(sandbox), stopped, context).fix?.continueCommand);
+    const unreadable: CopyContext = { ...context, continueRoles: () => { throw new Error('the roles cannot be read'); } };
+    assert.equal(stoppedContinueCommand(state, unreadable), null, 'a run the budget did not stop');
   });
 });
 

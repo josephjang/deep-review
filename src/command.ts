@@ -44,7 +44,7 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
-import { budgetStoppedRun, reviewStatus } from './review/state.ts';
+import { reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
@@ -52,10 +52,9 @@ import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { briefOf, briefShortForm } from './review/brief.ts';
 import { briefJson } from './review/brief-json.ts';
-import { continueCommand, rolesPlaceholder } from './review/continue-command.ts';
-import { refreshReportCopy, reportCopyPath, type CopyContext } from './review/report-copy.ts';
+import { rolesPlaceholder } from './review/continue-command.ts';
+import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
 import { readableRuns } from './review/runs.ts';
-import { budgetSpendOf } from './review/spend.ts';
 import { describeRun, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside, sameDirectory } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
@@ -872,9 +871,8 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const record = checkpoint.evidence.pathOf(review.report.report);
       const brief = briefOf(state);
       if (values.json === true) {
-        // The engine's own roles are read only for the command that continues a fix pass the run budget stopped, which names roles that are not.
-        const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
-        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: spend === null ? null : continueCommand(state, context.engineEntry, context.continueRoles(), spend) };
+        // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
+        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
         io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
         return 0;
       }
