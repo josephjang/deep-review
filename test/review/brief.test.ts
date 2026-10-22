@@ -137,6 +137,18 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       }
     });
 
+    it('lists a check that did not finish, before the fixes and after them, and not one that ran to an outcome', () => {
+      const state = decidedFixRun().fold();
+      const fix = state.review!.fix!;
+      const kind = fix.checks.runs['baseline-checks'][0]!.kind;
+      const ended = (phase: 'baseline-checks' | 'checks', outcome: string): unknown[] => fix.checks.runs[phase].map((run) => (run.kind === kind ? { ...run, outcome } : run));
+      const gapsWith = (before: string, after: string): string[] => briefOf({ ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'baseline-checks': ended('baseline-checks', before), checks: ended('checks', after) } } } } } as RunState)
+        .notCovered.filter((gap) => gap.kind === 'check' && gap.text.startsWith(`The ${kind} check`)).map((gap) => gap.text);
+      assert.deepEqual(gapsWith('timeout', 'skipped'), [`The ${kind} check did not finish: it timed out, then was skipped.`]);
+      assert.deepEqual(gapsWith('passed', 'not-started'), [`The ${kind} check did not finish: it did not start.`]);
+      assert.deepEqual(gapsWith('passed', 'failed'), []);
+    });
+
     it('says of a question whose default a fixer did not apply that the default went to a fixer, not that it was decided as a fix', () => {
       const asked = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'deferred').fold());
       assert.ok(asked.notCovered.some((gap) => gap.kind === 'fix' && gap.text === 'The default of the question on RIPPLE-1 went to a fixer, and its fixer put it off.'), JSON.stringify(asked.notCovered));

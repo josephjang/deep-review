@@ -304,8 +304,15 @@ function checksOf(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: Fi
   });
 }
 
+/** What an unfinished check did, in plain words, by its outcome. */
+const unfinishedOutcomeWords: Readonly<Record<string, string>> = {
+  timeout: 'timed out',
+  skipped: 'was skipped',
+  'not-started': 'did not start',
+};
+
 /** What an unfinished check did, in plain words, or null for one that ran to an outcome. */
-const unfinishedWords = (outcome: string | null): string | null => (outcome === 'timeout' ? 'timed out' : outcome === 'skipped' ? 'was skipped' : outcome === 'not-started' ? 'did not start' : null);
+const unfinishedWords = (outcome: string | null): string | null => (outcome !== null && Object.hasOwn(unfinishedOutcomeWords, outcome) ? unfinishedOutcomeWords[outcome]! : null);
 
 /** The gaps of a fix run: each check that did not run or finish, each fix no fixer applied, the work the run budget did not start, and a commit a stop cut short. */
 function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
