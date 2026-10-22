@@ -25,6 +25,7 @@ import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './f
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell } from './markdown.ts';
+import { conditionWords } from './prompts.ts';
 import { ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
@@ -324,10 +325,9 @@ function reopenedLine(review: ReviewState): string[] {
   return [`Reopened: the fix pass past the run budget ${when}, after the report ${storeNameOf(last.reportBefore.report)}`];
 }
 
-/** One judgment of the triage as a line of The change, in full: no, or yes with what and the files. */
+/** One judgment of the triage as a line of The change, in full, in the words of the scope block: no, or yes with what and the files. */
 function conditionLine(name: string, condition: ChangeCondition): string {
-  if (!condition.holds) return `- ${name}: no`;
-  return `- ${name}: yes${condition.what === null ? '' : `, ${inlineText(condition.what)}`}${condition.files.length === 0 ? '' : ` (in ${condition.files.map(inlineText).join(', ')})`}`;
+  return `- ${name}: ${conditionWords(condition)}`;
 }
 
 /** The first section of the evidence: each field of the triage's account as it gave it, with its sources (R3 of the brief of a run), or why the run has none. */

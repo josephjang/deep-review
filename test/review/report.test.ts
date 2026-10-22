@@ -3,10 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
+import { codexWindowsSandboxesV4, type ChangeReading, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { conditionWords } from '../../src/review/prompts.ts';
 import { renderReport, type ReportInput } from '../../src/review/report.ts';
-import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
+import { answer, askDecision, changeReading, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -54,6 +55,18 @@ describe('renderReport', () => {
       assert.equal(after('## The change'), expected[kind], kind);
       assert.equal(after('## The change, in full'), expected[kind], kind);
     }
+  });
+
+  it('words each judgment of the triage in the change in full as the scope block words it, after its own label', () => {
+    const state = reported().fold();
+    const reading = { ...changeReading, wideEffect: { holds: true, what: null, files: [] } } as unknown as ChangeReading;
+    const report = renderReport({ ...state, review: { ...state.review!, change: { kind: 'given', reading } } }, reportInput);
+    const evidence = report.slice(report.indexOf('\n## The change, in full\n'));
+    assert.match(evidence, /^- Public interface: yes, parse\(\) can now return null\. \(in src\/a\.ts\)$/m);
+    assert.match(evidence, /^- Wide effect: yes$/m);
+    for (const [label, condition] of [['Public interface', reading.publicInterface], ['Wide effect', reading.wideEffect]] as const) assert.match(evidence, new RegExp(`^- ${label}: ${RegExp.escape(conditionWords(condition))}$`, 'm'), label);
+    const without = renderReport({ ...state, review: { ...state.review!, change: { kind: 'given', reading: changeReading as unknown as ChangeReading } } }, reportInput);
+    assert.match(without, /^- Wide effect: no$/m);
   });
 
   it('names the Codex Windows sandbox a Codex run on Windows pinned, after the runtime, and nothing for a run that pins none (R7 of the Codex sandbox)', () => {

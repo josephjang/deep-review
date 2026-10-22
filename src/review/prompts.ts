@@ -52,10 +52,14 @@ export interface ScopeBlockInput extends ScopeBlockBase {
   readonly change?: ChangeReading | null;
 }
 
-/** A condition of principle 8 as one line's value: `no`, or `yes`, what, and in which files. */
-function conditionWords(condition: ChangeCondition): string {
+/**
+ * A condition of principle 8 as one line's value: `no`, or `yes`, what, and
+ * in which files. The scope block and the report's change in full both
+ * word it so, after a `Name: ` label of their own.
+ */
+export function conditionWords(condition: ChangeCondition): string {
   if (!condition.holds) return 'no';
-  const what = condition.what === null ? '' : `: ${inlineText(condition.what)}`;
+  const what = condition.what === null ? '' : `, ${inlineText(condition.what)}`;
   const files = condition.files.length === 0 ? '' : ` (in ${condition.files.map(inlineText).join(', ')})`;
   return `yes${what}${files}`;
 }

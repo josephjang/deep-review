@@ -125,7 +125,7 @@ describe('the scope block', () => {
         'Title: Parse an empty input',
         'What it does: The parser returns no value for an empty input.',
         'Why, in the change\'s own words: An empty file is valid, the commit says. (from abc1234, docs/notes.md)',
-        'Public interface: yes: parse() can return null. (in src/a.ts, src/b.ts)',
+        'Public interface: yes, parse() can return null. (in src/a.ts, src/b.ts)',
         'Wide effect: no',
         '',
         '### Patch',
