@@ -398,7 +398,7 @@ function factsOfRun(state: RunState, scope: ScopeState, review: ReviewState, inp
     ...reopenedLine(review),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refuted(review).length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
-    `Evidence store: ${inlineText(input.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is a file of it.`,
+    `Evidence store: ${inlineText(input.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is the file <hash> in it.`,
     ...(answering.length === 0 ? [] : ['', ...answering]),
     ...continuing,
   ];

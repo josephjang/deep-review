@@ -183,4 +183,4 @@ Models: strong opus, fast sonnet
 Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
-Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is a file of it.
+Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.
