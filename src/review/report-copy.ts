@@ -8,7 +8,7 @@
  * A copy is a convenience: a failure to write it is logged and never fails
  * the command.
  */
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { writeFileAtomic } from '../atomic-write.ts';
@@ -81,18 +81,38 @@ export function reportInputOf(checkpoint: Pick<Checkpoint, 'engine' | 'evidence'
   };
 }
 
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Remove the copy at `path` that a failed render or write left older than
+ * the run's report, since `status` names a copy whenever the file exists
+ * (TD6). It logs what it removed, or why it could not; a missing copy has
+ * nothing to remove, and a directory in its place is never removed.
+ */
+function removeStaleCopy(path: string, runId: string, log: (line: string) => void): void {
+  if (!existsSync(path)) return;
+  try {
+    rmSync(path, { force: true });
+    log(`run ${runId}: removed the copy of the report at ${path}, which is older than the report`);
+  } catch (error) {
+    log(`run ${runId}: could not remove the copy of the report at ${path}, which is older than the report: ${messageOf(error)}`);
+  }
+}
+
 /**
  * Write `text` as the copy of the report at `path`, creating its directory,
- * by an atomic replace, so no reader sees half a copy. A failure is logged
- * and gives null; the record in the evidence store is the report.
+ * by an atomic replace (`write`, a seam for the tests), so no reader sees
+ * half a copy. A failure is logged, removes the copy it would have
+ * replaced, and gives null; the record in the evidence store is the report.
  */
-export function writeReportCopy(path: string, text: string, runId: string, log: (line: string) => void): string | null {
+export function writeReportCopy(path: string, text: string, runId: string, log: (line: string) => void, write: (path: string, text: string) => void = writeFileAtomic): string | null {
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileAtomic(path, text);
+    write(path, text);
     return path;
   } catch (error) {
-    log(`run ${runId}: could not write the copy of the report to ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    log(`run ${runId}: could not write the copy of the report to ${path}: ${messageOf(error)}`);
+    removeStaleCopy(path, runId, log);
     return null;
   }
 }
@@ -102,17 +122,19 @@ export function writeReportCopy(path: string, text: string, runId: string, log: 
  * copy, giving the copy's path; null, writing nothing, while the run has no
  * current report, as while an answer pass, a continuation or a reopened fix
  * pass works again, and when the copy cannot be rendered or written, which
- * it logs.
+ * it logs, removing the copy it would have replaced.
  */
 export function refreshReportCopy(checkpoint: Pick<Checkpoint, 'root' | 'engine' | 'evidence'>, state: RunState, context: CopyContext, log: (line: string) => void): string | null {
   if (state.review?.report === null || state.review?.report === undefined) return null;
+  const path = reportCopyPath(checkpoint.root, state);
   let text: string;
   try {
     text = renderReport(state, reportInputOf(checkpoint, state, context));
   } catch (error) {
     // A copy never fails a command, whatever stops its render: the roles it names, the statistics or the report itself (TD6).
-    log(`run ${state.id}: could not render the copy of the report: ${error instanceof Error ? error.message : String(error)}`);
+    log(`run ${state.id}: could not render the copy of the report: ${messageOf(error)}`);
+    removeStaleCopy(path, state.id, log);
     return null;
   }
-  return writeReportCopy(reportCopyPath(checkpoint.root, state), text, state.id, log);
+  return writeReportCopy(path, text, state.id, log);
 }

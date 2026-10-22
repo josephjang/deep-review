@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -51,6 +51,43 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.equal(writeReportCopy(path, 'text\n', 'run-1', log), null);
     assert.equal(logs.length, 1);
     assert.ok(logs[0]!.startsWith(`run run-1: could not write the copy of the report to ${path}: `), logs.join(' '));
+  });
+
+  it('removes the copy a failed write would have replaced, so status names no copy older than the report (TD6 of the brief of a run, RIPPLE-3 of its gate)', () => {
+    const path = join(sandbox, 'checkpoint', 'reports', 'copy.md');
+    assert.equal(writeReportCopy(path, 'old\n', 'run-1', log), path);
+    const failing = (): void => {
+      throw new Error('the disk is full');
+    };
+    assert.equal(writeReportCopy(path, 'new\n', 'run-1', log, failing), null);
+    assert.equal(existsSync(path), false, 'the old copy is gone');
+    assert.deepEqual(logs, [`run run-1: could not write the copy of the report to ${path}: the disk is full`, `run run-1: removed the copy of the report at ${path}, which is older than the report`]);
+    logs.length = 0;
+    assert.equal(writeReportCopy(path, 'new\n', 'run-1', log, failing), null);
+    assert.deepEqual(logs, [`run run-1: could not write the copy of the report to ${path}: the disk is full`], 'no copy, nothing to remove');
+  });
+
+  it('logs a copy it cannot remove after a failed write, failing nothing', () => {
+    // A directory where the copy would be: the write fails, and the removal, which never removes a directory, fails too.
+    const path = join(sandbox, 'checkpoint', 'reports', 'copy.md');
+    mkdirSync(path, { recursive: true });
+    assert.equal(writeReportCopy(path, 'new\n', 'run-1', log), null);
+    assert.equal(existsSync(path), true);
+    assert.equal(logs.length, 2, logs.join('\n'));
+    assert.ok(logs[1]!.startsWith(`run run-1: could not remove the copy of the report at ${path}, which is older than the report: `), logs.join('\n'));
+  });
+
+  it('removes the copy a failed render would have replaced (TD6 of the brief of a run)', () => {
+    const root = join(sandbox, 'checkpoint');
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-2': { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
+    const path = reportCopyPath(root, stopped);
+    assert.equal(writeReportCopy(path, 'old\n', stopped.id, log), path);
+    const broken: CopyContext = { ...context, continueRoles: () => { throw new Error('the roles cannot be read'); } };
+    assert.equal(refreshReportCopy(checkpointAt(root), stopped, broken, log), null);
+    assert.equal(existsSync(path), false);
+    assert.deepEqual(logs, [`run ${stopped.id}: could not render the copy of the report: the roles cannot be read`, `run ${stopped.id}: removed the copy of the report at ${path}, which is older than the report`]);
   });
 
   it('logs a copy it cannot render and gives null, failing nothing (TD6 of the brief of a run)', () => {
