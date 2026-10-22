@@ -442,19 +442,29 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.match(render(decidedOf(reported()).fold()), /^Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
   });
 
-  it('ends the fact against a rule and the fix of a departure with one stop, whether or not the decider wrote one', () => {
+  it('ends the reason of a departure with one stop, whether or not the decider wrote one, before its fate', () => {
     const stopped = { ...departing, departure: { ...departing.departure, reason: 'the comment came with a caller that is gone?' }, fix: { ...decisions[0]!.fix, approach: 'guard the null once.' } };
     const report = render(decidedOf(reported(), [stopped, decisions[1]]).fold());
-    assert.match(report, /^The fact against it: the comment came with a caller that is gone\?$/m);
-    assert.match(report, /^What the fix does: guard the null once\. This run only reviewed, so no fixer applied it; `review --fix` applies it\.$/m);
-    assert.match(render(decidedOf(reported(), [departing, decisions[1]]).fold()), /^The fact against it: the comment came with a caller that is gone\.$/m, 'a text with no stop gets one');
+    assert.match(report, /^Why deep-review went against it: the comment came with a caller that is gone\? This run only reviewed, so no fixer applied it; `review --fix` applies it\.$/m);
+    assert.match(render(decidedOf(reported(), [departing, decisions[1]]).fold()), /^Why deep-review went against it: the comment came with a caller that is gone\. This run only reviewed/m, 'a text with no stop gets one');
     assert.doesNotMatch(report, /\.\. |\?\. /);
   });
 
+  it('leaves the fixer\'s approach out of a departure\'s block and in Decisions, where the evidence keeps it (R9 of the brief of a run)', () => {
+    const report = render(decidedOf(reported(), [{ ...departing, fix: { ...decisions[0]!.fix, approach: 'In parseInput (src/a.ts:4), guard the null once.' } }, decisions[1]]).fold());
+    const [brief, evidence] = report.split('The evidence for each statement above follows.');
+    assert.ok(brief !== undefined && evidence !== undefined);
+    assert.doesNotMatch(brief, /parseInput/, 'the block says no internal name the reason does not');
+    assert.doesNotMatch(brief, /^What the fix does:/m);
+    assert.match(evidence, /^- 1\\\. RIPPLE-1: In parseInput \(src\/a\.ts:4\), guard the null once\./m);
+  });
+
   it('takes a stop before a closing bracket or quote as the end, and turns a trailing colon, comma or semicolon into the stop', () => {
-    const marked = (reason: string, approach: string): string => render(decidedOf(reported(), [{ ...departing, departure: { ...departing.departure, reason }, fix: { ...decisions[0]!.fix, approach } }, decisions[1]]).fold());
-    assert.match(marked('see the caller (it is gone.)', 'guard it "here."'), /^The fact against it: see the caller \(it is gone\.\)\n\nWhat the fix does: guard it "here\." This run/m);
-    assert.match(marked('as follows:', 'one more,'), /^The fact against it: as follows\.\n\nWhat the fix does: one more\. This run/m);
+    const marked = (reason: string): string => render(decidedOf(reported(), [{ ...departing, departure: { ...departing.departure, reason } }, decisions[1]]).fold());
+    assert.match(marked('see the caller (it is gone.)'), /^Why deep-review went against it: see the caller \(it is gone\.\) This run/m);
+    assert.match(marked('guard it "here."'), /^Why deep-review went against it: guard it "here\." This run/m);
+    assert.match(marked('as follows:'), /^Why deep-review went against it: as follows\. This run/m);
+    assert.match(marked('one more,'), /^Why deep-review went against it: one more\. This run/m);
   });
 
   it('keeps a decider\'s text on its own line whatever it holds, so it cannot open a heading or a list item', () => {

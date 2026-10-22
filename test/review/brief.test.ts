@@ -419,14 +419,14 @@ describe('the words of a question and a departure once a person answered (R8, R9
 
   it('says a departure a person rejected now follows the rule, and whether the tree holds that fix', () => {
     const readOnly = readOnlyReported(answerableDecisions()).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
-    assert.match(markdown(readOnly), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; `review --fix` applies the fix that follows it\.$/m);
+    assert.match(markdown(readOnly), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; `review --fix` applies the fix that follows it\.$/m);
     const owed = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
-    assert.match(markdown(owed), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
+    assert.match(markdown(owed), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
     const held = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2).fold();
-    assert.match(markdown(held), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; the tree holds the fix that follows it\.$/m);
+    assert.match(markdown(held), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; the tree holds the fix that follows it\.$/m);
     assert.doesNotMatch(markdown(held), /A fixer applied it\./);
     const accepted = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
-    assert.match(markdown(accepted), /^What the fix does: guard the null once, before parse reads it\. A fixer applied it\.$/m, 'an acceptance keeps the fix as applied');
+    assert.match(markdown(accepted), /^Why deep-review went against it: every caller passes the null on an empty input\. A fixer applied it\.$/m, 'an acceptance keeps the fix as applied');
   });
 
   it('keeps a default the fix pass applied in place when an answer pass cannot apply the person\'s answer, and says the answer went to the fixer', () => {
@@ -445,6 +445,6 @@ describe('the words of a question and a departure once a person answered (R8, R9
     const brief = briefOf(state);
     assert.equal(brief.departures[0]!.fate, 'applied', 'the fix pass applied the departing fix');
     assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
-    assert.match(markdown(state), /^What the fix does: guard the null once, before parse reads it\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
+    assert.match(markdown(state), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
   });
 });

@@ -98,9 +98,9 @@ export interface BriefDeparture {
   readonly id: string;
   readonly rule: string;
   readonly source: string;
-  /** The fact against the rule, as the decider gave it. */
+  /** The decider's reason, in plain words: why the rule does not reach this case, and what the fix does instead. */
   readonly fact: string;
-  /** The fix deep-review decided instead. */
+  /** The approach the decider gave the fixer, which the JSON form keeps for a program; the Markdown leaves it to the evidence (R9). */
   readonly fix: string;
   readonly fate: BriefFate;
   readonly review: BriefAnswer | null;
@@ -602,7 +602,12 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
   ];
 }
 
-/** One fix that goes against a written rule as a block of the brief: the rule, the fact against it, the fix and its fate, and the commands that review it. */
+/**
+ * One fix that goes against a written rule as a block of the brief: the
+ * rule and where it is written, the decider's reason with what the fix does
+ * instead, its fate, and the commands that review it. The approach the
+ * fixer was given is in the evidence's Decisions, not here (R9).
+ */
 function departureBlock(departure: BriefDeparture, position: number, fixed: boolean): string[] {
   const { review } = departure;
   const reviewLine = review === null
@@ -617,9 +622,7 @@ function departureBlock(departure: BriefDeparture, position: number, fixed: bool
     '',
     `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
     '',
-    `The fact against it: ${sentenceText(departure.fact)}`,
-    '',
-    `What the fix does: ${sentenceText(departure.fix)} ${fate}`,
+    `Why deep-review went against it: ${sentenceText(departure.fact)} ${fate}`,
     '',
     reviewLine,
   ];
