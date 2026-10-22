@@ -28,10 +28,13 @@ describe('renderReport', () => {
     assert.match(report, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  C:\\elsewhere\\b\.ts:9 \(unlocated: C:\\elsewhere\\b\.ts:9; unverified\)$/m);
     assert.match(report, /Evidence: none; the verifier of this group failed twice/);
     assert.match(report, /Also at: SWEEP-2 src\/a\.ts:7/);
-    // The angle that did not run and the group no verifier examined are gaps of the brief, not notes (R10 of the brief of a run).
+    // The angle that did not run and the group no verifier examined are gaps of the brief (R10 of the brief of a run); only the group keeps a note, which names it and its phase, as the brief does not (R12).
     assert.match(report, /^- The FOOTGUNS angle did not run \(2 attempts did not complete: [^\n]*\)\. A later pass looked for what it would have found\.$/m);
     assert.match(report, /^- No verifier examined SWEEP-1, SWEEP-2 \(2 attempts did not complete: failed; failed again\); each counts as PLAUSIBLE\.$/m);
-    assert.doesNotMatch(report, /^- Angle FOOTGUNS did not run|^- Group g1 of sweep-verification/m);
+    assert.doesNotMatch(report, /^- Angle FOOTGUNS did not run/m);
+    const notes = report.slice(report.indexOf('\n## Notes of the run\n'));
+    assert.match(notes, /^- Group g1 of sweep-verification was not verified \(2 attempts did not complete: failed; failed again\): its candidates \(SWEEP-1, SWEEP-2\) are a gap of the brief\.$/m);
+    assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /g1|sweep-verification/, 'the brief names neither the group nor its phase');
     assert.match(report, /- Worktree checks: 9, none found a difference/);
     assert.match(report, /- Run budget: 30\.00 USD, checked before every launch; spent 4\.50 USD\./);
     assert.match(report, /- Unlocated candidates.*SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)/);

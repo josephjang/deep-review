@@ -142,6 +142,7 @@ None.
 
 ## Notes of the run
 
+- Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates (SWEEP-1, SWEEP-2) are a gap of the brief.
 - Worktree checks: 16, none found a difference from what the run expected.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
 - Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.

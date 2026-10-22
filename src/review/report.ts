@@ -17,7 +17,7 @@ import type { ChangeCondition, RecordedDecision, ReviewConfiguration, ScopeState
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, rawLocation, repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
 import { answeringLine, decisionLine, decisionsSection } from './decision-report.ts';
@@ -243,14 +243,17 @@ export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): strin
 /**
  * The notes of the run: what Limitations said before the brief, less what
  * the brief names as a gap (R10, R12 of the brief of a run): the angles
- * that did not run, the groups no verifier examined, the paths the
- * settings left out, the files too large to freeze, the checks not
- * available and the work the run budget did not start, whose command is in
- * the facts of the run; and less the settings' lines, which the facts of
- * the run give beside the `Settings:` line.
+ * that did not run, the paths the settings left out, the files too large
+ * to freeze, the checks not available and the work the run budget did not
+ * start, whose command is in the facts of the run; and less the settings'
+ * lines, which the facts of the run give beside the `Settings:` line. A
+ * group no verifier examined keeps its line, since the brief's gap names
+ * its candidates but not the group or its phase.
  */
 function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
+  // The brief names the candidates no verifier examined, never the group or its phase, which the evidence keeps (R12 of the brief of a run).
+  for (const group of unverifiedGroupsOf(review)) lines.push(`- Group ${group.groupId} of ${group.phase} was not verified (${inlineText(group.reason)}): its candidates (${group.candidateIds.join(', ')}) are a gap of the brief.`);
   const drifted = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.drifted);
   // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
   const against = review.fix === null ? 'the reviewed change' : 'what the run expected';
