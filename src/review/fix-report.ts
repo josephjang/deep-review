@@ -109,12 +109,15 @@ export interface FindingOutcomes {
   readonly byAnswerPass: boolean;
   /** What the fix pass did with the decision, which no later answer pass changes. */
   readonly fixPass: FindingOutcome;
+  /** Why the fix pass did not attempt it, when `last` is not attempted: its batch failed twice or met the run budget, or null when neither settled it. */
+  readonly unattempted: 'failures' | 'budget' | null;
 }
 
 /** One ranked finding's outcomes in a fix run: the last pass's, and the fix pass's. */
 export function findingOutcomes(review: ReviewState, fix: FixState, id: string): FindingOutcomes {
   const last = fateOf(review, fix, id);
-  return { last: last.outcome, byAnswerPass: last.pass !== null, fixPass: fateOf(review, fix, id, 'skipped').outcome };
+  const unattempted = last.outcome === 'not attempted' && last.batch !== null ? (fix.notAttempted.fixes[last.batch.key]?.cause ?? null) : null;
+  return { last: last.outcome, byAnswerPass: last.pass !== null, fixPass: fateOf(review, fix, id, 'skipped').outcome, unattempted };
 }
 
 /**

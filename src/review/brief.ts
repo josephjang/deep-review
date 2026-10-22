@@ -318,7 +318,18 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     const unfinished = [check.before, check.after].map(unfinishedWords).filter((words) => words !== null);
     if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
   }
-  const unapplied: readonly [FindingOutcome, string][] = [['deferred', 'its fixer put it off'], ['blocked', 'its fixer could not apply it'], ['not attempted', 'no fixer attempted it']];
+  // A fix not attempted says why, as the fold records it, in plain words that name no batch (R12).
+  const notAttemptedWords = (id: string): string => {
+    switch (context.outcomes.get(id)?.unattempted) {
+      case 'budget':
+        return 'no fixer attempted it before the run budget was reached';
+      case 'failures':
+        return 'its fixer failed twice and gave no answer';
+      default:
+        return 'no fixer attempted it';
+    }
+  };
+  const unapplied: readonly [FindingOutcome, (id: string) => string][] = [['deferred', () => 'its fixer put it off'], ['blocked', () => 'its fixer could not apply it'], ['not attempted', notAttemptedWords]];
   // What went to a fixer: a person's answer, when an answer pass gave the outcome; else by its decision, a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
   const decidedOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision?.decision ?? null]));
   const wentToFixer = (id: string): string => {
@@ -333,13 +344,13 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     }
   };
   for (const [outcome, words] of unapplied) {
-    for (const id of withOutcome(context, outcome)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${words}.` });
+    for (const id of withOutcome(context, outcome)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${words(id)}.` });
   }
   const stopped = budgetStoppedUnits(fix);
   if (stopped.length > 0) {
-    // In plain words, the findings the stopped batches hold, since the brief names no batch (R12).
+    // In plain words, the findings the stopped batches hold, since the brief names no batch (R12): those left not attempted, as the gaps above list them, not a second-round batch's that the first round answered.
     const keys = new Set(stopped.filter((unit) => unit.phase === 'fixes').map((unit) => unit.key));
-    const findings = allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).length;
+    const findings = new Set(allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).filter((id) => context.outcomes.get(id)?.last === 'not attempted')).size;
     const parts = [...(keys.size === 0 ? [] : [findings === 0 ? 'some of the fixes' : counted(findings, 'finding', 'findings')]), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : [])];
     const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? 'was' : 'were';
     gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${parts.join(' and ')} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });

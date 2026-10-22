@@ -145,12 +145,36 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('lists the work the run budget did not start, and points at the facts of the run for the command that continues it', () => {
       const state = decidedFixRun().fold();
       const fix = state.review!.fix!;
-      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
-      const gap = briefOf(stopped as RunState).notCovered.find((entry) => entry.kind === 'budget');
+      // The budget stopped batch c1-1 before its fixer answered, so RIPPLE-1 was not attempted.
+      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: {} }, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
+      const brief = briefOf(stopped as RunState);
       // In plain words: the findings its batches hold, not the batches (R12 of the brief of a run).
-      assert.equal(gap?.text, 'The run budget stopped the fixes before 1 finding and the repair of the checks were attempted. The facts of the run at the end of the report give the command that continues them.');
+      assert.equal(brief.notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before 1 finding and the repair of the checks were attempted. The facts of the run at the end of the report give the command that continues them.');
+      // Each finding it counts is listed once more with why no fixer attempted it.
+      assert.deepEqual(brief.notCovered.filter((entry) => entry.kind === 'fix').map((entry) => entry.text), ['RIPPLE-1 was decided as a fix, and no fixer attempted it before the run budget was reached.']);
       const repairOnly = { ...stopped, review: { ...stopped.review, fix: { ...stopped.review.fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
       assert.equal(briefOf(repairOnly as RunState).notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before the repair of the checks was attempted. The facts of the run at the end of the report give the command that continues them.');
+    });
+
+    it('counts in the budget gap only the findings no fixer attempted, not one of a stopped batch a fixer already answered', () => {
+      const state = decidedFixRun().fold();
+      const fix = state.review!.fix!;
+      // RIPPLE-1's fixer applied it, as the first round answers a finding a stopped second-round batch holds again.
+      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } } } } } };
+      const brief = briefOf(stopped as RunState);
+      assert.equal(brief.notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before some of the fixes were attempted. The facts of the run at the end of the report give the command that continues them.');
+      assert.ok(!brief.notCovered.some((entry) => entry.kind === 'fix'), JSON.stringify(brief.notCovered));
+    });
+
+    it('says why no fixer attempted a fix: two failures, or no recorded cause', () => {
+      const state = decidedFixRun().fold();
+      const fix = state.review!.fix!;
+      const unanswered = { ...fix, answers: { ...fix.answers, fixes: {} } };
+      const failed = { ...state, review: { ...state.review!, fix: { ...unanswered, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'failures' as const, reason: '2 attempts did not complete: failed; failed again' } } } } } };
+      const fixGaps = (run: unknown): string[] => briefOf(run as RunState).notCovered.filter((entry) => entry.kind === 'fix').map((entry) => entry.text);
+      assert.deepEqual(fixGaps(failed), ['RIPPLE-1 was decided as a fix, and its fixer failed twice and gave no answer.']);
+      assert.ok(!briefOf(failed as RunState).notCovered.some((entry) => entry.kind === 'budget'));
+      assert.deepEqual(fixGaps({ ...state, review: { ...state.review!, fix: unanswered } }), ['RIPPLE-1 was decided as a fix, and no fixer attempted it.']);
     });
 
     it('lists a worker a stop ended whose work did not run again, and not one that ran again', () => {
