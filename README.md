@@ -662,9 +662,9 @@ it read with its hash, in `review.configured`, before its first worker.
 A resumed run keeps those values, and says on stderr which file or
 setting changed since and is not applied; the concurrency and the run
 budget still change per invocation by flag. The facts of the run in the
-report name the files a run read, its brief names the paths left out,
-and the notes of the run name each repository value a higher layer
-replaced and each setting ignored.
+report name the files a run read and, beside its `Settings:` line, each
+path left out, each repository value a higher layer replaced and each
+setting ignored; its brief names the paths left out as a gap.
 `deep-review config show` prints what a run would use, without starting
 one: the change, as `Scope: <mode>, the change from <base> to <end>`
 with the end a commit or the working tree, and each value with its
