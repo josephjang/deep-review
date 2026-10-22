@@ -285,9 +285,6 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
   });
 }
 
-/** The ids of a list as words: each of them, joined. */
-const idList = (ids: readonly string[]): string => ids.join(', ');
-
 /** The checks phases after the fixes, the latest first. */
 const afterPhases = ['answer-checks', 'repair-checks', 'checks'] as const;
 
@@ -357,7 +354,7 @@ function gapsOf(context: BriefContext): BriefGap[] {
   const scope = state.scope!;
   const gaps: BriefGap[] = [];
   for (const [angle, reason] of Object.entries(review.anglesNotRun)) gaps.push({ kind: 'angle', text: `The ${angle} angle did not run (${reason}). A later pass looked for what it would have found.` });
-  for (const group of unverifiedGroupsOf(review)) gaps.push({ kind: 'unverified', text: `No verifier examined ${idList(group.candidateIds)} (${group.reason}); each counts as PLAUSIBLE.` });
+  for (const group of unverifiedGroupsOf(review)) gaps.push({ kind: 'unverified', text: `No verifier examined ${group.candidateIds.join(', ')} (${group.reason}); each counts as PLAUSIBLE.` });
   if (scope.excluded.count > 0) gaps.push({ kind: 'excluded', text: `${counted(scope.excluded.count, 'changed path', 'changed paths')} under ${scope.request.exclude.join(', ')}, which the settings leave out.` });
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
   if (oversized.length > 0) gaps.push({ kind: 'oversized', text: `${counted(oversized.length, 'file', 'files')} too large to freeze, which no worker was given: ${oversized.join(', ')}.` });
