@@ -7,7 +7,7 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
-import { changeTextLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import { StructuralCheckError } from './errors.ts';
 import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
@@ -66,7 +66,7 @@ export const triageOutputSchema = z.strictObject({
 export type TriageOutput = z.infer<typeof triageOutputSchema>;
 
 /** The most sources of `why`, of what the account rests on, and of a condition's files, that the ledger records. */
-export const changeSourceLimits = { whyFrom: 20, restsOn: 30, files: 30 } as const;
+export const changeSourceLimits = { whyFrom: changeWhyFromCountV1, restsOn: changeRestsOnCountV1, files: changeConditionFilesCountV1 } as const;
 
 /** A text of the account trimmed, or null when nothing is left. */
 const presentText = (text: string | null): string | null => {

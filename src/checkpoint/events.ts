@@ -409,6 +409,12 @@ export const changeTextLengthV1 = 2000;
 const changeTextSchema = z.string().min(1).max(changeTextLengthV1);
 /** A commit or a repository path the account rests on, as the triage named it. */
 const changeSourceSchema = z.string().min(1).max(1000);
+/** The most sources of the account's `why` that the ledger records. */
+export const changeWhyFromCountV1 = 20;
+/** The most sources the account rests on that the ledger records. */
+export const changeRestsOnCountV1 = 30;
+/** The most files of a condition that the ledger records. */
+export const changeConditionFilesCountV1 = 30;
 
 /**
  * One condition of principle 8 that the triage judges (R4 of the brief of
@@ -419,7 +425,7 @@ const changeSourceSchema = z.string().min(1).max(1000);
 export const changeConditionSchema = z.strictObject({
   holds: z.boolean(),
   what: changeTextSchema.nullable(),
-  files: z.array(changeSourceSchema).max(30),
+  files: z.array(changeSourceSchema).max(changeConditionFilesCountV1),
 }).refine((condition) => condition.holds || (condition.what === null && condition.files.length === 0), {
   message: 'a condition that does not hold has no sentence and no files',
   path: ['holds'],
@@ -438,8 +444,8 @@ export const changeReadingSchema = z.strictObject({
   title: changeTextSchema,
   what: changeTextSchema,
   why: changeTextSchema.nullable(),
-  whyFrom: z.array(changeSourceSchema).max(20),
-  restsOn: z.array(changeSourceSchema).max(30),
+  whyFrom: z.array(changeSourceSchema).max(changeWhyFromCountV1),
+  restsOn: z.array(changeSourceSchema).max(changeRestsOnCountV1),
   publicInterface: changeConditionSchema,
   wideEffect: changeConditionSchema,
 }).refine((reading) => reading.why !== null || reading.whyFrom.length === 0, {
