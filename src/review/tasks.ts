@@ -10,7 +10,6 @@ import { rawLocation, repositoryLocation, type CandidateState } from '../checkpo
 import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
-import { briefLimits } from './brief.ts';
 import { codeSpan, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import type { Layer } from '../config/settings.ts';
@@ -273,6 +272,9 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
   ];
 }
 
+/** The most characters of a title and of why that the triage's task asks for; the brief cuts neither (R3 of the brief of a run). */
+export const accountLimits = { title: 80, why: 400 } as const;
+
 /**
  * The triage's task (R3, R4, R6 of the brief of a run): the `SCAN` review,
  * one lead per other angle, and an account of the change, from the patch
@@ -287,7 +289,7 @@ export function triageTask(messages: ChangeMessages): string {
     '',
     'Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:',
     '',
-    `- \`title\`: what the change is, in at most ${String(briefLimits.title)} characters.`,
+    `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
     '- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.',
     '- `why`: why the change does it, in the change\'s own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.',
     '- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.',
@@ -295,7 +297,7 @@ export function triageTask(messages: ChangeMessages): string {
     '- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.',
     '- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.',
     '',
-    `Keep \`why\` within ${String(briefLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
+    `Keep \`why\` within ${String(accountLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
     '',
     '### The change\'s own words',
     '',

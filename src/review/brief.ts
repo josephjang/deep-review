@@ -22,26 +22,19 @@ import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import type { CheckKind } from './vocabulary.ts';
 
-/** The most characters of a title, of what the change does and of why, that the brief shows; the evidence holds the whole account. */
-export const briefLimits = { title: 80, what: 600, why: 400 } as const;
-
-/** The core of the change: the triage's account, or why the run has none. */
+/** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
   | {
       readonly state: 'given';
-      /** What the change does, cut at a word to `briefLimits.what`. */
+      /** What the change does, as the triage wrote it. */
       readonly what: string;
-      /** Why, in the change's own words, cut at a word to `briefLimits.why`, or null when the change states none. */
+      /** Why, in the change's own words, as the triage wrote it, or null when the change states none. */
       readonly why: string | null;
       readonly whyFrom: readonly string[];
       readonly restsOn: readonly string[];
       /** The triage's two judgments of principle 8, which `look` names when they hold. */
       readonly publicInterface: ChangeCondition;
       readonly wideEffect: ChangeCondition;
-      /** Whether `what` or `why` was cut, so the brief points at the whole account in the evidence. */
-      readonly cut: boolean;
-      /** Whether the title was cut to `briefLimits.title`, so the brief points at the whole account too; the JSON form's `cut` leaves it out. */
-      readonly titleCut: boolean;
     }
   /** The triage gave no account. */
   | { readonly state: 'none' }
@@ -482,13 +475,11 @@ function coveredText(review: ReviewState): string {
     : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
 }
 
-/** The core of the change from the triage's account: cut to what the brief shows, or why the run has none; `title` is the title the brief shows. */
-function changeOf(account: TriageAccount, title: string): BriefChange {
+/** The core of the change from the triage's whole account, or why the run has none. */
+function changeOf(account: TriageAccount): BriefChange {
   if (account.kind !== 'given') return { state: account.kind };
   const { reading } = account;
-  const what = cutAtWord(reading.what, briefLimits.what);
-  const why = reading.why === null ? null : cutAtWord(reading.why, briefLimits.why);
-  return { state: 'given', what, why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, cut: what !== reading.what || why !== reading.why, titleCut: title !== reading.title };
+  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect };
 }
 
 /** The brief of a run, from its fold alone (R1). The run must be configured for review and have its scope. */
@@ -501,12 +492,11 @@ export function briefOf(state: RunState): Brief {
   const openQuestions = questions.filter((question) => question.answer === null).length;
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
-  const title = review.change.kind === 'given' ? cutAtWord(review.change.reading.title, briefLimits.title) : scopeTitle(state);
   return {
     run: state.id,
-    title,
+    title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
     headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures, questions.every((question) => question.answer !== null || question.defaultApplied)) },
-    change: changeOf(review.change, title),
+    change: changeOf(review.change),
     questions,
     departures,
     notCovered,
@@ -568,8 +558,7 @@ function changePart(change: BriefChange): string[] {
         ? 'The change states no reason.'
         : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'the triage named no source' : `from ${sources(change.whyFrom)}`}).`;
       const restsOn = change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`;
-      const whole = change.cut || change.titleCut ? ' The whole account is under [The change, in full](#the-change-in-full).' : '';
-      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}${whole}`];
+      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`];
     }
   }
 }

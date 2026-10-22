@@ -25,7 +25,7 @@ export const briefJsonV1 = z.strictObject({
   headline: z.strictObject({ text, questions: z.number().int().min(0), departures: z.number().int().min(0) }),
   /** Whether the triage gave the core of the change, gave none, or recorded none, as an engine before the account did. */
   changeState: z.enum(['given', 'none', 'unrecorded']),
-  change: z.strictObject({ what: text, why: text.nullable(), whyFrom: z.array(text), restsOn: z.array(text), publicInterface: condition, wideEffect: condition, cut: z.boolean() }).nullable(),
+  change: z.strictObject({ what: text, why: text.nullable(), whyFrom: z.array(text), restsOn: z.array(text), publicInterface: condition, wideEffect: condition }).nullable(),
   questions: z.array(z.strictObject({
     id: text,
     question: text,
@@ -84,7 +84,7 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
     title: brief.title,
     headline: { ...brief.headline },
     changeState: change.state,
-    change: change.state !== 'given' ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, cut: change.cut },
+    change: change.state !== 'given' ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] } },
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,

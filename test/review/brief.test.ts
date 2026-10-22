@@ -3,7 +3,8 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefFates, briefLimits, briefMarkdown, briefOf, briefShortForm, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { briefFates, briefMarkdown, briefOf, briefShortForm, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
@@ -19,10 +20,11 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     assert.deepEqual(briefOf(state), briefOf(state));
   });
 
-  it('titles the run with the triage\'s title, cut at a word to 80 characters', () => {
+  it('titles the run with the triage\'s whole title, past the length the triage is asked to keep', () => {
     assert.equal(briefOf(withAccount(answerable(), given())).title, 'Parse an empty input');
-    const long = briefOf(withAccount(answerable(), given({ ...changeReading, title: `${'word '.repeat(30)}end` } as unknown as ChangeReading))).title;
-    assert.ok(long.length <= briefLimits.title && long.endsWith('...'), long);
+    const title = `${'word '.repeat(30)}end`;
+    assert.ok(title.length > accountLimits.title);
+    assert.equal(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))).title, title);
   });
 
   it('counts the open questions and departures in its headline, and says that nothing waits', () => {
@@ -46,27 +48,24 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
   });
 
   describe('the core of the change (R3, R18)', () => {
-    it('shows what the change does and why with their sources, and cuts each at a word to its limit', () => {
+    it('shows what the change does and why with their sources, whole', () => {
       const brief = briefOf(withAccount(answerable(), given()));
-      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect, cut: false, titleCut: false });
-      const what = `${'The parser reads input. '.repeat(40)}`.trim();
-      const why = `${'Because it must. '.repeat(40)}`.trim();
-      const cut = briefOf(withAccount(answerable(), given({ ...changeReading, what, why } as unknown as ChangeReading))).change;
-      assert.ok(cut.state === 'given');
-      assert.ok(cut.what.length <= briefLimits.what && cut.what.endsWith('...') && what.startsWith(cut.what.slice(0, -3)), cut.what);
-      assert.ok(cut.why !== null && cut.why.length <= briefLimits.why && cut.why.endsWith('...'), cut.why ?? '');
-      assert.equal(cut.cut, true);
+      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect });
     });
 
-    it('points at the whole account when only the title was cut, and keeps `cut` for what and why', () => {
-      const whole = 'The whole account is under [The change, in full](#the-change-in-full).';
-      const title = `Give each run a brief ${'word '.repeat(20)}end`;
-      assert.ok(title.length > briefLimits.title);
-      const brief = briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading)));
-      assert.ok(brief.change.state === 'given' && brief.change.titleCut && !brief.change.cut, JSON.stringify(brief.change));
-      assert.ok(briefMarkdown(brief).some((line) => line.endsWith(whole)), 'the brief links to the whole account');
-      const short = briefOf(withAccount(answerable(), given()));
-      assert.ok(!briefMarkdown(short).some((line) => line.includes(whole)), 'nothing was cut, so no link');
+    it('keeps a what and a why longer than the triage is asked for whole, in the value and in the Markdown, and points nowhere else for them (R3)', () => {
+      // 959 and 679 characters: past the 600 the brief used to show of what and the 400 it showed of why.
+      const what = `${'The parser reads input. '.repeat(40)}`.trim();
+      const why = `${'Because it must. '.repeat(40)}`.trim();
+      assert.ok(what.length > 600 && why.length > accountLimits.why);
+      const brief = briefOf(withAccount(answerable(), given({ ...changeReading, what, why } as unknown as ChangeReading)));
+      assert.ok(brief.change.state === 'given');
+      assert.equal(brief.change.what, what);
+      assert.equal(brief.change.why, why);
+      const markdown = briefMarkdown(brief);
+      assert.ok(markdown.includes(what), 'what, whole, as its own paragraph');
+      assert.ok(markdown.some((line) => line.startsWith(`Why, in the change's own words: ${why} (`)), 'why, whole');
+      assert.ok(!markdown.some((line) => line.includes('...') || line.includes('The whole account is under')), 'nothing cut, nothing to point at');
     });
 
     it('says an older run has no core, and titles it from its scope', () => {
@@ -321,6 +320,16 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
       'Changed: nothing; this run only reviewed',
     ]);
     for (const line of lines) assert.ok(line.length <= shortLineLimit, line);
+  });
+
+  it('gives the whole title on its first line, which only the line\'s limit cuts', () => {
+    const run = answerable().id.slice(0, 8);
+    // 98 characters: past the 80 the triage is asked for, which cut the gate run's title in the short form.
+    const title = 'Give each run a brief: the change\'s account, a report that starts with it, and a report command';
+    assert.ok(title.length > accountLimits.title);
+    assert.equal(briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))))[0], `${title} (run ${run})`);
+    const first = briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title: 'word '.repeat(60).trim() } as unknown as ChangeReading))))[0]!;
+    assert.ok(first.length <= shortLineLimit && first.endsWith('...'), first);
   });
 
   it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {
