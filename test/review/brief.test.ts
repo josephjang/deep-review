@@ -48,7 +48,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
   describe('the core of the change (R3, R18)', () => {
     it('shows what the change does and why with their sources, and cuts each at a word to its limit', () => {
       const brief = briefOf(withAccount(answerable(), given()));
-      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect, cut: false });
+      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect, cut: false, titleCut: false });
       const what = `${'The parser reads input. '.repeat(40)}`.trim();
       const why = `${'Because it must. '.repeat(40)}`.trim();
       const cut = briefOf(withAccount(answerable(), given({ ...changeReading, what, why } as unknown as ChangeReading))).change;
@@ -56,6 +56,17 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.ok(cut.what.length <= briefLimits.what && cut.what.endsWith('...') && what.startsWith(cut.what.slice(0, -3)), cut.what);
       assert.ok(cut.why !== null && cut.why.length <= briefLimits.why && cut.why.endsWith('...'), cut.why ?? '');
       assert.equal(cut.cut, true);
+    });
+
+    it('points at the whole account when only the title was cut, and keeps `cut` for what and why', () => {
+      const whole = 'The whole account is under [The change, in full](#the-change-in-full).';
+      const title = `Give each run a brief ${'word '.repeat(20)}end`;
+      assert.ok(title.length > briefLimits.title);
+      const brief = briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading)));
+      assert.ok(brief.change.state === 'given' && brief.change.titleCut && !brief.change.cut, JSON.stringify(brief.change));
+      assert.ok(briefMarkdown(brief).some((line) => line.endsWith(whole)), 'the brief links to the whole account');
+      const short = briefOf(withAccount(answerable(), given()));
+      assert.ok(!briefMarkdown(short).some((line) => line.includes(whole)), 'nothing was cut, so no link');
     });
 
     it('says an older run has no core, and titles it from its scope', () => {
