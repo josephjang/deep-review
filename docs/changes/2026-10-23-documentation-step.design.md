@@ -210,9 +210,11 @@ The answer pass and the repair use the fixer prompt, so they get the same rule. 
 
 | Source | Lines that it takes | Reason |
 |---|---|---|
-| A plan with an answer of the step | Each document item whose status is `deferred` or `blocked`, with its lines and the note of the answer. The item `search` with such a status, with the file and the note of its answer. Each line of the own `drift` of the step. | `left`, with the note, or `found` for an own line. |
+| A plan with an answer of the step | Each document item whose status is `deferred` or `blocked`, with its lines and the note of the answer. Each line of the own `drift` of the step, which names each document that the search left. | `left`, with the note, or `found` for an own line. |
 | A plan with no answer | Each document item, with its lines. | `not-run`, with the cause from `notAttempted`: the run budget or two failures. |
 | Each answer of `fixes`, `repair` or `answer` | Each `drift` line that no item of the plan holds. | `after`, with who reported it, when a plan exists. Else `not-run`: an engine before the step configured the run, the run budget stopped a unit of the fixes, or the fixes changed no file. |
+
+The `file` of the answer for the search is not a document left. The task asks for the first document that the search brought in line there, or `.`, and a `deferred` search can hold edits, as a partial change. Each document that the search leaves is a line of the own `drift` of the step, which the task asks for.
 
 Each entry of the list is `{ file, facts: [{ what, by }], reasons: [{ kind, text }] }`, and the entries are grouped by the folded path. The count of the brief is the number of entries. `by` says who reported the fact in the plain words of the brief: "a fixer", "the documentation step", "the repair" or "the fixer of an answer pass". The brief names no batch (R12 of the brief of a run).
 
