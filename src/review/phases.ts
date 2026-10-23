@@ -87,6 +87,8 @@ export interface PhaseContext {
   readonly unelevatedEditors: boolean;
   /** Where a fixes-phase unit claims files. */
   readonly claims: ClaimsContext;
+  /** What the documentation step's task names beyond the fold, the patches of the fixes put in the evidence store when first asked for, before the launch (R2 of the documentation step). */
+  readonly documentation: () => DocumentationTaskOptions;
 }
 
 function requireReview(state: RunState): ReviewState {
@@ -587,7 +589,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const commitMessages = unit.phase === 'triage' ? context.commitMessages() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages }) }, context.scopeBlock(unit.phase));
+  const documentation = unit.phase === 'documentation' ? context.documentation() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,

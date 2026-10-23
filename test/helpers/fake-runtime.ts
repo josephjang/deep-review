@@ -3,6 +3,7 @@
 // in the test's own process by in-process-runner.ts, through the host it is
 // given (fake-host.ts). It is steered by environment variables the test sets:
 //   FAKE_RECORD      file to write what the fake received as JSON
+//   FAKE_RECORD_ROLE record only a worker of this review role, so a later worker of another role does not replace it
 //   FAKE_WAIT_FOR    file to wait for before answering
 //   FAKE_STDOUT      stdout to print instead of a successful answer; {session} becomes the session id
 //   FAKE_STDERR      stderr to print
@@ -107,6 +108,8 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
   if (role === 'decider') return deciderAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
+  // The documentation worker finds every document already in line, so it edits nothing unless a script says it does.
+  if (role === 'documentation') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({ status: 'already-applied' as const })));
   return { answer: 'ok' };
 }
 
@@ -168,8 +171,14 @@ export interface FixedFinding {
   readonly malformed?: 'message-without-files';
 }
 
-/** A fixer's answer with one entry per finding, by index, in the shape its output schema demands. */
-export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
+/** A `drift` line of a scripted fixer: the document and the stale fact. */
+export interface DriftLine {
+  readonly file: string;
+  readonly what: string;
+}
+
+/** A fixer's answer with one entry per finding, by index, in the shape its output schema demands, and the `drift` lines given, none by default. */
+export function fixerAnswer(findings: readonly FixedFinding[], drift: readonly DriftLine[] = []): unknown {
   return {
     findings: findings.map((finding, index) => {
       const status = finding.status ?? 'applied';
@@ -188,7 +197,7 @@ export function fixerAnswer(findings: readonly FixedFinding[]): unknown {
         requiredFiles: [...(finding.requiredFiles ?? [])],
       };
     }),
-    drift: [],
+    drift: [...drift],
     tests: [],
     suite: { result: 'pass', command: 'fake suite', failures: '' },
   };
@@ -276,10 +285,12 @@ export function scriptedStep(host: FakeHost, prompt: string): { readonly role: s
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
 export const freshThread = '0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6a7b';
 
-/** Write what the fake was given, for the test to assert on. */
+/** Write what the fake was given, for the test to assert on: each invocation in turn, or only a worker of FAKE_RECORD_ROLE when it is set. */
 export function record(host: FakeHost, stdin: string): void {
   const file = host.environment.FAKE_RECORD;
   if (file === undefined) return;
+  const role = host.environment.FAKE_RECORD_ROLE;
+  if (role !== undefined && readTaskHeader(stdin)?.role !== role) return;
   const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH'];
   const seen = Object.fromEntries(Object.entries(host.environment).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
   writeWhole(file, JSON.stringify({ argv: host.args, stdin, cwd: host.cwd, environment: seen }), host.id);

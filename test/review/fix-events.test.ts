@@ -4,18 +4,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import type { FilesClaimed, FixedFinding, FixRecorded, TreeRevised } from '../../src/checkpoint/events.ts';
-import type { RunState } from '../../src/checkpoint/fold.ts';
+import { documentationItemsOf, ownedFiles } from '../../src/checkpoint/fix-state.ts';
+import { applyEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { foldedWith, type ClaimsAccess } from '../../src/review/claim-events.ts';
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
-import { unsettledFiles } from '../../src/review/drift.ts';
+import { planPathOf } from '../../src/review/documents.ts';
+import { expectedTreeOf, unsettledFiles } from '../../src/review/drift.ts';
 import { attemptRevisionEvents, checkRevision, fixAnswerEvents, revisionMessage, type RevisionContext } from '../../src/review/fix-events.ts';
-import { prepareCheckManifest } from '../../src/review/snapshot.ts';
+import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName, takeSnapshot } from '../../src/review/snapshot.ts';
 import { rawMatch } from '../../src/review/tree.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { git, remove, repositoryWith, write } from '../helpers/repository.ts';
-import { answer, baselined, claimed, decidedFixRun, fixAnswer, fixPlan, type History, worker } from '../helpers/review-history.ts';
+import { answer, baselined, checksPhase, claimed, decidedFixRun, decidedOf, endCheck, fixAnswer, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, type History, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
 
 const finding = (id: string, status: FixedFinding['status'], subject: string | null = null): FixedFinding => ({
   id, status, file: 'src/a.ts', line: 1, note: `${id} note`, message: subject === null ? null : { subject, body: `${subject}, because.` },
@@ -265,5 +267,86 @@ describe('the events of an answer pass\'s fixer (R5 of answers)', () => {
     const revision = attempt.revisions[0]!.payload as TreeRevised;
     assert.equal(revision.phase, 'answer');
     assert.match(revision.change.message.body, /^An attempt of the answer pass pass-1 ended without an answer/);
+  });
+});
+
+// R5, TD8 and TD9 of the documentation step.
+describe('the events of the documentation step', () => {
+  let directory: string;
+  let repo: string;
+  let evidence: EvidenceStore;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-documentation-events-')));
+    repo = repositoryWith(join(directory, 'repo'), { 'src/a.ts': 'a, fixed\n', 'docs/parse.md': 'parse throws on a null input\n', 'CHANGES.md': '# Changes\n' });
+    evidence = new EvidenceStore(join(directory, 'evidence'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const scratch = (): string => join(directory, 'scratch');
+  const into = (): string => join(scratch(), snapshotsDirectoryName);
+  /** A decided fix run with the step: c1-1's fixer left src/a.ts as the tree holds it and named two documents, one spelled `./` and one outside the repository; the step is planned against the repository and its worker launched with its scratch directory. */
+  const documenting = (): RunState => {
+    const history = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null)
+      .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50), { drift: [{ file: './docs/parse.md', what: 'parse throws on a null' }, { file: '../outside.md', what: 'parse throws' }] }))
+      .add('tree.revised', fixRevision(worker(50), evidence.put('a, fixed\n')))
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes')
+      .start('documentation');
+    history.add('documentation.planned', { items: documentationItemsOf(history.review().fix!, planPathOf(repo)) }).add('worker.launched', { ...launch(worker(55), 'documentation documentation:documentation'), scratch: scratch() });
+    const state = history.fold();
+    prepareSnapshots(into(), repo, expectedTreeOf(state).keys());
+    return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
+  };
+  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const unit = { phase: 'documentation', key: 'documentation', role: 'documentation' } as const;
+  const receipt = (output: unknown): WorkerReceipt => ({ workerId: worker(55), output }) as unknown as WorkerReceipt;
+  /** The state with `events` folded on, as the engine appends them. */
+  const folded = (state: RunState, events: readonly { readonly kind: string; readonly version: number; readonly payload: unknown }[]): RunState =>
+    events.reduce((current, event) => applyEvent(current, { sequence: current.lastSequence + 1, runId: current.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: '2026-10-23T00:00:00.000Z', engine: 'test' }), state);
+
+  it('plans the documents by their resolved paths, and owns only those and the paths the fixes revised', () => {
+    const state = documenting();
+    assert.deepEqual(state.review!.fix!.documentation?.items.map((item) => [item.id, item.file, item.path]), [['doc-1', './docs/parse.md', 'docs/parse.md'], ['doc-2', '../outside.md', null], ['search', null, null]]);
+    assert.deepEqual(ownedFiles(state.review!, 'documentation', 'documentation'), ['docs/parse.md', 'src/a.ts']);
+  });
+
+  it('records the answer at version 3 by its items, with no violation, and a revision at version 3 for each of its two snapshots', () => {
+    const state = documenting();
+    write(repo, 'docs/parse.md', 'parse returns 0 on a null input\n');
+    takeSnapshot({ worktree: repo, finding: 0, into: into() });
+    write(repo, 'CHANGES.md', '# Changes\n\nparse returns 0 on a null input.\n');
+    takeSnapshot({ worktree: repo, finding: 2, into: into() });
+    const output = fixerAnswer([{ files: ['./docs/parse.md'], subject: 'docs(parse): Say parse returns 0 on a null' }, { status: 'deferred', note: 'outside the repository' }, { files: ['CHANGES.md'], subject: 'docs: Note the null in the changes' }]);
+    const events = fixAnswerEvents(unit, receipt(output), contextOf(state));
+    const recorded = events.find((event) => event.kind === 'fix.recorded')!;
+    assert.equal(recorded.version, 3);
+    const payload = recorded.payload as FixRecorded;
+    assert.deepEqual([payload.phase, payload.key, payload.violations], ['documentation', 'documentation', []]);
+    assert.deepEqual(payload.findings.map((entry) => [entry.id, entry.status, entry.files]), [['doc-1', 'applied', ['docs/parse.md']], ['doc-2', 'deferred', []], ['search', 'applied', ['CHANGES.md']]]);
+    const revisions = events.filter((event) => event.kind === 'tree.revised');
+    assert.deepEqual(revisions.map((event) => event.version), [3, 3]);
+    assert.deepEqual(revisions.map((event) => [(event.payload as TreeRevised).change.findings, (event.payload as TreeRevised).files.map((file) => file.path)]), [[['doc-1'], ['docs/parse.md']], [['doc-2', 'search'], ['CHANGES.md']]], 'the deferred item, which changed nothing, is carried into the next revision, as any finding of a unit is');
+    assert.deepEqual(events.filter((event) => event.kind === 'files.claimed'), [], 'the step claims nothing');
+    const after = folded(state, events).review!;
+    assert.equal(after.fix!.revisions.at(-1)?.phase, 'documentation', 'the fold takes the answer and its revisions');
+  });
+
+  it('refuses an answer that leaves out a named document it changed, by the path it resolved to', () => {
+    write(repo, 'docs/parse.md', 'parse returns 0 on a null input\n');
+    const output = fixerAnswer([{ status: 'already-applied' }, { status: 'deferred' }, { status: 'already-applied' }]);
+    assert.throws(() => fixAnswerEvents(unit, receipt(output), contextOf(documenting())), /names no finding for the owned or claimed file docs\/parse\.md/);
+  });
+
+  it('keeps what a failed attempt and a lost worker left in a named document by its resolved path, naming the step', () => {
+    const state = documenting();
+    write(repo, 'docs/parse.md', 'parse returns 0 on a null\n');
+    for (const end of ['failed', 'lost'] as const) {
+      const attempt = attemptRevisionEvents(contextOf(state), 'documentation', 'documentation', worker(55), 'it died', end);
+      assert.deepEqual(attempt.claims, [], end);
+      assert.deepEqual(attempt.revisions.map((event) => [event.version, (event.payload as TreeRevised).phase, (event.payload as TreeRevised).files.map((file) => file.path)]), [[3, 'documentation', ['docs/parse.md']]], end);
+      assert.match((attempt.revisions[0]!.payload as TreeRevised).change.message.body, /^An attempt of the documentation step ended without an answer/, end);
+    }
   });
 });

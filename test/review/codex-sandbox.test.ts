@@ -239,7 +239,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     return box;
   };
 
-  const warnings = (box: ReviewSandbox): string[] => box.logs.filter((line) => line.includes(': warning: its fixers and repair worker run in Codex\'s unelevated Windows sandbox'));
+  const warnings = (box: ReviewSandbox): string[] => box.logs.filter((line) => line.includes(': warning: its fixers, documentation worker and repair worker run in Codex\'s unelevated Windows sandbox'));
   const editorPrompts = (box: ReviewSandbox): string[] => ['fixer fixes:c1-1', 'fixer repair:repair'].map((label) => box.promptOf(box.run(), label));
 
   it('warns before the first worker and tells the fixer and the repair worker what cannot run, while no reader is told', async (t) => {
@@ -248,7 +248,7 @@ describe('the editors of a fix run in the unelevated sandbox (R5, R6 of the Code
     assert.equal(outcome.kind, 'report', JSON.stringify(outcome));
     const runId = box.run().id;
     assert.deepEqual(warnings(box), [unelevatedEditorsWarning(runId)], 'printed once');
-    assert.equal(warnings(box)[0], `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`);
+    assert.equal(warnings(box)[0], `run ${runId}: warning: its fixers, documentation worker and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`);
     const firstWorker = box.logs.findIndex((line) => /^worker \S+ \S+: started$/.test(line));
     assert.ok(firstWorker > box.logs.indexOf(warnings(box)[0]!), 'the warning comes before the first worker starts');
     for (const prompt of editorPrompts(box)) assert.ok(prompt.includes(unelevatedSandboxRule), prompt);

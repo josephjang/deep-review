@@ -137,9 +137,27 @@ function bytesOf(checkpoint: Checkpoint, path: string, frozen: FrozenFile): Buff
   return checkpoint.evidence.read(frozen.blob);
 }
 
-/** What a revision of an editing phase's answer or attempt holds, as its trailer names it: the findings with their angle and verdict, an answer pass's as the answers to them (R7 of answers), or the checks the repair worked. */
+/**
+ * What a revision of the documentation step holds, as its trailer names
+ * it (R5 of the documentation step): the documentation of each document
+ * by its repository path, or by the path the fixers wrote for one the
+ * engine refused, and the documentation the search found.
+ */
+function namedDocuments(run: RunState, revision: TreeRevised): string {
+  const items = new Map((run.review!.fix?.documentation?.items ?? []).map((item) => [item.id, item]));
+  return revision.change.findings.map((id) => {
+    const item = items.get(id);
+    // The fold holds a revision of the step to its items, so an id no item has is never met; it is named as it is.
+    if (item === undefined) return id;
+    if (item.file === null) return 'documentation that the search found';
+    return `documentation of ${item.path ?? item.file}`;
+  }).join(', ');
+}
+
+/** What a revision of an editing phase's answer or attempt holds, as its trailer names it: the findings with their angle and verdict, an answer pass's as the answers to them (R7 of answers), the checks the repair worked, or the documentation step's documents. */
 function namedFindings(run: RunState, revision: TreeRevised): string {
   if (revision.phase === 'repair') return `repair of the ${revision.change.findings.join(', ')} check`;
+  if (revision.phase === 'documentation') return namedDocuments(run, revision);
   const findings = new Map(rankedFindings(run.review!).map((entry) => [entry.finding.id, entry]));
   const answer = revision.phase === 'answer' ? 'answer to ' : '';
   return revision.change.findings.map((id) => {

@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
+import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
@@ -23,7 +24,7 @@ import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../confi
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
 import type { ConfigurationSource } from '../config/source.ts';
 import { standingAnswer } from '../checkpoint/answer-state.ts';
-import { batchPosition, budgetStoppedUnits, killedRun, revisionMessageOf, routeOf, secondCut, type CutShortCheck } from '../checkpoint/fix-state.ts';
+import { batchPosition, budgetStoppedUnits, documentationItemsOf, killedRun, revisionMessageOf, routeOf, secondCut, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { UnreadableRunError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { changeReadingOf } from '../checkpoint/review-fold.ts';
@@ -59,6 +60,7 @@ import { headOf, resetSettledIndex, seriesSettleOf, unstagedLine } from './commi
 import { attemptOwner, attemptRevisionEvents, checkRevision, type RevisionContext } from './fix-events.ts';
 import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
+import { planPathOf } from './documents.ts';
 import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
@@ -473,6 +475,16 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const { claims } = directories;
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
+  /** The patch series of `revisions`, put in the evidence store: one patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass). */
+  const storedPatches = (fix: FixState, revisions: readonly TreeRevised[]): ArtifactReference[] => {
+    const messaged = revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fix, revision) } }));
+    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+  };
+  /** The patch of each revision of the fixes alone, which the documentation step's task names before its worker launches, so it reads the edits of the run apart from the reviewed change (R2 of the documentation step). */
+  const fixPatches = (current: RunState): ArtifactReference[] => {
+    const fix = current.review!.fix!;
+    return storedPatches(fix, fix.revisions.filter((revision) => revision.phase === 'fixes'));
+  };
   /**
    * Log a settled worker and append its finish with what it contributes,
    * in one append, so a stop cannot record the one without the other (R6
@@ -762,6 +774,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'fixes.planned', version: 1, payload: step.plan }]);
           break;
         }
+        case 'plan-documentation': {
+          // The controller reads each drift line's path against the worktree, as it reads every path a worker reports, and records the items before the worker starts (R2, TD2, TD8 of the documentation step).
+          const items = documentationItemsOf(state.review!.fix!, planPathOf(options.worktree));
+          const documents = items.filter((item) => item.file !== null);
+          log(`phase documentation: ${documents.length === 0 ? 'no document the fixes named' : `${String(documents.length)} document${documents.length === 1 ? '' : 's'} the fixes named, ${documents.map((item) => item.path ?? `${item.file!} (not a path of the repository)`).join(', ')}`}, and the search planned`);
+          state = append(checkpoint, state, [{ kind: 'documentation.planned', version: 1, payload: { items } }]);
+          break;
+        }
         case 'plan-second-round': {
           const { blocked, clusters, batches } = step.plan;
           log(blocked.length === 0 ? 'phase fixes: no finding for a second round' : `phase fixes: second round for ${blocked.map((finding) => finding.id).join(', ')}, in ${String(clusters.length)} cluster${clusters.length === 1 ? '' : 's'} and ${String(batches.length)} batch${batches.length === 1 ? '' : 'es'}`);
@@ -813,6 +833,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
             claims,
+            documentation: () => ({ patches: fixPatches(state), exclude: state.scope?.request.exclude ?? [] }),
           };
           for (const unit of step.units) {
             // A fixer's claims directory is ready before its task reads the live markers and before the fixer can run the claim command into it; one this engine prepared and finds gone launches nothing more (R12).
@@ -847,10 +868,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'phase.finished', version: step.phase === 'documentation' ? 7 : 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
-          // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
+          // One patch per revision of the run (R13 of the fix pass).
           const fixState = state.review!.fix;
-          const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
-          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions);
           const statistics = statisticsOf(state, adapter);
           // A fix pass the run budget stopped is continued by the same command with a higher budget, which the report and the log name (R11, R15 of resumable runs).
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
@@ -955,7 +975,7 @@ export async function recordSettled(inFlight: Map<string, InFlight>, record: (se
  * run must be abandoned before another sandbox can apply.
  */
 export function unelevatedEditorsWarning(runId: string): string {
-  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
+  return `run ${runId}: warning: its fixers, documentation worker and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
 }
 
 /**

@@ -372,9 +372,14 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     // In plain words, the findings the stopped batches hold, since the brief names no batch (R12): those left not attempted, as the gaps above list them, not a second-round batch's that the first round answered.
     const keys = new Set(stopped.filter((unit) => unit.phase === 'fixes').map((unit) => unit.key));
     const findings = new Set(allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).filter((id) => context.outcomes.get(id)?.last === 'not attempted')).size;
-    const parts = [...(keys.size === 0 ? [] : [findings === 0 ? 'some of the fixes' : counted(findings, 'finding', 'findings')]), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : [])];
+    const parts = [
+      ...(keys.size === 0 ? [] : [findings === 0 ? 'some of the fixes' : counted(findings, 'finding', 'findings')]),
+      ...(stopped.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []),
+      ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : []),
+    ];
     const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? 'was' : 'were';
-    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${parts.join(' and ')} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
+    const work = parts.length <= 2 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}`;
+    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${work} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
   }
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
   return gaps;

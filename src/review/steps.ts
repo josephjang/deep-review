@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
+import { budgetStoppedUnits, claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -21,6 +21,7 @@ import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, working
 import {
   blockerActions,
   continuedCheckUnavailableAction,
+  documentationUnitKey,
   finderAngles,
   isBudgetDegradingPhase,
   isCheckPhase,
@@ -95,6 +96,8 @@ export type Step =
   | { readonly kind: 'plan-verification'; readonly phase: VerificationPhase; readonly groups: readonly PlannedGroup[] }
   | { readonly kind: 'plan-fixes'; readonly plan: FixPlan }
   | { readonly kind: 'plan-second-round'; readonly plan: SecondRoundPlan }
+  /** Record the documentation step's items, which the controller computes, since it reads each `drift` line's path against the worktree (TD2, TD8 of the documentation step). */
+  | { readonly kind: 'plan-documentation' }
   /** The checks the run executes, and for a fix run going on without its survey the reason, recorded with them in one append. */
   | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV3[]; readonly without: string | null }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
@@ -137,7 +140,7 @@ export function secondRoundOf(review: ReviewState): SecondRoundPlan {
   return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize, claimsOfRound(fix, 1));
 }
 
-/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass; R5 of answers): what its workers are asked, in the order they are launched. */
+/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass; R5 of answers; R1 of the documentation step): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -162,7 +165,8 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     case 'fixes':
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'documentation':
-      return [];
+      // The step's one worker, once its items are recorded; before that, the planner plans it or finishes the phase.
+      return (review.fix?.documentation ?? null) === null ? [] : [{ phase, key: documentationUnitKey, role: 'documentation' }];
     case 'repair':
       return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
     case 'answer': {
@@ -484,7 +488,8 @@ const repairRevisedSince = (fix: FixState, kind: CheckKind): boolean => {
  * cut (R4), or is its first timeout in the current attempt (R7), each of
  * which it runs again (`runStanding`). A run is current when no later
  * revision made it old (TD3). The `checks` phase runs only when the fixes
- * changed the tree, `repair-checks` only when the repair changed it, a kind
+ * or the documentation step changed the tree (R9 of the documentation
+ * step), `repair-checks` only when the repair changed it, a kind
  * there only when it has no run or the repair changed the tree after its
  * last one (TD11, `repairRevisedSince`),
  * and `answer-checks` only when the current answer pass changed it, and
@@ -495,7 +500,7 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   const fix = review.fix;
   const planned = fix?.checks.planned ?? null;
   if (fix === null || planned === null) return null;
-  if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes')) return null;
+  if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes' || revision.phase === 'documentation')) return null;
   if (phase === 'repair-checks' && !fix.revisions.some((revision) => revision.phase === 'repair')) return null;
   if (phase === 'answer-checks') {
     const pass = currentPass(review);
@@ -574,17 +579,33 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
 }
 
 /**
+ * The documentation step before its plan (R1, TD12 of the documentation
+ * step): the phase finishes `degraded` with no unit while the run budget
+ * leaves a unit of the fixes not attempted, since a reopened fix pass
+ * launches that unit first and the step plans after it, as the second
+ * round does; else the step is planned when the fixes revised the tree,
+ * and the phase finishes `completed` with no unit when they revised
+ * nothing, since nothing of the run can have made a document stale.
+ */
+function documentationStep(fix: FixState, attempt: number): Step {
+  if (budgetStoppedUnits(fix).some((unit) => unit.phase === 'fixes')) return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'degraded', blocker: null };
+  if (fix.revisions.some((revision) => revision.phase === 'fixes')) return { kind: 'plan-documentation' };
+  return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'completed', blocker: null };
+}
+
+/**
  * The next step, in order of precedence: a blocked run returns its blocker;
  * a written report is complete; a phase that is not running starts; a
  * running phase is checked against the worktree once per attempt, and an
  * attempt with a drifted check (at its start, before an answer, or at its
  * end) blocks once no worker is in flight, unless a check a kill cut short
  * in an earlier attempt explains a drift at the start of a checks phase,
- * which is written back instead (R7 of resumable runs); then a verification phase or
- * the fixes are planned, the report is written, a checks phase runs its
- * checks one at a time, and units are degraded, blocked, launched or
- * awaited; an editing phase whose units have all settled is checked once
- * more, and the phase finishes when nothing is left.
+ * which is written back instead (R7 of resumable runs); then a
+ * verification phase, the fixes or the documentation step are planned,
+ * the report is written, a checks phase runs its checks one at a time,
+ * and units are degraded, blocked, launched or awaited; an editing phase
+ * whose units have all settled is checked once more, and the phase
+ * finishes when nothing is left.
  */
 export function nextStep(review: ReviewState, live: Live): Step {
   if (review.blocker !== null) return { kind: 'blocked', blocker: review.blocker };
@@ -613,6 +634,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
   if (phase === 'fixes' && live.claimsLost !== null) return live.running.size > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: claimsLostBlocker(live.claimsLost) };
   if ((phase === 'verification' || phase === 'sweep-verification') && review.plans[phase] === null) return { kind: 'plan-verification', phase, groups: groupsOf(review, phase) };
   if (phase === 'fixes' && review.fix !== null && review.fix.plan === null) return { kind: 'plan-fixes', plan: fixPlanOf(review) };
+  if (phase === 'documentation' && review.fix !== null && review.fix.documentation === null) return documentationStep(review.fix, attempt);
   if (phase === 'report') return { kind: 'write-report' };
   if (phase === 'survey') {
     const step = surveyStep(review, live, attempt);

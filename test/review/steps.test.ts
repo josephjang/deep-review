@@ -4,9 +4,9 @@ import { angleFailedV1, blockerSchema, groupUnverifiedV1, type ReviewLimits } fr
 import { foldRun } from '../../src/checkpoint/fold.ts';
 import type { ReviewState, UnitState } from '../../src/checkpoint/review-fold.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { budgetBlocker, driftBlocker, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
+import { budgetBlocker, driftBlocker, dueCheck, groupsOf, maxAttempts, nextStep, truncated, unitsOf, workerFailedBlocker, type Live, type Step, type Unit } from '../../src/review/steps.ts';
 import { finderAngles, phases, unitName, type Phase } from '../../src/review/vocabulary.ts';
-import { baselined, candidate, checkRun, configured, decidedOf, endCheck, type History, finding, fixAnswer, fixRevision, found, leads, mergeRanked, noSecondRound, ranked, ranking, reference, reported, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { baselined, candidate, checkRun, checksPhase, configured, decidedOf, documentationAnswer, documentationItems, endCheck, type History, finding, fixAnswer, fixPlan, fixRevision, found, launch, leads, mergeRanked, noSecondRound, withDocumentationStep, withFixPass, ranked, ranking, reference, reported, statistics, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
 
 /** What the budget check counted: `usd`, with `charged` workers at their caps and `lost` ones named. */
 const counted = (usd: number, charged = 0, lost = 0): { usd: number; charged: number; lost: number } => ({ usd, charged, lost });
@@ -647,3 +647,89 @@ function launchOf(n: number, label: string): Record<string, unknown> {
     schema: { sha256: 'b'.repeat(64), bytes: 1 },
   };
 }
+
+// R1, R8, R9 and TD12 of the documentation step.
+describe('the documentation step in the planner', () => {
+  const documentationUnit: Unit = { phase: 'documentation', key: 'documentation', role: 'documentation' };
+  /** A decided fix run with the step through its fixes: c1-1 answers with `drift` and revises src/a.ts unless `revised` is false. */
+  const throughFixes = (drift: readonly Record<string, unknown>[] = [{ file: './docs/a.md', what: 'parse throws on a null' }], revised = true): History => {
+    const history = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null)
+      .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), { drift }));
+    if (revised) history.add('tree.revised', fixRevision(worker(50)));
+    return history.add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+  };
+  /** The step started after `history` and its plan recorded. */
+  const planned = (history: History = throughFixes()): History => {
+    history.start('documentation');
+    return history.add('documentation.planned', { items: documentationItems(history) });
+  };
+  const failed = (history: History, n: number, fault = 'unit'): History => history.worker(n, 'documentation documentation:documentation').add('attempt.failed', { phase: 'documentation', key: 'documentation', workerId: worker(n), reason: 'the answer does not match the output schema', fault }, 8);
+
+  it('starts once the fixes and their second round have finished, plans the step, launches its one worker, checks the tree at its end, and leaves the checks to run after it', () => {
+    const fixes = throughFixes();
+    assert.deepEqual(nextStep(fixes.review(), idle), { kind: 'start-phase', phase: 'documentation', attempt: 1 });
+    const started = fixes.clone().start('documentation');
+    assert.deepEqual(unitsOf(started.review(), 'documentation'), [], 'no unit before the plan');
+    assert.deepEqual(nextStep(started.review(), idle), { kind: 'plan-documentation' });
+    const plan = planned();
+    assert.deepEqual(unitsOf(plan.review(), 'documentation'), [documentationUnit]);
+    assert.deepEqual(nextStep(plan.review(), idle), { kind: 'launch', units: [documentationUnit] });
+    assert.deepEqual(nextStep(plan.review(), live({ running: new Set([unitName('documentation', 'documentation')]) })), { kind: 'await' });
+    const answered = plan.clone().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), [['doc-1', 'already-applied'], ['search', 'already-applied']]), 3);
+    assert.deepEqual(nextStep(answered.review(), idle), { kind: 'check-worktree', phase: 'documentation', attempt: 1, moment: 'end' });
+    const ended = answered.add('worktree.checked', endCheck('documentation'), 7);
+    assert.deepEqual(nextStep(ended.review(), idle), { kind: 'finish-phase', phase: 'documentation', attempt: 1, outcome: 'completed', blocker: null });
+    assert.deepEqual(nextStep(ended.finish('documentation').review(), idle), { kind: 'start-phase', phase: 'checks', attempt: 1 });
+  });
+
+  it('plans once: a resumed engine that finds the plan recorded launches the worker again and plans nothing', () => {
+    const resumed = planned().add('phase.started', { phase: 'documentation', attempt: 2 }, 6).add('worktree.checked', { phase: 'documentation', attempt: 2, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 7);
+    assert.deepEqual(nextStep(resumed.review(), idle), { kind: 'launch', units: [documentationUnit] });
+  });
+
+  it('finishes with no unit and no plan when the fixes revised nothing, and the checks after it then run nothing', () => {
+    const unrevised = throughFixes([{ file: 'docs/a.md', what: 'stale' }], false).start('documentation');
+    assert.deepEqual(nextStep(unrevised.review(), idle), { kind: 'finish-phase', phase: 'documentation', attempt: 1, outcome: 'completed', blocker: null });
+    const checks = unrevised.finish('documentation').start('checks');
+    assert.equal(dueCheck(checks.review(), 'checks'), null);
+    assert.equal(checks.review().fix?.documentation, null);
+  });
+
+  it('finishes degraded with no plan while the run budget leaves a batch of the fixes, which a reopened fix pass launches first (TD12)', () => {
+    const stopped = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null)
+      .start('fixes').add('fixes.planned', fixPlan)
+      .add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent' })
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes', 'degraded')
+      .start('documentation');
+    assert.deepEqual(nextStep(stopped.review(), idle), { kind: 'finish-phase', phase: 'documentation', attempt: 1, outcome: 'degraded', blocker: null });
+  });
+
+  it('settles its unit as not attempted at the run budget, so the run goes on to the checks and its report (R8)', () => {
+    const plan = planned();
+    const step = nextStep(plan.review(), live(spent(31)));
+    assert.equal(step.kind, 'degrade');
+    assert.deepEqual(step.kind === 'degrade' ? step.degradations.map((degradation) => (degradation.kind === 'unit.unattempted' ? [degradation.kind, degradation.phase, degradation.cause] : [degradation.kind])) : [], [['unit.unattempted', 'documentation', 'budget']]);
+    const settled = plan.add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2);
+    assert.deepEqual(nextStep(settled.review(), live(spent(31))), { kind: 'check-worktree', phase: 'documentation', attempt: 1, moment: 'end' });
+    assert.deepEqual(nextStep(settled.add('worktree.checked', endCheck('documentation'), 7).review(), live(spent(31))), { kind: 'finish-phase', phase: 'documentation', attempt: 1, outcome: 'degraded', blocker: null });
+  });
+
+  it('degrades the step after two failures, and blocks on a worker lost with its engine among them', () => {
+    const twice = failed(failed(planned(), 56), 57);
+    const step = nextStep(twice.review(), idle);
+    assert.equal(step.kind, 'degrade');
+    assert.deepEqual(step.kind === 'degrade' ? step.degradations.map((degradation) => (degradation.kind === 'unit.unattempted' ? [degradation.phase, degradation.cause] : [degradation.kind])) : [], [['documentation', 'failures']]);
+    const lost = failed(planned(), 56).add('worker.launched', launch(worker(57), 'documentation documentation:documentation')).add('worker.lost', { workerId: worker(57), phase: 'documentation', key: 'documentation', reason: 'the engine exited while the worker ran' }, 6);
+    const blocked = nextStep(lost.review(), idle);
+    assert.equal(blocked.kind, 'finish-phase');
+    assert.equal(blocked.kind === 'finish-phase' ? blocked.blocker?.code : null, 'worker-failed');
+  });
+
+  it('runs the checks after the fixes when the documentation step alone revised the tree (R9)', () => {
+    const review = planned().review();
+    const fix = review.fix!;
+    const stepRevision = { ...fix.revisions[0]!, phase: 'documentation' as const, source: { kind: 'fix' as const, key: 'documentation', workerId: worker(55) }, change: { findings: ['doc-1'], message: { subject: 'docs: Bring a.md in line', body: '' } } };
+    assert.equal(dueCheck({ ...review, fix: { ...fix, revisions: [] } }, 'checks'), null);
+    assert.equal(dueCheck({ ...review, fix: { ...fix, revisions: [stepRevision] } }, 'checks')?.kind, 'build');
+  });
+});

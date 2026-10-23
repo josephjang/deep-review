@@ -53,8 +53,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       survey: 'completed', triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
       decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', documentation: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', answer: 'skipped', 'answer-checks': 'skipped', report: 'completed',
     });
-    // A run with the documentation step holds a version the step added only in its configuration and in the events that name the step (TD5 of the documentation step).
-    const added = new Set<string>(documentationStepEntries.filter((entry) => entry !== 'review.configured@7'));
+    // A run with the documentation step holds a version the step added only in its configuration, its plan, and the events that name the step (TD5 of the documentation step).
+    const added = new Set<string>(documentationStepEntries.filter((entry) => entry !== 'review.configured@7' && entry !== 'documentation.planned@1'));
     const unnamed = box.checkpoint.ledger.events(state.id).filter((event) => added.has(`${event.kind}@${String(event.version)}`) && !event.payload.includes('"documentation"'));
     assert.deepEqual(unnamed.map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(box.checkpoint.ledger.events(state.id).some((event) => event.kind === 'phase.started' && event.version === 6), 'the documentation phase started at version 6');
@@ -216,6 +216,57 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(text, /^### 2\. SCAN-2 not attempted\n\nNot attempted: the run budget was reached first: spent 5\.\d\d USD of the 1\.00 USD run budget/m);
     assert.match(text, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 1 not attempted, 0 left by decision, 0 asked, kept as is;/m);
     assert.equal(fix.checks.runs.checks.length > 0, true);
+  });
+
+  /** `reviewScript` with both fixers editing, c1-1's naming a stale document as `./docs/a.md`, and the documentation step's worker as `documentation` scripts it. */
+  const documentedScript = (documentation: Script[string]): Script => ({
+    ...reviewScript,
+    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }], [{ file: './docs/a.md', what: 'parse throws on a null text' }]) },
+    'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+    documentation,
+  });
+
+  it('runs the documentation step after every fixer with the document they named and the patch of each fix, records its answer and its revision, and runs the checks after it (R1, R2, R5, R9 of the documentation step)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script(documentedScript({ edits: [{ writes: { 'docs/a.md': 'parse returns 0 for a null text\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['docs/a.md'], subject: 'docs(a): Say parse returns 0 for a null' }, { status: 'already-applied' }]) }));
+    // One worker at a time, so c1's revision is recorded before c2's.
+    reportText(await box.fix('claude', { flags: { concurrency: 1 } }));
+    const state = box.run();
+    const fix = state.review!.fix!;
+    assert.deepEqual(state.review!.phases.documentation, { status: 'completed', attempt: 1 });
+    assert.deepEqual(fix.documentation?.items.map((item) => [item.id, item.file, item.path, item.drift.map((line) => line.key)]), [['doc-1', './docs/a.md', 'docs/a.md', ['c1-1']], ['search', null, null, []]]);
+    assert.deepEqual(fix.answers.documentation.documentation?.findings.map((finding) => [finding.id, finding.status, finding.files]), [['doc-1', 'applied', ['docs/a.md']], ['search', 'already-applied', []]]);
+    assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['fixes', ['SCAN-2']], ['documentation', ['doc-1']]]);
+    assert.equal(readFileSync(join(box.repo, 'docs', 'a.md'), 'utf8'), 'parse returns 0 for a null text\n');
+    // The checks after the fixes ran after the step, on the tree it left (R9).
+    assert.ok(fix.checks.runs.checks.length > 0 && fix.checks.runs.checks.every((run) => run.revisionsBefore === 3), JSON.stringify(fix.checks.runs.checks.map((run) => run.revisionsBefore)));
+    const events = box.checkpoint.ledger.events(state.id);
+    assert.deepEqual(events.filter((event) => event.kind === 'documentation.planned').length, 1);
+    assert.deepEqual(events.filter((event) => (event.kind === 'fix.recorded' || event.kind === 'tree.revised') && event.payload.includes('"documentation"')).map((event) => event.version), [3, 3]);
+    // The task named the patch of each revision of the fixes, put in the store before the launch, each holding its own revision's edits alone (R2).
+    const launched = Object.values(state.workers).find((worker) => worker.launch.label === 'documentation documentation:documentation')!;
+    const prompt = box.checkpoint.evidence.read(launched.launch.prompt).toString('utf8');
+    const patches = [...prompt.matchAll(/^- (\S+) \((fix\([ab]\): [^\n]+)\)$/gm)].map((match) => [match[1]!, match[2]!] as const);
+    assert.deepEqual(patches.map(([, subject]) => subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse']);
+    const [first, second] = patches.map(([path]) => readFileSync(path, 'utf8'));
+    assert.match(first!, /^diff --git a\/src\/a\.ts b\/src\/a\.ts$/m);
+    assert.doesNotMatch(first!, /src\/b\.ts|docs\/a\.md/);
+    assert.match(second!, /^diff --git a\/src\/b\.ts b\/src\/b\.ts$/m);
+    assert.doesNotMatch(second!, /src\/a\.ts|docs\/a\.md/);
+    assert.match(prompt, /^\[0\] doc-1: \.\/docs\/a\.md, the repository path docs\/a\.md\n {4}c1-1: parse throws on a null text$/m);
+  });
+
+  it('plans the documentation step once: a run resumed after its worker met the usage limit launches the worker again with the recorded plan', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const limit = 'You\'ve hit your session limit · resets 12:10pm (Asia/Seoul)';
+    box.script(documentedScript([{ limit, exit: 1 }, { output: fixerAnswer([{ status: 'already-applied' }, { status: 'already-applied' }]) }]));
+    const blocked = await box.fix('claude');
+    assert.equal(blocked.kind === 'blocked' ? blocked.blocker.phase : null, 'documentation', JSON.stringify(blocked));
+    reportText(await box.fix('claude'));
+    const state = box.run();
+    assert.equal(box.checkpoint.ledger.events(state.id).filter((event) => event.kind === 'documentation.planned').length, 1, 'the plan stands');
+    assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'documentation documentation:documentation').length, 2);
+    assert.deepEqual(state.review!.phases.documentation, { status: 'completed', attempt: 2 });
   });
 
   it('blocks at once when a fixer meets the provider\'s usage limit, keeping its edits and degrading nothing, and the same command after the reset finishes the run (R14 of resumable runs)', async (t) => {
@@ -819,16 +870,18 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     const box = ReviewSandbox.forTest(t);
     box.script({ ...reviewScript, 'fixer:fixes:c1-1': { edits: [{ claims: ['docs/a.md'], expectClaim: 'claimed', writes: { 'src/a.ts': fixedA, 'docs/a.md': 'a\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['docs/a.md', 'src/a.ts'] }]) } });
     const recordFile = join(box.directory, 'codex-record.json');
-    reportText(await box.fix('codex', {}, { FAKE_RECORD: recordFile }));
+    // On Linux, as on every host, so the sandbox of an editor is the one that names its writable roots.
+    // The fixer's own launch is recorded, since the documentation step's worker launches after it.
+    reportText(await box.fix('codex', { platform: 'linux' }, { FAKE_RECORD: recordFile, FAKE_RECORD_ROLE: 'fixer' }));
     const state = box.run();
     assert.equal(state.review!.configuration.runBudgetUsd, null);
     assert.equal(state.review!.fix!.revisions.length, 1);
     assert.equal(state.review!.report!.patches.length, 1);
     assert.deepEqual(state.review!.fix!.claims.map((claim) => claim.path), ['docs/a.md']);
-    // The last worker recorded is a fixer, whose sandbox may write its scratch and the round's claims directory.
+    // The fixer's sandbox may write its scratch and the round's claims directory.
     const argv = (JSON.parse(readFileSync(recordFile, 'utf8')) as { argv: string[] }).argv;
     const roots = argv.find((arg) => arg.startsWith('sandbox_workspace_write.writable_roots='));
-    if (process.platform !== 'win32' || roots !== undefined) assert.ok(roots?.includes(JSON.stringify(box.claimsDirectory())), String(roots));
+    assert.ok(roots?.includes(JSON.stringify(box.claimsDirectory())), String(roots));
   });
 
   it('runs the checks the surveyor chose from package.json, a hinted one and stated ones, with a --no-check over the survey, and pins them on the run (R4, R5, R11 of the repository survey)', async (t) => {
@@ -948,7 +1001,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     box.checkpoint.append(older.id, captureScope(box.checkpoint, older.id, { paths: [] }).lastSequence, [{ kind: 'review.configured', version: 6, payload: pinned }]);
     box.script({
       ...reviewScript,
-      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: { ...(fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) as Record<string, unknown>), drift: [{ file: 'docs/a.md', what: 'parse throws on a null text' }] } },
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }], [{ file: 'docs/a.md', what: 'parse throws on a null text' }]) },
       'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
     });
     reportText(await box.fix('claude'));

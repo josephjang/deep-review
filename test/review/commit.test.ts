@@ -64,6 +64,37 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(git(box.repo, 'status', '--porcelain'), '');
   });
 
+  /** `twoFixes` with c1's fixer naming two stale documents, and the documentation step's worker as `step` scripts it. */
+  const documented = (step: Script[string]): Script => ({
+    ...twoFixes,
+    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA, 'test/a.test.ts': 'test a\n' } }], output: fixerAnswer([{ files: ['src/a.ts', 'test/a.test.ts'], subject: 'fix(a): Return 0 for a null text' }], [{ file: './README.md', what: 'parse throws on a null text' }, { file: 'docs/b.md', what: 'b calls parse with no import' }]) },
+    documentation: step,
+  });
+
+  it('commits the documentation step\'s revisions after every fix\'s, each trailer naming its documents by their paths, the search\'s too (R5 of the documentation step)', async (t) => {
+    const box = await fixedBox(t, documented({
+      // No snapshot after the first document, so its edit is carried into the second's revision, which names both.
+      edits: [{ writes: { 'README.md': 'parse returns 0 for a null text\n', 'docs/b.md': 'b imports parse\n' }, snapshot: 1 }, { writes: { 'CHANGES.md': 'parse returns 0 for a null text\n' } }],
+      output: fixerAnswer([{ files: ['README.md'], subject: 'docs: Say parse returns 0 for a null' }, { files: ['docs/b.md'], subject: 'docs(b): Say b imports parse' }, { files: ['CHANGES.md'], subject: 'docs: Note the null in the changes' }]),
+    }));
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse', 'docs: Apply doc-1, doc-2', 'docs: Note the null in the changes']);
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[2]!.sha), /\n\nDeep-review: run [0-9a-f-]+, documentation of README\.md, documentation of docs\/b\.md$/);
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[3]!.sha), /^docs: Note the null in the changes\n\nWhy finding 2 changed\.\n\nDeep-review: run [0-9a-f-]+, documentation that the search found$/);
+    assert.deepEqual(git(box.repo, 'diff-tree', '--no-commit-id', '--name-only', '-r', outcome.commits[2]!.sha).split('\n'), ['README.md', 'docs/b.md']);
+    assert.equal(git(box.repo, 'status', '--porcelain'), '');
+  });
+
+  it('commits what an unfinished attempt of the documentation step left, naming the step, with the message its retry gave', async (t) => {
+    const box = await fixedBox(t, documented([
+      { edits: [{ writes: { 'README.md': 'parse returns 0 for a null text\n' }, snapshot: 0 }], exit: 3 },
+      { output: fixerAnswer([{ status: 'already-applied', files: ['README.md'], subject: 'docs: Say parse returns 0 for a null' }, { status: 'already-applied' }, { status: 'already-applied' }]) },
+    ]));
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse', 'docs: Say parse returns 0 for a null']);
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[2]!.sha), /\n\nDeep-review: run [0-9a-f-]+, documentation of README\.md, from an unfinished attempt of the documentation step$/);
+  });
+
   it('commits an answer pass\'s revisions as a later series from the last commit it made, without the change again (R6, R8 of answers)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');

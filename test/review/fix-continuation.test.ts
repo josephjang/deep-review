@@ -68,7 +68,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     const state = box.run();
     const review = state.review!;
     assert.equal(state.id, before.id, 'the same run, continued');
-    assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1', 'surveyor survey:survey'], 'no worker of a read-only phase ran again');
+    assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['documentation documentation:documentation', 'fixer fixes:c1-1', 'fixer fixes:c2-1', 'surveyor survey:survey'], 'no worker of a read-only phase ran again, and the documentation step ran after the fixes');
     // The log names the run, its read-only report and its spend against the budget in force (R2, PD7), and the models flag as ignored (R3).
     logLine(box, new RegExp(`^run ${before.id}: continued into the fix pass; its read-only report is ${RegExp.escape(firstPath)}; spent \\d+\\.\\d\\d USD of the \\d+\\.\\d\\d USD run budget$`));
     logLine(box, /; --strong-model is ignored$/);
@@ -111,7 +111,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     box.logs.length = 0;
     reportText(await box.fix('claude'));
     const state = box.run();
-    assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['fixer fixes:c1-1', 'fixer fixes:c2-1']);
+    assert.deepEqual(addedLabels(labelsOf(before), labelsOf(state)), ['documentation documentation:documentation', 'fixer fixes:c1-1', 'fixer fixes:c2-1']);
     assert.deepEqual(state.review!.phases.survey, { status: 'completed', attempt: 1 });
     assert.ok(state.review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag'));
     logLine(box, new RegExp(`^run ${state.id}: check build: ${RegExp.escape(fakeCheckCommand('build'))} \\(flag\\)$`));

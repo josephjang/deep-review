@@ -12,6 +12,7 @@ import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
+import { stoppedUnitWords } from '../../src/review/report.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { describeRun, rolesPlaceholder } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -45,7 +46,7 @@ const budgetScript: Script = {
  * budget, and whose end logged, reported and gave `status` the command
  * that continues it (R15 of resumable runs).
  */
-async function stoppedRun(t: TestContext, script: Script = budgetScript, units: readonly { phase: 'fixes' | 'repair'; key: string }[] = [{ phase: 'fixes', key: 'c1-2' }], prepare: (box: ReviewSandbox) => void = () => {}): Promise<{ box: ReviewSandbox; stopped: RunState; text: string }> {
+async function stoppedRun(t: TestContext, script: Script = budgetScript, units: readonly { phase: 'fixes' | 'documentation' | 'repair'; key: string }[] = [{ phase: 'fixes', key: 'c1-2' }], prepare: (box: ReviewSandbox) => void = () => {}): Promise<{ box: ReviewSandbox; stopped: RunState; text: string }> {
   const box = ReviewSandbox.forTest(t, script);
   box.editPolicy((policy) => ({ ...policy, fixes: { batchSize: 1 } }));
   prepare(box);
@@ -57,8 +58,7 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   assert.ok(sameDirectory(stopped.worktree, box.repo));
   const command = `node "${cliEntry}" review --repo "${stopped.worktree}" --runtime claude --last-commit --fix --budget-usd ${String(Math.floor(spend) + 1)} --roles "${box.rolesRoot}"`;
   assert.ok(box.logs.includes(`run ${stopped.id}: the run budget stopped its fix pass; ${command} continues it`), box.logs.join('\n'));
-  const batches = units.filter((unit) => unit.phase === 'fixes').length;
-  const left = [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
+  const left = stoppedUnitWords(units);
   // The facts of the run name the command, and the brief says that they do (R10, R15 of the brief of a run).
   assert.ok(text.includes(`\nThe run budget stopped the fix pass: ${left} did not start. \`${command}\` continues it and reviews nothing again.\n`), text);
   assert.ok(text.indexOf(command) > text.indexOf('\n## The run\n'), 'only the facts of the run name the command, which holds local paths');
@@ -84,6 +84,42 @@ const refusedAtBudget = (runId: string) => (error: unknown): boolean =>
   error instanceof ReviewRefusedError && new RegExp(`^run ${runId} stopped its fix pass at the run budget: spent (\\d+\\.\\d\\d) USD of the 1\\.00 USD run budget[^;]*; run the command again with --budget-usd above \\1 to continue it, or with --fresh to review the change again in a new run$`).test(error.message);
 
 describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
+  // TD12 of the documentation step.
+  it('plans the documentation step after the batches a reopening gives back, with the drift lines of the whole fix pass', async (t) => {
+    const script: Script = {
+      ...budgetScript,
+      'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }], [{ file: 'docs/a.md', what: 'parse throws on a null text' }]) },
+      'fixer:fixes:c1-2': { edits: [{ writes: { 'src/a.ts': secondA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Pass a text to parse' }], [{ file: './docs/a.md', what: 'other passes null to parse' }]) },
+    };
+    const { box, stopped } = await stoppedRun(t, script);
+    assert.deepEqual(stopped.review!.phases.documentation, { status: 'degraded', attempt: 1 }, 'the step waits for the batch the budget left');
+    assert.equal(stopped.review!.fix!.documentation, null);
+    reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    const state = box.checkpoint.fold(stopped.id);
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'documentation documentation:documentation']);
+    assert.deepEqual(state.review!.fix!.documentation?.items.map((item) => [item.id, item.path, item.drift.map((line) => `${line.key}: ${line.what}`)]), [['doc-1', 'docs/a.md', ['c1-1: parse throws on a null text', 'c1-2: other passes null to parse']], ['search', null, []]]);
+    assert.deepEqual(state.review!.phases.documentation, { status: 'completed', attempt: 2 });
+  });
+
+  it('reopens the documentation step alone when the run budget stopped it, and runs it with the plan it recorded (R8 of the documentation step)', async (t) => {
+    // One batch of both findings spends past the budget, so the fixes finish and the step is planned, and the budget stops its worker.
+    const script: Script = {
+      ...budgetScript,
+      'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': secondA }, snapshot: 1 }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }, { status: 'already-applied' }], [{ file: 'docs/a.md', what: 'parse throws on a null text' }]) },
+    };
+    const { box, stopped } = await stoppedRun(t, script, [{ phase: 'documentation', key: 'documentation' }], (sandbox) => sandbox.editPolicy((policy) => ({ ...policy, fixes: { batchSize: 4 } })));
+    assert.deepEqual(stopped.review!.fix!.documentation?.items.map((item) => item.id), ['doc-1', 'search']);
+    const { checkpoint, appends } = recording(box);
+    reportText(await box.fix('claude', { flags: { budgetUsd: 100 }, checkpoint }));
+    assert.deepEqual(appends[0], ['fix.reopened', 'limits.changed']);
+    const state = box.checkpoint.fold(stopped.id);
+    assert.deepEqual(box.checkpoint.ledger.events(stopped.id).filter((event) => event.kind === 'fix.reopened').map((event) => event.version), [2], 'only version 2 lists the step');
+    assert.deepEqual(launchedSince(stopped, state), ['documentation documentation:documentation'], 'no batch of the fixes launches again');
+    assert.equal(box.checkpoint.ledger.events(stopped.id).filter((event) => event.kind === 'documentation.planned').length, 1, 'the plan stands');
+    assert.deepEqual(state.review!.phases.documentation, { status: 'completed', attempt: 2 });
+    assert.deepEqual(budgetStoppedUnits(state.review!.fix!), []);
+  });
+
   it('is reopened by the same command with a higher budget, in one append with the limits, which launches only the batch the budget left and writes a new report (R11 of resumable runs)', async (t) => {
     const { box, stopped } = await stoppedRun(t);
     const { checkpoint, appends } = recording(box);
@@ -91,7 +127,8 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.deepEqual(appends[0], ['fix.reopened', 'limits.changed'], 'the reopen and its limits are one append (TD8)');
     assert.equal(box.checkpoint.foldRuns().length, 1, 'no run is created');
     const state = box.checkpoint.fold(stopped.id);
-    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2'], 'no read-only worker and no settled unit launches');
+    // The documentation step plans after the batch the reopening gives back (TD12 of the documentation step).
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'documentation documentation:documentation'], 'no read-only worker and no settled unit launches');
     assert.deepEqual(Object.keys(state.review!.fix!.answers.fixes).sort(), ['c1-1', 'c1-2']);
     assert.deepEqual(budgetStoppedUnits(state.review!.fix!), []);
     assert.deepEqual(state.review!.fix!.reopenings.map((reopening) => reopening.units), [[{ phase: 'fixes', key: 'c1-2' }]]);
@@ -170,7 +207,7 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.deepEqual(appends[0], ['commits.created', 'fix.reopened', 'limits.changed']);
     const state = box.checkpoint.fold(stopped.id);
     assert.deepEqual(state.review!.fix!.commits, [open]);
-    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2']);
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'documentation documentation:documentation']);
     // The reopened batch's revision is committed as a later series, from the head the first one made.
     const later = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
     assert.equal(git(box.repo, 'rev-parse', `${later.commits[0]!.sha}^`), open.to);
@@ -208,7 +245,7 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     assert.ok(box.logs.includes(`run ${stopped.id}: resuming`), box.logs.join('\n'));
     const state = box.checkpoint.fold(stopped.id);
     assert.equal(state.review!.fix!.reopenings.length, 1, 'this engine reopened nothing more');
-    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2']);
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'documentation documentation:documentation']);
   });
 
   it('is held at its pinned budget again by a resume with no --budget-usd, which leaves the batch not attempted and completes (R11 of resumable runs)', async (t) => {
@@ -269,7 +306,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     const twice = box.checkpoint.fold(stopped.id);
     assert.deepEqual(twice.review!.fix!.reopenings.map((reopening) => reopening.units.map((unit) => unit.key)), [['c1-2', 'c1-3'], ['c1-3']]);
     assert.deepEqual(budgetStoppedUnits(twice.review!.fix!), []);
-    assert.deepEqual(launchedSince(stopped, twice), ['fixer fixes:c1-2', 'fixer fixes:c1-3']);
+    assert.deepEqual(launchedSince(stopped, twice), ['fixer fixes:c1-2', 'fixer fixes:c1-3', 'documentation documentation:documentation'], 'the step waits for both reopenings');
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), thirdA);
     const last = twice.review!.fix!.reopenings.at(-1)!;
     assert.match(readFileSync(box.checkpoint.evidence.pathOf(twice.review!.report!.report), 'utf8'), new RegExp(`^Reopened: the fix pass past the run budget 2 times, the last on ${last.at.replaceAll('.', '\\.')}, after the report artifacts/[0-9a-f]{64}$`, 'm'));
@@ -309,7 +346,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.deepEqual(stopped.review!.fix!.secondRound?.batches.map((batch) => batch.key), ['c3-1', 'c3-2', 'c3-3']);
     reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
     const state = box.checkpoint.fold(stopped.id);
-    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c3-1', 'fixer fixes:c3-2', 'fixer fixes:c3-3', 'fixer repair:repair']);
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c3-1', 'fixer fixes:c3-2', 'fixer fixes:c3-3', 'documentation documentation:documentation', 'fixer repair:repair']);
     assert.deepEqual(budgetStoppedUnits(state.review!.fix!), []);
     const runs = state.review!.fix!.checks.runs;
     assert.deepEqual(runs.checks.filter((run) => run.kind === 'test').map((run) => run.outcome), ['failed', 'failed'], 'the checks ran again on the reopened fixes');
@@ -354,7 +391,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
     const state = box.checkpoint.fold(stopped.id);
     assert.deepEqual(state.review!.fix!.secondRound?.batches.map((batch) => batch.key), ['c3-1'], 'planned from the whole first round');
-    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'fixer fixes:c3-1']);
+    assert.deepEqual(launchedSince(stopped, state), ['fixer fixes:c1-2', 'fixer fixes:c3-1', 'documentation documentation:documentation']);
     assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(state.review!.report!.report), 'utf8'), /Second round not planned/);
   });
 
