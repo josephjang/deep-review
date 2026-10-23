@@ -139,7 +139,7 @@ describe('golden checkpoints', () => {
           if (!('workers' in recorded)) assert.deepEqual(actual.workers, {}, `${name} run ${String(index)} workers`);
           // A run recorded before reviews existed has no review (R10 of the read-only review).
           if (!('review' in recorded)) assert.equal(actual.review, null, `${name} run ${String(index)} review`);
-          // A review recorded before the fix pass existed reads as one without it: no fix state, and its five phases skipped (TD9 of the fix pass).
+          // A review recorded before the fix pass existed reads as one without it: no fix state, and each phase of the fix pass skipped (TD9 of the fix pass).
           const review = runs[index]!.review;
           if (review !== null && !('fix' in ((recorded as { review?: object | null }).review ?? {}))) {
             assert.equal(review.fix, null, `${name} run ${String(index)} fix`);

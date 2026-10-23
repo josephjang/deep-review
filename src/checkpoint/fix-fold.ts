@@ -484,7 +484,7 @@ const documentationPlanned: Reducer<DocumentationPlanned> = (state, payload, eve
  * survey, which can then record no answer. The configuration reads as a
  * fix run's with the pinned timeout and batch size, the recorded
  * `review.configured` unchanged; the fix state starts empty, with the
- * pin's checks planned when it carries them; the five fix phases are
+ * pin's checks planned when it carries them; the fix phases are
  * pending; the report phase is pending at its attempt, so its next start
  * is the next attempt, and the first report is kept beside the state with
  * the count of worktree checks so far, so the continuation's first check

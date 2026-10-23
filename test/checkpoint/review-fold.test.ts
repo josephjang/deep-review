@@ -10,7 +10,7 @@ describe('the review fold', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
-    // Version 1 of the configuration reads as a run without the fix pass, whose five phases are skipped, without the survey and the decision step, which did not exist yet, and, as every run, with the answer pass's two phases skipped.
+    // Version 1 of the configuration reads as a run without the fix pass, whose six phases are skipped, without the survey and the decision step, which did not exist yet, and, as every run, with the answer pass's two phases skipped.
     assert.deepEqual(review.configuration, configuration);
     assert.equal(review.configuration.fix, false);
     assert.equal(review.fix, null);

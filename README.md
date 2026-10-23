@@ -152,8 +152,9 @@ that the engine's narration of a review is not its task. The read-only
 review then rewrote the four fragments that narrate the phases for the
 engine's workers, in a commit of its own, and the `angle-decision` role
 left the manifest. Which model tier, effort, budget and timeout a role
-runs with is declared in `roles/policy.json` for the seventeen roles a
-review runs, the surveyor, the decider and the fixer among them; what each must
+runs with is declared in `roles/policy.json` for the eighteen roles a
+review runs, the surveyor, the decider, the fixer and the documentation
+step's worker among them; what each must
 return is the output schema of the phase that runs it. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
 `roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
@@ -210,6 +211,7 @@ of its moment. The report starts with the brief of the run: what the
 change does and why, as the triage read it from the change's own words;
 the questions only a person can answer, each with the option in place
 now and deep-review's choice; the fixes that go against a written rule;
+the documents the edits of a fix run left out of date;
 what the run did not cover; where a person must look; and what
 deep-review changed. The evidence follows: the change in full,
 Decisions, Findings (most severe first, each with its anchor, the
@@ -219,8 +221,9 @@ Angles, Conventions, Refuted at verification, Statistics per phase and
 the notes of the run. The facts of the run come last: its repository,
 commits, engine, runtime, models and settings, the one section that
 names a local path. The command prints the short form of the brief,
-seven lines that each name their subject first, then the copy's path as
-the last line of stdout, and exits 0. `deep-review report` shows the
+seven lines that each name their subject first, and in a fix run an
+eighth that counts the documents it left out of date, then the copy's
+path as the last line of stdout, and exits 0. `deep-review report` shows the
 brief of a finished run again, or as JSON with `--json`. See
 `docs/changes/2026-10-20-run-brief.requirements.md` and its design.
 A finding's location is matched to a file of the
@@ -285,9 +288,9 @@ the phase as skipped and reads as it did. See
 
 ## The fix pass
 
-`deep-review review --fix` runs five more phases between the decision
-and the report: baseline checks, fixes, checks, repair and repair
-checks. A run without `--fix` records them as skipped and is the
+`deep-review review --fix` runs six more phases between the decision
+and the report: baseline checks, fixes, documentation, checks, repair
+and repair checks. A run without `--fix` records them as skipped and is the
 read-only review exactly. Whether a run fixes is pinned when it is
 configured, and which checks it runs when its survey completes; a
 resumed run keeps both and says when the command asks otherwise.
@@ -301,7 +304,7 @@ holding what the run froze, compared as git would store it, and `HEAD`
 at its head. The run
 pins the fix pass, asks its surveyor only for the checks the flags leave
 unsettled, the convention sources its review recorded standing, runs the
-five phases on the findings and decisions it holds, and writes a second
+six phases on the findings and decisions it holds, and writes a second
 report whose header names the first. No finder, verifier or decider
 runs again, and the run budget is the run's over both passes. A run
 whose decisions send no finding to a fixer is refused, and so is one
@@ -357,6 +360,44 @@ run seeds the claims directory again from the ledger. A claims
 directory removed while fixers run stops the run with `claims-lost`:
 the units then running are recorded as failed attempts with their edits
 kept, and the next run retries them.
+
+A fixer brings in line a document its own edit made stale in the same
+finding, claiming the file first, so a fix and its documentation are
+one commit. When the claim is refused the finding is not blocked: the
+fixer reports the stale fact as `drift`, a file and what is stale. Once
+every unit of the fixes has settled, the second round too, the
+documentation step runs one `documentation` worker, when the fixes
+changed a file and the run budget stopped none of them. The engine first
+records its plan: one item per document the `drift` lines name, its path
+read as the engine reads any path a worker reports, and one more for the
+worker's own search of the repository for documentation the edits of
+the run made stale. The worker gets the lines, the patch of each
+revision of the fixes, the decisions and the answers. It owns the files
+the fixes revised and each named document, may edit any other file an
+item needs, and answers each item once: brought in line, already
+correct, or left with a reason, such as a choice nothing settled, a
+convention source, a historical record or a path `scope.exclude` keeps
+out. Each item it edited becomes one revision and one commit. A path the
+engine refuses, such as one outside the repository, stays an item the
+worker can only leave. The step never blocks the run: when its worker
+fails twice or the budget is reached first it is not attempted, and the
+run goes on to the checks, which run after it and so check its edits;
+the repair owns its files as it owns those of the fixes. The repair and
+the fixer of an answer pass are alone in the tree, so they update a
+document their own edits make stale with no claim, and the task of an
+answer pass lists the documents the run left out of date. A run
+configured by an engine before the step never gets it, also when a newer
+engine continues it.
+
+The brief counts in its headline each document the run knows its edits
+made stale and did not bring in line: one the step left or found out of
+date at its end, every `drift` line of the fixes when the step did not
+run, and one the repair or an answer pass reported after it. A part of
+the brief lists each with its file, what is stale and why it was left,
+and the count of one ends when a later answer pass edits its file and
+reports it stale no more. See
+`docs/changes/2026-10-23-documentation-step.requirements.md` and its
+design.
 
 The engine never writes the reviewed tree during a run. It records the
 bytes every worker or check left in the files it changed as a revision,
@@ -443,7 +484,7 @@ warning. Each value needs and gives up something:
 The engine sets up neither the machine nor its package stores. See
 `docs/changes/2026-10-04-codex-sandbox.requirements.md`.
 
-The report gains Fixes, Checks and Changed files, and beside it the
+The report gains Fixes, Documentation, Checks and Changed files, and beside it the
 engine writes a patch series, one patch per revision, rendered from the
 frozen bytes, as git would store them, so it holds none of the user's
 own uncommitted change;
