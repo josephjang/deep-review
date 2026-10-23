@@ -476,15 +476,19 @@ describe('the documentation step\'s task', () => {
     assert.match(task(review), /^ {4}decided: ask the author "Should parse accept an empty input\?", still open; the option in place: "reject it with an error"$/m);
     const answered: ReviewState = { ...review, answers: [{ id: 'RIPPLE-1', answer: { kind: 'option', option: 1 }, note: null, at: '2026-10-23T00:00:00.000Z', appliedBy: { phase: 'fixes', key: 'c1-1' } }] };
     assert.match(task(answered), /^ {4}decided: ask the author "Should parse accept an empty input\?"; answered by the author: option 2, "accept it and return an empty result"$/m);
+    // An answer no fix has applied yet, which a later answer pass owes: the tree does not hold it, and the step documents the tree (R4 of the documentation step).
+    const owed: ReviewState = { ...review, answers: [{ ...answered.answers[0]!, appliedBy: null }] };
+    assert.match(task(owed), /^ {4}decided: ask the author "Should parse accept an empty input\?"; answered by the author: option 2, "accept it and return an empty result", which no fix of the run has applied yet, so the tree does not hold it yet$/m);
   });
 
   it('words a fix with the rule it departs from, which it amends, and the author\'s word on the departure', () => {
     const departing = { ...decisions[0], departure: { rule: 'parse throws on a null', source: 'docs/parse.md', reason: 'every caller passes the null' } };
     const review = planned([departing, decisions[1]]).review();
     assert.match(task(review), /^ {4}decided: fix: guard the null once, before parse reads it, departing from the rule "parse throws on a null" \(docs\/parse\.md\), which the fix amends$/m);
-    const word = (kind: 'accept' | 'reject'): string => task({ ...review, answers: [{ id: 'RIPPLE-1', answer: { kind }, note: null, at: '2026-10-23T00:00:00.000Z', appliedBy: null }] });
-    assert.match(word('accept'), /which the fix amends; the author accepted the departure$/m);
+    const word = (kind: 'accept' | 'reject', appliedBy: ReviewState['answers'][number]['appliedBy'] = { phase: 'fixes', key: 'c1-1' }): string => task({ ...review, answers: [{ id: 'RIPPLE-1', answer: { kind }, note: null, at: '2026-10-23T00:00:00.000Z', appliedBy }] });
+    assert.match(word('accept', 'tree'), /which the fix amends; the author accepted the departure$/m);
     assert.match(word('reject'), /which the fix amends; the author rejected the departure, so the rule stands as its source states it$/m);
+    assert.match(word('reject', null), /which the fix amends; the author rejected the departure, which no fix of the run has applied yet, so the tree does not hold it yet$/m);
   });
 
   it('refuses a step with no plan, no patches or the wrong count of them', () => {

@@ -393,23 +393,29 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
  * documentation step reads it (R4 of the documentation step): a fix with
  * its approach and the rule it departs from, which it amends, and the
  * author's word on that departure; an ask with its question, and the
- * author's answer or the option in place while it is open. Null for a
+ * author's answer or the option in place while it is open. An answer no
+ * fix has applied yet says so, since the tree does not hold it. Null for a
  * finding with no decision, in a run configured before the decision step.
  */
 function decidedWords(review: ReviewState, id: string): string | null {
   const decision = review.decisions?.find((candidate) => candidate.id === id) ?? null;
   if (decision === null) return null;
-  const answer = standingAnswer(review, id)?.answer ?? null;
+  const standing = standingAnswer(review, id);
+  const answer = standing?.answer ?? null;
+  // An answer that still owes an edit, which a later answer pass applies: the tree does not hold it yet, and the step documents the tree (R4 of the documentation step).
+  const owed = standing?.appliedBy === null;
+  const unapplied = ', which no fix of the run has applied yet, so the tree does not hold it yet';
   switch (decision.decision) {
     case 'fix': {
       const { departure } = decision;
       const departs = departure === null ? '' : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
-      const word = answer?.kind === 'accept' ? '; the author accepted the departure' : answer?.kind === 'reject' ? '; the author rejected the departure, so the rule stands as its source states it' : '';
+      const rejected = owed ? unapplied : ', so the rule stands as its source states it';
+      const word = answer?.kind === 'accept' ? '; the author accepted the departure' : answer?.kind === 'reject' ? `; the author rejected the departure${rejected}` : '';
       return `decided: fix: ${decision.fix.approach}${departs}${word}`;
     }
     case 'ask': {
       const { ask } = decision;
-      if (answer?.kind === 'option') return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer.option + 1)}, "${ask.options[answer.option]?.option ?? 'an option the decision does not offer'}"`;
+      if (answer?.kind === 'option') return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer.option + 1)}, "${ask.options[answer.option]?.option ?? 'an option the decision does not offer'}"${owed ? unapplied : ''}`;
       return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
     }
     case 'leave':
