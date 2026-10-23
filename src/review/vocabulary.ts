@@ -62,11 +62,13 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 /**
  * The phases of a review, in the order they run (R2 of the read-only
  * review, R1 of the fix pass, R1 of the repository survey, R1 of the
- * decision step, R9 of answers): the survey, which a run configured
- * before it existed records as skipped, the read-only phases, the
- * decision, which a run configured before it existed records as skipped
- * and every later run runs, `--fix` or not, then the five of the fix pass,
- * which a run without `--fix` records as skipped, then the two of the
+ * decision step, R9 of answers, R1 of the documentation step): the
+ * survey, which a run configured before it existed records as skipped,
+ * the read-only phases, the decision, which a run configured before it
+ * existed records as skipped and every later run runs, `--fix` or not,
+ * then the six of the fix pass, which a run without `--fix` records as
+ * skipped, with the documentation step after the fixes, which a run
+ * configured before it existed records as skipped too, then the two of the
  * answer pass, which every run records as skipped and only an
  * `answer.pass` opens, then `report`, a phase with no worker that is
  * started so the worktree check before the report has a phase to block,
@@ -76,15 +78,15 @@ export const phases = [
   'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
   'decision',
-  'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks',
+  'baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks',
   'answer', 'answer-checks',
   'report',
 ] as const;
 export const phaseSchema = z.enum(phases);
 export type Phase = z.infer<typeof phaseSchema>;
 
-/** The five phases of the fix pass, in the order they run; a run without `--fix` skips them. */
-export const fixPhases = ['baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks'] as const;
+/** The six phases of the fix pass, in the order they run; a run without `--fix` skips them, and a run configured before the documentation step its `documentation`. */
+export const fixPhases = ['baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks'] as const;
 export type FixPhase = (typeof fixPhases)[number];
 
 /**
@@ -102,8 +104,8 @@ export const checkPhases = ['baseline-checks', 'checks', 'repair-checks', 'answe
 export const checkPhaseSchema = z.enum(checkPhases);
 export type CheckPhase = z.infer<typeof checkPhaseSchema>;
 
-/** The phases whose workers edit the tree: one fixer per batch of a cluster's findings, then the one repair worker, then an answer pass's one fixer. */
-export const editingPhases = ['fixes', 'repair', 'answer'] as const;
+/** The phases whose workers edit the tree: one fixer per batch of a cluster's findings, then the one documentation worker, then the one repair worker, then an answer pass's one fixer. */
+export const editingPhases = ['fixes', 'documentation', 'repair', 'answer'] as const;
 export const editingPhaseSchema = z.enum(editingPhases);
 export type EditingPhase = z.infer<typeof editingPhaseSchema>;
 
@@ -113,22 +115,27 @@ export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingP
 /** The unit key of the one repair worker. */
 export const repairUnitKey = 'repair';
 
+/** The unit key of the one documentation worker (R1 of the documentation step), its phase's name as `singleUnitKey` gives it. */
+export const documentationUnitKey = 'documentation';
+
 /**
  * The editing phases whose units the run budget settles as not attempted
- * instead of blocking (R19 of the fix pass): the fixes and the repair, so
- * their edits reach a report. The answer pass's one fixer blocks at the
+ * instead of blocking (R19 of the fix pass, R8 of the documentation
+ * step): the fixes, the documentation step and the repair, so their edits
+ * reach a report. The answer pass's one fixer blocks at the
  * budget instead, as a reading phase's worker does (TD8 of answers): on
  * its retry, the edits its failed attempt recorded stay unreported until
  * the run is resumed with `--budget-usd`, or abandoned.
  */
-export const budgetDegradingPhases = ['fixes', 'repair'] as const satisfies readonly EditingPhase[];
+export const budgetDegradingPhases = ['fixes', 'documentation', 'repair'] as const satisfies readonly EditingPhase[];
 export const isBudgetDegradingPhase = (phase: Phase): phase is (typeof budgetDegradingPhases)[number] => (budgetDegradingPhases as readonly string[]).includes(phase);
 
 /**
  * The editing phases whose units share the tree through claims and rounds
  * (PD3, R5 of the fix pass): the fixes, whose clusters' fixers each hold
  * their own files and claim others. The repair and an answer pass's one
- * fixer are alone in the tree and claim nothing.
+ * fixer are alone in the tree and claim nothing, and so is the
+ * documentation step, which runs after every fixer of the fixes.
  */
 export const claimingPhases = ['fixes'] as const satisfies readonly EditingPhase[];
 export const isClaimingPhase = (phase: Phase): phase is (typeof claimingPhases)[number] => (claimingPhases as readonly string[]).includes(phase);

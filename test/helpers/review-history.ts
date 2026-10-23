@@ -2,8 +2,10 @@
 // spend and report tests: a run created, scoped and configured, then taken
 // through its phases one scenario at a time.
 import assert from 'node:assert/strict';
-import { reviewVocabularyV1, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeStateV1 } from '../../src/checkpoint/events.ts';
+import { isClaimablePath, reviewVocabularyV1, type DocumentationItem, type ReviewConfiguration, type ReviewConfigurationV1, type ReviewConfigurationV3, type ScopeStateV1 } from '../../src/checkpoint/events.ts';
+import { documentationItemsOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
+import { normalizeFileName } from '../../src/review/locations.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
 
@@ -108,8 +110,8 @@ export const changeReading = {
 /** The lowest version of `phase.started` and `worktree.checked` that can name a phase: 5 for the answer pass's, 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
 const phaseVersion = (phase: string): 1 | 2 | 3 | 4 | 5 => ((answerPhases as readonly string[]).includes(phase) ? 5 : phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 
-/** The lowest version of `phase.finished` that can name a phase: 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
-const finishVersion = (phase: string): number => ((answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
+/** The lowest version of `phase.finished` that can name a phase: 7 for the documentation step's, 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
+const finishVersion = (phase: string): number => (phase === 'documentation' ? 7 : (answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -128,6 +130,8 @@ export class History {
    * check lists that nobody accounts for, which version 1 never records.
    */
   start(phase: string, attempt = 1, strays: readonly string[] = []): this {
+    // The documentation phase is the one phase whose start and check need versions apart, 6 and 7, the only ones that name it.
+    if (phase === 'documentation') return this.add('phase.started', { phase, attempt }, 6).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 7);
     const version = phaseVersion(phase);
     if (version === 1) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
     return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, version);
@@ -691,3 +695,64 @@ export const settingsConfigured = (fix = false, settings: Record<string, unknown
     settings: settingsBlock(fix, settings),
     ...change,
   }, 6);
+
+/** The answer of the documentation step's worker, each item with its status, editing `files` for an applied one. */
+export const documentationAnswer = (workerId: string, items: readonly (readonly [id: string, status: string])[], change: Record<string, unknown> = {}): Record<string, unknown> => ({
+  phase: 'documentation', key: 'documentation', workerId,
+  findings: items.map(([id, status]) => ({ id, status, file: 'docs/testing.md', line: null, note: `${id} ${status}`, message: status === 'applied' ? { subject: `docs: Bring ${id} in line`, body: 'The fixes changed the behavior it states.' } : null, files: status === 'applied' ? ['docs/testing.md'] : [], corrections: [], validation: [], requiredFiles: [] })),
+  drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [],
+  ...change,
+});
+
+/** How these histories read a `drift` line's path, as `planPathOf` reads it against a worktree that holds every path: its normalized spelling, or none for a path a claim could not record. */
+export const historyPath = (file: string): string | null => {
+  const path = normalizeFileName(file.trim());
+  return isClaimablePath(path) ? path : null;
+};
+
+/** The items a history's fixes give the documentation step, as the controller plans them with `historyPath`. */
+export const documentationItems = (history: History): DocumentationItem[] => documentationItemsOf(history.review().fix!, historyPath);
+
+/**
+ * The documentation step as a run with it records it after its fixes: the
+ * phase started, and when the fixes revised the tree, its plan, its
+ * worker answering every item already applied, so it revises nothing and
+ * the patches of the run stay the fixes', and the end check; then the
+ * phase finished.
+ */
+export const documentationAnswered = (history: History): History => {
+  history.start('documentation');
+  if (!history.review().fix!.revisions.some((revision) => revision.phase === 'fixes')) return history.finish('documentation');
+  const items = documentationItems(history);
+  return history
+    .add('documentation.planned', { items })
+    .worker(55, 'documentation documentation:documentation')
+    .add('fix.recorded', documentationAnswer(worker(55), items.map((item) => [item.id, 'already-applied'])), 3)
+    .add('worktree.checked', endCheck('documentation'), 7)
+    .finish('documentation');
+};
+
+/**
+ * The same history with the documentation step (TD4 of the documentation
+ * step): configured at version 7, the version 6 payload with the
+ * settings at their defaults when the history recorded none, and the
+ * documentation phase as `step` records it once the fixes finish, as
+ * `documentationAnswered` does by default, or no event of it when `step`
+ * is null, for a history that stops before it. The history must decide
+ * (`decidedOf`), since every run with the step does.
+ */
+export function withDocumentationStep(history: History, step: ((history: History) => History) | null = documentationAnswered): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'review.configured') {
+      assert.ok(event.version >= 5, 'a run with the documentation step is surveyed and decides');
+      const payload = event.payload as { readonly fix: boolean };
+      result.add('review.configured', { settings: settingsBlock(payload.fix), ...payload }, 7);
+      continue;
+    }
+    result.add(event.kind, event.payload, event.version);
+    const finished = event.payload as { phase?: string; outcome?: string };
+    if (step !== null && event.kind === 'phase.finished' && finished.phase === 'fixes' && finished.outcome !== 'blocked') step(result);
+  }
+  return result;
+}

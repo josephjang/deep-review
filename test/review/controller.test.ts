@@ -109,8 +109,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const text = reportText(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
-    // A run without --fix surveys first, decides its findings, skips the five phases of the fix pass, and has no fix state.
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    // A run without --fix surveys first, decides its findings, skips the six phases of the fix pass, and has no fix state.
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
     assert.equal(state.review!.fix, null);
     assert.equal(state.review!.configuration.fix, false);
     // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1, decider 1.
@@ -128,8 +128,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');
     assert.ok(!events.some(([kind, payload]) => kind === 'phase.started' && [...fixPhases, ...answerPhases].includes(payload.phase as never)), 'no phase of the fix pass or of an answer pass started');
     assert.equal(kinds.filter((kind) => kind === 'worktree.checked').length, 11);
-    // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, the sixth of the configuration, which records the settings, and the second of the scope.
-    const written: Record<string, number> = { 'review.configured': 6, 'scope.captured': 2, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5, 'candidates.recorded': 2 };
+    // The engine writes the version of each kind that carries a phase that can name the answer pass's phases, since none of its events names the documentation phase (TD5 of the documentation step), the seventh of the configuration, which says the run has the documentation step, and the second of the scope.
+    const written: Record<string, number> = { 'review.configured': 7, 'scope.captured': 2, 'phase.started': 5, 'phase.finished': 6, 'worktree.checked': 5, 'attempt.failed': 6, 'report.written': 5, 'candidates.recorded': 2 };
     assert.deepEqual(box.checkpoint.ledger.events(state.id).filter((event) => event.kind in written && event.version !== written[event.kind]).map((event) => `${event.kind}@${String(event.version)}`), []);
     assert.ok(kinds.includes('review.configured'));
     // The survey is recorded once, and a read-only run plans no check.

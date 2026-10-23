@@ -462,6 +462,8 @@ function fixerTitle(phase: EditingPhase, key: string): string {
   switch (phase) {
     case 'fixes':
       return `Fixer ${key}`;
+    case 'documentation':
+      return 'The documentation step';
     case 'repair':
       return 'The repair';
     case 'answer':

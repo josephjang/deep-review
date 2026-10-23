@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
-import type { TreeRevised } from '../../src/checkpoint/events.ts';
+import { budgetStoppedUnits, clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import type { DocumentationItem, TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
 import { isAnswered, preRunStrays, type ReviewState } from '../../src/checkpoint/review-fold.ts';
@@ -24,6 +24,8 @@ import {
   decidedFixRun,
   decidedOf,
   decisions,
+  documentationAnswer,
+  documentationItems,
   endCheck,
   fixAnswer,
   fixed,
@@ -33,6 +35,7 @@ import {
   History,
   launch,
   mergeRanked,
+  noSecondRound,
   passToReport,
   pin,
   plannedChecks,
@@ -45,21 +48,25 @@ import {
   statistics,
   surveyAnswer,
   withDecisions,
+  withDocumentationStep,
   withFixPass,
   withSurvey,
   worker,
 } from '../helpers/review-history.ts';
-import { modelWithout, resumableRunsEntries } from '../helpers/model.ts';
+import { documentationStepEntries, modelWithout, resumableRunsEntries } from '../helpers/model.ts';
 
 const commit = (fill: string): string => fill.repeat(40);
 const launchOf = (workerId: string): Record<string, unknown> => launch(workerId, 'fixer fixes:c1-1');
 
 describe('the fix fold', () => {
-  it('starts a run configured with the fix pass with an empty fix state, its five phases pending, and its checks pinned', () => {
+  it('starts a run configured with the fix pass with an empty fix state, its five phases pending, the documentation step skipped before it existed, and its checks pinned', () => {
     const review = withFixPass(configured()).review();
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(review.configuration.checks, { timeoutMs: 600_000 });
-    for (const phase of fixPhases) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
+    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
+    assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 });
+    assert.equal(review.documentationStep, false);
+    assert.equal(review.fix?.documentation, null);
     // A version 1 plan names no source; the fold gives each of its checks a null one, as a version 2 plan's flag does, and its flag reads as a setting of the flag layer.
     assert.deepEqual(review.fix?.checks.planned, { ...plannedChecks, checks: foldedChecks(plannedChecks.checks) });
     assert.equal(review.fix?.plan, null);
@@ -596,7 +603,8 @@ describe('the continuation into the fix pass', () => {
     const review = run.review!;
     assert.deepEqual(review.configuration, { ...before.configuration, fix: true, checks: { timeoutMs: 300_000 }, fixes: { batchSize: 4 } }, 'the configuration reads as a fix run\'s');
     assert.equal((history.events.find((event) => event.kind === 'review.configured')!.payload as { fix: boolean }).fix, false, 'the recorded configuration is unchanged');
-    for (const phase of fixPhases) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 }, phase);
+    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 }, phase);
+    assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 }, 'a run configured before the documentation step does not get it (R11 of the documentation step)');
     assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 }, 'the report is pending at its attempt, so its next start is the second');
     assert.deepEqual(review.phases.survey, { status: 'pending', attempt: 1 }, 'the survey is asked for the checks');
     assert.deepEqual(review.phases.decision, before.phases.decision, 'the read-only phases stay as they finished');
@@ -920,5 +928,143 @@ describe('the records of resumable runs', () => {
     refused(prepared.clone().add('commits.prepared', series), /prepares a series of commits while the series to b{40} is open/);
     refused(complete().add('commits.dropped', { from: series.from, to: series.to }), /drops the series from 2{40} to b{40}, which is not the open series/);
     refused(complete().add('commits.prepared', { ...series, from: '3'.repeat(40) }), /prepares commits on 3{40}, not the run's head 2{40}/);
+  });
+});
+
+// R2, R5, R8, TD2, TD11 and TD12 of the documentation step.
+describe('the documentation step in the fix state', () => {
+  const refused = (history: History, message: RegExp): void => {
+    assert.throws(() => history.fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), message.source);
+  };
+  const testingLine = { file: './docs/testing.md', what: 'the echo no longer removes the bytes' };
+  const changesLine = { file: 'CHANGES.md', what: 'the bytes are always translated' };
+  /** A decided fix run with the step, through its baseline. */
+  const atBaseline = (): History => withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null);
+  /** The same run through its fixes: c1-1 answers RIPPLE-1 with `drift`, and revises src/a.ts unless `revised` is false. */
+  const throughFixes = (drift: readonly Record<string, unknown>[] = [testingLine, changesLine, testingLine], revised = true): History => {
+    const history = atBaseline().start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50), { drift }));
+    if (revised) history.add('tree.revised', fixRevision(worker(50)));
+    return history.add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+  };
+  const items = (history: History): DocumentationItem[] => documentationItems(history);
+  /** The step started after the fixes and its plan recorded. */
+  const planned = (history: History = throughFixes()): History => {
+    history.start('documentation');
+    return history.add('documentation.planned', { items: items(history) });
+  };
+
+  it('records the plan, whose items are the units\' ids, and owns the fixes\' paths and each resolved document', () => {
+    const history = planned();
+    const review = history.review();
+    assert.deepEqual(review.fix?.documentation?.items.map((item) => [item.id, item.file, item.path, item.drift.length]), [['doc-1', './docs/testing.md', 'docs/testing.md', 2], ['doc-2', 'CHANGES.md', 'CHANGES.md', 1], ['search', null, null, 0]]);
+    assert.deepEqual(unitIdsOf(review, 'documentation', 'documentation'), ['doc-1', 'doc-2', 'search']);
+    assert.equal(unitIdsOf(review, 'documentation', 'other'), null, 'the step has one unit');
+    assert.equal(unitIdsOf(throughFixes().review(), 'documentation', 'documentation'), null, 'no unit before the plan');
+    assert.deepEqual(ownedFiles(review, 'documentation', 'documentation'), ['CHANGES.md', 'docs/testing.md', 'src/a.ts']);
+  });
+
+  it('refuses a plan before the phase runs, a second plan, a plan with no revision of the fixes, and a plan while the run budget leaves a unit of the fixes', () => {
+    const fixes = throughFixes();
+    refused(fixes.clone().add('documentation.planned', { items: items(fixes) }), /has documentation.planned for phase documentation while it is pending/);
+    refused(planned().add('documentation.planned', { items: items(fixes) }), /plans its documentation step twice/);
+    const unrevised = throughFixes([testingLine], false).start('documentation');
+    refused(unrevised.add('documentation.planned', { items: items(unrevised) }), /plans its documentation step for fixes that revised nothing/);
+    const stopped = atBaseline().start('fixes').add('fixes.planned', fixPlan)
+      .add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent' })
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes', 'degraded')
+      .start('documentation');
+    refused(stopped.add('documentation.planned', { items: [{ id: 'search', file: null, path: null, drift: [] }] }), /while the run budget leaves c1-1 of the fixes not attempted/);
+  });
+
+  it('refuses a plan that lists a line no answer of the fixes holds, lists one more often than it was reported, or leaves one out', () => {
+    const fixes = throughFixes();
+    const [testing, changes, search] = items(fixes) as [DocumentationItem, DocumentationItem, DocumentationItem];
+    const plan = (...given: DocumentationItem[]): History => fixes.clone().start('documentation').add('documentation.planned', { items: given });
+    assert.doesNotThrow(() => plan(testing, changes, search).fold());
+    assert.doesNotThrow(() => plan({ ...changes, id: 'doc-1' }, { ...testing, id: 'doc-2' }, search).fold(), 'the fold holds the lines, not how they are grouped');
+    refused(plan({ ...testing, drift: [...testing.drift, { key: 'c1-1', file: 'README.md', what: 'parse throws' }] }, changes, search), /plans the drift line "parse throws" on README.md for c1-1 under doc-1, which no answer of the fixes holds/);
+    refused(plan({ ...testing, drift: [...testing.drift, testing.drift[0]!] }, changes, search), /holds fewer times than the plan lists it/);
+    refused(plan({ ...testing, drift: [{ ...testing.drift[0]!, key: 'c2-1' }, testing.drift[1]!] }, changes, search), /for c2-1 under doc-1, which no answer of the fixes holds/);
+    refused(plan({ ...testing, drift: [testing.drift[0]!] }, changes, search), /without the drift lines .*the echo no longer removes the bytes.* of the fixes/);
+    refused(plan(testing, search), /without the drift lines .*CHANGES\.md.* of the fixes/);
+    refused(plan(search), /without the drift lines/);
+  });
+
+  it('refuses, by its schema, ids out of order, a search with a file, and two items with one path', () => {
+    const fixes = throughFixes();
+    const [testing, changes, search] = items(fixes) as [DocumentationItem, DocumentationItem, DocumentationItem];
+    const plan = (...given: unknown[]): History => fixes.clone().start('documentation').add('documentation.planned', { items: given });
+    refused(plan({ ...changes, id: 'doc-2' }, { ...testing, id: 'doc-1' }, search), /payload its schema rejects/);
+    refused(plan(testing, changes, { ...search, file: 'docs/a.md' }), /payload its schema rejects/);
+    refused(plan(testing, { ...changes, path: 'docs/testing.md' }, search), /payload its schema rejects/);
+  });
+
+  it('records the step\'s answer by its items, with no violation, and refuses one that answers other ids', () => {
+    const history = planned();
+    const ids = items(history).map((item) => item.id);
+    const answered = history.clone().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), ids.map((id) => [id, 'already-applied'])), 3);
+    const review = answered.review();
+    assert.equal(isAnswered(review, 'documentation', 'documentation'), true);
+    assert.deepEqual(review.fix?.answers.documentation.documentation?.findings.map((finding) => finding.id), ids);
+    refused(history.clone().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), [['doc-1', 'applied'], ['search', 'already-applied']]), 3), /answers \[doc-1, search\] for documentation:documentation, which holds \[doc-1, doc-2, search\]/);
+    refused(history.clone().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), ids.map((id) => [id, 'already-applied'])), 2), /payload its schema rejects/);
+    refused(history.clone().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), ids.map((id) => [id, 'already-applied']), { violations: ['docs/testing.md'] }), 3), /records a violation on docs\/testing.md, which is not a reported file another cluster holds/);
+  });
+
+  it('settles the step\'s unit as not attempted once it has a plan, and only then', () => {
+    const settled = planned().add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).review();
+    assert.deepEqual(settled.fix?.notAttempted.documentation, { documentation: { cause: 'failures', reason: '2 attempts did not complete' } });
+    assert.deepEqual(budgetStoppedUnits(settled.fix!), [], 'two failures are no stop of the run budget');
+    refused(throughFixes().start('documentation').add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2), /settles documentation:documentation, which the phase does not have/);
+  });
+
+  /** The rest of a fix run with the step, from the step's end to its report, at the first attempt of each phase. */
+  const toReport = (history: History, patches: number): History => checksPhase(history, 'checks')
+    .start('repair').finish('repair').start('repair-checks').finish('repair-checks')
+    .start('report').add('report.written', { report: reference('e', 2048), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String(index + 1))) }, 2).finish('report');
+
+  it('reopens the step with the fixes when the run budget stopped a batch, so it plans after them (TD12)', () => {
+    const stopped = atBaseline().start('fixes').add('fixes.planned', fixPlan)
+      .add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent' })
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes', 'degraded')
+      .start('documentation').finish('documentation', 'degraded');
+    const before = toReport(stopped, 0);
+    const review = before.clone().add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] }).review();
+    assert.deepEqual(review.phases.fixes, { status: 'pending', attempt: 1 });
+    assert.deepEqual(review.phases.documentation, { status: 'pending', attempt: 1 });
+    assert.equal(review.fix?.documentation, null);
+  });
+
+  it('reopens the step alone when the run budget left its unit, with its plan, and lists that unit only at version 2', () => {
+    const stoppedStep = planned().add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded');
+    const before = toReport(stoppedStep, 1);
+    assert.deepEqual(budgetStoppedUnits(before.review().fix!), [{ phase: 'documentation', key: 'documentation' }]);
+    const reopened = before.clone().add('fix.reopened', { units: [{ phase: 'documentation', key: 'documentation' }] }, 2);
+    const review = reopened.review();
+    assert.deepEqual(review.phases.documentation, { status: 'pending', attempt: 1 });
+    assert.deepEqual(review.phases.fixes, { status: 'completed', attempt: 1 }, 'the fixes stay as they finished');
+    assert.deepEqual(review.fix?.notAttempted.documentation, {});
+    assert.deepEqual(review.fix?.documentation?.items.map((item) => item.id), ['doc-1', 'doc-2', 'search'], 'the plan stands');
+    assert.doesNotThrow(() => reopened.clone().start('documentation', 2).fold());
+    refused(before.clone().add('fix.reopened', { units: [{ phase: 'documentation', key: 'documentation' }] }, 1), /payload its schema rejects/);
+  });
+
+  it('keeps the step skipped when a run configured before it reopens its fixes', () => {
+    const stopped = baselined().start('fixes').add('fixes.planned', fixPlan)
+      .add('unit.unattempted', { phase: 'fixes', key: 'c1-1', cause: 'budget', reason: 'spent' })
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes', 'degraded');
+    const review = toReport(stopped, 0).add('fix.reopened', { units: [{ phase: 'fixes', key: 'c1-1' }] }).review();
+    assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 });
+    assert.deepEqual(review.phases.fixes, { status: 'pending', attempt: 1 });
+  });
+
+  it('gives an engine before the step a run that holds one of its records as unreadable, and reads a run configured before it as it was', () => {
+    const older = modelWithout(documentationStepEntries);
+    const run = toReport(planned().worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), [['doc-1', 'already-applied'], ['doc-2', 'already-applied'], ['search', 'already-applied']]), 3).add('worktree.checked', endCheck('documentation'), 7).finish('documentation'), 1);
+    assert.doesNotThrow(() => run.fold());
+    const unknown = firstUnknownEvent(run.events, older);
+    assert.equal(unknown === null ? null : `${unknown.kind}@${String(unknown.version)}`, 'review.configured@7', 'the configuration comes first');
+    assert.equal(firstUnknownEvent(fixed().events, older), null);
+    assert.equal(firstUnknownEvent(decidedFixRun().events, older), null);
   });
 });

@@ -6,10 +6,11 @@ import { flagCheckSettings } from '../../src/review/checks/discover.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { freezeLimitBytes } from '../../src/scope/capture.ts';
+import { captureScope, freezeLimitBytes } from '../../src/scope/capture.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { fixedA, fixedB, found, noLeads, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { until } from '../helpers/launcher.ts';
+import { documentationStepEntries } from '../helpers/model.ts';
 import { git, write } from '../helpers/repository.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -50,8 +51,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(Object.fromEntries(Object.entries(review.phases).map(([phase, value]) => [phase, value.status])), {
       survey: 'completed', triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
-      decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', answer: 'skipped', 'answer-checks': 'skipped', report: 'completed',
+      decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', documentation: 'completed', checks: 'completed', repair: 'completed', 'repair-checks': 'completed', answer: 'skipped', 'answer-checks': 'skipped', report: 'completed',
     });
+    // A run with the documentation step holds a version the step added only in its configuration and in the events that name the step (TD5 of the documentation step).
+    const added = new Set<string>(documentationStepEntries.filter((entry) => entry !== 'review.configured@7'));
+    const unnamed = box.checkpoint.ledger.events(state.id).filter((event) => added.has(`${event.kind}@${String(event.version)}`) && !event.payload.includes('"documentation"'));
+    assert.deepEqual(unnamed.map((event) => `${event.kind}@${String(event.version)}`), []);
+    assert.ok(box.checkpoint.ledger.events(state.id).some((event) => event.kind === 'phase.started' && event.version === 6), 'the documentation phase started at version 6');
     const fix = review.fix!;
     // Routing by decision and clustering (R6 of the decision step; R3).
     assert.deepEqual(fix.plan, {
@@ -928,6 +934,31 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.ok(box.logs.some((line) => /keeps the checks it pinned; --check and --no-check are ignored$/.test(line)), box.logs.join('\n'));
     assert.ok(box.run().review!.fix!.checks.planned!.checks.every((check) => check.origin === 'setting' && check.layer === 'flag' && check.command !== 'echo other'));
     assert.deepEqual(box.run().review!.configuration!.fixes, { batchSize: 2 }, 'the resumed run kept the size it started with');
+  });
+
+  it('resumes a fix run an engine before the documentation step configured without the step, and writes it no event of a version the step added (R11, TD5 of the documentation step)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    box.script({ triage: { exit: 2 } });
+    const first = await box.fix('claude');
+    assert.ok(first.kind === 'blocked', JSON.stringify(first));
+    // Stand in for an engine before the step: the same configuration at version 6, on a run of its own.
+    const pinned = box.events(first.runId).find(([kind]) => kind === 'review.configured')![1];
+    box.checkpoint.append(first.runId, box.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    const older = box.checkpoint.createRun({ worktree: box.repo });
+    box.checkpoint.append(older.id, captureScope(box.checkpoint, older.id, { paths: [] }).lastSequence, [{ kind: 'review.configured', version: 6, payload: pinned }]);
+    box.script({
+      ...reviewScript,
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: { ...(fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) as Record<string, unknown>), drift: [{ file: 'docs/a.md', what: 'parse throws on a null text' }] } },
+      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'], subject: 'fix(b): Import parse' }]) },
+    });
+    reportText(await box.fix('claude'));
+    const review = box.checkpoint.fold(older.id).review!;
+    assert.equal(review.documentationStep, false);
+    assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 });
+    assert.equal(review.phases.report.status, 'completed');
+    assert.ok(review.fix!.revisions.length > 0, 'its fixes revised the tree');
+    const added = new Set<string>(documentationStepEntries);
+    assert.deepEqual(box.checkpoint.ledger.events(older.id).map((event) => `${event.kind}@${String(event.version)}`).filter((entry) => added.has(entry)), [], 'an engine before the step still reads the run');
   });
 
   it('logs --fix and its check flags as ignored on a run pinned without the fix pass, keeps it read-only, and says how to continue it once its report is written (R10 of fix pass continuation)', async (t) => {

@@ -13,6 +13,7 @@ import {
   attemptFailedV5,
   attemptFailedV6,
   attemptFailedV7,
+  attemptFailedV8,
   blockerSchema,
   blockerSchemaV3,
   blockerSchemaV5,
@@ -26,30 +27,38 @@ import {
   commitsDroppedV1,
   commitsPreparedV1,
   decisionsRecordedV1,
+  documentationPlannedV1,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
   fixRecordedV2,
+  fixRecordedV3,
   fixReopenedV1,
+  fixReopenedV2,
   groupUnverifiedV1,
   phaseFinishedV2,
   phaseFinishedV3,
   phaseFinishedV4,
   phaseFinishedV5,
   phaseFinishedV6,
+  phaseFinishedV7,
   phaseStartedV1,
   phaseStartedV2,
   phaseStartedV3,
   phaseStartedV4,
   phaseStartedV5,
+  phaseStartedV6,
   recordedDecisionSchema,
   recordedTextLengthV1,
   reportWrittenV2,
   reportWrittenV3,
   reportWrittenV4,
   reportWrittenV5,
+  reportWrittenV6,
   reviewConfiguredV4,
   reviewConfiguredV5,
+  reviewConfiguredV6,
+  reviewConfiguredV7,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -59,21 +68,26 @@ import {
   reviewVocabularyV5,
   reviewVocabularyV6,
   reviewVocabularyV7,
+  reviewVocabularyV8,
   surveyFailedV1,
   treeRestoredV1,
   treeRevisedV1,
   treeRevisedV2,
+  treeRevisedV3,
   unitUnattemptedV1,
+  unitUnattemptedV2,
   workerLostV1,
   workerLostV2,
   workerLostV3,
   workerLostV4,
   workerLostV5,
+  workerLostV6,
   worktreeCheckedV2,
   worktreeCheckedV3,
   worktreeCheckedV4,
   worktreeCheckedV5,
   worktreeCheckedV6,
+  worktreeCheckedV7,
 } from '../../src/checkpoint/events.ts';
 import { hintRules } from '../../src/review/checks/discover.ts';
 import { normalizeClaimPath } from '../../src/review/claims.ts';
@@ -120,8 +134,12 @@ import {
 // as they are, declare a new version of every event that carries the
 // changed words, and point the test at that version's lists.
 
-/** Today's phases less the answer pass's two, which version 6 added and every earlier version lacks. */
-const phasesBeforeAnswers = phases.filter((phase) => !(answerPhases as readonly string[]).includes(phase));
+/** Today's phases less the documentation step's, which version 8 added and every earlier version lacks. */
+const phasesBeforeDocumentation = phases.filter((phase) => phase !== 'documentation');
+/** Today's editing phases less the documentation step's. */
+const editingBeforeDocumentation = editingPhases.filter((phase) => phase !== 'documentation');
+/** Today's phases less the documentation step's and the answer pass's two, which version 6 added and every earlier version lacks. */
+const phasesBeforeAnswers = phasesBeforeDocumentation.filter((phase) => !(answerPhases as readonly string[]).includes(phase));
 describe('the review vocabulary frozen by the v1 events', () => {
   it('is the vocabulary of the read-only review, word for word and in order, whatever today\'s says', () => {
     assert.deepEqual(reviewVocabularyV1, {
@@ -141,7 +159,7 @@ describe('the review vocabulary frozen by the v1 events', () => {
   it('is today\'s vocabulary in every word the fix pass and the survey did not widen', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV1;
     assert.deepEqual(rest, { angles, finderAngles, candidatePhases, deduplicationPhases, verificationPhases, phaseOutcomes, verdicts, severities });
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey' && phase !== 'decision'), 'the fix pass added its five phases, the survey and the decision step one each, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey' && phase !== 'decision'), 'the fix pass added its five phases, the survey, the decision step and the documentation step one each, the answers two, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'), 'the survey and the claims added a blocker code each and nothing else');
   });
 
@@ -200,13 +218,13 @@ describe('the review vocabulary frozen by the v2 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the survey and the answers did not change, and its rules are the hints\' rules', () => {
+  it('is today\'s vocabulary in every word the survey, the answers and the documentation step did not change, and its rules are the hints\' rules', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, checkPhases: frozenCheckPhases, editingPhases: frozenEditingPhases, checkOutcomes: frozenOutcomes, ...rest } = reviewVocabularyV2;
     assert.deepEqual(rest, { phaseOutcomes, checkKinds, fixStatuses, validationMethods, suiteResults });
     assert.deepEqual(frozenOutcomes, checkOutcomes.filter((outcome) => outcome !== 'cut'), 'resumable runs added the outcome cut and nothing else');
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey and the decision step added a phase each, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey, the decision step and the documentation step added a phase each, the answers two, and nothing else');
     assert.deepEqual(frozenCheckPhases, checkPhases.filter((phase) => phase !== 'answer-checks'), 'the answers added their check phase and nothing else');
-    assert.deepEqual(frozenEditingPhases, editingPhases.filter((phase) => phase !== 'answer'), 'the answers added their editing phase and nothing else');
+    assert.deepEqual(frozenEditingPhases, editingBeforeDocumentation.filter((phase) => phase !== 'answer'), 'the documentation step and the answers added an editing phase each, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'));
     // The origins a version 1 plan records are the flag and the manifest rules, which live on as the rules a hint names.
     assert.deepEqual(frozenOrigins, ['flag', ...hintRules]);
@@ -259,10 +277,10 @@ describe('the review vocabulary frozen by the v3 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the decision step and the claims did not widen', () => {
+  it('is today\'s vocabulary in every word the decision step, the claims and the documentation step did not widen', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV3;
     assert.deepEqual(rest, { phaseOutcomes, checkKinds, checkOrigins, checkBases, conventionLevels, userRulesSettings });
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'decision'), 'the decision step added its phase, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'decision'), 'the decision step and the documentation step added a phase each, the answers two, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'claims-lost'), 'the claims added their blocker code and nothing else');
   });
 
@@ -311,7 +329,7 @@ describe('the review vocabulary frozen by the v3 events', () => {
 describe('the review vocabulary frozen by the v4 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
-  it('is today\'s vocabulary in every word the answers did not widen', () => {
+  it('is today\'s vocabulary in every word the answers and the documentation step did not widen', () => {
     assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons });
   });
 
@@ -447,8 +465,8 @@ describe('the review vocabulary frozen by the v5 events', () => {
 describe('the review vocabulary frozen by the v6 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
-  it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV6, { phases, editingPhases, checkPhases, answerKinds });
+  it('is today\'s vocabulary in every word the documentation step did not widen', () => {
+    assert.deepEqual(reviewVocabularyV6, { phases: phasesBeforeDocumentation, editingPhases: editingBeforeDocumentation, checkPhases, answerKinds });
   });
 
   it('refuses the answer pass\'s phases in the last version of every event that carries a phase, and accepts them in the new one', () => {
@@ -682,5 +700,92 @@ describe('the review vocabulary frozen by the v7 events', () => {
     assert.deepEqual(z.toJSONSchema(commitsPreparedV1), z.toJSONSchema(commitsCreatedV1));
     assert.equal(commitsDroppedV1.safeParse({ from: series.from, to: series.to }).success, true);
     assert.equal(commitsDroppedV1.safeParse({ from: series.from }).success, false);
+  });
+});
+
+// Version 8 of the review events and version 1 of the documentation
+// step's record the vocabulary the documentation step widened; the same
+// rule holds them to today's.
+describe('the review vocabulary frozen by the v8 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = (fill: string): { blob: { sha256: string; bytes: number } } => ({ blob: { sha256: fill.repeat(64), bytes: 1 } });
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV8, { phases, editingPhases });
+  });
+
+  it('refuses the documentation phase in the last version of each of the ten kinds that carry a phase, and accepts it in the new one', () => {
+    const check = { attempt: 1, moment: 'end', drifted: false, head: null, files: [], strays: [] };
+    const spend = { workers: 1, seconds: 1, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
+    const report = { report: blob('a').blob, statistics: { phases: [{ phase: 'documentation', ...spend }], total: spend, budgetApplied: false }, patches: [] };
+    const answered = { phase: 'documentation', key: 'documentation', workerId, findings: [], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] };
+    const revision = { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId }, change: { findings: ['doc-1'], message: { subject: 'docs: Bring the testing guide in line', body: '' } }, files: [{ path: 'docs/testing.md', status: 'modified', before: blob('d'), beforeSymlink: false, symlink: false, after: blob('e') }] };
+    const cases: [string, z.ZodType, z.ZodType, unknown][] = [
+      ['phase.started', phaseStartedV5, phaseStartedV6, { phase: 'documentation', attempt: 1 }],
+      ['phase.finished', phaseFinishedV6, phaseFinishedV7, { phase: 'documentation', attempt: 1, outcome: 'degraded', blocker: null }],
+      ['worktree.checked', worktreeCheckedV6, worktreeCheckedV7, { phase: 'documentation', ...check }],
+      ['attempt.failed', attemptFailedV7, attemptFailedV8, { phase: 'documentation', key: 'documentation', workerId, reason: 'r', fault: 'unit' }],
+      ['worker.lost', workerLostV5, workerLostV6, { workerId, phase: 'documentation', key: 'documentation', reason: 'r' }],
+      ['report.written', reportWrittenV5, reportWrittenV6, report],
+      ['tree.revised', treeRevisedV2, treeRevisedV3, revision],
+      ['fix.recorded', fixRecordedV2, fixRecordedV3, answered],
+      ['unit.unattempted', unitUnattemptedV1, unitUnattemptedV2, { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }],
+      ['fix.reopened', fixReopenedV1, fixReopenedV2, { units: [{ phase: 'documentation', key: 'documentation' }] }],
+    ];
+    for (const [kind, older, newer, payload] of cases) {
+      assert.equal(older.safeParse(payload).success, false, `${kind}'s last version refuses the documentation phase`);
+      assert.equal(newer.safeParse(payload).success, true, `${kind}'s new version accepts it`);
+    }
+  });
+
+  it('holds the new versions to the rules of the old: a blocker exactly when blocked, a revision\'s items by its source, a fault, no fixer in a check phase, each unit reopened once', () => {
+    assert.equal(phaseFinishedV7.safeParse({ phase: 'documentation', attempt: 1, outcome: 'completed', blocker: { code: 'budget', detail: 'd', action: 'a' } }).success, false);
+    assert.equal(treeRevisedV3.safeParse({ phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId }, change: { findings: [], message: { subject: 's', body: '' } }, files: [{ path: 'a.md', status: 'deleted', before: blob('d'), beforeSymlink: false, symlink: false, after: null }] }).success, false, 'a fix revision names an item');
+    assert.equal(attemptFailedV8.safeParse({ phase: 'documentation', key: 'documentation', workerId, reason: 'r', fault: 'cut' }).success, true, 'the faults of version 7 stay');
+    assert.equal(attemptFailedV8.safeParse({ phase: 'documentation', key: 'documentation', workerId, reason: 'r' }).success, false, 'a fault is named');
+    assert.equal(worktreeCheckedV7.safeParse({ phase: 'checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }).success, true, 'the moment restored stays');
+    assert.equal(fixRecordedV3.safeParse({ phase: 'checks', key: 'checks', workerId, findings: [], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] }).success, false, 'no fixer runs in a check phase');
+    assert.equal(unitUnattemptedV2.safeParse({ phase: 'checks', key: 'checks', cause: 'budget', reason: 'spent' }).success, false, 'no unit of a check phase is settled');
+    assert.equal(fixReopenedV2.safeParse({ units: [{ phase: 'documentation', key: 'documentation' }, { phase: 'documentation', key: 'documentation' }] }).success, false, 'one unit twice');
+    assert.equal(fixReopenedV2.safeParse({ units: [{ phase: 'answer', key: 'pass-1' }] }).success, false, 'the answer pass does not stop at the budget');
+    assert.equal(fixReopenedV2.safeParse({ units: [] }).success, false, 'at least one unit');
+  });
+
+  it('records a review.configured@7 exactly as version 6 records it: the version alone says the run has the documentation step (TD4)', () => {
+    assert.equal(reviewConfiguredV7, reviewConfiguredV6);
+  });
+});
+
+describe('documentation.planned@1', () => {
+  const line = (key: string, file: string, what: string): Record<string, unknown> => ({ key, file, what });
+  const testing = { id: 'doc-1', file: './docs/testing.md', path: 'docs/testing.md', drift: [line('c1-1', './docs/testing.md', 'the echo no longer removes the bytes')] };
+  const outside = { id: 'doc-2', file: '../outside.md', path: null, drift: [line('c2-1', '../outside.md', 'the bytes are kept'), line('c2-1', '../outside.md', 'the bytes are kept')] };
+  const search = { id: 'search', file: null, path: null, drift: [] };
+  const plans = (...items: unknown[]): boolean => documentationPlannedV1.safeParse({ items }).success;
+
+  it('records the documents in order, a refused path as none, two equal lines as two, and the search last', () => {
+    assert.equal(plans(testing, outside, search), true);
+    assert.equal(plans(search), true, 'a run whose fixes reported no line has the search alone');
+  });
+
+  it('refuses ids out of order, a search that is not last or names a file, a path or a line, and a document with no file or no line', () => {
+    assert.equal(plans({ ...outside, id: 'doc-1' }, { ...testing, id: 'doc-2' }, search), true, 'the order is the plan\'s');
+    assert.equal(plans({ ...testing, id: 'doc-2' }, search), false, 'doc-1 comes first');
+    assert.equal(plans(testing, { ...outside, id: 'doc-3' }, search), false, 'no number is skipped');
+    assert.equal(plans(testing), false, 'the search is last');
+    assert.equal(plans(search, { ...testing, id: 'doc-2' }), false, 'the search is not first');
+    assert.equal(plans(testing, search, search), false, 'one search');
+    assert.equal(plans(testing, { ...search, file: 'docs/a.md' }), false);
+    assert.equal(plans(testing, { ...search, path: 'docs/a.md' }), false);
+    assert.equal(plans(testing, { ...search, drift: testing.drift }), false);
+    assert.equal(plans({ ...testing, file: null }, search), false);
+    assert.equal(plans({ ...testing, drift: [] }, search), false);
+    assert.equal(plans({ ...testing, id: 'doc-01' }, search), false);
+    assert.equal(plans(), false, 'no item at all');
+  });
+
+  it('refuses two items with one path, and a path a claim could not record', () => {
+    assert.equal(plans(testing, { ...outside, path: 'docs/testing.md' }, search), false);
+    for (const path of ['/etc/passwd', '../x.md', './docs/testing.md', 'docs\\testing.md', '.git/config', 'a//b']) assert.equal(plans({ ...testing, path }, search), false, path);
   });
 });

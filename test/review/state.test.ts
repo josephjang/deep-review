@@ -27,14 +27,16 @@ describe('reviewStatus', () => {
 describe('budgetStoppedRun', () => {
   const fixing = baselined().fold();
   const report = reported().fold().review!.report;
-  const run = (notAttempted: Omit<FixState['notAttempted'], 'answer'>, change: { report?: boolean; fix?: boolean } = {}): RunState => ({
-    ...fixing, review: { ...fixing.review!, report: change.report === false ? null : report, fix: change.fix === false ? null : { ...fixing.review!.fix!, notAttempted: { ...notAttempted, answer: {} } } },
+  type Settled = FixState['notAttempted'];
+  const run = (notAttempted: Pick<Settled, 'fixes' | 'repair'> & Partial<Pick<Settled, 'documentation'>>, change: { report?: boolean; fix?: boolean } = {}): RunState => ({
+    ...fixing, review: { ...fixing.review!, report: change.report === false ? null : report, fix: change.fix === false ? null : { ...fixing.review!.fix!, notAttempted: { documentation: {}, ...notAttempted, answer: {} } } },
   });
   const spent = { cause: 'budget', reason: 'spent' } as const;
 
-  it('holds for a complete fix run the budget left a batch or the repair of', () => {
+  it('holds for a complete fix run the budget left a batch, the documentation step or the repair of', () => {
     assert.equal(budgetStoppedRun(run({ fixes: { 'c1-2': spent }, repair: {} })), true);
     assert.equal(budgetStoppedRun(run({ fixes: {}, repair: { repair: spent } })), true);
+    assert.equal(budgetStoppedRun(run({ fixes: {}, documentation: { documentation: spent }, repair: {} })), true);
   });
 
   it('holds for none that is not complete, not fixing, or left nothing for the budget', () => {

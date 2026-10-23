@@ -51,11 +51,12 @@ import type {
   ReviewConfigurationV3,
   ReviewConfigurationV5,
   ReviewConfigurationV6,
+  ReviewConfigurationV7,
   ReviewLimits,
   VerdictsRecorded,
   VerificationPlanned,
   WorktreeCheckV1,
-  WorktreeCheckV6,
+  WorktreeCheckV7,
 } from './events.ts';
 import type { AnswerState } from './answer-state.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
@@ -65,13 +66,16 @@ import { emptySurveyState, surveyBlocker, type SurveyState } from './survey-stat
 /**
  * A phase's status; `skipped` is set at configuration and never started:
  * a fix phase of a run configured without the fix pass (TD9 of the fix
- * pass), the survey of a run configured before the survey existed, and
- * the decision of a run configured before the decision step existed, and
- * the answer pass's two phases of every run. A fix phase skipped so goes
- * back to `pending` only when `fix.pinned` continues the run into the fix
- * pass (TD7 of fix pass continuation), and an answer phase only when
- * `answer.pass` opens an answer pass (R5 of answers): the two events that
- * move a phase out of `skipped` or `completed`.
+ * pass), the survey of a run configured before the survey existed, the
+ * decision of a run configured before the decision step existed, the
+ * documentation of a run configured before the documentation step existed
+ * (R11 of the documentation step), and the answer pass's two phases of
+ * every run. A fix phase skipped so goes back to `pending` only when
+ * `fix.pinned` continues the run into the fix pass (TD7 of fix pass
+ * continuation), but for the documentation of a run configured before the
+ * step, which stays skipped; and an answer phase only when `answer.pass`
+ * opens an answer pass (R5 of answers): the two events that move a phase
+ * out of `skipped`.
  */
 export type PhaseStatus = 'pending' | 'running' | 'completed' | 'degraded' | 'blocked' | 'skipped';
 
@@ -168,11 +172,11 @@ export function rawLocation(candidate: Pick<RecordedCandidate, 'rawFile' | 'rawL
  * A version 1 check reads as one at the attempt's start when it was the
  * attempt's first, else before an answer; it recorded no head, no strays
  * and not the expected state of a file, which its files then lack. Only
- * version 6 records the moment `restored`, after a write back (R7 of
- * resumable runs).
+ * version 6 and later record the moment `restored`, after a write back
+ * (R7 of resumable runs).
  */
-export interface WorktreeCheckState extends Omit<WorktreeCheckV6, 'files'> {
-  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV6['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
+export interface WorktreeCheckState extends Omit<WorktreeCheckV7, 'files'> {
+  readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV7['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
 }
 
 /**
@@ -182,6 +186,8 @@ export interface WorktreeCheckState extends Omit<WorktreeCheckV6, 'files'> {
  */
 export interface ReviewState extends AnswerState {
   readonly configuration: ReviewConfiguration;
+  /** Whether the run has the documentation step (TD4 of the documentation step): configured at `review.configured@7`, which a continuation into the fix pass keeps; false for every run an engine before the step configured. */
+  readonly documentationStep: boolean;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
   readonly limits: ReviewLimits;
   readonly phases: Readonly<Record<Phase, PhaseState>>;
@@ -314,22 +320,31 @@ export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, ke
   return { ...review, units };
 }
 
+/** What a version of the configuration says the run has beside its payload: the survey, the decision step and the documentation step. */
+interface ConfiguredSteps {
+  readonly surveyed: boolean;
+  readonly decided: boolean;
+  readonly documented: boolean;
+}
+
 /**
  * The run is configured for review. A run without the fix pass records its
- * five phases skipped, a run configured before the survey existed its
- * survey, one configured before the decision step its decision, and every
+ * six phases skipped, a run configured before the survey existed its
+ * survey, one configured before the decision step its decision, one
+ * configured before the documentation step its documentation, and every
  * run the answer pass's two phases, which only an `answer.pass` opens, so
  * the phase list is one rule for every run (TD9 of the fix pass; R9 of
- * answers); a run with the fix pass or the survey starts its state of it
- * empty, and every run starts with no answer.
+ * answers; R11 of the documentation step); a run with the fix pass or the
+ * survey starts its state of it empty, and every run starts with no answer.
  */
-function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, surveyed: boolean, decided: boolean): RunState {
+function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, { surveyed, decided, documented }: ConfiguredSteps): RunState {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
   if (state.review !== null) throw invalid(event, 'is configured for review twice');
-  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const]), ...answerPhases]);
+  const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const]), ...(documented ? [] : ['documentation' as const]), ...answerPhases]);
   const review: ReviewState = {
     configuration: payload,
+    documentationStep: documented,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? 'skipped' : 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
     blocker: null,
@@ -377,23 +392,26 @@ const unsurveyed = { survey: { userRules: 'apply' as const } };
  */
 const unpinnedCodex = (runtime: string, worktree: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' && !worktree.startsWith('/') ? { windowsSandbox: 'unelevated' } : null });
 
-/** Version 6 of the configuration: a run that records where each setting came from (R6 of the configuration), surveyed, pinning its Codex Windows sandbox and deciding its findings. */
-const configured: Reducer<ReviewConfigurationV6> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, true, true);
+/** Version 7 of the configuration: version 6's payload, on a run that has the documentation step (TD4 of the documentation step). */
+const configured: Reducer<ReviewConfigurationV7> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true });
+
+/** Version 6 of the configuration, recorded before the documentation step existed: a run that records where each setting came from (R6 of the configuration), surveyed, pinning its Codex Windows sandbox and deciding its findings, whose documentation is skipped. */
+const configuredV6: Reducer<ReviewConfigurationV6> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false });
 
 /** Version 5 of the configuration, recorded before the settings existed: a run whose values came from the defaults and its flags, which the ledger does not tell apart (R17 of the configuration). */
-const configuredV5: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, true, true);
+const configuredV5: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false });
 
 /** Version 4 of the configuration, recorded before the decision step existed: a run that is surveyed and pins its Codex Windows sandbox, whose decision is skipped. */
-const configuredV4: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, true, false);
+const configuredV4: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false });
 
 /** Version 3 of the configuration, recorded before the Codex Windows sandbox was pinned: a run that is surveyed. */
-const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, true, false);
+const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: true, decided: false, documented: false });
 
 /** Version 2 of the configuration, recorded before the survey existed: a run whose survey is skipped. */
-const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, false, false);
+const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it, and without the survey. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, false, false);
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
@@ -419,10 +437,11 @@ export function withFreshAttempts(review: ReviewState, drafts: FoldDrafts, phase
   return units;
 }
 
-/** Why a run skips a phase (`configure`): its configuration, which `fix.pinned` changes for the fix phases, or for an answer phase that no answer pass has opened it. */
-function skipReason(phase: Phase): string {
+/** Why a run skips a phase (`configure`): its configuration, which `fix.pinned` changes for the fix phases but the documentation of a run with no step, or for an answer phase that no answer pass has opened it. */
+function skipReason(phase: Phase, documentationStep: boolean): string {
   if (phase === 'survey') return 'it was configured before the survey existed';
   if (phase === 'decision') return 'it was configured before the decision step existed';
+  if (phase === 'documentation' && !documentationStep) return 'it was configured before the documentation step existed';
   if ((answerPhases as readonly Phase[]).includes(phase)) return 'no answer pass has opened it';
   return 'it was configured without the fix pass';
 }
@@ -431,7 +450,7 @@ const phaseStarted: Reducer<PhaseStarted> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   const phase = review.phases[payload.phase];
   if (phase.status === 'completed' || phase.status === 'degraded') throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
-  if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase)}`);
+  if (phase.status === 'skipped') throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase, review.documentationStep)}`);
   if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
   // The baseline runs the planned checks, so they are planned before it starts: at configuration, in the survey, or with the pin that continues a read-only run (TD3 of fix pass continuation).
   if (payload.phase === 'baseline-checks' && (review.fix?.checks.planned ?? null) === null) throw invalid(event, 'starts baseline-checks before its checks are planned');
@@ -524,7 +543,7 @@ const candidatesRecorded: Reducer<CandidatesRecorded> = (state, { change, ...pay
 /** Version 1, recorded before the triage gave an account of the change, which stays unrecorded (R18 of the brief of a run). */
 const candidatesRecordedV1: Reducer<CandidatesRecordedV1> = (state, payload, event, drafts) => recordCandidates(state, payload, { kind: 'unrecorded' }, event, drafts);
 
-/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5, and version 7 its faults, with `cut` and `limit` (R4, R14 of resumable runs). */
+/** A failed attempt; versions 1 to 4 record no fault, and read as the unit's. Version 6 widens the phases of version 5, version 7 its faults, with `cut` and `limit` (R4, R14 of resumable runs), and version 8 its phases again, with `documentation`. */
 const attemptFailed: Reducer<Omit<AttemptFailed, 'fault'> & { readonly fault?: AttemptFailed['fault'] }> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, payload.phase);
@@ -685,25 +704,29 @@ export const reviewReducers = {
   'review.configured@3': configuredV3,
   'review.configured@4': configuredV4,
   'review.configured@5': configuredV5,
-  'review.configured@6': configured,
+  'review.configured@6': configuredV6,
+  'review.configured@7': configured,
   'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
   'phase.started@2': phaseStarted,
   'phase.started@3': phaseStarted,
   'phase.started@4': phaseStarted,
   'phase.started@5': phaseStarted,
+  'phase.started@6': phaseStarted,
   'phase.finished@1': phaseFinished,
   'phase.finished@2': phaseFinished,
   'phase.finished@3': phaseFinished,
   'phase.finished@4': phaseFinished,
   'phase.finished@5': phaseFinished,
   'phase.finished@6': phaseFinished,
+  'phase.finished@7': phaseFinished,
   'worktree.checked@1': worktreeCheckedV1,
   'worktree.checked@2': worktreeChecked,
   'worktree.checked@3': worktreeChecked,
   'worktree.checked@4': worktreeChecked,
   'worktree.checked@5': worktreeChecked,
   'worktree.checked@6': worktreeChecked,
+  'worktree.checked@7': worktreeChecked,
   'candidates.recorded@1': candidatesRecordedV1,
   'candidates.recorded@2': candidatesRecorded,
   'attempt.failed@1': attemptFailed,
@@ -713,6 +736,7 @@ export const reviewReducers = {
   'attempt.failed@5': attemptFailed,
   'attempt.failed@6': attemptFailed,
   'attempt.failed@7': attemptFailed,
+  'attempt.failed@8': attemptFailed,
   'angle.failed@1': angleFailed,
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,
@@ -725,6 +749,7 @@ export const reviewReducers = {
   'report.written@3': reportWritten,
   'report.written@4': reportWritten,
   'report.written@5': reportWritten,
+  'report.written@6': reportWritten,
 } as const;
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */

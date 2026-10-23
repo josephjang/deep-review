@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -76,10 +76,16 @@ describe('lostClaimWords', () => {
 });
 
 describe('the phases', () => {
-  it('are the survey, the read-only phases, the decision, the five of the fix pass, the two of the answer pass, then the report', () => {
-    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
-    assert.deepEqual(fixPhases, phases.slice(10, 15));
-    assert.deepEqual(answerPhases, phases.slice(15, 17));
+  it('are the survey, the read-only phases, the decision, the six of the fix pass, the two of the answer pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(10, 16));
+    assert.deepEqual(answerPhases, phases.slice(16, 18));
+  });
+
+  it('put the documentation step after every fixer of the fixes and before their checks, with one unit named after it (R1 of the documentation step)', () => {
+    assert.equal(phases.indexOf('documentation'), phases.indexOf('fixes') + 1);
+    assert.equal(phases.indexOf('documentation'), phases.indexOf('checks') - 1);
+    assert.equal(documentationUnitKey, singleUnitKey('documentation'));
   });
 
   it('put the decision after merge and rank and before the fix pass, in no group of phases: it runs no check, edits nothing, and records no candidate, deduplication or verdict', () => {
@@ -91,15 +97,16 @@ describe('the phases', () => {
   it('split the fix pass and the answer pass into the phases that run checks and the phases that edit', () => {
     assert.deepEqual([...checkPhases, ...editingPhases].sort(), [...fixPhases, ...answerPhases].sort());
     assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks', 'answer-checks']);
-    assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'repair', 'answer']);
+    assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'documentation', 'repair', 'answer']);
+    assert.deepEqual([...editingPhases], phases.filter(isEditingPhase), 'in the order of the phases');
   });
 
-  it('let the run budget settle the fixes and the repair as not attempted, and block the answer pass before its launch (TD8 of answers)', () => {
-    assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['fixes', 'repair']);
-    assert.deepEqual([...budgetDegradingPhases], ['fixes', 'repair']);
+  it('let the run budget settle the fixes, the documentation step and the repair as not attempted, and block the answer pass before its launch (TD8 of answers, R8 of the documentation step)', () => {
+    assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['fixes', 'documentation', 'repair']);
+    assert.deepEqual([...budgetDegradingPhases], ['fixes', 'documentation', 'repair']);
   });
 
-  it('share the tree through claims and rounds in the fixes only, the repair and an answer pass being alone in it', () => {
+  it('share the tree through claims and rounds in the fixes only, the documentation step, the repair and an answer pass being alone in it', () => {
     assert.deepEqual(phases.filter(isClaimingPhase), ['fixes']);
     assert.deepEqual([...claimingPhases], ['fixes']);
   });

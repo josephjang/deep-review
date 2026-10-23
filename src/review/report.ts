@@ -126,10 +126,15 @@ function statisticsTable(review: ReviewState, input: ReportInput): string {
   ].join('\n');
 }
 
-/** The units the run budget left, as the line that names how to continue them says them: the batches by their count, then the repair. */
-function stoppedUnitWords(units: readonly { readonly phase: 'fixes' | 'repair' }[]): string {
+/** The units the run budget left, as the line that names how to continue them says them: the batches by their count, the documentation step, then the repair. */
+export function stoppedUnitWords(units: readonly { readonly phase: 'fixes' | 'documentation' | 'repair' }[]): string {
   const batches = units.filter((unit) => unit.phase === 'fixes').length;
-  return [...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]), ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : [])].join(' and ');
+  const words = [
+    ...(batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? '' : 'es'}`]),
+    ...(units.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []),
+    ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : []),
+  ];
+  return words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`;
 }
 
 /** What bounded the run's spend: the run budget in force at the end, or why there was none. */

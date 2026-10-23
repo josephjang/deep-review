@@ -161,6 +161,8 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
       return rankedFindings(review).length > 0 ? single('decider') : [];
     case 'fixes':
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
+    case 'documentation':
+      return [];
     case 'repair':
       return review.fix !== null && repairTargets(review.fix).length > 0 ? [{ phase, key: repairUnitKey, role: 'fixer' }] : [];
     case 'answer': {
@@ -260,6 +262,7 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'sweep-verification':
       return { kind: 'group.unverified', phase: unit.phase, groupId: unit.key };
     case 'fixes':
+    case 'documentation':
     case 'repair':
       return { kind: 'unit.unattempted', phase: unit.phase, key: unit.key, cause: 'failures' };
     case 'triage':

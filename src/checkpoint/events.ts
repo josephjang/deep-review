@@ -912,7 +912,6 @@ export const unitUnattemptedV1 = z.strictObject({
   cause: z.enum(['failures', 'budget']),
   reason: recordedTextSchema,
 });
-export type UnitUnattempted = z.infer<typeof unitUnattemptedV1>;
 
 /** The commits `deep-review commit` built from a completed fix run, in order, and the head they were built on and moved to (R17 of the fix pass). */
 export const commitsCreatedV1 = z.strictObject({
@@ -1527,7 +1526,6 @@ export const phaseStartedV5 = z.strictObject({
   phase: phaseSchemaV6,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV5>;
 
 /** `phase.finished` over the eighteen phases, with the blocker codes of version 5, which the answers do not widen. */
 export const phaseFinishedV6 = z.strictObject({
@@ -1539,7 +1537,6 @@ export const phaseFinishedV6 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV6>;
 
 /** `worktree.checked` over the eighteen phases; from this version on, the head it expects is the run's head, the last commit `deep-review commit` made for the run once it made one (R6 of answers). */
 export const worktreeCheckedV5 = z.strictObject({
@@ -1567,7 +1564,6 @@ export const workerLostV5 = z.strictObject({
   message: 'a lost worker names both its phase and its unit key, or neither',
   path: ['key'],
 });
-export type WorkerLost = z.infer<typeof workerLostV5>;
 
 /** `report.written` over the eighteen phases: the statistics gain the answer pass's rows. */
 export const reportWrittenV5 = z.strictObject({
@@ -1579,15 +1575,12 @@ export const reportWrittenV5 = z.strictObject({
   }),
   patches: z.array(artifactReferenceSchema).max(2000),
 });
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = z.infer<typeof reportWrittenV5>;
 
 /** `tree.revised` over the eighteen phases, so a revision of the answer pass and one of its checks can name their phase. */
 export const treeRevisedV2 = z.strictObject({
   ...treeRevisedV1.shape,
   phase: phaseSchemaV6,
 }).superRefine(refineRevision);
-export type TreeRevised = z.infer<typeof treeRevisedV2>;
 
 /** `fix.recorded` over the three editing phases, the answer pass's fixer among them. */
 export const fixRecordedV2 = z.strictObject({
@@ -1597,7 +1590,6 @@ export const fixRecordedV2 = z.strictObject({
   message: 'each finding is answered once',
   path: ['findings'],
 });
-export type FixRecorded = z.infer<typeof fixRecordedV2>;
 
 /** `check.ran` over the four check phases, the answer pass's checks among them. */
 export const checkRanV2 = z.strictObject({
@@ -1965,8 +1957,6 @@ export const worktreeCheckedV6 = z.strictObject({
   message: 'drifted exactly when some file differs or HEAD moved',
   path: ['drifted'],
 });
-/** A worktree check as the fold holds it, whichever version recorded it. */
-export type WorktreeCheckV6 = z.infer<typeof worktreeCheckedV6>;
 
 /**
  * `attempt.failed` with the faults `cut`, a worker a kill mark ended (R4
@@ -1979,7 +1969,6 @@ export const attemptFailedV7 = z.strictObject({
   ...attemptFailedV6.shape,
   fault: z.enum(vocabularyV7.attemptFaults),
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV7>;
 
 /**
  * A complete fix run that the run budget stopped, reopened (R11, TD8 of
@@ -1992,7 +1981,6 @@ export const fixReopenedV1 = z.strictObject({
   message: 'each unit is reopened once',
   path: ['units'],
 });
-export type FixReopened = z.infer<typeof fixReopenedV1>;
 
 /**
  * A series of commits `deep-review commit` is about to make (R9, TD6 of
@@ -2010,6 +1998,184 @@ export const commitsDroppedV1 = z.strictObject({
 });
 export type CommitsDropped = z.infer<typeof commitsDroppedV1>;
 
+/**
+ * The vocabulary version 8 of the review events records (R1, TD1 of the
+ * documentation step): the nineteen phases, with `documentation` after
+ * the fixes and before their checks, and the editing phases, with
+ * `documentation`. Frozen here for the reason `reviewVocabularyV1` is: a
+ * test holds it equal to today's vocabulary. The engine writes a version
+ * over this vocabulary only for an event that names the documentation
+ * phase or its unit (TD5), so a run configured before the step holds
+ * none of them.
+ */
+export const reviewVocabularyV8 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'decision',
+    'baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks',
+    'answer', 'answer-checks',
+    'report',
+  ],
+  editingPhases: ['fixes', 'documentation', 'repair', 'answer'],
+} as const;
+
+const vocabularyV8 = reviewVocabularyV8;
+const phaseSchemaV8 = z.enum(vocabularyV8.phases);
+const editingPhaseSchemaV8 = z.enum(vocabularyV8.editingPhases);
+
+/**
+ * `review.configured` with the documentation step (TD4 of the
+ * documentation step): version 6 unchanged. The version alone says that
+ * the run has the step, as version 5 said it has the decision step.
+ */
+export const reviewConfiguredV7 = reviewConfiguredV6;
+export type ReviewConfigurationV7 = z.infer<typeof reviewConfiguredV7>;
+
+/** `phase.started` over the nineteen phases. */
+export const phaseStartedV6 = z.strictObject({
+  phase: phaseSchemaV8,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV6>;
+
+/** `phase.finished` over the nineteen phases, with the blocker codes of version 5. */
+export const phaseFinishedV7 = z.strictObject({
+  phase: phaseSchemaV8,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV7>;
+
+/** `worktree.checked` over the nineteen phases, with the moments of version 6. */
+export const worktreeCheckedV7 = z.strictObject({
+  ...worktreeCheckedV6.shape,
+  phase: phaseSchemaV8,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+/** A worktree check as the fold holds it, whichever version recorded it. */
+export type WorktreeCheckV7 = z.infer<typeof worktreeCheckedV7>;
+
+/** `attempt.failed` over the nineteen phases, with the faults of version 7. */
+export const attemptFailedV8 = z.strictObject({
+  ...attemptFailedV7.shape,
+  phase: phaseSchemaV8,
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV8>;
+
+/** `worker.lost` over the nineteen phases. */
+export const workerLostV6 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV8.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+export type WorkerLost = z.infer<typeof workerLostV6>;
+
+/** `report.written` over the nineteen phases: the statistics gain the documentation step's row. */
+export const reportWrittenV6 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV8 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV6>;
+
+/** `tree.revised` over the nineteen phases, so a revision of the documentation step can name its phase. */
+export const treeRevisedV3 = z.strictObject({
+  ...treeRevisedV2.shape,
+  phase: phaseSchemaV8,
+}).superRefine(refineRevision);
+export type TreeRevised = z.infer<typeof treeRevisedV3>;
+
+/** `fix.recorded` over the four editing phases, the documentation step among them, whose ids are its items. */
+export const fixRecordedV3 = z.strictObject({
+  ...fixRecordedV2.shape,
+  phase: editingPhaseSchemaV8,
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: 'each finding is answered once',
+  path: ['findings'],
+});
+export type FixRecorded = z.infer<typeof fixRecordedV3>;
+
+/** `unit.unattempted` over the four editing phases, so the documentation step's unit can be settled without an answer (R8 of the documentation step). */
+export const unitUnattemptedV2 = z.strictObject({
+  ...unitUnattemptedV1.shape,
+  phase: editingPhaseSchemaV8,
+});
+export type UnitUnattempted = z.infer<typeof unitUnattemptedV2>;
+
+/** `fix.reopened` that can list the documentation step's unit, which the run budget can leave not attempted (R8 of the documentation step). */
+export const fixReopenedV2 = z.strictObject({
+  units: z.array(z.strictObject({ phase: z.enum(['fixes', 'documentation', 'repair']), key: unitKeySchema })).min(1),
+}).refine((reopened) => new Set(reopened.units.map((unit) => `${unit.phase}:${unit.key}`)).size === reopened.units.length, {
+  message: 'each unit is reopened once',
+  path: ['units'],
+});
+export type FixReopened = z.infer<typeof fixReopenedV2>;
+
+/** The id of a documentation item: `doc-1` to `doc-n` for the documents, in the order of their first line, then `search`. */
+export const documentationItemIdSchema = z.string().regex(/^(doc-[1-9][0-9]*|search)$/, 'a documentation item id is doc and a number from 1, or search');
+
+/** The id of the item that answers for what the documentation step's own search finds. */
+export const documentationSearchId = 'search';
+
+/** One item of the documentation step's plan: a document the `drift` lines of the fixes name, with those lines, or the search. */
+const documentationItemSchemaV1 = z.strictObject({
+  /** `doc-1` to `doc-n` for the documents, then `search`. */
+  id: documentationItemIdSchema,
+  /** The path as the first `drift` line wrote it; null for `search`. */
+  file: z.string().min(1).max(1000).nullable(),
+  /** The repository path that `file` names, read as a reported path; null when the engine refuses it, and for `search`. */
+  path: claimedPathSchema.nullable(),
+  /** The lines the item holds, each with the batch that reported it; none for `search`. */
+  drift: z.array(z.strictObject({ key: unitKeySchema, file: z.string().min(1), what: z.string().min(1) })),
+});
+
+/**
+ * Hold a plan of the documentation step to its form (TD2, TD8 of the
+ * documentation step): the document items first, numbered `doc-1`
+ * upward, each with a file and a line or more, and the item `search`
+ * last, with no file, no path and no line; no two items with one path.
+ */
+function refineDocumentationPlan(plan: { readonly items: readonly z.infer<typeof documentationItemSchemaV1>[] }, context: z.RefinementCtx): void {
+  const last = plan.items.length - 1;
+  plan.items.forEach((item, index) => {
+    const expected = index === last ? documentationSearchId : `doc-${String(index + 1)}`;
+    if (item.id !== expected) context.addIssue({ code: 'custom', message: `item ${String(index + 1)} is ${expected}: the documents from doc-1 in order, then search`, path: ['items', index, 'id'] });
+    if (item.id === documentationSearchId && (item.file !== null || item.path !== null || item.drift.length > 0)) context.addIssue({ code: 'custom', message: 'the search names no file, no path and no line', path: ['items', index] });
+    if (item.id !== documentationSearchId && (item.file === null || item.drift.length === 0)) context.addIssue({ code: 'custom', message: 'a document item has its file and a line or more', path: ['items', index] });
+  });
+  const paths = plan.items.flatMap((item) => (item.path === null ? [] : [item.path]));
+  if (new Set(paths).size !== paths.length) context.addIssue({ code: 'custom', message: 'no two items have one path', path: ['items'] });
+}
+
+/**
+ * The plan of the documentation step (R2, R5, TD2 of the documentation
+ * step), recorded before its worker starts: each document the `drift`
+ * lines of the fixes name, with its lines, then the search. The fold
+ * holds it to the ledger: every `drift` line of the answers of the fixes,
+ * once each, and no other.
+ */
+export const documentationPlannedV1 = z.strictObject({
+  items: z.array(documentationItemSchemaV1).min(1),
+}).superRefine(refineDocumentationPlan);
+export type DocumentationPlanned = z.infer<typeof documentationPlannedV1>;
+export type DocumentationItem = DocumentationPlanned['items'][number];
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -2017,30 +2183,30 @@ export const eventRegistry = defineRegistry({
   'scope.captured': { 1: { schema: scopeCapturedV1 }, 2: { schema: scopeCapturedV2 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
   'check.started': { 1: { schema: checkStartedV1 } },
   'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 } },
   'tree.restored': { 1: { schema: treeRestoredV1 } },
-  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 } },
-  'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 } },
-  'unit.unattempted': { 1: { schema: unitUnattemptedV1 } },
+  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 } },
+  'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
+  'unit.unattempted': { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
   'commits.prepared': { 1: { schema: commitsPreparedV1 } },
   'commits.created': { 1: { schema: commitsCreatedV1 } },
   'commits.dropped': { 1: { schema: commitsDroppedV1 } },
@@ -2050,7 +2216,8 @@ export const eventRegistry = defineRegistry({
   'files.claimed': { 1: { schema: filesClaimedV1 } },
   'claims.lost': { 1: { schema: claimsLostV1 } },
   'fix.pinned': { 1: { schema: fixPinnedV1 }, 2: { schema: fixPinnedV2 } },
-  'fix.reopened': { 1: { schema: fixReopenedV1 } },
+  'fix.reopened': { 1: { schema: fixReopenedV1 }, 2: { schema: fixReopenedV2 } },
+  'documentation.planned': { 1: { schema: documentationPlannedV1 } },
   'answer.recorded': { 1: { schema: answerRecordedV1 } },
   'answer.pass': { 1: { schema: answerPassV1 } },
 });

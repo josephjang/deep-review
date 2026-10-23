@@ -20,6 +20,9 @@ export const testModel: RunModel = defineModel(testRegistry, {
 /** The event kinds and versions resumable runs added (R16 of resumable runs), which an engine before them does not declare. */
 export const resumableRunsEntries = ['check.started@1', 'check.ran@3', 'tree.restored@1', 'worktree.checked@6', 'attempt.failed@7', 'fix.reopened@1', 'commits.prepared@1', 'commits.dropped@1'] as const;
 
+/** The event kinds and versions the documentation step added (R11 of the documentation step), which an engine before it does not declare. */
+export const documentationStepEntries = ['review.configured@7', 'phase.started@6', 'phase.finished@7', 'worktree.checked@7', 'attempt.failed@8', 'worker.lost@6', 'report.written@6', 'tree.revised@3', 'fix.recorded@3', 'unit.unattempted@2', 'fix.reopened@2', 'documentation.planned@1'] as const;
+
 /** The engine's model less `entries`, each `<kind>@<version>`: the model of an older engine, which declares none of them. */
 export function modelWithout(entries: readonly string[]): RunModel {
   const registry = Object.fromEntries(Object.entries(eventRegistry).flatMap(([kind, versions]) => {

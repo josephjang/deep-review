@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { clusterClaims, exactPath, failedAtBaseline, fixesRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -378,7 +378,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
     };
   });
-  const owned = fixesRevisedPaths(fix);
+  const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
@@ -472,6 +472,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
     case 'fixes':
       if (evidence === null) throw new Error('The fixer task names the baseline checks\' frozen outputs and needs the evidence store');
       return fixerTaskOf(unit, review, requireEditing(), evidence);
+    case 'documentation':
+      throw new Error('The documentation step has no task yet');
     case 'repair':
       if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
       return repairTaskOf(review, requireEditing(), evidence);
@@ -531,8 +533,8 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string, fault: AttemptFault): NewEvent {
-  // The faults version 6 records stay at version 6, which an engine before resumable runs reads; `cut` and `limit` need version 7.
-  return { kind: 'attempt.failed', version: fault === 'cut' || fault === 'limit' ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  // The faults version 6 records stay at version 6, which an engine before resumable runs reads; `cut` and `limit` need version 7, and the documentation phase version 8, whatever the fault (TD5 of the documentation step).
+  return { kind: 'attempt.failed', version: unit.phase === 'documentation' ? 8 : fault === 'cut' || fault === 'limit' ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
@@ -701,6 +703,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
     }
     case 'fixes':
+    case 'documentation':
     case 'repair':
     case 'answer':
       throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);

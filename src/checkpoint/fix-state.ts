@@ -10,9 +10,10 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { checkPhases, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import type { CheckRan, CheckStarted, ChecksPlannedV1, ClaimsLost, CommitsCreated, CommitsPrepared, FixedFinding, FixesPlanned, FixesReplanned, FixRecorded, FixReopened, PlannedCheckV2, PlannedCheckV3, RecordedDecision, ReportWritten, ScopeMode, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecorded, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
@@ -126,6 +127,8 @@ export interface FixState {
   readonly plan: FixesPlanned | null;
   /** The second round of the fixes phase, or null until its first round has settled and it is planned (R21). */
   readonly secondRound: FixesReplanned | null;
+  /** The items of the documentation step, or null until the step is planned, and for good in a run without it or whose fixes revised nothing (R2, TD2 of the documentation step). */
+  readonly documentation: DocumentationPlanned | null;
   /** Each recorded answer, by editing phase and then by unit key. */
   readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecorded>>>>;
   /** Every revision of the tree, in ledger order. */
@@ -161,6 +164,7 @@ export function emptyFixState(): FixState {
     },
     plan: null,
     secondRound: null,
+    documentation: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
@@ -199,19 +203,22 @@ export function lastRecordedRun(fix: FixState, phase: CheckPhase, kind: CheckKin
  * before every edit and never grows old; a revision by a check makes no
  * run old, since a check that writes files records its own writes; and an
  * answer pass's revision runs `answer-checks` again through its floor
- * (`checksFloor`), not by making its runs old.
+ * (`checksFloor`), not by making its runs old. The documentation step
+ * revises the tree the fixes leave, so it stales what they stale (R9 of
+ * the documentation step).
  */
 const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
   'baseline-checks': [],
-  checks: ['fixes', 'answer'],
-  'repair-checks': ['fixes', 'repair', 'answer'],
-  'answer-checks': ['fixes', 'repair'],
+  checks: ['fixes', 'documentation', 'answer'],
+  'repair-checks': ['fixes', 'documentation', 'repair', 'answer'],
+  'answer-checks': ['fixes', 'documentation', 'repair'],
 };
 
 /**
  * The editing phases whose later revisions make the Checks table and
  * `status` say a run checked an earlier tree (R15, TD3 of resumable runs):
- * the fixes and the repair, after any phase but the baseline, which checks
+ * the fixes, the documentation step and the repair, after any phase but
+ * the baseline, which checks
  * the tree before every edit. An answer pass marks no run, since the runs
  * after answers show the tree it left, so each phase's set is its
  * `stalingPhases` set without the answer pass.
@@ -681,9 +688,20 @@ export function earlierBatches(fix: FixState, key: string): PlannedBatch[] {
   return siblings.slice(0, siblings.indexOf(batch));
 }
 
-/** Every path the fixes phase revised, sorted: what the repair owns (TD8 of the fix pass). */
+/** Every path the revisions of the given editing phases changed, sorted. */
+function revisedPathsOf(fix: FixState, phases: readonly EditingPhase[]): string[] {
+  const of: readonly string[] = phases;
+  return [...new Set(fix.revisions.filter((revision) => of.includes(revision.phase)).flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+}
+
+/** Every path the fixes phase revised, sorted: what the documentation step owns beside its documents (TD9 of the documentation step). */
 export function fixesRevisedPaths(fix: FixState): string[] {
-  return [...new Set(fix.revisions.filter((revision) => revision.phase === 'fixes').flatMap((revision) => revision.files.map((file) => file.path)))].sort();
+  return revisedPathsOf(fix, ['fixes']);
+}
+
+/** Every path the fixes phase and the documentation step revised, sorted: what the repair owns (TD8 of the fix pass, R9 of the documentation step). */
+export function fixPassRevisedPaths(fix: FixState): string[] {
+  return revisedPathsOf(fix, ['fixes', 'documentation']);
 }
 
 /** Every path any revision of the run changed, sorted. */
@@ -706,11 +724,13 @@ export type EditingUnitView = Pick<ReviewState, 'fix' | 'answerPasses' | 'rankin
 
 /**
  * The files a unit of an editing phase owns: its batch's cluster's files;
- * for the repair everything the fixes phase revised; and for an answer
- * pass every path any revision of the run changed and the files its
- * findings are located in (R5 of answers), since it is the only editor in
- * the tree and may have to undo what a default's fixer did. None in a run
- * without the fix pass.
+ * for the documentation step everything the fixes phase revised and the
+ * repository path of each document its plan names (TD9 of the
+ * documentation step); for the repair everything the fixes phase and the
+ * documentation step revised (R9); and for an answer pass every path any
+ * revision of the run changed and the files its findings are located in
+ * (R5 of answers), since it is the only editor in the tree and may have
+ * to undo what a default's fixer did. None in a run without the fix pass.
  */
 export function ownedFiles(review: EditingUnitView, phase: EditingPhase, key: string): readonly string[] {
   const fix = review.fix;
@@ -718,8 +738,12 @@ export function ownedFiles(review: EditingUnitView, phase: EditingPhase, key: st
   switch (phase) {
     case 'fixes':
       return clusterOfBatch(fix, key)?.files ?? [];
+    case 'documentation': {
+      const documents = (fix.documentation?.items ?? []).flatMap((item) => (item.path === null ? [] : [item.path]));
+      return [...new Set([...fixesRevisedPaths(fix), ...documents])].sort();
+    }
     case 'repair':
-      return fixesRevisedPaths(fix);
+      return fixPassRevisedPaths(fix);
     case 'answer':
       return [...new Set([...revisedPaths(fix), ...locatedFilesOf(review, passOf(review, key)?.ids ?? [])])].sort();
   }
@@ -727,11 +751,13 @@ export function ownedFiles(review: EditingUnitView, phase: EditingPhase, key: st
 
 /**
  * The ids a unit of an editing phase answers for, in the order its task
- * numbers them: a fixes-phase batch's findings, the check kinds the
- * repair repairs, or an answer pass's findings. Null for a unit the phase
- * does not have: a batch the plan lacks, the repair with nothing to
- * repair, a key no answer pass has, or any unit of a run without the fix
- * pass. The fold and the events of a unit's work read it alike.
+ * numbers them: a fixes-phase batch's findings, the items of the
+ * documentation step's plan, the check kinds the repair repairs, or an
+ * answer pass's findings. Null for a unit the phase does not have: a
+ * batch the plan lacks, the documentation step before its plan, the
+ * repair with nothing to repair, a key no answer pass has, or any unit of
+ * a run without the fix pass. The fold and the events of a unit's work
+ * read it alike.
  */
 export function unitIdsOf(review: Pick<ReviewState, 'fix' | 'answerPasses'>, phase: EditingPhase, key: string): readonly string[] | null {
   const fix = review.fix;
@@ -739,6 +765,8 @@ export function unitIdsOf(review: Pick<ReviewState, 'fix' | 'answerPasses'>, pha
   switch (phase) {
     case 'fixes':
       return batchOf(fix, key)?.findingIds ?? null;
+    case 'documentation':
+      return key === documentationUnitKey && fix.documentation !== null ? fix.documentation.items.map((item) => item.id) : null;
     case 'repair': {
       const targets = repairTargets(fix);
       return key === repairUnitKey && targets.length > 0 ? targets : null;
@@ -806,9 +834,40 @@ export function notAttemptedNote(fix: FixState, phase: EditingPhase, key: string
   return settled.cause === 'budget' ? `the run budget was reached first: ${settled.reason}` : settled.reason;
 }
 
-/** The units the run budget left not attempted, the batches of the fixes and the repair, in phase order: what a reopened fix pass lists and launches (R11 of resumable runs). */
+/** The units the run budget left not attempted, the batches of the fixes, the documentation step and the repair, in phase order: what a reopened fix pass lists and launches (R11 of resumable runs, R8 of the documentation step). */
 export function budgetStoppedUnits(fix: Pick<FixState, 'notAttempted'>): FixReopened['units'] {
-  return (['fixes', 'repair'] as const).flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => ({ phase, key })));
+  return budgetDegradingPhases.flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => ({ phase, key })));
+}
+
+/**
+ * The items of the documentation step (R2, TD8 of the documentation
+ * step): the `drift` lines of the answers of the fixes, read batch by
+ * batch in the order of `allBatches` and each answer's lines in their
+ * order, grouped by the repository path `resolve` reads each line's file
+ * as, the way a reported path is read; a line whose path `resolve`
+ * refuses, null, groups with the lines of the same path folded as an
+ * unlocated candidate's is (`normalizeFileName`, then lower case). Each
+ * item keeps the path its first line wrote and the resolved one, the
+ * items are numbered `doc-1` upward in the order of their first lines,
+ * and the item `search` comes last. A run whose fixes reported no line has
+ * the search alone. The controller computes them, since `resolve` reads
+ * the worktree; the fold holds a recorded plan to its lines and does not
+ * group them again.
+ */
+export function documentationItemsOf(fix: FixState, resolve: (file: string) => string | null): DocumentationItem[] {
+  const groups = new Map<string, { file: string; path: string | null; drift: DocumentationItem['drift'][number][] }>();
+  for (const batch of allBatches(fix)) {
+    for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
+      const path = resolve(line.file);
+      // A resolved path and a folded one never share a key, so a refused path never joins a document of the repository.
+      const group = path === null ? `folded:${normalizeFileName(line.file).toLowerCase()}` : `path:${path}`;
+      const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
+      entry.drift.push({ key: batch.key, file: line.file, what: line.what });
+      groups.set(group, entry);
+    }
+  }
+  const documents = [...groups.values()].map((entry, index): DocumentationItem => ({ id: `doc-${String(index + 1)}`, file: entry.file, path: entry.path, drift: entry.drift }));
+  return [...documents, { id: documentationSearchId, file: null, path: null, drift: [] }];
 }
 
 /** Whether a unit of an editing phase is settled as not attempted, after two failures or at the run budget. */

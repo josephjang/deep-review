@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, askDecision, baselined, candidate, changeReading, configuration, configurationV1, configured, decidedOf, decisions, finding, fixPlan, found, launch, leads, mergeRanked, ranking, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, worker } from '../helpers/review-history.ts';
+import { History, askDecision, baselined, candidate, changeReading, checksPhase, configuration, configurationV1, configured, decidedFixRun, decidedOf, decisions, endCheck, finding, fixAnswer, fixPlan, fixRevision, found, launch, leads, mergeRanked, noSecondRound, pin, ranking, readOnlyReported, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -202,7 +202,7 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
   });
 
   it('skips the answer pass\'s two phases at every version of the configuration, fix run or not, which only an answer pass opens (R9 of answers)', () => {
@@ -224,6 +224,58 @@ describe('the review fold', () => {
       for (const phase of answerPhases) assert.deepEqual(review.phases[phase], { status: 'skipped', attempt: 0 }, `${phase} at version ${String(version)}, fix ${String(payload.fix ?? false)}`);
     }
     assert.throws(() => reported().start('answer').fold(), (error: unknown) => error instanceof InvalidHistoryError && /starts phase answer, which this run skips: no answer pass has opened it/.test(error.message));
+  });
+
+  // R1, R11 and TD4 of the documentation step.
+  describe('the documentation phase', () => {
+    const skips = (history: History, reason: string): void => {
+      assert.throws(() => history.start('documentation').fold(), (error: unknown) => error instanceof InvalidHistoryError && error.message.includes(`starts phase documentation, which this run skips: ${reason}`));
+    };
+
+    it('is pending in a fix run configured at version 7, and skipped in one that only reviews, as a run without the fix pass', () => {
+      const fixing = withDocumentationStep(decidedOf(withFixPass(mergeRanked())), null).review();
+      assert.equal(fixing.documentationStep, true);
+      assert.deepEqual(fixing.phases.documentation, { status: 'pending', attempt: 0 });
+      const reading = withDocumentationStep(decidedOf(mergeRanked()), null);
+      assert.equal(reading.review().documentationStep, true);
+      assert.deepEqual(reading.review().phases.documentation, { status: 'skipped', attempt: 0 });
+      skips(reading, 'it was configured without the fix pass');
+    });
+
+    it('is skipped in a run configured at version 6 or before, as a run configured before the step existed', () => {
+      for (const history of [decidedOf(withFixPass(mergeRanked())), settingsConfigured(true), withFixPass(configured())]) {
+        assert.equal(history.review().documentationStep, false);
+        assert.deepEqual(history.review().phases.documentation, { status: 'skipped', attempt: 0 });
+        skips(history, 'it was configured before the documentation step existed');
+      }
+      skips(settingsConfigured(false), 'it was configured before the documentation step existed');
+    });
+
+    it('stays skipped when a run configured at version 6 continues into the fix pass, and is pending when one at version 7 does', () => {
+      const older = readOnlyReported().add('fix.pinned', pin()).review();
+      assert.deepEqual(older.phases.documentation, { status: 'skipped', attempt: 0 });
+      assert.deepEqual(older.phases.fixes, { status: 'pending', attempt: 0 });
+      const newer = withDocumentationStep(readOnlyReported()).add('fix.pinned', pin()).review();
+      assert.equal(newer.documentationStep, true);
+      assert.deepEqual(newer.phases.documentation, { status: 'pending', attempt: 0 });
+    });
+
+    it('starts only after the fixes, and the checks only after it', () => {
+      const atBaseline = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null);
+      assert.throws(() => atBaseline.clone().start('documentation').fold(), /starts phase documentation while phase fixes is pending/);
+      const fixed = atBaseline.clone().start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50))).add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+      assert.throws(() => fixed.clone().start('checks').fold(), /starts phase checks while phase documentation is pending/);
+      const documented = fixed.clone().start('documentation').finish('documentation', 'degraded');
+      assert.deepEqual(documented.review().phases.documentation, { status: 'degraded', attempt: 1 });
+      assert.equal(checksPhase(documented, 'checks').review().phases.checks.status, 'completed');
+    });
+
+    it('folds a whole fix run with the step, which records each of its events at the version that names it', () => {
+      const review = withDocumentationStep(decidedFixRun()).review();
+      assert.deepEqual(review.phases.documentation, { status: 'completed', attempt: 1 });
+      assert.deepEqual(review.fix?.documentation?.items.map((item) => item.id), ['search']);
+      assert.equal(review.report?.patches.length, 1);
+    });
   });
 
   // R6, R17 of the configuration.

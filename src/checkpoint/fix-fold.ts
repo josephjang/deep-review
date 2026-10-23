@@ -16,11 +16,15 @@
  * current run is its result, a run at version 3 with no start of its own,
  * a write back after a check that never started, a series prepared while
  * another is open or created otherwise than prepared, and a reopening of
- * other units than those the run budget left not attempted.
+ * other units than those the run budget left not attempted. Of the
+ * documentation step's (R2, TD2 of the documentation step), they refuse a
+ * second plan, a plan while the run budget leaves a unit of the fixes not
+ * attempted or with no revision of the fixes, and a plan that leaves out
+ * a `drift` line of the fixes or lists one no answer of the fixes holds.
  */
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
@@ -335,8 +339,8 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
   const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
-  // A fixer that made the edit a person's answer owed applies that answer: a fixes-phase batch, for an answer a read-only run recorded before its continuation, or an answer pass (TD4 of answers). The repair answers checks, not findings.
-  const personAnswers = payload.phase === 'repair' ? review.answers : withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings);
+  // A fixer that made the edit a person's answer owed applies that answer: a fixes-phase batch, for an answer a read-only run recorded before its continuation, or an answer pass (TD4 of answers). The repair answers checks and the documentation step its items, not findings.
+  const personAnswers = payload.phase === 'repair' || payload.phase === 'documentation' ? review.answers : withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings);
   return withReview(current, { ...review, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
 };
 
@@ -429,6 +433,48 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   return withFix(current, review, { ...fix, notAttempted }, event);
 };
 
+/** A `drift` line as the plan of the documentation step and an answer of the fixes both name it: the batch, the file as written and the stale fact. */
+const driftLineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
+
+/**
+ * The plan of the documentation step (R2, TD2, TD11, TD12 of the
+ * documentation step): once, while the phase runs, with no unit of the
+ * fixes the run budget left not attempted, since a reopened fix pass would
+ * launch it after the plan, and with a revision of the fixes, since a run
+ * whose fixes changed nothing has no step. Each line it lists is a
+ * `drift` line of the answer of the batch it names, with the same file and
+ * text, and each `drift` line of each answer of the fixes is listed once,
+ * two equal lines of one answer being two lines; so a line no item holds
+ * came after the plan, from the repair or an answer pass. Which lines it
+ * holds is checked, not how it groups them, so a later engine with
+ * another rule of groups reads it as it was made, as the second round's
+ * plan is read; and the fold reads no worktree, so it does not resolve a
+ * path again.
+ */
+const documentationPlanned: Reducer<DocumentationPlanned> = (state, payload, event) => {
+  const { current, review, fix } = requireFix(state, event);
+  requireRunning(review, event, 'documentation');
+  if (fix.documentation !== null) throw invalid(event, 'plans its documentation step twice');
+  const stopped = budgetStoppedUnits(fix).filter((unit) => unit.phase === 'fixes').map((unit) => unit.key);
+  if (stopped.length > 0) throw invalid(event, `plans its documentation step while the run budget leaves ${stopped.join(', ')} of the fixes not attempted`);
+  if (!fix.revisions.some((revision) => revision.phase === 'fixes')) throw invalid(event, 'plans its documentation step for fixes that revised nothing');
+  // How many times each line of the answers of the fixes is not listed yet.
+  const unlisted = new Map<string, number>();
+  for (const [key, answer] of Object.entries(fix.answers.fixes)) {
+    for (const line of answer.drift) unlisted.set(driftLineKey(key, line), (unlisted.get(driftLineKey(key, line)) ?? 0) + 1);
+  }
+  for (const item of payload.items) {
+    for (const line of item.drift) {
+      const left = unlisted.get(driftLineKey(line.key, line)) ?? 0;
+      if (left === 0) throw invalid(event, `plans the drift line ${JSON.stringify(line.what)} on ${line.file} for ${line.key} under ${item.id}, which no answer of the fixes holds, or holds fewer times than the plan lists it`);
+      unlisted.set(driftLineKey(line.key, line), left - 1);
+    }
+  }
+  const left = [...unlisted].filter(([, count]) => count > 0).map(([line]) => line);
+  if (left.length > 0) throw invalid(event, `plans its documentation step without the drift lines ${left.join(', ')} of the fixes`);
+  return withFix(current, review, { ...fix, documentation: payload }, event);
+};
+
 /**
  * A complete read-only run continued into the fix pass (R6, TD1, TD3, TD7
  * of fix pass continuation): once, on an active run that has its report,
@@ -442,7 +488,10 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
  * pending; the report phase is pending at its attempt, so its next start
  * is the next attempt, and the first report is kept beside the state with
  * the count of worktree checks so far, so the continuation's first check
- * is known as the one whose strays held the user's work (`preRunStrays`); and
+ * is known as the one whose strays held the user's work (`preRunStrays`);
+ * the documentation step of a run configured before it stays skipped, so
+ * a continuation by this engine does not give it the step (R11 of the
+ * documentation step); and
  * when the checks are not planned, the survey is pending at its attempt
  * too, its unit with fresh attempts, so the surveyor asked for the checks
  * is not out of attempts from the read-only survey's failures. The answer
@@ -475,7 +524,7 @@ function pinFix(state: RunState | undefined, payload: Omit<FixPinned, 'plannedCh
     units = review.units;
   }
   const phaseStates = { ...review.phases };
-  for (const phase of fixPhases) phaseStates[phase] = { status: 'pending', attempt: 0 };
+  for (const phase of fixPhases) if (phase !== 'documentation' || review.documentationStep) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings };
   return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
@@ -542,15 +591,19 @@ const commitsDropped: Reducer<CommitsDropped> = (state, payload, event) => {
 /**
  * A complete fix run the run budget stopped, reopened (R11, TD8 of
  * resumable runs): on an active run with its report written that fixes,
- * listing each unit the budget left not attempted, a batch of the fixes or
- * the repair, once, and only those. Each listed unit is no longer not
- * attempted, so it can launch again, and its failures stay. The report is
- * kept beside the reopening and cleared; `checks`, `repair`,
- * `repair-checks` and `report` are pending at their attempts, and `fixes`
- * too when a batch of it is listed. `checks` opens again in each case,
- * since an answer pass can revise the tree after its last runs. With
- * `fix.pinned` and `answer.pass`, this is one of the three reducers that
- * move a phase out of `completed`, `degraded` or `skipped`.
+ * listing each unit the budget left not attempted, a batch of the fixes,
+ * the documentation step, which only version 2 can list, or the repair,
+ * once, and only those. Each listed unit is no longer not attempted, so it
+ * can launch again, and its failures stay. The report is kept beside the
+ * reopening and cleared; `checks`, `repair`, `repair-checks` and `report`
+ * are pending at their attempts, and `fixes` too when a batch of it is
+ * listed. In a run with the documentation step, `documentation` is pending
+ * at its attempt when `fixes` is, so the step plans after the units the
+ * reopening gives back, and when its own unit is listed (TD12 of the
+ * documentation step). `checks` opens again in each case, since an answer
+ * pass can revise the tree after its last runs. With `fix.pinned` and
+ * `answer.pass`, this is one of the three reducers that move a phase out
+ * of `completed`, `degraded` or `skipped`.
  */
 const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -564,7 +617,9 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
   const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report };
   const phaseStates = { ...review.phases };
-  const reopenedPhases: Phase[] = [...(payload.units.some((unit) => unit.phase === 'fixes') ? ['fixes' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
+  const fixes = payload.units.some((unit) => unit.phase === 'fixes');
+  const documentation = review.documentationStep && (fixes || payload.units.some((unit) => unit.phase === 'documentation'));
+  const reopenedPhases: Phase[] = [...(fixes ? ['fixes' as const] : []), ...(documentation ? ['documentation' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
   for (const phase of reopenedPhases) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   return withReview(current, { ...review, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
 };
@@ -583,9 +638,13 @@ export const fixReducers = {
   'tree.restored@1': treeRestored,
   'fix.recorded@1': fixRecorded,
   'fix.recorded@2': fixRecorded,
+  'fix.recorded@3': fixRecorded,
   'tree.revised@1': treeRevised,
   'tree.revised@2': treeRevised,
+  'tree.revised@3': treeRevised,
   'unit.unattempted@1': unitUnattempted,
+  'unit.unattempted@2': unitUnattempted,
+  'documentation.planned@1': documentationPlanned,
   'commits.prepared@1': commitsPrepared,
   'commits.created@1': commitsCreated,
   'commits.dropped@1': commitsDropped,
@@ -594,4 +653,5 @@ export const fixReducers = {
   'fix.pinned@1': fixPinned,
   'fix.pinned@2': fixPinnedV2,
   'fix.reopened@1': fixReopened,
+  'fix.reopened@2': fixReopened,
 } as const;

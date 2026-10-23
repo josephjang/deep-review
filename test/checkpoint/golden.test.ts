@@ -169,6 +169,12 @@ describe('golden checkpoints', () => {
             assert.deepEqual(review.answerPasses, [], `${name} run ${String(index)} answerPasses`);
             for (const phase of answerPhases) assert.equal(review.phases[phase].status, 'skipped', `${name} run ${String(index)} ${phase}`);
           }
+          // A review recorded before the documentation step existed reads as one without it: its phase skipped and no plan (R11 of the documentation step).
+          if (review !== null && !('documentationStep' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.documentationStep, false, `${name} run ${String(index)} documentationStep`);
+            assert.equal(review.phases.documentation.status, 'skipped', `${name} run ${String(index)} documentation phase`);
+            if (review.fix !== null) assert.equal(review.fix.documentation, null, `${name} run ${String(index)} fix.documentation`);
+          }
           // A review recorded before the triage's account of the change reads as one whose account is unrecorded (R18 of the brief of a run).
           if (review !== null && !('change' in ((recorded as { review?: object | null }).review ?? {}))) {
             assert.deepEqual(review.change, { kind: 'unrecorded' }, `${name} run ${String(index)} change`);
@@ -291,7 +297,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on records that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -305,9 +311,29 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      for (const run of runs.filter((candidate) => candidate !== resumed && candidate.review !== null && candidate.review.leads !== null)) {
+      const documented = runs.find((candidate) => candidate.worktree === '/fixture/documented');
+      if (documented !== undefined) assert.deepEqual(documented.review?.change, { kind: 'none' });
+      for (const run of runs.filter((candidate) => candidate !== resumed && candidate !== documented && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
       }
+    });
+  }
+
+  // The run with the documentation step, which every fixture from schema-1-15 on holds (R1, R2, R5 of the documentation step).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 15)) {
+    it(`folds ${name}'s documented run: the step's plan of its document and the search, its answer and its revision, after the fixes and before their checks`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const documented = checkpoint.foldRuns().find((candidate) => candidate.worktree === '/fixture/documented')?.review;
+      assert.ok(documented !== null && documented !== undefined && documented.fix !== null, 'the fixture holds the documented run');
+      assert.equal(documented.documentationStep, true);
+      assert.deepEqual(documented.phases.documentation, { status: 'completed', attempt: 1 });
+      assert.deepEqual(documented.fix.documentation?.items.map((item) => [item.id, item.path, item.drift.length]), [['doc-1', 'docs/testing.md', 2], ['search', null, 0]]);
+      assert.deepEqual(documented.fix.answers.documentation.documentation?.findings.map((finding) => [finding.id, finding.status]), [['doc-1', 'applied'], ['search', 'already-applied']]);
+      assert.deepEqual(documented.fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['documentation', ['doc-1']]]);
+      assert.equal(documented.report?.patches.length, 2);
     });
   }
 

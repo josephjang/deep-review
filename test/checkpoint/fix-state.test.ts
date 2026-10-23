@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, failedAtBaseline, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import type { FixRecorded, TreeRevised } from '../../src/checkpoint/events.ts';
+import { cutShortBefore, cutShortChecks, documentationItemsOf, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -47,6 +47,7 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
   const repair = revision('repair', { kind: 'fix', key: 'repair', workerId: worker });
   const answer = revision('answer', { kind: 'fix', key: 'pass-1', workerId: worker });
   const lint = revision('checks', { kind: 'check', check: 'lint' });
+  const documentation = revision('documentation', { kind: 'fix', key: 'documentation', workerId: worker });
 
   it('keeps a baseline run current after every edit, so the baseline failures stay what the fixers are told', () => {
     const fix = withRuns(fixOf([fixes, repair, answer]), { 'baseline-checks': [run('baseline-checks', 'test', 'failed', 1, 0)] });
@@ -54,9 +55,9 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
     assert.equal(failedAtBaseline(fix, 'test'), true);
   });
 
-  it('makes a run after the fixes old by a later revision of the fixes or of an answer pass, never of the repair or a check', () => {
+  it('makes a run after the fixes old by a later revision of the fixes, the documentation step or an answer pass, never of the repair or a check', () => {
     const checks = run('checks', 'test', 'failed', 1, 1);
-    for (const [later, old] of [[fixes, true], [answer, true], [repair, false], [lint, false]] as const) {
+    for (const [later, old] of [[fixes, true], [documentation, true], [answer, true], [repair, false], [lint, false]] as const) {
       const fix = withRuns(fixOf([fixes, later]), { checks: [checks] });
       assert.equal(isOldRun(fix, 'checks', checks), old, later.phase);
       assert.equal(lastFreshRun(fix, 'checks', 'test'), old ? null : checks, later.phase);
@@ -64,8 +65,8 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
     }
   });
 
-  it('makes a run after the repair old by a later revision of the fixes, the repair or an answer pass, and one after answers by the fixes or the repair', () => {
-    for (const [phase, later, old] of [['repair-checks', repair, true], ['repair-checks', answer, true], ['answer-checks', repair, true], ['answer-checks', answer, false], ['answer-checks', fixes, true]] as const) {
+  it('makes a run after the repair old by a later revision of the fixes, the documentation step, the repair or an answer pass, and one after answers by the fixes, the documentation step or the repair', () => {
+    for (const [phase, later, old] of [['repair-checks', repair, true], ['repair-checks', answer, true], ['repair-checks', documentation, true], ['answer-checks', repair, true], ['answer-checks', answer, false], ['answer-checks', fixes, true], ['answer-checks', documentation, true]] as const) {
       const ran = run(phase, 'build', 'passed', 1, 0);
       assert.equal(isOldRun(fixOf([later]), phase, ran), old, `${phase} after ${later.phase}`);
     }
@@ -74,7 +75,7 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
   it('says a run checked an earlier tree after every revision that made it old but an answer pass\'s, naming the first such revision\'s phase', () => {
     for (const phase of checkPhases) {
       const ran = run(phase, 'build', 'passed', 1, 0);
-      for (const later of [fixes, repair, answer, lint]) {
+      for (const later of [fixes, documentation, repair, answer, lint]) {
         const marked = later !== answer && isOldRun(fixOf([later]), phase, ran);
         assert.equal(earlierTreeEdit(fixOf([later]), phase, ran), marked ? later.phase : null, `${phase} after ${later.phase}`);
       }
@@ -178,5 +179,63 @@ describe('the last write back of an attempt (R7 of resumable runs)', () => {
   it('holds -1 for an attempt with no write back, and for a read-only run', () => {
     assert.equal(lastRestorationAt({ ...emptyFixState(), restorations: [restoration('baseline-checks', 2, 1)] }, 'baseline-checks', 1), -1);
     assert.equal(lastRestorationAt(null, 'survey', 1), -1);
+  });
+});
+
+// R2, R9, TD8 and TD9 of the documentation step.
+describe('the items of the documentation step', () => {
+  const answerOf = (key: string, drift: readonly { readonly file: string; readonly what: string }[]): FixRecorded => ({ phase: 'fixes', key, workerId: worker, findings: [], drift: [...drift], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+  const batch = (key: string): PlannedBatch => ({ key, cluster: key.split('-')[0]!, findingIds: [`RIPPLE-${key.split('-')[1]!}`] });
+  /** A fix state with batches c1-1 and c2-1 in launch order, each answered with its `drift` lines, the second round's c3-1 too when given. */
+  const fixWith = (first: readonly { readonly file: string; readonly what: string }[], second: readonly { readonly file: string; readonly what: string }[], third: readonly { readonly file: string; readonly what: string }[] | null = null): FixState => ({
+    ...emptyFixState(),
+    plan: { routes: [], clusters: [], batches: [batch('c1-1'), batch('c2-1')] },
+    secondRound: third === null ? null : { blocked: [], clusters: [], batches: [batch('c3-1')] },
+    answers: { ...emptyFixState().answers, fixes: { 'c2-1': answerOf('c2-1', second), 'c1-1': answerOf('c1-1', first), ...(third === null ? {} : { 'c3-1': answerOf('c3-1', third) }) } },
+  });
+  /** A resolver that reads `./` away and refuses a path that leaves the tree, as `planPathOf` does over a worktree that holds every path. */
+  const resolve = (file: string): string | null => (file.startsWith('../') || file.startsWith('/') ? null : file.replace(/^\.\//, ''));
+
+  it('groups the lines by the path they resolve to, keeps the path the first line wrote, and numbers the items in the order of their first lines, the search last', () => {
+    const fix = fixWith([{ file: './docs/testing.md', what: 'the echo removes the bytes' }, { file: 'CHANGES.md', what: 'always translated' }], [{ file: 'docs/testing.md', what: 'test_shout prints HI' }]);
+    assert.deepEqual(documentationItemsOf(fix, resolve), [
+      { id: 'doc-1', file: './docs/testing.md', path: 'docs/testing.md', drift: [{ key: 'c1-1', file: './docs/testing.md', what: 'the echo removes the bytes' }, { key: 'c2-1', file: 'docs/testing.md', what: 'test_shout prints HI' }] },
+      { id: 'doc-2', file: 'CHANGES.md', path: 'CHANGES.md', drift: [{ key: 'c1-1', file: 'CHANGES.md', what: 'always translated' }] },
+      { id: 'search', file: null, path: null, drift: [] },
+    ]);
+  });
+
+  it('reads the batches in launch order, the first round before the second, whatever order the answers were recorded in', () => {
+    const fix = fixWith([{ file: 'b.md', what: 'b' }], [{ file: 'a.md', what: 'a' }], [{ file: 'c.md', what: 'c' }]);
+    assert.deepEqual(documentationItemsOf(fix, resolve).map((item) => item.file), ['b.md', 'a.md', 'c.md', null]);
+  });
+
+  it('groups the lines whose path the resolver refuses by the path folded, as an unlocated candidate\'s, apart from every resolved path', () => {
+    const fix = fixWith([{ file: '../Outside.md', what: 'one' }, { file: '..\\outside.md', what: 'two' }], [{ file: 'outside.md', what: 'three' }]);
+    const items = documentationItemsOf(fix, (file) => (file.includes('..') ? null : resolve(file)));
+    assert.deepEqual(items.map((item) => [item.id, item.file, item.path, item.drift.map((line) => line.what)]), [
+      ['doc-1', '../Outside.md', null, ['one', 'two']],
+      ['doc-2', 'outside.md', 'outside.md', ['three']],
+      ['search', null, null, []],
+    ]);
+  });
+
+  it('keeps two equal lines of one answer as two lines, and gives a run whose fixes reported none the search alone', () => {
+    const line = { file: 'a.md', what: 'stale' };
+    assert.deepEqual(documentationItemsOf(fixWith([line, line], []), resolve)[0]?.drift, [{ key: 'c1-1', ...line }, { key: 'c1-1', ...line }]);
+    assert.deepEqual(documentationItemsOf(fixWith([], []), resolve), [{ id: 'search', file: null, path: null, drift: [] }]);
+    assert.deepEqual(documentationItemsOf(emptyFixState(), resolve), [{ id: 'search', file: null, path: null, drift: [] }], 'no plan of the fixes, no line');
+  });
+
+  it('gives the repair the paths the fixes and the documentation step revised, and the step the fixes\' and its documents\'', () => {
+    const fixes = revision('fixes', { kind: 'fix', key: 'c1-1', workerId: worker });
+    const step = { ...revision('documentation', { kind: 'fix', key: 'documentation', workerId: worker }), files: [{ path: 'docs/testing.md', status: 'modified' as const, before: null, beforeSymlink: false, symlink: false, after: null }] };
+    const answer = { ...revision('answer', { kind: 'fix', key: 'pass-1', workerId: worker }), files: [{ path: 'README.md', status: 'modified' as const, before: null, beforeSymlink: false, symlink: false, after: null }] };
+    const fix: FixState = { ...fixOf([fixes, step, answer]), documentation: { items: [{ id: 'doc-1', file: 'CHANGES.md', path: 'CHANGES.md', drift: [{ key: 'c1-1', file: 'CHANGES.md', what: 'x' }] }, { id: 'doc-2', file: '../x.md', path: null, drift: [{ key: 'c1-1', file: '../x.md', what: 'y' }] }, { id: 'search', file: null, path: null, drift: [] }] } };
+    assert.deepEqual(fixesRevisedPaths(fix), ['src/a.ts']);
+    assert.deepEqual(fixPassRevisedPaths(fix), ['docs/testing.md', 'src/a.ts']);
+    const review = { fix, answerPasses: [], ranking: null, candidates: {} };
+    assert.deepEqual(ownedFiles(review, 'repair', 'repair'), ['docs/testing.md', 'src/a.ts'], 'not the answer pass\'s README.md');
+    assert.deepEqual(ownedFiles(review, 'documentation', 'documentation'), ['CHANGES.md', 'src/a.ts'], 'a refused path gives no file; its own revision is no file of the fixes');
   });
 });

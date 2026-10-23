@@ -50,7 +50,7 @@ import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
-import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
+import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, worktreeCheckVersion, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
@@ -511,7 +511,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         const found = findDrift(state, options.worktree, content.match);
         if (drifted(found)) {
           log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-          return [{ kind: 'worktree.checked', version: 5, payload: worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload }];
+          const check = worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload;
+          return [{ kind: 'worktree.checked', version: worktreeCheckVersion(check), payload: check }];
         }
       }
       const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
@@ -552,8 +553,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
-      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration).
-      state = append(checkpoint, state, [{ kind: 'review.configured', version: 6, payload: configure.payload }]);
+      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 7 says the run has the documentation step (TD4 of the documentation step).
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 7, payload: configure.payload }]);
       const pinnedNow = configure.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure.resolved)) log(line);
@@ -734,15 +735,15 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
-          state = append(checkpoint, state, [{ kind: 'phase.started', version: 5, payload: { phase: step.phase, attempt: step.attempt } }]);
+          // Only the documentation phase needs version 6, so a run configured before the step holds no event an older engine cannot read (TD5 of the documentation step).
+          state = append(checkpoint, state, [{ kind: 'phase.started', version: step.phase === 'documentation' ? 6 : 5, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree ${step.moment === 'restored' ? 'still differs from what the run expects after the write back' : 'drifted from what the run expects'}: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}${unlisted === 0 ? '' : `, and ${String(unlisted)} more the check does not list`}`);
-          // Only version 6 records the check after a write back; every other check stays at version 5, which a read-only run's older reader declares.
-          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: step.moment === 'restored' ? 6 : 5, payload: check }]);
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: worktreeCheckVersion(check), payload: check }]);
           break;
         }
         case 'restore-tree': {
@@ -793,7 +794,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
               case 'unit.unattempted':
                 degraded(`${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`, degradation.reason);
                 // What failed workers left is already recorded, with each failure (R20 of the fix pass).
-                return { kind: 'unit.unattempted', version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+                return { kind: 'unit.unattempted', version: degradation.phase === 'documentation' ? 2 : 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
@@ -843,7 +844,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: 'phase.finished', version: 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.finished', version: step.phase === 'documentation' ? 7 : 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
           // One patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass).
@@ -858,7 +859,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const text = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options.home ?? homedir(), ...fix });
           const report = checkpoint.evidence.put(text);
           state = append(checkpoint, state, [
-            { kind: 'report.written', version: 5, payload: { report, statistics, patches } },
+            // Only statistics with the documentation phase's row need version 6: a run configured before the step skips the phase and has none (TD5 of the documentation step).
+            { kind: 'report.written', version: statistics.phases.some((row) => row.phase === 'documentation') ? 6 : 5, payload: { report, statistics, patches } },
             { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
@@ -1340,7 +1342,7 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     const current = run.review!.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
     const unstaged = settle !== null && settle.kind === 'complete' ? resetSettledIndex(run, settle.series, context.worktree) : [];
-    const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: 1, payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
+    const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: units.some((unit) => unit.phase === 'documentation') ? 2 : 1, payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
     if (settle !== null && settle.kind !== 'elsewhere') log(settle.line);
     if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
     log(`run ${run.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(', ')}; ${spendWords(budgetSpendOf(run, context.adapter).usd, limits.runBudgetUsd)}`);
@@ -1635,7 +1637,7 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, context: Pic
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost: NewEvent = { kind: 'worker.lost', version: 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost: NewEvent = { kind: 'worker.lost', version: unit?.phase === 'documentation' ? 6 : 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason, 'lost') : { claims: [], revisions: [] };
     for (const line of edits.claims.flatMap(claimLines)) log(line);
     if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? '' : 's'}`);
@@ -1651,5 +1653,5 @@ function reenterPhase(checkpoint: Checkpoint, state: RunState, adapter: Pick<Run
   if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
-  return append(checkpoint, state, [{ kind: 'phase.started', version: 5, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: 'phase.started', version: phase === 'documentation' ? 6 : 5, payload: { phase, attempt } }]);
 }

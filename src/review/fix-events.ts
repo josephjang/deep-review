@@ -212,20 +212,23 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: 2, payload: recorded },
+    // Only the documentation step's answer and revisions need version 3 (TD5 of the documentation step).
+    { kind: 'fix.recorded', version: phase === 'documentation' ? 3 : 2, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
-      version: 2,
+      version: phase === 'documentation' ? 3 : 2,
       payload: { phase, source: { kind: 'fix', key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] } satisfies TreeRevised,
     })),
   ];
 }
 
-/** Whose attempt it was, as a revision of what it left names it: a fixes-phase batch, the repair, or an answer pass. */
+/** Whose attempt it was, as a revision of what it left names it: a fixes-phase batch, the documentation step, the repair, or an answer pass. */
 export function attemptOwner(phase: EditingPhase, key: string): string {
   switch (phase) {
     case 'fixes':
       return `batch ${key}`;
+    case 'documentation':
+      return 'the documentation step';
     case 'repair':
       return 'the repair';
     case 'answer':
@@ -317,7 +320,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
       ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}\n\nThe files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) }
       : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}\n\nThe files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload: TreeRevised = { phase, source: { kind: 'attempt', key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
-    return { kind: 'tree.revised', version: 2, payload };
+    return { kind: 'tree.revised', version: phase === 'documentation' ? 3 : 2, payload };
   }) };
 }
 

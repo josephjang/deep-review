@@ -282,6 +282,20 @@ describe('renderReport', () => {
       assert.match(report, /^- The run budget stopped the fixes before [^\n]+ (was|were) attempted\. The facts of the run at the end of the report give the command that continues them\.$/m);
       assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /batch/, 'the brief names no batch (R12 of the brief of a run)');
     });
+
+    it('names the documentation step in the facts of the run when the run budget stopped it, alone or with the batches and the repair (R8 of the documentation step)', () => {
+      const state = fixRun().fold();
+      const fix = state.review!.fix!;
+      const spent = { cause: 'budget' as const, reason: 'spent' };
+      const line = (notAttempted: Partial<typeof fix.notAttempted>): string | undefined => {
+        const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, ...notAttempted } } } } as RunState;
+        const report = renderReport(stopped, { ...reportInput, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: 'deep-review review --fix --budget-usd 31' } });
+        return /^The run budget stopped the fix pass: (.*) did not start\./m.exec(report)?.[1];
+      };
+      assert.equal(line({ documentation: { documentation: spent } }), 'the documentation step');
+      assert.equal(line({ fixes: { 'c1-9': spent }, documentation: { documentation: spent } }), '1 batch and the documentation step');
+      assert.equal(line({ fixes: { 'c1-8': spent, 'c1-9': spent }, documentation: { documentation: spent }, repair: { repair: spent } }), '2 batches, the documentation step and the repair');
+    });
   });
 
   it('refuses a run without a review', () => {

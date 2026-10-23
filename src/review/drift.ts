@@ -15,7 +15,7 @@
  */
 import { chmodSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { maxStraysPerCheck, type TreeRestored, type WorktreeCheckV6 } from '../checkpoint/events.ts';
+import { maxStraysPerCheck, type TreeRestored, type WorktreeCheckV7 } from '../checkpoint/events.ts';
 import { isNotAttempted, ownedFiles, runHead } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered } from '../checkpoint/review-fold.ts';
@@ -47,7 +47,7 @@ export function unsettledFiles(state: RunState, phase: Phase): Set<string> {
 /** What a check found: the expected files that differ and `HEAD` when it moved; it drifted when either is there. */
 export interface DriftFound {
   readonly files: readonly DriftedFile[];
-  readonly head: WorktreeCheckV6['head'];
+  readonly head: WorktreeCheckV7['head'];
 }
 
 /** Compare the worktree with what the run expects by `match`, as git would store each file (R22), leaving out `excluded`, and `HEAD` with the run's head; reads only the expected files and `HEAD`. */
@@ -58,9 +58,19 @@ export function findDrift(state: RunState, worktree: string, match: ExpectedMatc
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;
 
-/** A check to record: its `worktree.checked@5` payload, and how many strays past `maxStraysPerCheck` the payload leaves out. */
+/**
+ * The version a worktree check is written at: version 7 for a check of the
+ * documentation phase, the one version that names it (TD5 of the
+ * documentation step); version 6 for a check after a write back, the one
+ * version before it that records the moment `restored` (R7 of resumable
+ * runs); and version 5 for every other, which an engine before resumable
+ * runs reads.
+ */
+export const worktreeCheckVersion = (check: Pick<WorktreeCheckV7, 'phase' | 'moment'>): 5 | 6 | 7 => (check.phase === 'documentation' ? 7 : check.moment === 'restored' ? 6 : 5);
+
+/** A check to record: its `worktree.checked` payload, written at `worktreeCheckVersion`, and how many strays past `maxStraysPerCheck` the payload leaves out. */
 export interface WorktreeCheck {
-  readonly payload: WorktreeCheckV6;
+  readonly payload: WorktreeCheckV7;
   readonly unlisted: number;
 }
 
@@ -72,7 +82,7 @@ export interface WorktreeCheck {
  * run, so the first check does not record it as one the run found before
  * any fixer ran.
  */
-export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV6['moment'], found: DriftFound): WorktreeCheck {
+export function worktreeChecked(state: RunState, worktree: string, phase: Phase, attempt: number, moment: WorktreeCheckV7['moment'], found: DriftFound): WorktreeCheck {
   const strays = straysOf(worktree, expectedTreeOf(state));
   return {
     payload: {
