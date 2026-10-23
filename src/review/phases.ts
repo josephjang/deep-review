@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { allBatches, appliedOptionOf, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -50,8 +50,8 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
-import { candidateIdPrefix, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
  * Where a fixes-phase unit claims files (R1, R2 of commit series
@@ -383,12 +383,86 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
-/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, and the commit messages of the change the triage's task lists. */
+/**
+ * What was decided for a finding a fixer of the fixes answered, as the
+ * documentation step reads it (R4 of the documentation step): a fix with
+ * its approach and the rule it departs from, which it amends, and the
+ * author's word on that departure; an ask with its question, and the
+ * author's answer or the option in place while it is open. Null for a
+ * finding with no decision, in a run configured before the decision step.
+ */
+function decidedWords(review: ReviewState, id: string): string | null {
+  const decision = review.decisions?.find((candidate) => candidate.id === id) ?? null;
+  if (decision === null) return null;
+  const answer = standingAnswer(review, id)?.answer ?? null;
+  switch (decision.decision) {
+    case 'fix': {
+      const { departure } = decision;
+      const departs = departure === null ? '' : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
+      const word = answer?.kind === 'accept' ? '; the author accepted the departure' : answer?.kind === 'reject' ? '; the author rejected the departure, so the rule stands as its source states it' : '';
+      return `decided: fix: ${decision.fix.approach}${departs}${word}`;
+    }
+    case 'ask': {
+      const { ask } = decision;
+      if (answer?.kind === 'option') return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer.option + 1)}, "${ask.options[answer.option]?.option ?? 'an option the decision does not offer'}"`;
+      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
+    }
+    case 'leave':
+      return 'decided: leave';
+  }
+}
+
+/**
+ * The documentation step's task (R2 to R5, PD11 of the documentation
+ * step): its documents from the recorded plan, then the search; what each
+ * fixer of the fixes did, batch by batch in the order of the plan, with
+ * what was decided; the path of each patch of the fixes, with the subject
+ * of its commit; the files it owns; the patterns `scope.exclude` names;
+ * and the checks and its snapshot command.
+ */
+function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'pathOf'>, options: DocumentationTaskOptions): string {
+  const fix = review.fix;
+  const plan = fix?.documentation ?? null;
+  if (fix === null || plan === null) throw new Error('The documentation step runs only once it is planned');
+  const revisions = fix.revisions.filter((revision) => revision.phase === 'fixes');
+  if (options.patches.length !== revisions.length) throw new Error(`The documentation step is given ${String(options.patches.length)} patches for the ${String(revisions.length)} revisions of the fixes`);
+  const fixes = allBatches(fix).flatMap((batch) => (fix.answers.fixes[batch.key]?.findings ?? []).map((finding): DocumentationTaskFix => ({
+    batch: batch.key, id: finding.id, status: finding.status, note: finding.note, files: finding.files, subject: finding.message?.subject ?? null, decided: decidedWords(review, finding.id),
+  })));
+  const owned = ownedFiles(review, 'documentation', documentationUnitKey);
+  return documentationTask({
+    documents: plan.items.flatMap((item) => (item.file === null ? [] : [{ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) }])),
+    fixes,
+    patches: revisions.map((revision, index) => ({ path: evidence.pathOf(options.patches[index]!), subject: revisionMessageOf(fix, revision).subject })),
+    owned,
+    exclude: options.exclude,
+    checks: fix.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    mayHoldWork: mayHoldWork(review, 'documentation', documentationUnitKey, owned),
+    unfinished: unfinishedIds(review, 'documentation', documentationUnitKey),
+    unelevatedSandbox: editing.unelevatedSandbox,
+  });
+}
+
+/**
+ * What the documentation step's task needs beyond the fold (R2, PD11 of
+ * the documentation step): the patch of each revision of the fixes, in
+ * ledger order, which the controller put in the evidence store before the
+ * launch, and the patterns `scope.exclude` kept out of the review, which
+ * the run's scope records.
+ */
+export interface DocumentationTaskOptions {
+  readonly patches: readonly ArtifactReference[];
+  readonly exclude: readonly string[];
+}
+
+/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, the commit messages of the change the triage's task lists, and the documentation step's patches and patterns. */
 export interface TaskOptions {
   readonly editing?: EditingTaskInput | null;
   readonly evidence?: Pick<EvidenceStore, 'read' | 'pathOf'> | null;
   readonly survey?: SurveyInputs | null;
   readonly commitMessages?: ChangeMessages | null;
+  readonly documentation?: DocumentationTaskOptions | null;
 }
 
 /**
@@ -473,7 +547,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       if (evidence === null) throw new Error('The fixer task names the baseline checks\' frozen outputs and needs the evidence store');
       return fixerTaskOf(unit, review, requireEditing(), evidence);
     case 'documentation':
-      throw new Error('The documentation step has no task yet');
+      if (evidence === null || options.documentation === undefined || options.documentation === null) throw new Error('The documentation step\'s task names the patches of the fixes in the evidence store and the patterns scope.exclude left out, and needs them');
+      return documentationTaskOf(review, requireEditing(), evidence, options.documentation);
     case 'repair':
       if (evidence === null) throw new Error('The repair task quotes frozen logs and needs the evidence store');
       return repairTaskOf(review, requireEditing(), evidence);

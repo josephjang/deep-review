@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import type { CommitMessage } from '../../src/scope/git.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
@@ -693,10 +693,98 @@ describe('the repair task', () => {
     assert.doesNotMatch(task, /It passed before any fixer/);
   });
 
+  it('asks for no `blocked` answer, which the engine refuses from the repair, and for `deferred` with the reason when a check needs a file outside the repository', () => {
+    // A repair alone in the tree may edit every file of the repository, and the engine refuses a required file outside it (`resolveFixerAnswer`), so a blocked answer only fails the attempt, as the design of the documentation step found.
+    const task = repairTask({ checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    assert.doesNotMatch(task, /blocked/);
+    assert.match(task, /`deferred` with the reason when it cannot be made to pass here, as when it needs a file outside the repository/);
+    assert.match(task, /`status` \(`applied`, `already-applied` or `deferred`\)/);
+    assert.match(task, /`requiredFiles`, which stays empty/);
+  });
+
   it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
     const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
     const plain = repairTask({ ...repair, unelevatedSandbox: false });
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));
+  });
+});
+
+// R2 to R5, PD7 and PD11 of the documentation step.
+describe('the documentation step\'s task', () => {
+  const checks = [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }];
+  const input = (change: Partial<DocumentationTaskInput> = {}): DocumentationTaskInput => ({
+    documents: [
+      { id: 'doc-1', file: './docs/testing.md', path: 'docs/testing.md', drift: [{ batch: 'c1-1', file: './docs/testing.md', what: 'the echo removes the bytes' }, { batch: 'c2-1', file: 'docs/testing.md', what: 'test_shout prints HI' }] },
+      { id: 'doc-2', file: '../outside.md', path: null, drift: [{ batch: 'c1-1', file: '../outside.md', what: 'the bytes are kept' }] },
+    ],
+    fixes: [
+      { batch: 'c1-1', id: 'SCAN-1', status: 'applied', note: 'kept the bytes', files: ['src/a.ts'], subject: 'fix(a): Keep the bytes', decided: 'decided: ask the author "Keep the bytes?", still open; the option in place: "keep them"' },
+      { batch: 'c2-1', id: 'SCAN-2', status: 'deferred', note: 'needs a choice', files: [], subject: null, decided: null },
+    ],
+    patches: [{ path: '/store/artifacts/1111', subject: 'fix(a): Keep the bytes' }],
+    owned: ['docs/testing.md', 'src/a.ts'],
+    exclude: ['dist/**'],
+    checks,
+    snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
+    mayHoldWork: false,
+    unfinished: [],
+    unelevatedSandbox: false,
+    ...change,
+  });
+
+  it('numbers each document with its lines and the search last, and names a path the engine refused as one to leave', () => {
+    const task = documentationTask(input());
+    assert.match(task, /^Documentation: 3 items, numbered \[0\] to \[2\]\. Bring the documentation of the repository in line with the edits of the fix pass, which the fixers below made, and edit documentation only/);
+    assert.match(task, /^\[0\] doc-1: \.\/docs\/testing\.md, the repository path docs\/testing\.md\n {4}c1-1: the echo removes the bytes\n {4}c2-1 \(as docs\/testing\.md\): test_shout prints HI$/m);
+    assert.match(task, /^\[1\] doc-2: \.\.\/outside\.md, which the engine refused as a path of the repository: answer it `deferred`, a path you cannot edit\n {4}c1-1: the bytes are kept$/m);
+    assert.match(task, /^\[2\] search: other documentation that the edits of the fix pass made out of date, which no item above names\. Search the repository for it, also where no fixer reported anything\.$/m);
+    const plain = documentationTask(input({ documents: [{ id: 'doc-1', file: 'CHANGES.md', path: 'CHANGES.md', drift: [{ batch: 'c1-1', file: 'CHANGES.md', what: 'always translated' }] }] }));
+    assert.match(plain, /^\[0\] doc-1: CHANGES\.md\n {4}c1-1: always translated$/m, 'a path the fixers wrote as the repository holds it is named once');
+  });
+
+  it('gives a run whose fixes named no document the search alone', () => {
+    const task = documentationTask(input({ documents: [] }));
+    assert.match(task, /^Documentation: 1 item, numbered \[0\] to \[0\]\./);
+    assert.match(task, /^\[0\] search: /m);
+  });
+
+  it('lists what each fixer did with its decision, and the path of each patch of the fixes', () => {
+    const task = documentationTask(input());
+    assert.match(task, /^What the fixers did, finding by finding:\n- c1-1 SCAN-1 applied: kept the bytes; edited src\/a\.ts, committed as "fix\(a\): Keep the bytes"\n {4}decided: ask the author "Keep the bytes\?", still open; the option in place: "keep them"\n- c2-1 SCAN-2 deferred: needs a choice$/m);
+    assert.match(task, /which holds the edits of this run apart from the change under review:\n- \/store\/artifacts\/1111 \(fix\(a\): Keep the bytes\)$/m);
+    assert.match(documentationTask(input({ fixes: [], patches: [] })), /finding by finding:\n\(nothing recorded\)[\s\S]*change under review:\n\(none\)/);
+  });
+
+  it('owns the files of the fixes and the documents, and leaves every other file free', () => {
+    const task = documentationTask(input());
+    assert.match(task, /^Files you own: every file the fixes changed, and the repository path of each document above\.\n- docs\/testing\.md\n- src\/a\.ts\n\nYou may edit any other file of the repository when an item needs it; report every file you edit or create under the item it served\.$/m);
+    assert.doesNotMatch(task, / claim --path |claims it for your cluster/, 'the step claims nothing');
+  });
+
+  it('says what it writes and what it leaves: what is settled, the convention sources, older faults, a historical record, no code, and each path scope.exclude matches', () => {
+    const task = documentationTask(input());
+    assert.match(task, /^Write only what the code of the tree, a decision above or an answer of the author settles, and no behavior that an open question still leaves to the author\. Leave each convention source the scope lists as it is, with the amendment of a rule that a fix departing from it made\. Leave a fact that was out of date before this run, and a historical or append-only record as the rules of the repository ask\. Change no code, test or configuration to make a document true\.$/m);
+    assert.match(task, /^Leave each path that these `scope\.exclude` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer `deferred` and name the setting `scope\.exclude` as the reason:\n- dist\/\*\*$/m);
+    assert.match(documentationTask(input({ exclude: [] })), /^The review left no path out by `scope\.exclude`\.$/m);
+  });
+
+  it('answers each item applied, already applied or deferred, never blocked, and lists in drift what it leaves stale', () => {
+    const task = documentationTask(input());
+    assert.match(task, /An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit\. No item is `blocked`: nothing holds a file from you\./);
+    assert.match(task, /In `drift`, list each document you found out of date at your end and did not bring in line\./);
+    assert.match(task, /For each item, by index, return: `status` \(`applied`, `already-applied` or `deferred`\)/);
+    assert.match(task, /a deferred item's saying the change is partial/);
+    assert.match(task, /and `requiredFiles`, which stays empty\./);
+    assert.match(task, /with that item's index in place of <index>/);
+  });
+
+  it('ends as the repair does: the checks, the sandbox rule when it applies, the snapshot command, the earlier attempt\'s work and the scratch rule', () => {
+    const plain = documentationTask(input());
+    assert.match(plain, /^- test: npm run test$/m);
+    assert.doesNotMatch(plain, /unelevated|may already hold part of this work/);
+    assert.equal(documentationTask(input({ unelevatedSandbox: true })), plain.replace('\n\nAfter finishing each item', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each item`));
+    assert.match(documentationTask(input({ mayHoldWork: true, unfinished: ['doc-1'] })), /Verify each item against the code[\s\S]*An earlier attempt left edits for doc-1, recorded as that attempt's work[\s\S]*as for an applied item\.\n\nFor each item, by index/);
+    assert.match(plain, /Write logs and every other temporary file under your scratch directory, never in the repository\.$/);
   });
 });

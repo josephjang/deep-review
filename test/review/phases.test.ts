@@ -16,8 +16,9 @@ import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { answer, baselined, decidedFixRun, passToReport, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, baselined, decidedFixRun, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -440,5 +441,56 @@ describe('contributionOf', () => {
     assert.match((short.payload as { reason: string }).reason, /^structural check: The answer leaves out finding \[1\] of the 2 the task gave$/);
     const superseded = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { decision: 'ask' }])), state, worktree);
     assert.match((superseded.payload as { reason: string }).reason, /^structural check: Decision \[0\] is superseded by \[1\], which is not another finding of the task decided fix$/);
+  });
+});
+
+// R2, R4 and TD9 of the documentation step.
+describe('the documentation step\'s task', () => {
+  const editing = { snapshotCommand: 'snapshot', claimCommand: null, unelevatedSandbox: false };
+  const evidence = { read: () => Buffer.alloc(0), pathOf: (artifact: { readonly sha256: string }) => `/store/artifacts/${artifact.sha256.slice(0, 4)}` };
+  const patch = { sha256: '1'.repeat(64), bytes: 10 };
+  /** A decided fix run with the step, RIPPLE-1 decided as `decided` says, its fixer reporting two lines on one document, and the step planned. */
+  const planned = (decided: readonly unknown[] = [askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)]): History => {
+    const history = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked()), decided), 'baseline-checks'), null)
+      .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50), { drift: [{ file: './docs/parse.md', what: 'parse throws on a null' }, { file: 'docs/parse.md', what: 'the example returns 4' }] }))
+      .add('tree.revised', fixRevision(worker(50))).add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes')
+      .start('documentation');
+    return history.add('documentation.planned', { items: documentationItems(history) });
+  };
+  const task = (review: ReviewState): string => taskFor(unit('documentation', 'documentation', 'documentation'), review, { editing, evidence, documentation: { patches: [patch], exclude: ['dist/**'] } });
+
+  it('gives the step its plan, what the fixer did and the path of each patch of the fixes in the store, the files it owns and the patterns left out', () => {
+    const text = task(planned().review());
+    assert.match(text, /^Documentation: 2 items, numbered \[0\] to \[1\]\./);
+    assert.match(text, /^\[0\] doc-1: \.\/docs\/parse\.md, the repository path docs\/parse\.md\n {4}c1-1: parse throws on a null\n {4}c1-1 \(as docs\/parse\.md\): the example returns 4\n\[1\] search: /m);
+    assert.match(text, /^- c1-1 RIPPLE-1 applied: guarded the null; edited src\/a\.ts, committed as "fix: Guard the null"$/m);
+    assert.match(text, /^- \/store\/artifacts\/1111 \(fix: Guard the null\)$/m);
+    assert.match(text, /^Files you own: [^\n]*\n- docs\/parse\.md\n- src\/a\.ts\n/m);
+    assert.match(text, /^- dist\/\*\*$/m);
+  });
+
+  it('words an ask with the option in place while it is open, and with the author\'s answer once it is given', () => {
+    const review = planned().review();
+    assert.match(task(review), /^ {4}decided: ask the author "Should parse accept an empty input\?", still open; the option in place: "reject it with an error"$/m);
+    const answered: ReviewState = { ...review, answers: [{ id: 'RIPPLE-1', answer: { kind: 'option', option: 1 }, note: null, at: '2026-10-23T00:00:00.000Z', appliedBy: { phase: 'fixes', key: 'c1-1' } }] };
+    assert.match(task(answered), /^ {4}decided: ask the author "Should parse accept an empty input\?"; answered by the author: option 2, "accept it and return an empty result"$/m);
+  });
+
+  it('words a fix with the rule it departs from, which it amends, and the author\'s word on the departure', () => {
+    const departing = { ...decisions[0], departure: { rule: 'parse throws on a null', source: 'docs/parse.md', reason: 'every caller passes the null' } };
+    const review = planned([departing, decisions[1]]).review();
+    assert.match(task(review), /^ {4}decided: fix: guard the null once, before parse reads it, departing from the rule "parse throws on a null" \(docs\/parse\.md\), which the fix amends$/m);
+    const word = (kind: 'accept' | 'reject'): string => task({ ...review, answers: [{ id: 'RIPPLE-1', answer: { kind }, note: null, at: '2026-10-23T00:00:00.000Z', appliedBy: null }] });
+    assert.match(word('accept'), /which the fix amends; the author accepted the departure$/m);
+    assert.match(word('reject'), /which the fix amends; the author rejected the departure, so the rule stands as its source states it$/m);
+  });
+
+  it('refuses a step with no plan, no patches or the wrong count of them', () => {
+    const unplanned = planned().review();
+    const review: ReviewState = { ...unplanned, fix: { ...unplanned.fix!, documentation: null } };
+    assert.throws(() => task(review), /runs only once it is planned/);
+    assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence }), /needs them/);
+    assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence, documentation: { patches: [], exclude: [] } }), /is given 0 patches for the 1 revisions of the fixes/);
   });
 });

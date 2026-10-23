@@ -422,8 +422,11 @@ function claimBlock(command: string): string {
   ].join('\n');
 }
 
+/** What a worker that edits answers for, one by one: a fixer's findings, the repair's checks, or the documentation step's items. */
+type AnsweredUnit = 'finding' | 'check' | 'item';
+
 /** The snapshot rule, with the command quoted as the fixer must run it. */
-function snapshotBlock(command: string, unit: 'finding' | 'check'): string {
+function snapshotBlock(command: string, unit: AnsweredUnit): string {
   return [
     `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
     '',
@@ -433,9 +436,21 @@ function snapshotBlock(command: string, unit: 'finding' | 'check'): string {
   ].join('\n');
 }
 
-/** The answer's fields, as both fixer tasks describe them. */
-const answerFields = (unit: 'finding' | 'check'): string =>
-  `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+/**
+ * The answer's fields, as every task of a worker that edits describes
+ * them. Only a fixer's finding can be `blocked`: the repair and the
+ * documentation step are alone in the tree and may edit every file of the
+ * repository, and the engine refuses a required file outside it
+ * (`resolveFixerAnswer`), so a blocked answer from either only fails the
+ * attempt.
+ */
+function answerFields(unit: AnsweredUnit): string {
+  const blocks = unit === 'finding';
+  const statuses = blocks ? '`applied`, `already-applied`, `deferred` or `blocked`' : '`applied`, `already-applied` or `deferred`';
+  const partial = blocks ? `a blocked or deferred ${unit}'s` : `a deferred ${unit}'s`;
+  const required = blocks ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : '`requiredFiles`, which stays empty';
+  return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+}
 
 const scratchRule = 'Write logs and every other temporary file under your scratch directory, never in the repository.';
 
@@ -453,7 +468,7 @@ export const unelevatedSandboxRule = 'Your shell runs in Codex\'s unelevated Win
  * for (R20 of the fix pass), whose commits take the message the fixer
  * gives when it verifies them.
  */
-function earlierWork(unit: 'finding' | 'check', unfinished: readonly string[]): string {
+function earlierWork(unit: AnsweredUnit, unfinished: readonly string[]): string {
   const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
   if (unfinished.length === 0) return warning;
   return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
@@ -819,7 +834,7 @@ export function repairTask(input: RepairTaskInput): string {
         ]),
   ].join('\n'));
   return [
-    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit.`,
     '',
     ...checks,
     '',
@@ -838,6 +853,119 @@ export function repairTask(input: RepairTaskInput): string {
     '',
     ...(input.mayHoldWork ? [earlierWork('check', input.unfinished), ''] : []),
     `${answerFields('check')} The message in an applied check's \`edits\` describes what the repair changed.`,
+    '',
+    scratchRule,
+  ].join('\n');
+}
+
+/** A document the `drift` lines of the fixes name, as the documentation step's task gives it (R2 of the documentation step). */
+export interface DocumentationTaskDocument {
+  /** `doc-1` to `doc-n`. */
+  readonly id: string;
+  /** The path as the first of its lines wrote it. */
+  readonly file: string;
+  /** The repository path it names, or null when the engine refused it as one. */
+  readonly path: string | null;
+  /** Each line with the batch that reported it, and the path as that line wrote it. */
+  readonly drift: readonly { readonly batch: string; readonly file: string; readonly what: string }[];
+}
+
+/** What a fixer of the fixes did with one finding, as the documentation step is told it. */
+export interface DocumentationTaskFix {
+  readonly batch: string;
+  readonly id: string;
+  readonly status: string;
+  readonly note: string;
+  /** The files of its edits, none for a finding it made no edit for. */
+  readonly files: readonly string[];
+  /** The subject of the commit its edits carry, or null for none. */
+  readonly subject: string | null;
+  /** What was decided for it, and for an ask the option in place or the person's answer, in the task's words; null in a run configured before the decision step. */
+  readonly decided: string | null;
+}
+
+/** The documentation step's task input (R2 to R5, PD11 of the documentation step). */
+export interface DocumentationTaskInput {
+  /** The documents, in the plan's order; the search follows them. */
+  readonly documents: readonly DocumentationTaskDocument[];
+  /** What each fixer of the fixes did, batch by batch. */
+  readonly fixes: readonly DocumentationTaskFix[];
+  /** The path of the patch of each revision of the fixes, in ledger order, with the subject of its commit. */
+  readonly patches: readonly { readonly path: string; readonly subject: string }[];
+  /** Every path the fixes revised and the repository path of each document, which the step owns (TD9). */
+  readonly owned: readonly string[];
+  /** The patterns `scope.exclude` keeps out of the review, whose paths the step leaves (PD11). */
+  readonly exclude: readonly string[];
+  readonly checks: readonly PlannedCheck[];
+  readonly snapshotCommand: string;
+  readonly mayHoldWork: boolean;
+  /** The items an earlier attempt of the step left recorded edits for. */
+  readonly unfinished: readonly string[];
+  /** Whether the worker runs in Codex's unelevated Windows sandbox (R6 of the Codex sandbox). */
+  readonly unelevatedSandbox: boolean;
+}
+
+/** A document of the step's task: its index and id, its path as the fixers wrote it and as the repository holds it, then each of its lines with the batch that reported it. */
+function documentLines(index: number, document: DocumentationTaskDocument): string {
+  const where = document.path === null
+    ? `${document.file}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit`
+    : document.path === document.file ? document.path : `${document.file}, the repository path ${document.path}`;
+  return [
+    `[${String(index)}] ${document.id}: ${where}`,
+    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? '' : ` (as ${line.file})`}: ${line.what}`),
+  ].join('\n');
+}
+
+/** What the fixes did, finding by finding, as the step reads it: the status and note, the files and the subject of the commit, and what was decided. */
+function fixLines(fix: DocumentationTaskFix): string {
+  const edits = fix.files.length === 0 ? '' : `; edited ${fix.files.join(', ')}${fix.subject === null ? '' : `, committed as "${fix.subject}"`}`;
+  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...(fix.decided === null ? [] : [`    ${fix.decided}`])].join('\n');
+}
+
+/**
+ * The documentation step's task (R2 to R5, PD7, PD11 of the documentation
+ * step): its items numbered from [0], each document the fixers named with
+ * its lines and then the search; what each fixer did with the decisions
+ * and answers, and the path of each patch of the fixes, which holds their
+ * edits apart from the change under review; the files it owns, with any
+ * other free; the rules of what it writes and what it leaves; the statuses
+ * it answers with, `blocked` not among them; and the checks, the snapshot
+ * command and the answer fields, as the repair's task gives them.
+ */
+export function documentationTask(input: DocumentationTaskInput): string {
+  const count = input.documents.length + 1;
+  const search = input.documents.length;
+  return [
+    `Documentation: ${String(count)} item${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}]. Bring the documentation of the repository in line with the edits of the fix pass, which the fixers below made, and edit documentation only: text for a person, such as a document, a changelog, or a comment in the code that describes the changed behavior.`,
+    '',
+    ...input.documents.map((document, index) => documentLines(index, document)),
+    `[${String(search)}] search: other documentation that the edits of the fix pass made out of date, which no item above names. Search the repository for it, also where no fixer reported anything.`,
+    '',
+    'What the fixers did, finding by finding:',
+    input.fixes.length === 0 ? '(nothing recorded)' : input.fixes.map(fixLines).join('\n'),
+    '',
+    'The patch of each edit of the fixes, in the order of its commit, which holds the edits of this run apart from the change under review:',
+    input.patches.length === 0 ? '(none)' : input.patches.map((patch) => `- ${patch.path} (${patch.subject})`).join('\n'),
+    '',
+    'Files you own: every file the fixes changed, and the repository path of each document above.',
+    fileList(input.owned),
+    '',
+    'You may edit any other file of the repository when an item needs it; report every file you edit or create under the item it served.',
+    '',
+    'Write only what the code of the tree, a decision above or an answer of the author settles, and no behavior that an open question still leaves to the author. Leave each convention source the scope lists as it is, with the amendment of a rule that a fix departing from it made. Leave a fact that was out of date before this run, and a historical or append-only record as the rules of the repository ask. Change no code, test or configuration to make a document true.',
+    input.exclude.length === 0
+      ? 'The review left no path out by `scope.exclude`.'
+      : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:\n${input.exclude.map((pattern) => `- ${pattern}`).join('\n')}`,
+    '',
+    'An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document you found out of date at your end and did not bring in line.',
+    '',
+    checksBlock(input.checks),
+    '',
+    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
+    snapshotBlock(input.snapshotCommand, 'item'),
+    '',
+    ...(input.mayHoldWork ? [earlierWork('item', input.unfinished), ''] : []),
+    answerFields('item'),
     '',
     scratchRule,
   ].join('\n');
