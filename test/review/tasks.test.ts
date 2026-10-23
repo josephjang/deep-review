@@ -446,20 +446,20 @@ describe('the fixer\'s task', () => {
   it('states the ownership rule with the files the cluster holds and the files the others hold', () => {
     const task = fixerTask(input);
     assert.match(task, /Files you own while this batch runs, which no other worker edits:\n- src\/a\.ts\n/);
-    assert.match(task, /Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:\n- src\/b\.ts \(c2\)\n\n/);
-    assert.match(fixerTask({ ...input, owned: [], othersHeld: [] }), /no other worker edits:\n\(none\)\n[\s\S]*`requiredFiles`:\n\(none\)\n/);
+    assert.match(task, /Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`, unless it is a document the fix made stale, which goes in `drift`:\n- src\/b\.ts \(c2\)\n\n/);
+    assert.match(fixerTask({ ...input, owned: [], othersHeld: [] }), /no other worker edits:\n\(none\)\n[\s\S]*which goes in `drift`:\n\(none\)\n/);
   });
 
   it('lists the files the cluster claimed apart from the ones it owns, and a sibling\'s claims with their cluster (R8 of commit series integrity)', () => {
     const task = fixerTask({ ...input, claimed: ['test/shared.test.ts', 'src/a.ts'], othersHeld: [{ cluster: 'c2', files: [{ path: 'src/b.ts', by: 'plan' }, { path: 'docs/notes.md', by: 'claim' }] }] });
     assert.match(task, /no other worker edits:\n- src\/a\.ts\n- test\/shared\.test\.ts \(claimed\)\n\n/, 'a claimed file is marked, and an owned one is listed once');
-    assert.match(task, /`requiredFiles`:\n- src\/b\.ts \(c2\)\n- docs\/notes\.md \(c2, claimed\)\n\n/);
+    assert.match(task, /which goes in `drift`:\n- src\/b\.ts \(c2\)\n- docs\/notes\.md \(c2, claimed\)\n\n/);
   });
 
   it('quotes the claim command on a line of its own with the path placeholder, before the first edit for a finding, and says a refusal blocks the finding (R1, R8 of commit series integrity)', () => {
     const task = fixerTask(input);
     assert.match(task, /^Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of <path>:\n\n {4}node "\/engine\/main\.mjs" claim --path '<path>' --unit c1-2 --in "\/scratch\/claims\/run\/round-1"\n\n/m);
-    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it\. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial\. Report every file you edit or create under the finding it served\.\nA path that begins with `-` goes in one argument, `--path=<path>`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse\.$/m);
+    assert.match(task, /It claims the file for your cluster until your cluster's last batch has finished\. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it, unless the file is a document the finding's edit made stale: make no edit of that one, report the stale fact in `drift`, and go on with the finding\. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial\. Report every file you edit or create under the finding it served\.\nA path that begins with `-` goes in one argument, `--path=<path>`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse\.$/m);
     assert.match(task, /^A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written\.$/m, 'the engine cannot tell the fixer\'s shell, so the fixer escapes a quote in the path');
     assert.match(task, /^Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0\.$/m, 'exit 1 is no claim, so the fixer neither edits nor reports the finding blocked on it');
     assert.doesNotMatch(task, /You may edit any other file/, 'the claim rule replaces the old freedom');

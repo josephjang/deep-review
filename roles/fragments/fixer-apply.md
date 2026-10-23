@@ -18,7 +18,9 @@ command. Before you edit anything for a finding, run it once for each
 file outside your own that the finding and its tests will need, existing
 or new; a deletion is an edit of the deleted path, and a rename of both
 its paths. A refused claim blocks the finding: report it `blocked` with
-the file in `requiredFiles`, and make no edit for it. A refusal that
+the file in `requiredFiles`, and make no edit for it. The one exception
+is a document the finding's edit made stale, which you leave unedited
+and report in `drift`, the finding going on without it. A refusal that
 comes after you edited leaves those edits in place: list them under the
 finding's `edits`, with a message that says the change is partial.
 

@@ -41,7 +41,8 @@ gave it, with:
 
 Once for the whole answer:
 
-- `drift`: documentation outside your files that your change made stale.
+- `drift`: documentation that your change made stale and that you could
+  not bring in line.
 - `tests`: each test file you added or tightened, and what it covers.
 - `suite`: the `result` of the checks you ran (`pass`, `fail` or
   `not-run`), the `command`, and only the failure lines in `failures`.

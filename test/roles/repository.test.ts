@@ -127,6 +127,28 @@ describe('the repository\'s roles/', () => {
     assert.ok(returnFormat >= 0 && documentation.prompt.length - reconciliation.length > returnFormat, `the return format at ${String(returnFormat)} comes before the rules`);
   });
 
+  it('has a fixer bring in line a document its own edit made stale, claiming it in the fixes phase, and report it in drift only when it cannot (R6 of the documentation step)', () => {
+    const fixer = roles.find((role) => role.key === 'fixer')!;
+    const prompt = fixer.prompt.replace(/\s+/g, ' ');
+    assert.ok(prompt.includes('A fact in documentation that your edit makes out of date is part of the finding: bring it in line in the same finding, in its `edits` and its commit, so the fix and its documentation are one commit.'));
+    assert.ok(prompt.includes('In the fixes phase, a document outside your files is a file the finding needs, so claim it first. A refused claim for such a document does not block the finding: make no edit of it, and report the stale fact in `drift`'));
+    assert.ok(prompt.includes('When your task lets you edit any file, as the repair\'s and an answer pass\'s do, bring the document in line with no claim.'));
+    assert.ok(prompt.includes('Edit a convention source only as your decision says: a fix that departs from a rule amends what states it. Report each other fact of a convention source that your edit made stale in `drift`, and leave it as it is.'));
+    assert.ok(prompt.includes('`drift`: documentation that your change made stale and that you could not bring in line.'));
+    // Every sentence that sends a finding to `blocked` on another cluster's file names the one exception, a document the edit made stale.
+    const blocking = [
+      'report the finding blocked and name the file, unless the file is a document your edit made stale, which you report in `drift` instead.',
+      'Keep a required edit to a file another cluster owns `blocked`, unless it brings a document your edit made stale in line, which goes in `drift`.',
+      'A refused claim blocks the finding: report it `blocked` with the file in `requiredFiles`, and make no edit for it. The one exception is a document the finding\'s edit made stale, which you leave unedited and report in `drift`, the finding going on without it.',
+      'If resolving an assigned finding itself requires a file another cluster owns, other than a document your edit made stale, keep that finding `blocked`',
+    ];
+    for (const sentence of blocking) assert.ok(prompt.includes(sentence), sentence);
+    assert.doesNotMatch(prompt, /`drift` does not authorize edits outside your owned files\.\*\* If resolving an assigned finding itself requires a file another cluster owns, keep/, 'no sentence blocks on a stale document');
+    // The rules of the documentation step are not the fixer's.
+    assert.ok(!fixer.fragments.some((fragment) => fragment.name === 'documentation-reconciliation.md'));
+    assert.doesNotMatch(prompt, /When assigned documentation reconciliation/);
+  });
+
   it('tells every fixer role its defers go to the person, and promises no later audit of them (R11 of answers)', () => {
     for (const key of fixerRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt.replace(/\s+/g, ' ');
@@ -210,7 +232,8 @@ describe('the repository\'s roles/', () => {
       const prompt = roles.find((role) => role.key === key)!.prompt;
       assert.match(prompt, /- `edits`: null when you made no edit for this finding and no earlier\s+attempt left any; otherwise the `files` you edited or created for\s+it, or that hold an earlier attempt's edits for it, and their\s+`message`, a `subject` of at most 72 characters with no trailing\s+period and a `body` that says why/, key);
       assert.match(prompt, /A blocked or deferred finding with edits says in\s+its message that the change is partial and what it waits for\./, key);
-      assert.match(prompt, /including `already-applied` for facts you verified are already correct,\s+with `edits` null unless an earlier attempt's edits hold them/, key);
+      // A document verified correct is already applied, with no edit of its own; the documentation role's rules say so (documentation-reconciliation.md).
+      if (key === 'documentation') assert.match(prompt, /including `already-applied` for facts you verified are already correct,\s+with `edits` null unless an earlier attempt's edits hold them/, key);
       // The status rule (#26, #9) and the two fields whose pairing the model had to read across (#54) are gone.
       assert.doesNotMatch(prompt, /for an applied finding, its commit message|null otherwise\.|null for a deferred or blocked one/, key);
       assert.doesNotMatch(prompt, /^- `(files|message)`:|names files|names no file|with their `files`/m, key);
