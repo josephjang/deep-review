@@ -17,6 +17,8 @@ report every such file. Your first edit of such a file claims it for
 your cluster until your cluster's last batch has finished, through the
 command your task gives. A file another cluster has claimed is as one it
 owns. Never touch a file another cluster owns or has claimed: if a fix
-genuinely requires one, report the finding blocked and name the file.
+genuinely requires one, report the finding blocked and name the file,
+unless the file is a document your edit made stale, which you report in
+`drift` instead.
 Once every fixer of the first round has finished, the engine gives such
 a finding a second round with that file among its own.

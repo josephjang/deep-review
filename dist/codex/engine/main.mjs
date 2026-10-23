@@ -21228,7 +21228,18 @@ function isClaimablePath(path) {
   const parts = path.split("/");
   return path.length >= 1 && path.length <= 1e3 && !path.includes("\\") && !path.includes("\0") && !/^[a-zA-Z]:/.test(path) && parts.every((part) => part !== "" && part !== "." && part !== ".." && part.toLowerCase() !== ".git");
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, eventRegistry;
+function refineDocumentationPlan(plan, context) {
+  const last = plan.items.length - 1;
+  plan.items.forEach((item, index2) => {
+    const expected = index2 === last ? documentationSearchId : `doc-${String(index2 + 1)}`;
+    if (item.id !== expected) context.addIssue({ code: "custom", message: `item ${String(index2 + 1)} is ${expected}: the documents from doc-1 in order, then search`, path: ["items", index2, "id"] });
+    if (item.id === documentationSearchId && (item.file !== null || item.path !== null || item.drift.length > 0)) context.addIssue({ code: "custom", message: "the search names no file, no path and no line", path: ["items", index2] });
+    if (item.id !== documentationSearchId && (item.file === null || item.drift.length === 0)) context.addIssue({ code: "custom", message: "a document item has its file and a line or more", path: ["items", index2] });
+  });
+  const paths = plan.items.flatMap((item) => item.path === null ? [] : [item.path]);
+  if (new Set(paths).size !== paths.length) context.addIssue({ code: "custom", message: "no two items have one path", path: ["items"] });
+}
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -22446,36 +22457,142 @@ var init_events = __esm({
       from: commitId,
       to: commitId
     });
+    reviewVocabularyV8 = {
+      phases: [
+        "survey",
+        "triage",
+        "finders",
+        "deduplication",
+        "verification",
+        "sweep",
+        "sweep-deduplication",
+        "sweep-verification",
+        "merge-rank",
+        "decision",
+        "baseline-checks",
+        "fixes",
+        "documentation",
+        "checks",
+        "repair",
+        "repair-checks",
+        "answer",
+        "answer-checks",
+        "report"
+      ],
+      editingPhases: ["fixes", "documentation", "repair", "answer"]
+    };
+    vocabularyV8 = reviewVocabularyV8;
+    phaseSchemaV8 = external_exports.enum(vocabularyV8.phases);
+    editingPhaseSchemaV8 = external_exports.enum(vocabularyV8.editingPhases);
+    reviewConfiguredV7 = reviewConfiguredV6;
+    phaseStartedV6 = external_exports.strictObject({
+      phase: phaseSchemaV8,
+      attempt: external_exports.number().int().min(1)
+    });
+    phaseFinishedV7 = external_exports.strictObject({
+      phase: phaseSchemaV8,
+      attempt: external_exports.number().int().min(1),
+      outcome: external_exports.enum(vocabularyV3.phaseOutcomes),
+      blocker: blockerSchemaV5.nullable()
+    }).refine((finish) => finish.outcome === "blocked" === (finish.blocker !== null), {
+      message: "a blocker is present exactly when the outcome is blocked",
+      path: ["blocker"]
+    });
+    worktreeCheckedV7 = external_exports.strictObject({
+      ...worktreeCheckedV6.shape,
+      phase: phaseSchemaV8
+    }).refine((check2) => check2.drifted === (check2.files.length > 0 || check2.head !== null), {
+      message: "drifted exactly when some file differs or HEAD moved",
+      path: ["drifted"]
+    });
+    attemptFailedV8 = external_exports.strictObject({
+      ...attemptFailedV7.shape,
+      phase: phaseSchemaV8
+    });
+    workerLostV6 = external_exports.strictObject({
+      workerId: external_exports.uuid(),
+      phase: phaseSchemaV8.nullable(),
+      key: unitKeySchema.nullable(),
+      reason: external_exports.string().min(1).max(1e3)
+    }).refine((lost) => lost.phase === null === (lost.key === null), {
+      message: "a lost worker names both its phase and its unit key, or neither",
+      path: ["key"]
+    });
+    reportWrittenV6 = external_exports.strictObject({
+      report: artifactReferenceSchema,
+      statistics: external_exports.strictObject({
+        phases: external_exports.array(spendSchema.extend({ phase: phaseSchemaV8 })),
+        total: spendSchema,
+        budgetApplied: external_exports.boolean()
+      }),
+      patches: external_exports.array(artifactReferenceSchema).max(2e3)
+    });
+    treeRevisedV3 = external_exports.strictObject({
+      ...treeRevisedV2.shape,
+      phase: phaseSchemaV8
+    }).superRefine(refineRevision);
+    fixRecordedV3 = external_exports.strictObject({
+      ...fixRecordedV2.shape,
+      phase: editingPhaseSchemaV8
+    }).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+      message: "each finding is answered once",
+      path: ["findings"]
+    });
+    unitUnattemptedV2 = external_exports.strictObject({
+      ...unitUnattemptedV1.shape,
+      phase: editingPhaseSchemaV8
+    });
+    fixReopenedV2 = external_exports.strictObject({
+      units: external_exports.array(external_exports.strictObject({ phase: external_exports.enum(["fixes", "documentation", "repair"]), key: unitKeySchema })).min(1)
+    }).refine((reopened2) => new Set(reopened2.units.map((unit) => `${unit.phase}:${unit.key}`)).size === reopened2.units.length, {
+      message: "each unit is reopened once",
+      path: ["units"]
+    });
+    documentationItemIdSchema = external_exports.string().regex(/^(doc-[1-9][0-9]*|search)$/, "a documentation item id is doc and a number from 1, or search");
+    documentationSearchId = "search";
+    documentationItemSchemaV1 = external_exports.strictObject({
+      /** `doc-1` to `doc-n` for the documents, then `search`. */
+      id: documentationItemIdSchema,
+      /** The path as the first `drift` line wrote it; null for `search`. */
+      file: external_exports.string().min(1).max(1e3).nullable(),
+      /** The repository path that `file` names, read as a reported path; null when the engine refuses it, and for `search`. */
+      path: claimedPathSchema.nullable(),
+      /** The lines the item holds, each with the batch that reported it; none for `search`. */
+      drift: external_exports.array(external_exports.strictObject({ key: unitKeySchema, file: external_exports.string().min(1), what: external_exports.string().min(1) }))
+    });
+    documentationPlannedV1 = external_exports.strictObject({
+      items: external_exports.array(documentationItemSchemaV1).min(1)
+    }).superRefine(refineDocumentationPlan);
     eventRegistry = defineRegistry({
       "run.created": { 1: { schema: runCreatedV1 } },
       "run.abandoned": { 1: { schema: runAbandonedV1 } },
       "scope.captured": { 1: { schema: scopeCapturedV1 }, 2: { schema: scopeCapturedV2 } },
       "worker.launched": { 1: { schema: workerLaunchedV1 } },
       "worker.finished": { 1: { schema: workerFinishedV1 } },
-      "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 } },
-      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 } },
+      "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
+      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 } },
       "limits.changed": { 1: { schema: limitsChangedV1 } },
-      "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 } },
-      "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 } },
-      "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 } },
+      "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 } },
+      "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 } },
+      "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 } },
       "candidates.recorded": { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
-      "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 } },
+      "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 } },
       "angle.failed": { 1: { schema: angleFailedV1 } },
       "deduplication.recorded": { 1: { schema: deduplicationRecordedV1 } },
       "verification.planned": { 1: { schema: verificationPlannedV1 } },
       "verdicts.recorded": { 1: { schema: verdictsRecordedV1 } },
       "group.unverified": { 1: { schema: groupUnverifiedV1 } },
       "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
-      "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 } },
+      "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 } },
       "fixes.planned": { 1: { schema: fixesPlannedV1 } },
       "fixes.replanned": { 1: { schema: fixesReplannedV1 } },
       "checks.planned": { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
       "check.started": { 1: { schema: checkStartedV1 } },
       "check.ran": { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 } },
       "tree.restored": { 1: { schema: treeRestoredV1 } },
-      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 } },
-      "tree.revised": { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 } },
-      "unit.unattempted": { 1: { schema: unitUnattemptedV1 } },
+      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 } },
+      "tree.revised": { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
+      "unit.unattempted": { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
       "commits.prepared": { 1: { schema: commitsPreparedV1 } },
       "commits.created": { 1: { schema: commitsCreatedV1 } },
       "commits.dropped": { 1: { schema: commitsDroppedV1 } },
@@ -22485,7 +22602,8 @@ var init_events = __esm({
       "files.claimed": { 1: { schema: filesClaimedV1 } },
       "claims.lost": { 1: { schema: claimsLostV1 } },
       "fix.pinned": { 1: { schema: fixPinnedV1 }, 2: { schema: fixPinnedV2 } },
-      "fix.reopened": { 1: { schema: fixReopenedV1 } },
+      "fix.reopened": { 1: { schema: fixReopenedV1 }, 2: { schema: fixReopenedV2 } },
+      "documentation.planned": { 1: { schema: documentationPlannedV1 } },
       "answer.recorded": { 1: { schema: answerRecordedV1 } },
       "answer.pass": { 1: { schema: answerPassV1 } }
     });
@@ -22519,7 +22637,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, repairUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22540,7 +22658,7 @@ var init_vocabulary = __esm({
       ALTITUDE: "design",
       CONVENTIONS: "correctness"
     };
-    reviewRoles = ["surveyor", ...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank", "decider", "fixer"];
+    reviewRoles = ["surveyor", ...angles.map(roleOfAngle), "deduplication", "verifier", "sweep", "merge-rank", "decider", "fixer", "documentation"];
     isFinderRole = (role) => role.startsWith("finder-");
     phases = [
       "survey",
@@ -22555,6 +22673,7 @@ var init_vocabulary = __esm({
       "decision",
       "baseline-checks",
       "fixes",
+      "documentation",
       "checks",
       "repair",
       "repair-checks",
@@ -22563,16 +22682,17 @@ var init_vocabulary = __esm({
       "report"
     ];
     phaseSchema2 = external_exports.enum(phases);
-    fixPhases = ["baseline-checks", "fixes", "checks", "repair", "repair-checks"];
+    fixPhases = ["baseline-checks", "fixes", "documentation", "checks", "repair", "repair-checks"];
     answerPhases = ["answer", "answer-checks"];
     checkPhases = ["baseline-checks", "checks", "repair-checks", "answer-checks"];
     checkPhaseSchema = external_exports.enum(checkPhases);
-    editingPhases = ["fixes", "repair", "answer"];
+    editingPhases = ["fixes", "documentation", "repair", "answer"];
     editingPhaseSchema = external_exports.enum(editingPhases);
     isCheckPhase = (phase) => checkPhases.includes(phase);
     isEditingPhase = (phase) => editingPhases.includes(phase);
     repairUnitKey = "repair";
-    budgetDegradingPhases = ["fixes", "repair"];
+    documentationUnitKey = "documentation";
+    budgetDegradingPhases = ["fixes", "documentation", "repair"];
     isBudgetDegradingPhase = (phase) => budgetDegradingPhases.includes(phase);
     claimingPhases = ["fixes"];
     isClaimingPhase = (phase) => claimingPhases.includes(phase);
@@ -22703,6 +22823,176 @@ var init_answer_state = __esm({
   }
 });
 
+// src/paths.ts
+import { readlinkSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join as join4, relative, resolve as resolve3, sep } from "node:path";
+function canonicalPath(path) {
+  const absolute = resolve3(path);
+  const rest = [];
+  for (let current = absolute; ; current = dirname(current)) {
+    try {
+      return join4(realpathSync.native(current), ...rest);
+    } catch (error62) {
+      const code = error62.code;
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
+    }
+    if (dirname(current) === current) return absolute;
+    rest.unshift(basename(current));
+  }
+}
+function isInside(parent, child) {
+  const path = relative(canonicalPath(parent), canonicalPath(child));
+  return path === "" || !(path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path));
+}
+function sameDirectory(a, b) {
+  const [left, right] = [resolve3(a), resolve3(b)];
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+function linkTargetText(target, platform = process.platform) {
+  return platform === "win32" ? target.replaceAll("\\", "/") : target;
+}
+function readLinkText(absolute) {
+  return Buffer.from(linkTargetText(readlinkSync(absolute)));
+}
+function isFile(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+var init_paths = __esm({
+  "src/paths.ts"() {
+    "use strict";
+  }
+});
+
+// src/review/locations.ts
+import { closeSync as closeSync4, lstatSync as lstatSync2, openSync as openSync4, readdirSync, readSync } from "node:fs";
+import { join as join5 } from "node:path";
+function normalizeFileName(file2) {
+  return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
+}
+function worktreeLookup(worktree) {
+  const listings = /* @__PURE__ */ new Map();
+  const list = (segments) => {
+    const key = segments.join("/");
+    let names = listings.get(key);
+    if (names === void 0) {
+      try {
+        names = readdirSync(join5(worktree, ...segments));
+      } catch (error62) {
+        const code = error62.code;
+        if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
+        names = [];
+      }
+      listings.set(key, names);
+    }
+    return names;
+  };
+  const spellings = (parent, rest) => {
+    const [segment, ...below] = rest;
+    if (segment === void 0) return [parent.join("/")];
+    return list(parent).filter((name) => name.toLowerCase() === segment.toLowerCase()).flatMap((name) => spellings([...parent, name], below));
+  };
+  return (path) => spellings([], path.split("/"));
+}
+function relativeTails(name) {
+  const segments = name.split("/");
+  let start = 0;
+  segments.forEach((segment, index2) => {
+    if (segment === "" || segment === "." || segment === ".." || index2 === 0 && /^[A-Za-z]:$/.test(segment)) start = index2 + 1;
+  });
+  return segments.slice(start).map((_, offset) => segments.slice(start + offset).join("/"));
+}
+function onlyPath(paths, pick2) {
+  for (const fold of [(text3) => text3, (text3) => text3.toLowerCase()]) {
+    const picked = paths.filter((path) => pick2(path, fold));
+    if (picked.length > 1) return null;
+    if (picked.length === 1) return picked[0];
+  }
+  return null;
+}
+function matchRepositoryPath(scopePaths, file2, inRepo) {
+  const tails = relativeTails(normalizeFileName(file2));
+  const whole = tails[0];
+  if (whole === void 0) return null;
+  const sameTail = (tail) => (path2, fold) => fold(path2) === fold(tail);
+  for (const tail of tails) {
+    const changed = scopePaths.filter((path2) => path2.toLowerCase() === tail.toLowerCase());
+    if (changed.length > 0) {
+      const path2 = onlyPath(changed, sameTail(tail));
+      return path2 === null ? null : { path: path2, inScope: true };
+    }
+    const held = [...new Set(inRepo(tail))];
+    if (held.length > 0) {
+      const path2 = onlyPath(held, sameTail(tail));
+      return path2 === null ? null : { path: path2, inScope: false };
+    }
+  }
+  const path = onlyPath(scopePaths, (candidate, fold) => fold(candidate).endsWith(`/${fold(whole)}`));
+  return path === null ? null : { path, inScope: true };
+}
+function countLines(bytes) {
+  return countLinesOf([bytes]);
+}
+function countLinesOf(chunks) {
+  let lines = 0;
+  let last;
+  for (const chunk2 of chunks) {
+    for (let at = chunk2.indexOf(10); at !== -1; at = chunk2.indexOf(10, at + 1)) lines += 1;
+    if (chunk2.length > 0) last = chunk2[chunk2.length - 1];
+  }
+  if (last !== void 0 && last !== 10) lines += 1;
+  return lines;
+}
+function* fileChunks(path) {
+  const descriptor = openSync4(path, "r");
+  try {
+    const buffer = Buffer.alloc(64 * 1024);
+    for (let read = readSync(descriptor, buffer); read > 0; read = readSync(descriptor, buffer)) yield buffer.subarray(0, read);
+  } finally {
+    closeSync4(descriptor);
+  }
+}
+function worktreeLines(worktree, path) {
+  const absolute = join5(worktree, ...path.split("/"));
+  const stat = lstatSync2(absolute, { throwIfNoEntry: false });
+  if (stat === void 0) return null;
+  if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
+  if (stat.isFile()) return countLinesOf(fileChunks(absolute));
+  return null;
+}
+function normalizeLocations(scope, worktree, candidates) {
+  const paths = scope.files.map((file2) => file2.path);
+  const inRepo = worktreeLookup(worktree);
+  const lineCounts = /* @__PURE__ */ new Map();
+  const linesOf3 = (match) => {
+    let count2 = lineCounts.get(match.path);
+    if (count2 === void 0) {
+      const deleted = match.inScope && scope.files.find((file2) => file2.path === match.path).after === null;
+      count2 = deleted ? null : worktreeLines(worktree, match.path);
+      lineCounts.set(match.path, count2);
+    }
+    return count2;
+  };
+  return candidates.map((candidate) => {
+    const match = matchRepositoryPath(paths, candidate.file, inRepo);
+    if (match === null) return unlocated;
+    const lines = linesOf3(match);
+    if (lines === null || candidate.line > lines) return unlocated;
+    return { file: match.path, line: candidate.line, located: true, inScope: match.inScope };
+  });
+}
+var unlocated;
+var init_locations = __esm({
+  "src/review/locations.ts"() {
+    "use strict";
+    init_paths();
+    unlocated = { file: null, line: null, located: false, inScope: false };
+  }
+});
+
 // src/runtime/kill-marks.ts
 function endedByKill(end) {
   if (end.termination !== "exited") return false;
@@ -22739,6 +23029,7 @@ function emptyFixState() {
     },
     plan: null,
     secondRound: null,
+    documentation: null,
     answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])),
@@ -22960,8 +23251,15 @@ function earlierBatches(fix, key) {
   const siblings = allBatches(fix).filter((candidate) => candidate.cluster === batch.cluster);
   return siblings.slice(0, siblings.indexOf(batch));
 }
+function revisedPathsOf(fix, phases2) {
+  const of = phases2;
+  return [...new Set(fix.revisions.filter((revision) => of.includes(revision.phase)).flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
+}
 function fixesRevisedPaths(fix) {
-  return [...new Set(fix.revisions.filter((revision) => revision.phase === "fixes").flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
+  return revisedPathsOf(fix, ["fixes"]);
+}
+function fixPassRevisedPaths(fix) {
+  return revisedPathsOf(fix, ["fixes", "documentation"]);
 }
 function revisedPaths(fix) {
   return [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
@@ -22980,8 +23278,12 @@ function ownedFiles(review2, phase, key) {
   switch (phase) {
     case "fixes":
       return clusterOfBatch(fix, key)?.files ?? [];
+    case "documentation": {
+      const documents = (fix.documentation?.items ?? []).flatMap((item) => item.path === null ? [] : [item.path]);
+      return [.../* @__PURE__ */ new Set([...fixesRevisedPaths(fix), ...documents])].sort();
+    }
     case "repair":
-      return fixesRevisedPaths(fix);
+      return fixPassRevisedPaths(fix);
     case "answer":
       return [.../* @__PURE__ */ new Set([...revisedPaths(fix), ...locatedFilesOf(review2, passOf(review2, key)?.ids ?? [])])].sort();
   }
@@ -22992,6 +23294,8 @@ function unitIdsOf(review2, phase, key) {
   switch (phase) {
     case "fixes":
       return batchOf(fix, key)?.findingIds ?? null;
+    case "documentation":
+      return key === documentationUnitKey && fix.documentation !== null ? fix.documentation.items.map((item) => item.id) : null;
     case "repair": {
       const targets = repairTargets(fix);
       return key === repairUnitKey && targets.length > 0 ? targets : null;
@@ -23025,7 +23329,21 @@ function notAttemptedNote(fix, phase, key) {
   return settled3.cause === "budget" ? `the run budget was reached first: ${settled3.reason}` : settled3.reason;
 }
 function budgetStoppedUnits(fix) {
-  return ["fixes", "repair"].flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled3]) => settled3.cause === "budget").map(([key]) => ({ phase, key })));
+  return budgetDegradingPhases.flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled3]) => settled3.cause === "budget").map(([key]) => ({ phase, key })));
+}
+function documentationItemsOf(fix, resolve13) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const batch of allBatches(fix)) {
+    for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
+      const path = resolve13(line.file);
+      const group = path === null ? `folded:${normalizeFileName(line.file).toLowerCase()}` : `path:${path}`;
+      const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
+      entry.drift.push({ key: batch.key, file: line.file, what: line.what });
+      groups.set(group, entry);
+    }
+  }
+  const documents = [...groups.values()].map((entry, index2) => ({ id: `doc-${String(index2 + 1)}`, file: entry.file, path: entry.path, drift: entry.drift }));
+  return [...documents, { id: documentationSearchId, file: null, path: null, drift: [] }];
 }
 function isNotAttempted(fix, phase, key) {
   return Object.hasOwn(fix.notAttempted[phase], key);
@@ -23048,25 +23366,28 @@ function routeOfDecision(decision) {
       return appliedOptionOf(decision.ask).edits ? "fixer" : "held";
   }
 }
-var plannedCheckOfV2, stalingPhases, markingPhases, killedRun, batchSettled, exactPath, pathsClaimedBy;
+var plannedCheckOfV2, stalingPhases, markingPhases, killedRun, batchSettled, exactPath, pathsClaimedBy, driftLineKey;
 var init_fix_state = __esm({
   "src/checkpoint/fix-state.ts"() {
     "use strict";
     init_vocabulary();
+    init_locations();
     init_answer_state();
+    init_events();
     init_kill_marks();
     plannedCheckOfV2 = (check2) => check2.origin === "flag" ? { ...check2, origin: "setting", layer: "flag" } : { ...check2, layer: null };
     stalingPhases = {
       "baseline-checks": [],
-      checks: ["fixes", "answer"],
-      "repair-checks": ["fixes", "repair", "answer"],
-      "answer-checks": ["fixes", "repair"]
+      checks: ["fixes", "documentation", "answer"],
+      "repair-checks": ["fixes", "documentation", "repair", "answer"],
+      "answer-checks": ["fixes", "documentation", "repair"]
     };
     markingPhases = Object.fromEntries(checkPhases.map((phase) => [phase, stalingPhases[phase].filter((editing) => editing !== "answer")]));
     killedRun = (run2) => run2.outcome === "cut" || run2.termination === "killed" || run2.outcome === "failed" && endedByKill(run2);
     batchSettled = (fix, key) => Object.hasOwn(fix.answers.fixes, key) || isNotAttempted(fix, "fixes", key);
     exactPath = (path) => path;
     pathsClaimedBy = (claims, cluster) => [...new Set(claims.filter((claim3) => claim3.cluster === cluster).map((claim3) => claim3.path))];
+    driftLineKey = (key, line) => JSON.stringify([key, line.file, line.what]);
   }
 });
 
@@ -23159,13 +23480,14 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
-function configure(state, payload, event, surveyed, decided) {
+function configure(state, payload, event, { surveyed, decided, documented }) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (state.review !== null) throw invalid(event, "is configured for review twice");
-  const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"], ...decided ? [] : ["decision"], ...answerPhases]);
+  const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"], ...decided ? [] : ["decision"], ...documented ? [] : ["documentation"], ...answerPhases]);
   const review2 = {
     configuration: payload,
+    documentationStep: documented,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
@@ -23203,9 +23525,10 @@ function withFreshAttempts(review2, drafts, phase) {
   }
   return units;
 }
-function skipReason(phase) {
+function skipReason(phase, documentationStep2) {
   if (phase === "survey") return "it was configured before the survey existed";
   if (phase === "decision") return "it was configured before the decision step existed";
+  if (phase === "documentation" && !documentationStep2) return "it was configured before the documentation step existed";
   if (answerPhases.includes(phase)) return "no answer pass has opened it";
   return "it was configured without the fix pass";
 }
@@ -23264,7 +23587,7 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
@@ -23276,12 +23599,13 @@ var init_review_fold = __esm({
     unsettled = { settings: null, fixSettings: null };
     unsurveyed = { survey: { userRules: "apply" } };
     unpinnedCodex = (runtime, worktree) => ({ codex: runtime === "codex" && !worktree.startsWith("/") ? { windowsSandbox: "unelevated" } : null });
-    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, true, true);
-    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, true, true);
-    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, true, false);
-    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, true, false);
-    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, false, false);
-    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, false, false);
+    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true });
+    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false });
+    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false });
+    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false });
+    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false });
+    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
+    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
     limitsChanged = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
       if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -23291,7 +23615,7 @@ var init_review_fold = __esm({
       const { current, review: review2 } = requireReview(state, event);
       const phase = review2.phases[payload.phase];
       if (phase.status === "completed" || phase.status === "degraded") throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
-      if (phase.status === "skipped") throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase)}`);
+      if (phase.status === "skipped") throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase, review2.documentationStep)}`);
       if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
       if (payload.phase === "baseline-checks" && (review2.fix?.checks.planned ?? null) === null) throw invalid(event, "starts baseline-checks before its checks are planned");
       for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
@@ -23458,25 +23782,29 @@ var init_review_fold = __esm({
       "review.configured@3": configuredV3,
       "review.configured@4": configuredV4,
       "review.configured@5": configuredV5,
-      "review.configured@6": configured,
+      "review.configured@6": configuredV6,
+      "review.configured@7": configured,
       "limits.changed@1": limitsChanged,
       "phase.started@1": phaseStarted,
       "phase.started@2": phaseStarted,
       "phase.started@3": phaseStarted,
       "phase.started@4": phaseStarted,
       "phase.started@5": phaseStarted,
+      "phase.started@6": phaseStarted,
       "phase.finished@1": phaseFinished,
       "phase.finished@2": phaseFinished,
       "phase.finished@3": phaseFinished,
       "phase.finished@4": phaseFinished,
       "phase.finished@5": phaseFinished,
       "phase.finished@6": phaseFinished,
+      "phase.finished@7": phaseFinished,
       "worktree.checked@1": worktreeCheckedV12,
       "worktree.checked@2": worktreeChecked,
       "worktree.checked@3": worktreeChecked,
       "worktree.checked@4": worktreeChecked,
       "worktree.checked@5": worktreeChecked,
       "worktree.checked@6": worktreeChecked,
+      "worktree.checked@7": worktreeChecked,
       "candidates.recorded@1": candidatesRecordedV12,
       "candidates.recorded@2": candidatesRecorded,
       "attempt.failed@1": attemptFailed,
@@ -23486,6 +23814,7 @@ var init_review_fold = __esm({
       "attempt.failed@5": attemptFailed,
       "attempt.failed@6": attemptFailed,
       "attempt.failed@7": attemptFailed,
+      "attempt.failed@8": attemptFailed,
       "angle.failed@1": angleFailed,
       "deduplication.recorded@1": deduplicationRecorded,
       "verification.planned@1": verificationPlanned,
@@ -23497,7 +23826,8 @@ var init_review_fold = __esm({
       "report.written@2": reportWritten,
       "report.written@3": reportWritten,
       "report.written@4": reportWritten,
-      "report.written@5": reportWritten
+      "report.written@5": reportWritten,
+      "report.written@6": reportWritten
     };
   }
 });
@@ -23674,7 +24004,7 @@ function pinFix(state, payload, settings2, event, drafts) {
     units = review2.units;
   }
   const phaseStates = { ...review2.phases };
-  for (const phase of fixPhases) phaseStates[phase] = { status: "pending", attempt: 0 };
+  for (const phase of fixPhases) if (phase !== "documentation" || review2.documentationStep) phaseStates[phase] = { status: "pending", attempt: 0 };
   for (const phase of reopened2) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
   const configuration = { ...review2.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings2 };
   return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
@@ -23691,7 +24021,7 @@ function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `${verb} commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
 }
-var withFix, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, treeRevised, filesClaimed, claimsLost, unitUnattempted, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
+var withFix, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
 var init_fix_fold = __esm({
   "src/checkpoint/fix-fold.ts"() {
     "use strict";
@@ -23858,7 +24188,7 @@ var init_fix_fold = __esm({
       }
       const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
       const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
-      const personAnswers = payload.phase === "repair" ? review2.answers : withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings);
+      const personAnswers = payload.phase === "repair" || payload.phase === "documentation" ? review2.answers : withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings);
       return withReview(current, { ...review2, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
     };
     treeRevised = (state, payload, event) => {
@@ -23936,6 +24266,28 @@ var init_fix_fold = __esm({
       const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: { cause: payload.cause, reason: payload.reason } } };
       return withFix(current, review2, { ...fix, notAttempted }, event);
     };
+    documentationPlanned = (state, payload, event) => {
+      const { current, review: review2, fix } = requireFix(state, event);
+      requireRunning(review2, event, "documentation");
+      if (fix.documentation !== null) throw invalid(event, "plans its documentation step twice");
+      const stopped = budgetStoppedUnits(fix).filter((unit) => unit.phase === "fixes").map((unit) => unit.key);
+      if (stopped.length > 0) throw invalid(event, `plans its documentation step while the run budget leaves ${stopped.join(", ")} of the fixes not attempted`);
+      if (!fix.revisions.some((revision) => revision.phase === "fixes")) throw invalid(event, "plans its documentation step for fixes that revised nothing");
+      const unlisted = /* @__PURE__ */ new Map();
+      for (const [key, answer3] of Object.entries(fix.answers.fixes)) {
+        for (const line of answer3.drift) unlisted.set(driftLineKey(key, line), (unlisted.get(driftLineKey(key, line)) ?? 0) + 1);
+      }
+      for (const item of payload.items) {
+        for (const line of item.drift) {
+          const left2 = unlisted.get(driftLineKey(line.key, line)) ?? 0;
+          if (left2 === 0) throw invalid(event, `plans the drift line ${JSON.stringify(line.what)} on ${line.file} for ${line.key} under ${item.id}, which no answer of the fixes holds, or holds fewer times than the plan lists it`);
+          unlisted.set(driftLineKey(line.key, line), left2 - 1);
+        }
+      }
+      const left = [...unlisted].filter(([, count2]) => count2 > 0).map(([line]) => line);
+      if (left.length > 0) throw invalid(event, `plans its documentation step without the drift lines ${left.join(", ")} of the fixes`);
+      return withFix(current, review2, { ...fix, documentation: payload }, event);
+    };
     fixPinned = (state, payload, event, drafts) => pinFix(state, { ...payload, plannedChecks: payload.plannedChecks?.map(plannedCheckOfV2) ?? null }, null, event, drafts);
     fixPinnedV22 = (state, payload, event, drafts) => pinFix(state, payload, payload.settings, event, drafts);
     commitsCreated = (state, payload, event) => {
@@ -23962,13 +24314,15 @@ var init_fix_fold = __esm({
       const report2 = review2.report;
       if (report2 === null) throw invalid(event, "reopens the fix pass before its report");
       const stopped = budgetStoppedUnits(fix).map((unit) => `${unit.phase}:${unit.key}`);
-      const listed = payload.units.map((unit) => `${unit.phase}:${unit.key}`);
-      if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(", ")}], not each unit the run budget left not attempted [${stopped.join(", ")}]`);
+      const listed2 = payload.units.map((unit) => `${unit.phase}:${unit.key}`);
+      if (listed2.length !== stopped.length || !stopped.every((unit) => listed2.includes(unit))) throw invalid(event, `reopens [${listed2.join(", ")}], not each unit the run budget left not attempted [${stopped.join(", ")}]`);
       const notAttempted = { ...fix.notAttempted };
       for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
       const reopening = { at: event.recordedAt, units: payload.units, reportBefore: report2 };
       const phaseStates = { ...review2.phases };
-      const reopenedPhases = [...payload.units.some((unit) => unit.phase === "fixes") ? ["fixes"] : [], "checks", "repair", "repair-checks", "report"];
+      const fixes = payload.units.some((unit) => unit.phase === "fixes");
+      const documentation = review2.documentationStep && (fixes || payload.units.some((unit) => unit.phase === "documentation"));
+      const reopenedPhases = [...fixes ? ["fixes"] : [], ...documentation ? ["documentation"] : [], "checks", "repair", "repair-checks", "report"];
       for (const phase of reopenedPhases) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
       return withReview(current, { ...review2, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
     };
@@ -23985,9 +24339,13 @@ var init_fix_fold = __esm({
       "tree.restored@1": treeRestored,
       "fix.recorded@1": fixRecorded,
       "fix.recorded@2": fixRecorded,
+      "fix.recorded@3": fixRecorded,
       "tree.revised@1": treeRevised,
       "tree.revised@2": treeRevised,
+      "tree.revised@3": treeRevised,
       "unit.unattempted@1": unitUnattempted,
+      "unit.unattempted@2": unitUnattempted,
+      "documentation.planned@1": documentationPlanned,
       "commits.prepared@1": commitsPrepared,
       "commits.created@1": commitsCreated,
       "commits.dropped@1": commitsDropped,
@@ -23995,7 +24353,8 @@ var init_fix_fold = __esm({
       "claims.lost@1": claimsLost,
       "fix.pinned@1": fixPinned,
       "fix.pinned@2": fixPinnedV22,
-      "fix.reopened@1": fixReopened
+      "fix.reopened@1": fixReopened,
+      "fix.reopened@2": fixReopened
     };
   }
 });
@@ -24185,6 +24544,7 @@ var init_fold = __esm({
       "worker.lost@3": workerLost,
       "worker.lost@4": workerLost,
       "worker.lost@5": workerLost,
+      "worker.lost@6": workerLost,
       ...reviewReducers,
       ...fixReducers,
       ...surveyReducers,
@@ -24196,7 +24556,7 @@ var init_fold = __esm({
 
 // src/checkpoint/ledger.ts
 import { mkdirSync as mkdirSync2 } from "node:fs";
-import { join as join4, resolve as resolve3 } from "node:path";
+import { join as join6, resolve as resolve4 } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 function userVersion(db) {
   return db.prepare("PRAGMA user_version").get().user_version;
@@ -24301,9 +24661,9 @@ CREATE TRIGGER runs_are_permanent_delete BEFORE DELETE ON runs
       }
       static open(root, options2 = {}) {
         const schema = options2.schema ?? currentSchema;
-        const directory = resolve3(root);
+        const directory = resolve4(root);
         mkdirSync2(directory, { recursive: true });
-        const path = join4(directory, ledgerFileName);
+        const path = join6(directory, ledgerFileName);
         const db = new DatabaseSync(path, { timeout: busyTimeoutMs });
         try {
           db.exec("PRAGMA journal_mode=WAL");
@@ -24384,7 +24744,7 @@ CREATE TRIGGER runs_are_permanent_delete BEFORE DELETE ON runs
 
 // src/checkpoint/checkpoint.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { join as join5, resolve as resolve4 } from "node:path";
+import { join as join7, resolve as resolve5 } from "node:path";
 function decode3(row) {
   return { ...row, payload: JSON.parse(row.payload) };
 }
@@ -24419,10 +24779,10 @@ var init_checkpoint = __esm({
         this.#ids = options2.ids ?? randomUUID2;
       }
       static open(root, options2) {
-        const directory = resolve4(root);
+        const directory = resolve5(root);
         const ledger = Ledger.open(directory, options2);
         try {
-          const evidence = new EvidenceStore(join5(directory, evidenceDirectoryName));
+          const evidence = new EvidenceStore(join7(directory, evidenceDirectoryName));
           return new _Checkpoint(directory, ledger, evidence, options2);
         } catch (error62) {
           ledger.close();
@@ -24550,7 +24910,7 @@ var init_environment = __esm({
 });
 
 // src/runtime/claude-powershell.ts
-import { lstatSync as lstatSync2 } from "node:fs";
+import { lstatSync as lstatSync3 } from "node:fs";
 import { posix, win32 as win322 } from "node:path";
 function firstPwshOnPath(environment, present = lstatPresent) {
   const path = spellingsOf(environment, "PATH", "win32").map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
@@ -24585,7 +24945,7 @@ var init_claude_powershell = __esm({
     init_environment();
     lstatPresent = (path) => {
       try {
-        lstatSync2(path);
+        lstatSync3(path);
         return true;
       } catch {
         return false;
@@ -24596,10 +24956,10 @@ var init_claude_powershell = __esm({
 });
 
 // src/checkpoint/locate.ts
-import { realpathSync } from "node:fs";
-import { join as join6, resolve as resolve5 } from "node:path";
+import { realpathSync as realpathSync2 } from "node:fs";
+import { join as join8, resolve as resolve6 } from "node:path";
 function locateCheckpoint(directory) {
-  const cwd = resolve5(directory);
+  const cwd = resolve6(directory);
   let output2;
   try {
     output2 = runGitSync(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], {
@@ -24614,8 +24974,8 @@ function locateCheckpoint(directory) {
   if (commonDir === void 0 || toplevel === void 0 || rest.length > 0) {
     throw new NotInRepositoryError(`Unexpected git output while locating the checkpoint for ${cwd}: ${JSON.stringify(output2)}`);
   }
-  const resolvedCommonDir = realpathSync.native(commonDir);
-  return { root: join6(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync.native(toplevel), commonDir: resolvedCommonDir };
+  const resolvedCommonDir = realpathSync2.native(commonDir);
+  return { root: join8(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync2.native(toplevel), commonDir: resolvedCommonDir };
 }
 function locateFailure(cwd, error62) {
   const detail = gitFailureDetail(error62);
@@ -24697,10 +25057,10 @@ var init_manifest = __esm({
 });
 
 // src/roles/assemble.ts
-import { lstatSync as lstatSync3, readdirSync, readFileSync as readFileSync4 } from "node:fs";
-import { join as join7, resolve as resolve6 } from "node:path";
+import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync4 } from "node:fs";
+import { join as join9, resolve as resolve7 } from "node:path";
 function repositoryRolesRoot() {
-  return resolve6(import.meta.dirname, "..", "..", "roles");
+  return resolve7(import.meta.dirname, "..", "..", "roles");
 }
 function repeatedJsonKey(text3) {
   const open2 = [];
@@ -24726,7 +25086,7 @@ function repeatedJsonKey(text3) {
   return void 0;
 }
 function readRoleManifest(rolesRoot) {
-  const path = join7(rolesRoot, manifestFileName);
+  const path = join9(rolesRoot, manifestFileName);
   let text3;
   try {
     text3 = readFileSync4(path, "utf8");
@@ -24748,8 +25108,8 @@ function readRoleManifest(rolesRoot) {
 function loadRoleFragment(rolesRoot, name) {
   const named = fragmentNameSchema.safeParse(name);
   if (!named.success) throw new InvalidRoleFragmentError(name, `is not a valid fragment name: ${named.error.issues.map((issue2) => issue2.message).join("; ")}`);
-  const directory = join7(rolesRoot, fragmentsDirectoryName);
-  const path = join7(directory, name);
+  const directory = join9(rolesRoot, fragmentsDirectoryName);
+  const path = join9(directory, name);
   const examine = (inspect) => {
     try {
       return inspect();
@@ -24758,10 +25118,10 @@ function loadRoleFragment(rolesRoot, name) {
       throw new InvalidRoleFragmentError(name, `cannot be read: ${error62.message}`);
     }
   };
-  if (examine(() => lstatSync3(directory).isSymbolicLink())) {
+  if (examine(() => lstatSync4(directory).isSymbolicLink())) {
     throw new InvalidRoleFragmentError(name, `is in a ${fragmentsDirectoryName}/ that is a link; fragments live in the roles directory itself`);
   }
-  if (!examine(() => lstatSync3(path).isFile())) throw new InvalidRoleFragmentError(name, "is not a regular file");
+  if (!examine(() => lstatSync4(path).isFile())) throw new InvalidRoleFragmentError(name, "is not a regular file");
   let bytes;
   try {
     bytes = readFileSync4(path);
@@ -24794,7 +25154,7 @@ function refuseMalformedFragmentText(name, text3) {
   if (includeMarker.test(text3)) throw new InvalidRoleFragmentError(name, "contains an include marker; composition is declared in the manifest only");
 }
 function reconcileFragments(rolesRoot, manifest) {
-  const fragmentsDirectory = join7(rolesRoot, fragmentsDirectoryName);
+  const fragmentsDirectory = join9(rolesRoot, fragmentsDirectoryName);
   const list = (inspect) => {
     try {
       return inspect();
@@ -24802,10 +25162,10 @@ function reconcileFragments(rolesRoot, manifest) {
       throw new InvalidRoleManifestError(`Cannot list ${fragmentsDirectory}: ${error62.message}`);
     }
   };
-  if (list(() => lstatSync3(fragmentsDirectory).isSymbolicLink())) {
+  if (list(() => lstatSync4(fragmentsDirectory).isSymbolicLink())) {
     throw new InvalidRoleManifestError(`The fragments directory ${fragmentsDirectory} is a link; fragments live in the roles directory itself`);
   }
-  const entries = list(() => readdirSync(fragmentsDirectory));
+  const entries = list(() => readdirSync2(fragmentsDirectory));
   const named = new Set(Object.values(manifest.roles).flat());
   const present = new Set(entries);
   const missing = [...named].filter((name) => !present.has(name)).sort();
@@ -24850,14 +25210,14 @@ var init_assemble = __esm({
 
 // src/engine.ts
 import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
-import { join as join8 } from "node:path";
+import { join as join10 } from "node:path";
 function engineVersion() {
-  const manifest = JSON.parse(readFileSync5(join8(import.meta.dirname, "..", "package.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync5(join10(import.meta.dirname, "..", "package.json"), "utf8"));
   if (typeof manifest.version !== "string" || manifest.version.length === 0) throw new Error("package.json has no version");
   return manifest.version;
 }
 function readEngineSidecar(directory = import.meta.dirname) {
-  const path = join8(directory, engineSidecarName);
+  const path = join10(directory, engineSidecarName);
   if (!existsSync4(path)) return null;
   const parsed = JSON.parse(readFileSync5(path, "utf8"));
   if (typeof parsed.version !== "string" || parsed.version.length === 0 || typeof parsed.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(parsed.sha256)) {
@@ -24870,7 +25230,7 @@ function engineIdentity(directory = import.meta.dirname) {
   return sidecar === null ? `${engineVersion()}+dev` : `${sidecar.version}+${sidecar.sha256.slice(0, 12)}`;
 }
 function engineRolesRoot(directory = import.meta.dirname) {
-  return readEngineSidecar(directory) === null ? repositoryRolesRoot() : join8(directory, "roles");
+  return readEngineSidecar(directory) === null ? repositoryRolesRoot() : join10(directory, "roles");
 }
 var engineSidecarName;
 var init_engine = __esm({
@@ -26461,7 +26821,7 @@ var init_errors7 = __esm({
 });
 
 // src/runtime/contract.ts
-import { isAbsolute } from "node:path";
+import { isAbsolute as isAbsolute2 } from "node:path";
 function parseInvocation(value) {
   const parsed = invocationSchema.safeParse(value);
   if (!parsed.success) throw new InvalidInvocationError(`Invalid invocation: ${external_exports.prettifyError(parsed.error)}`);
@@ -26540,7 +26900,7 @@ var init_contract = __esm({
     noNul = (value) => !value.includes("\0");
     text = external_exports.string().min(1).refine(noNul, "must not contain a NUL character");
     optionValue = text.refine((value) => !value.startsWith("-"), "must not start with a dash");
-    absolutePath = text.refine((value) => isAbsolute(value), "must be an absolute path");
+    absolutePath = text.refine((value) => isAbsolute2(value), "must be an absolute path");
     maxTimeoutMs = 60 * 60 * 1e3;
     maxBudgetUsd = 100;
     invocationSchema = external_exports.strictObject({
@@ -26595,7 +26955,7 @@ var init_contract = __esm({
 // src/review/policy.ts
 import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync6 } from "node:fs";
-import { join as join9 } from "node:path";
+import { join as join11 } from "node:path";
 function codexWindowsSandboxFlagProblem(runtime, value) {
   if (value === void 0) return null;
   if (!isWindowsSandbox(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(", ")}, not ${JSON.stringify(value)}`;
@@ -26629,7 +26989,7 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join9(rolesRoot, policyFileName);
+  const path = join11(rolesRoot, policyFileName);
   let text3;
   try {
     text3 = readFileSync6(path, "utf8");
@@ -26769,50 +27129,6 @@ var init_policy = __esm({
   }
 });
 
-// src/paths.ts
-import { readlinkSync, realpathSync as realpathSync2, statSync } from "node:fs";
-import { basename, dirname, isAbsolute as isAbsolute2, join as join10, relative, resolve as resolve7, sep } from "node:path";
-function canonicalPath(path) {
-  const absolute = resolve7(path);
-  const rest = [];
-  for (let current = absolute; ; current = dirname(current)) {
-    try {
-      return join10(realpathSync2.native(current), ...rest);
-    } catch (error62) {
-      const code = error62.code;
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
-    }
-    if (dirname(current) === current) return absolute;
-    rest.unshift(basename(current));
-  }
-}
-function isInside(parent, child) {
-  const path = relative(canonicalPath(parent), canonicalPath(child));
-  return path === "" || !(path === ".." || path.startsWith(`..${sep}`) || isAbsolute2(path));
-}
-function sameDirectory(a, b) {
-  const [left, right] = [resolve7(a), resolve7(b)];
-  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-}
-function linkTargetText(target, platform = process.platform) {
-  return platform === "win32" ? target.replaceAll("\\", "/") : target;
-}
-function readLinkText(absolute) {
-  return Buffer.from(linkTargetText(readlinkSync(absolute)));
-}
-function isFile(path) {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-var init_paths = __esm({
-  "src/paths.ts"() {
-    "use strict";
-  }
-});
-
 // src/scope/errors.ts
 var InvalidScopeRequestError, UnsupportedRepositoryStateError, EmptyChangeError, CaptureRacedError, ScopeAlreadyCapturedError;
 var init_errors8 = __esm({
@@ -26838,8 +27154,8 @@ var init_errors8 = __esm({
 });
 
 // src/scope/capture.ts
-import { lstatSync as lstatSync4, readFileSync as readFileSync7 } from "node:fs";
-import { join as join11 } from "node:path";
+import { lstatSync as lstatSync5, readFileSync as readFileSync7 } from "node:fs";
+import { join as join12 } from "node:path";
 function isMagicPattern(pattern) {
   return pattern.startsWith(":");
 }
@@ -26998,8 +27314,8 @@ function readBase(repo, base, entry) {
   return { bytes: blobThroughFilters(repo, base, entry.path), symlink: false };
 }
 function readWorktree(repo, path) {
-  const absolute = join11(repo, ...path.split("/"));
-  const stat = lstatSync4(absolute, { throwIfNoEntry: false });
+  const absolute = join12(repo, ...path.split("/"));
+  const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
   if (stat.isFile()) return { bytes: readFileSync7(absolute), symlink: false };
@@ -27284,15 +27600,15 @@ var init_settings = __esm({
 import { createHash as createHash4 } from "node:crypto";
 import { readFileSync as readFileSync8, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute as isAbsolute3, join as join12 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join13 } from "node:path";
 function operatorConfigPath(environment, platform, home = homedir()) {
   const variable = (name) => spellingsOf(environment, name, platform).find(([, value]) => value !== void 0 && value !== "")?.[1];
   if (platform === "win32") {
     const appData = variable("APPDATA");
-    return appData === void 0 ? null : join12(appData, "deep-review", "config.toml");
+    return appData === void 0 ? null : join13(appData, "deep-review", "config.toml");
   }
   const xdg = variable("XDG_CONFIG_HOME");
-  return join12(xdg !== void 0 && isAbsolute3(xdg) ? xdg : join12(home, ".config"), "deep-review", "config.toml");
+  return join13(xdg !== void 0 && isAbsolute3(xdg) ? xdg : join13(home, ".config"), "deep-review", "config.toml");
 }
 function readConfigFile(layer, path) {
   const read = readConfigBytes(layer, path);
@@ -27411,8 +27727,8 @@ var init_files = __esm({
     maxConfigBytes = 64 * 1024;
     configSchemaVersion = 1;
     absent = { file: null, problems: [] };
-    cloneConfigPath = (commonDir) => join12(commonDir, cloneConfigName);
-    repositoryConfigFile = (worktree) => join12(worktree, ...repositoryConfigPath.split("/"));
+    cloneConfigPath = (commonDir) => join13(commonDir, cloneConfigName);
+    repositoryConfigFile = (worktree) => join13(worktree, ...repositoryConfigPath.split("/"));
     tooLarge = (layer, path, size) => `${path}: ${layerWords[layer]} holds ${String(size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`;
     isTable = (value) => typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Date);
     leaves = (value, name) => {
@@ -27502,8 +27818,8 @@ var init_command = __esm({
 });
 
 // src/review/checks/discover.ts
-import { readdirSync as readdirSync2, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
-import { join as join13 } from "node:path";
+import { readdirSync as readdirSync3, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
+import { join as join14 } from "node:path";
 function flagCheckSettings(commands, dropped) {
   const layers2 = {};
   for (const kind of checkKinds) {
@@ -27611,11 +27927,11 @@ function hintChecks(root, kinds = checkKinds) {
   });
 }
 function readRootManifests(root) {
-  const entries = readdirSync2(root);
+  const entries = readdirSync3(root);
   const files = {};
   for (const name of manifestNames) {
     if (!entries.includes(name)) continue;
-    const path = join13(root, name);
+    const path = join14(root, name);
     if (statSync3(path, { throwIfNoEntry: false })?.isFile() !== true) continue;
     files[name] = readFileSync9(path, "utf8");
   }
@@ -27905,10 +28221,10 @@ var init_source = __esm({
 
 // src/review/claims.ts
 import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync3, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join14, relative as relative2, sep as sep2 } from "node:path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
+import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join15, relative as relative2, sep as sep2 } from "node:path";
 function claimsDirectoryFor(scratchBase, runId, round) {
-  return join14(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
+  return join15(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
 }
 function pathKey(path, caseInsensitive) {
   return caseInsensitive ? path.normalize("NFC").toUpperCase().toLowerCase() : path;
@@ -27942,7 +28258,7 @@ function resolveClaimPath(worktree, raw) {
 function foldsCase(fs, directory, listing, name) {
   const flipped = flipCase(name);
   if (listing.includes(name) && listing.includes(flipped)) return false;
-  return fs.stat(join14(directory, flipped)) !== void 0;
+  return fs.stat(join15(directory, flipped)) !== void 0;
 }
 function readableListing(fs, directory) {
   try {
@@ -27966,10 +28282,10 @@ function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
   return process.platform === "win32" || process.platform === "darwin";
 }
 function claimsDirectoryIntact(dir) {
-  return existsSync5(join14(dir, heldFileName));
+  return existsSync5(join15(dir, heldFileName));
 }
 function readHeld(dir) {
-  const file2 = join14(dir, heldFileName);
+  const file2 = join15(dir, heldFileName);
   let text3;
   try {
     text3 = readFileSync10(file2, "utf8");
@@ -27987,7 +28303,7 @@ function readHeld(dir) {
   return parsed.data;
 }
 function readMarker(dir, hash2, generation, caseInsensitive, now) {
-  const file2 = join14(dir, `${hash2}.${String(generation)}.json`);
+  const file2 = join15(dir, `${hash2}.${String(generation)}.json`);
   let text3;
   try {
     text3 = readFileSync10(file2, "utf8");
@@ -28021,13 +28337,13 @@ function markersOf(dir, hash2, caseInsensitive, now) {
   }
 }
 function createMarker(dir, hash2, generation, marker) {
-  return createFileExclusive(join14(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
+  return createFileExclusive(join15(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
 `);
 }
 function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()) {
   let names;
   try {
-    names = readdirSync3(dir);
+    names = readdirSync4(dir);
   } catch (error62) {
     if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
     throw error62;
@@ -28045,7 +28361,7 @@ function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()
 function prepareClaims(dir, held, recorded, expectExisting, rename) {
   if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync3(dir, { recursive: true });
-  const heldFile = join14(dir, heldFileName);
+  const heldFile = join15(dir, heldFileName);
   let refreshed = true;
   try {
     writeFileAtomic(heldFile, `${JSON.stringify(held)}
@@ -28140,135 +28456,9 @@ var init_claims = __esm({
     rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute4(name);
     flipCase = (text3) => text3.replaceAll(/[A-Za-z]/g, (letter) => letter <= "Z" ? letter.toLowerCase() : letter.toUpperCase());
     caseProbeFileSystem = {
-      list: (directory) => readdirSync3(directory),
+      list: (directory) => readdirSync4(directory),
       stat: (path) => statSync4(path, { throwIfNoEntry: false })
     };
-  }
-});
-
-// src/review/locations.ts
-import { closeSync as closeSync4, lstatSync as lstatSync5, openSync as openSync4, readdirSync as readdirSync4, readSync } from "node:fs";
-import { join as join15 } from "node:path";
-function normalizeFileName(file2) {
-  return file2.replaceAll("\\", "/").replaceAll(/\/{2,}/g, "/").replace(/^(\.\/)+/, "");
-}
-function worktreeLookup(worktree) {
-  const listings = /* @__PURE__ */ new Map();
-  const list = (segments) => {
-    const key = segments.join("/");
-    let names = listings.get(key);
-    if (names === void 0) {
-      try {
-        names = readdirSync4(join15(worktree, ...segments));
-      } catch (error62) {
-        const code = error62.code;
-        if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
-        names = [];
-      }
-      listings.set(key, names);
-    }
-    return names;
-  };
-  const spellings = (parent, rest) => {
-    const [segment, ...below] = rest;
-    if (segment === void 0) return [parent.join("/")];
-    return list(parent).filter((name) => name.toLowerCase() === segment.toLowerCase()).flatMap((name) => spellings([...parent, name], below));
-  };
-  return (path) => spellings([], path.split("/"));
-}
-function relativeTails(name) {
-  const segments = name.split("/");
-  let start = 0;
-  segments.forEach((segment, index2) => {
-    if (segment === "" || segment === "." || segment === ".." || index2 === 0 && /^[A-Za-z]:$/.test(segment)) start = index2 + 1;
-  });
-  return segments.slice(start).map((_, offset) => segments.slice(start + offset).join("/"));
-}
-function onlyPath(paths, pick2) {
-  for (const fold of [(text3) => text3, (text3) => text3.toLowerCase()]) {
-    const picked = paths.filter((path) => pick2(path, fold));
-    if (picked.length > 1) return null;
-    if (picked.length === 1) return picked[0];
-  }
-  return null;
-}
-function matchRepositoryPath(scopePaths, file2, inRepo) {
-  const tails = relativeTails(normalizeFileName(file2));
-  const whole = tails[0];
-  if (whole === void 0) return null;
-  const sameTail = (tail) => (path2, fold) => fold(path2) === fold(tail);
-  for (const tail of tails) {
-    const changed = scopePaths.filter((path2) => path2.toLowerCase() === tail.toLowerCase());
-    if (changed.length > 0) {
-      const path2 = onlyPath(changed, sameTail(tail));
-      return path2 === null ? null : { path: path2, inScope: true };
-    }
-    const held = [...new Set(inRepo(tail))];
-    if (held.length > 0) {
-      const path2 = onlyPath(held, sameTail(tail));
-      return path2 === null ? null : { path: path2, inScope: false };
-    }
-  }
-  const path = onlyPath(scopePaths, (candidate, fold) => fold(candidate).endsWith(`/${fold(whole)}`));
-  return path === null ? null : { path, inScope: true };
-}
-function countLines(bytes) {
-  return countLinesOf([bytes]);
-}
-function countLinesOf(chunks) {
-  let lines = 0;
-  let last;
-  for (const chunk2 of chunks) {
-    for (let at = chunk2.indexOf(10); at !== -1; at = chunk2.indexOf(10, at + 1)) lines += 1;
-    if (chunk2.length > 0) last = chunk2[chunk2.length - 1];
-  }
-  if (last !== void 0 && last !== 10) lines += 1;
-  return lines;
-}
-function* fileChunks(path) {
-  const descriptor = openSync4(path, "r");
-  try {
-    const buffer = Buffer.alloc(64 * 1024);
-    for (let read = readSync(descriptor, buffer); read > 0; read = readSync(descriptor, buffer)) yield buffer.subarray(0, read);
-  } finally {
-    closeSync4(descriptor);
-  }
-}
-function worktreeLines(worktree, path) {
-  const absolute = join15(worktree, ...path.split("/"));
-  const stat = lstatSync5(absolute, { throwIfNoEntry: false });
-  if (stat === void 0) return null;
-  if (stat.isSymbolicLink()) return countLines(readLinkText(absolute));
-  if (stat.isFile()) return countLinesOf(fileChunks(absolute));
-  return null;
-}
-function normalizeLocations(scope, worktree, candidates) {
-  const paths = scope.files.map((file2) => file2.path);
-  const inRepo = worktreeLookup(worktree);
-  const lineCounts = /* @__PURE__ */ new Map();
-  const linesOf3 = (match) => {
-    let count2 = lineCounts.get(match.path);
-    if (count2 === void 0) {
-      const deleted = match.inScope && scope.files.find((file2) => file2.path === match.path).after === null;
-      count2 = deleted ? null : worktreeLines(worktree, match.path);
-      lineCounts.set(match.path, count2);
-    }
-    return count2;
-  };
-  return candidates.map((candidate) => {
-    const match = matchRepositoryPath(paths, candidate.file, inRepo);
-    if (match === null) return unlocated;
-    const lines = linesOf3(match);
-    if (lines === null || candidate.line > lines) return unlocated;
-    return { file: match.path, line: candidate.line, located: true, inScope: match.inScope };
-  });
-}
-var unlocated;
-var init_locations = __esm({
-  "src/review/locations.ts"() {
-    "use strict";
-    init_paths();
-    unlocated = { file: null, line: null, located: false, inScope: false };
   }
 });
 
@@ -28537,9 +28727,9 @@ function checkConventions(output2, context) {
   requireOnce(userRules.map((rule) => rule.path), "The user-level file");
   const undecided = offered.filter((path) => !userRules.some((rule) => rule.path === path));
   if (undecided.length > 0) throw new StructuralCheckError(`The answer decides nothing about the offered user-level file${undecided.length === 1 ? "" : "s"} ${undecided.join(", ")}`);
-  const listed = new Set(conventions.filter((source) => source.level === "user").map((source) => source.path));
+  const listed2 = new Set(conventions.filter((source) => source.level === "user").map((source) => source.path));
   for (const rule of userRules) {
-    if (rule.applied !== listed.has(rule.path)) throw new StructuralCheckError(`The user-level file ${rule.path} is ${rule.applied ? "applied but not listed as a source" : "listed as a source but not applied"}`);
+    if (rule.applied !== listed2.has(rule.path)) throw new StructuralCheckError(`The user-level file ${rule.path} is ${rule.applied ? "applied but not listed as a source" : "listed as a source but not applied"}`);
   }
   return { conventions, userRules };
 }
@@ -28894,8 +29084,8 @@ function checkSeconds(state, phase) {
 }
 function statisticsOf(state, adapter) {
   const settled3 = settledWorkers(state);
-  const listed = phases.filter((phase) => state.review?.phases[phase].status !== "skipped");
-  const byPhase = listed.map((phase) => {
+  const listed2 = phases.filter((phase) => state.review?.phases[phase].status !== "skipped");
+  const byPhase = listed2.map((phase) => {
     const spend = spendOf(settled3.filter((worker) => parseUnitLabel(worker.launch.label)?.phase === phase), adapter);
     return { phase, ...spend, ...isCheckPhase(phase) ? { seconds: checkSeconds(state, phase) } : {} };
   });
@@ -29037,6 +29227,8 @@ function unitsOf(review2, phase) {
       return rankedFindings(review2).length > 0 ? single("decider") : [];
     case "fixes":
       return [...fixPlanOf(review2).batches, ...review2.fix?.secondRound?.batches ?? []].map((batch) => ({ phase, key: batch.key, role: "fixer" }));
+    case "documentation":
+      return (review2.fix?.documentation ?? null) === null ? [] : [{ phase, key: documentationUnitKey, role: "documentation" }];
     case "repair":
       return review2.fix !== null && repairTargets(review2.fix).length > 0 ? [{ phase, key: repairUnitKey, role: "fixer" }] : [];
     case "answer": {
@@ -29093,6 +29285,7 @@ function degradationOf(review2, unit) {
     case "sweep-verification":
       return { kind: "group.unverified", phase: unit.phase, groupId: unit.key };
     case "fixes":
+    case "documentation":
     case "repair":
       return { kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "failures" };
     case "triage":
@@ -29186,7 +29379,7 @@ function dueCheck(review2, phase) {
   const fix = review2.fix;
   const planned = fix?.checks.planned ?? null;
   if (fix === null || planned === null) return null;
-  if (phase === "checks" && !fix.revisions.some((revision) => revision.phase === "fixes")) return null;
+  if (phase === "checks" && !fix.revisions.some((revision) => revision.phase === "fixes" || revision.phase === "documentation")) return null;
   if (phase === "repair-checks" && !fix.revisions.some((revision) => revision.phase === "repair")) return null;
   if (phase === "answer-checks") {
     const pass = currentPass(review2);
@@ -29231,6 +29424,11 @@ function surveyStep(review2, live2, attempt) {
   const without = truncated(`${failed2}; ${settledBy} every check, so the run goes on without it`, maxRecordedTextLength);
   return { kind: "plan-checks", checks: resolveChecks(null, live2.checkSettings).checks, without };
 }
+function documentationStep(fix, attempt) {
+  if (budgetStoppedUnits(fix).some((unit) => unit.phase === "fixes")) return { kind: "finish-phase", phase: "documentation", attempt, outcome: "degraded", blocker: null };
+  if (fix.revisions.some((revision) => revision.phase === "fixes")) return { kind: "plan-documentation" };
+  return { kind: "finish-phase", phase: "documentation", attempt, outcome: "completed", blocker: null };
+}
 function nextStep(review2, live2) {
   if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
   if (review2.report !== null) return { kind: "complete" };
@@ -29255,6 +29453,7 @@ function nextStep(review2, live2) {
   if (phase === "fixes" && live2.claimsLost !== null) return live2.running.size > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: claimsLostBlocker(live2.claimsLost) };
   if ((phase === "verification" || phase === "sweep-verification") && review2.plans[phase] === null) return { kind: "plan-verification", phase, groups: groupsOf(review2, phase) };
   if (phase === "fixes" && review2.fix !== null && review2.fix.plan === null) return { kind: "plan-fixes", plan: fixPlanOf(review2) };
+  if (phase === "documentation" && review2.fix !== null && review2.fix.documentation === null) return documentationStep(review2.fix, attempt);
   if (phase === "report") return { kind: "write-report" };
   if (phase === "survey") {
     const step = surveyStep(review2, live2, attempt);
@@ -29601,7 +29800,7 @@ function indexMode(worktree, path) {
   const [record2] = records(gitText(worktree, ["ls-files", "--stage", "-z", "--", literal2(path)]));
   return record2 === void 0 ? null : record2.slice(0, record2.indexOf(" "));
 }
-var drifted;
+var drifted, worktreeCheckVersion;
 var init_drift = __esm({
   "src/review/drift.ts"() {
     "use strict";
@@ -29614,6 +29813,7 @@ var init_drift = __esm({
     init_tree();
     init_vocabulary();
     drifted = (found) => found.files.length > 0 || found.head !== null;
+    worktreeCheckVersion = (check2) => check2.phase === "documentation" ? 7 : check2.moment === "restored" ? 6 : 5;
   }
 });
 
@@ -29668,6 +29868,7 @@ function outputSchemaOf(role) {
     case "decider":
       return deciderOutputSchema;
     case "fixer":
+    case "documentation":
       return fixerOutputSchema;
   }
 }
@@ -29958,7 +30159,7 @@ function takeSnapshot(request) {
   mkdirSync5(copies, { recursive: true });
   const manifest = readManifest(request.into);
   const paths = [.../* @__PURE__ */ new Set([...manifest === null ? [] : changedSince(manifest), ...manifest?.expected ?? []])].filter(safePath).sort();
-  const listed = paths.map((path) => {
+  const listed2 = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
     const copy = join19(copies, ...path.split("/"));
@@ -29966,7 +30167,7 @@ function takeSnapshot(request) {
     writeFileSync5(copy, entry.bytes);
     return [path, { sha256: sha2562(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
   });
-  const listing = { finding: request.finding, paths: Object.fromEntries(listed) };
+  const listing = { finding: request.finding, paths: Object.fromEntries(listed2) };
   const temporary = `${listingFile}.${String(process.pid)}.tmp`;
   writeFileSync5(temporary, `${JSON.stringify(listing)}
 `);
@@ -29978,15 +30179,15 @@ function readSnapshot(into, finding) {
   if (listing === null) return null;
   return (path) => {
     if (!Object.hasOwn(listing.paths, path) || !safePath(path)) return void 0;
-    const listed = listing.paths[path];
-    if (listed === "absent") return null;
+    const listed2 = listing.paths[path];
+    if (listed2 === "absent") return null;
     let bytes;
     try {
       bytes = readFileSync12(join19(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
-    return bytes.length === listed.size && sha2562(bytes) === listed.sha256 ? { bytes, symlink: listed.symlink } : void 0;
+    return bytes.length === listed2.size && sha2562(bytes) === listed2.sha256 ? { bytes, symlink: listed2.symlink } : void 0;
   };
 }
 function readListing(into, finding) {
@@ -30167,10 +30368,11 @@ function fixAnswerEvents(unit, receipt, context) {
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids2, context.match);
   return [
     ...claims,
-    { kind: "fix.recorded", version: 2, payload: recorded },
+    // Only the documentation step's answer and revisions need version 3 (TD5 of the documentation step).
+    { kind: "fix.recorded", version: phase === "documentation" ? 3 : 2, payload: recorded },
     ...revisions.map((revision) => ({
       kind: "tree.revised",
-      version: 2,
+      version: phase === "documentation" ? 3 : 2,
       payload: { phase, source: { kind: "fix", key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] }
     }))
   ];
@@ -30179,6 +30381,8 @@ function attemptOwner(phase, key) {
   switch (phase) {
     case "fixes":
       return `batch ${key}`;
+    case "documentation":
+      return "the documentation step";
     case "repair":
       return "the repair";
     case "answer":
@@ -30199,11 +30403,11 @@ function attemptRevisionEvents(context, phase, key, workerId, reason, end) {
   const leftover = (path) => tracked.has(path) && !expected.has(path);
   const candidates = [.../* @__PURE__ */ new Set([...into === null ? [] : snapshotPaths(into, ids2.length), ...end === "lost" ? [] : changedPaths(worktree)])].filter((path) => !others.has(keyOf(path)) && !isPending(settle4, path) && !strays.has(path) && !leftover(path));
   const ignored = new Set(ignoredPaths(worktree, candidates));
-  const listed = candidates.filter((path) => !ignored.has(path));
+  const listed2 = candidates.filter((path) => !ignored.has(path));
   const sources = { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: worktreeReader(worktree) };
   const own2 = [...ownedFiles(state.review, phase, key), ...claimedFiles(settle4.state, phase, key)];
   const ownKeys = new Set(own2.map(keyOf));
-  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...own2, ...listed], ids2, context.match, end === "lost" ? (path) => ownKeys.has(keyOf(path)) : null);
+  const revisions = unfinishedRevisions(evidence, sources, expected, baseOf(context), [...own2, ...listed2], ids2, context.match, end === "lost" ? (path) => ownKeys.has(keyOf(path)) : null);
   const who = attemptOwner(phase, key);
   const why = truncated(reason, 1e3);
   return { claims: settle4.events, revisions: revisions.map((revision) => {
@@ -30214,15 +30418,15 @@ The files are recorded as it left them after its last snapshot; no finding accou
 
 The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload = { phase, source: { kind: "attempt", key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
-    return { kind: "tree.revised", version: 2, payload };
+    return { kind: "tree.revised", version: phase === "documentation" ? 3 : 2, payload };
   }) };
 }
 function checkRevision(context, phase, kind, command, manifest) {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
   const before = preRunStrays(state.review);
-  const listed = manifest === null ? [] : changedListed(manifest).filter((path) => !before.has(path));
-  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...listed], context.match);
+  const listed2 = manifest === null ? [] : changedListed(manifest).filter((path) => !before.has(path));
+  const files = reviseFrom(evidence, worktreeReader(worktree), expected, baseOf(context), [...expected.keys(), ...listed2], context.match);
   if (files.length === 0) return null;
   const payload = {
     phase,
@@ -30693,8 +30897,18 @@ function bytesOf(checkpoint, path, frozen) {
   if ("oversized" in frozen) throw new ReviewRefusedError(`${path} is larger than the run freezes (${String(frozen.oversized.size)} bytes), so its bytes were never kept and no commit can be built for it; commit it by hand`);
   return checkpoint.evidence.read(frozen.blob);
 }
+function namedDocuments(run2, revision) {
+  const items = new Map((run2.review.fix?.documentation?.items ?? []).map((item) => [item.id, item]));
+  return revision.change.findings.map((id) => {
+    const item = items.get(id);
+    if (item === void 0) return id;
+    if (item.file === null) return "documentation that the search found";
+    return `documentation of ${item.path ?? item.file}`;
+  }).join(", ");
+}
 function namedFindings(run2, revision) {
   if (revision.phase === "repair") return `repair of the ${revision.change.findings.join(", ")} check`;
+  if (revision.phase === "documentation") return namedDocuments(run2, revision);
   const findings = new Map(rankedFindings(run2.review).map((entry) => [entry.finding.id, entry]));
   const answer3 = revision.phase === "answer" ? "answer to " : "";
   return revision.change.findings.map((id) => {
@@ -30913,8 +31127,8 @@ var init_commit = __esm({
       }
       /** The mode the temporary index gives a path, or null when it holds none. */
       #mode(path) {
-        const listed = git2(this.#worktree, ["ls-files", "--stage", "-z", "--", `:(literal)${path}`], { env: this.#env }).split("\0").find((record2) => record2.length > 0);
-        return listed === void 0 ? null : listed.split(" ")[0];
+        const listed2 = git2(this.#worktree, ["ls-files", "--stage", "-z", "--", `:(literal)${path}`], { env: this.#env }).split("\0").find((record2) => record2.length > 0);
+        return listed2 === void 0 ? null : listed2.split(" ")[0];
       }
       /** Set a path to a frozen state, as `git add` would store it, or remove it. */
       set(path, file2) {
@@ -32310,6 +32524,126 @@ var init_continue_command = __esm({
   }
 });
 
+// src/review/documents.ts
+function planPathOf(worktree) {
+  const lookup = worktreeLookup(worktree);
+  return (file2) => {
+    let path;
+    try {
+      path = resolveReportedPath(worktree, lookup, file2);
+    } catch (error62) {
+      if (error62 instanceof StructuralCheckError) return null;
+      throw error62;
+    }
+    return isClaimablePath(path) ? path : null;
+  };
+}
+function stepNotRunCause(review2) {
+  const fix = review2.fix;
+  if (fix === null) return null;
+  if (!review2.documentationStep) return "an engine before the documentation step configured this run";
+  if (fix.documentation === null) {
+    if (budgetStoppedUnits(fix).some((unit) => unit.phase === "fixes")) return "the run budget was reached first";
+    if (!fix.revisions.some((revision) => revision.phase === "fixes")) return "the fixes changed no file";
+    return "it has not run yet";
+  }
+  if (fix.answers.documentation[documentationUnitKey] !== void 0) return null;
+  const settled3 = fix.notAttempted.documentation[documentationUnitKey];
+  if (settled3 === void 0) return "it has not answered yet";
+  return settled3.cause === "budget" ? "the run budget was reached first" : "its worker failed twice";
+}
+function fixPassTimeOf(review2) {
+  const reopened2 = review2.fix.reopenings.at(-1)?.at ?? null;
+  return reopened2 === null ? 0 : review2.answerPasses.filter((pass) => pass.at < reopened2).length;
+}
+function unheldDriftLines(review2) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  const fixPassTime = fixPassTimeOf({ ...review2, fix });
+  const held = /* @__PURE__ */ new Map();
+  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
+  const lines = [];
+  const unheld = (phase, key, time3) => {
+    for (const line of fix.answers[phase][key]?.drift ?? []) {
+      const count2 = phase === "fixes" ? held.get(driftLineKey(key, line)) ?? 0 : 0;
+      if (count2 > 0) held.set(driftLineKey(key, line), count2 - 1);
+      else lines.push({ phase, key, file: line.file, what: line.what, time: time3 });
+    }
+  };
+  for (const batch of allBatches(fix)) unheld("fixes", batch.key, fixPassTime);
+  unheld("repair", repairUnitKey, fixPassTime);
+  review2.answerPasses.forEach((_, index2) => unheld("answer", passKey(index2 + 1), index2 + 1));
+  return lines;
+}
+function leftByStep(fix) {
+  const answer3 = fix.answers.documentation[documentationUnitKey];
+  if (fix.documentation === null || answer3 === void 0) return [];
+  const items = fix.documentation.items.flatMap((item) => {
+    const answered2 = answer3.findings.find((finding) => finding.id === item.id);
+    if (item.file === null || answered2 === void 0 || answered2.status !== "deferred" && answered2.status !== "blocked") return [];
+    return [{ file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: "left", text: `The documentation step left it: ${sentence(answered2.note)}` } }];
+  });
+  const found = answer3.drift.map((line) => ({ file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: "found", text: "The documentation step found it out of date at its end." } }));
+  return [...items, ...found];
+}
+function leftDocumentsOf(review2) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  const fixPassTime = fixPassTimeOf({ ...review2, fix });
+  const entries = /* @__PURE__ */ new Map();
+  const add = (file2, facts, reason, time3) => {
+    const key = documentKey(file2);
+    const entry = entries.get(key) ?? { file: file2, facts: [], reasons: [], time: 0 };
+    for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
+    if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
+    entry.time = Math.max(entry.time, time3);
+    entries.set(key, entry);
+  };
+  const notRun = { kind: "not-run", text: `The documentation step did not run: ${stepNotRunCause(review2) ?? "it has not answered yet"}.` };
+  const plan = fix.documentation;
+  if (plan !== null) {
+    if (fix.answers.documentation[documentationUnitKey] === void 0) {
+      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, fixPassTime);
+    } else {
+      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, fixPassTime);
+    }
+  }
+  for (const line of unheldDriftLines(review2)) {
+    const by = reporterOf[line.phase];
+    add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: "after", text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+  }
+  const endedBy = (key, time3) => review2.answerPasses.some((_, index2) => {
+    const n = index2 + 1;
+    const answer3 = fix.answers.answer[passKey(n)];
+    if (n <= time3 || answer3 === void 0) return false;
+    const revised = unitRevisions(fix, "answer", passKey(n)).some((revision) => revision.files.some((file2) => documentKey(file2.path) === key));
+    return revised && !answer3.drift.some((line) => documentKey(line.file) === key);
+  });
+  return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file: file2, facts, reasons }]) => ({ file: file2, facts, reasons }));
+}
+var leftReasonKinds, reporterOf, documentKey, sentence;
+var init_documents = __esm({
+  "src/review/documents.ts"() {
+    "use strict";
+    init_answer_state();
+    init_events();
+    init_fix_state();
+    init_errors6();
+    init_fix_answer();
+    init_locations();
+    init_vocabulary();
+    leftReasonKinds = ["left", "found", "not-run", "after"];
+    reporterOf = {
+      fixes: "a fixer",
+      documentation: "the documentation step",
+      repair: "the repair",
+      answer: "the fixer of an answer pass"
+    };
+    documentKey = (path) => normalizeFileName(path.trim()).toLowerCase();
+    sentence = (note) => `${note.trim().replace(/[.]+$/, "")}.`;
+  }
+});
+
 // src/review/markdown.ts
 function codeSpan(text3) {
   let longest = 0;
@@ -32341,13 +32675,14 @@ function paragraphText(text3) {
   if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
   return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
 }
-var tableCell, inlineText, counted2, findingAnchor, findingLink, sentenceText;
+var tableCell, inlineText, counted2, listed, findingAnchor, findingLink, sentenceText;
 var init_markdown = __esm({
   "src/review/markdown.ts"() {
     "use strict";
     tableCell = (text3) => text3.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
     inlineText = (text3) => text3.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
     counted2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
+    listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
     findingAnchor = (id) => `finding-${id.toLowerCase()}`;
     findingLink = (id) => `[${id}](#${findingAnchor(id)})`;
     sentenceText = (text3) => {
@@ -32703,7 +33038,7 @@ function claimBlock(command) {
     "",
     `    ${command}`,
     "",
-    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
+    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it, unless the file is a document the finding's edit made stale: make no edit of that one, report the stale fact in `drift`, and go on with the finding. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
     `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
     "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
     "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
@@ -32717,6 +33052,13 @@ function snapshotBlock(command, unit) {
     "",
     `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
   ].join("\n");
+}
+function answerFields(unit) {
+  const blocks = unit === "finding";
+  const statuses = blocks ? "`applied`, `already-applied`, `deferred` or `blocked`" : "`applied`, `already-applied` or `deferred`";
+  const partial2 = blocks ? `a blocked or deferred ${unit}'s` : `a deferred ${unit}'s`;
+  const required2 = blocks ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : "`requiredFiles`, which stays empty";
+  return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial2} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required2}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 }
 function earlierWork(unit, unfinished) {
   const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
@@ -32779,7 +33121,14 @@ function unitLines(input2) {
           "Files you own: every file the run revised, and the files these findings are located in.",
           fileList(input2.owned),
           "",
-          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served."
+          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.",
+          ...input2.leftDocuments.length === 0 ? [] : [
+            "",
+            "Documents this run left out of date, which an answer you apply may settle:",
+            input2.leftDocuments.map((document) => `- ${document.file}${document.facts.length === 0 ? "" : `: ${document.facts.join("; ")}`}`).join("\n"),
+            "",
+            "Bring such a document in line when an answer you apply settles what it must say, and name it under that answer's finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`."
+          ]
         ]
       };
     case "batch": {
@@ -32799,7 +33148,7 @@ function unitLines(input2) {
           "Files you own while this batch runs, which no other worker edits:",
           fileList(held),
           "",
-          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`:",
+          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`, unless it is a document the fix made stale, which goes in `drift`:",
           others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
           "",
           claimBlock(input2.claimCommand)
@@ -32869,7 +33218,7 @@ function repairTask(input2) {
     ]
   ].join("\n"));
   return [
-    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, \`deferred\` with the reason when it cannot be made to pass here, and \`blocked\` when it needs a file outside the repository or one you were told not to edit, named in \`requiredFiles\`.`,
+    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit.`,
     "",
     ...checks,
     "",
@@ -32888,6 +33237,54 @@ function repairTask(input2) {
     "",
     ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
     `${answerFields("check")} The message in an applied check's \`edits\` describes what the repair changed.`,
+    "",
+    scratchRule
+  ].join("\n");
+}
+function documentLines(index2, document) {
+  const where = document.path === null ? `${document.file}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit` : document.path === document.file ? document.path : `${document.file}, the repository path ${document.path}`;
+  return [
+    `[${String(index2)}] ${document.id}: ${where}`,
+    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? "" : ` (as ${line.file})`}: ${line.what}`)
+  ].join("\n");
+}
+function fixLines(fix) {
+  const edits = fix.files.length === 0 ? "" : `; edited ${fix.files.join(", ")}${fix.subject === null ? "" : `, committed as "${fix.subject}"`}`;
+  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...fix.decided === null ? [] : [`    ${fix.decided}`]].join("\n");
+}
+function documentationTask(input2) {
+  const count2 = input2.documents.length + 1;
+  const search = input2.documents.length;
+  return [
+    `Documentation: ${String(count2)} item${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}]. Bring the documentation of the repository in line with the edits of the fix pass, which the fixers below made, and edit documentation only: text for a person, such as a document, a changelog, or a comment in the code that describes the changed behavior.`,
+    "",
+    ...input2.documents.map((document, index2) => documentLines(index2, document)),
+    `[${String(search)}] search: other documentation that the edits of the fix pass made out of date, which no item above names. Search the repository for it, also where no fixer reported anything.`,
+    "",
+    "What the fixers did, finding by finding:",
+    input2.fixes.length === 0 ? "(nothing recorded)" : input2.fixes.map(fixLines).join("\n"),
+    "",
+    "The patch of each edit of the fixes, in the order of its commit, which holds the edits of this run apart from the change under review:",
+    input2.patches.length === 0 ? "(none)" : input2.patches.map((patch) => `- ${patch.path} (${patch.subject})`).join("\n"),
+    "",
+    "Files you own: every file the fixes changed, and the repository path of each document above.",
+    fileList(input2.owned),
+    "",
+    "You may edit any other file of the repository when an item needs it; report every file you edit or create under the item it served.",
+    "",
+    "Write only what the code of the tree, a decision above or an answer of the author settles, and no behavior that an open question still leaves to the author. Leave each convention source the scope lists as it is, with the amendment of a rule that a fix departing from it made. Leave a fact that was out of date before this run, and a historical or append-only record as the rules of the repository ask. Change no code, test or configuration to make a document true.",
+    input2.exclude.length === 0 ? "The review left no path out by `scope.exclude`." : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:
+${input2.exclude.map((pattern) => `- ${pattern}`).join("\n")}`,
+    "",
+    "An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document you found out of date at your end and did not bring in line.",
+    "",
+    checksBlock(input2.checks),
+    "",
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
+    snapshotBlock(input2.snapshotCommand, "item"),
+    "",
+    ...input2.mayHoldWork ? [earlierWork("item", input2.unfinished), ""] : [],
+    answerFields("item"),
     "",
     scratchRule
   ].join("\n");
@@ -32917,7 +33314,7 @@ function mergeRankTask(inputs) {
     list
   ].join("\n");
 }
-var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, snapshotIndexPlaceholder, claimPathPlaceholder, answerFields, scratchRule, unelevatedSandboxRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
+var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
 var init_tasks = __esm({
   "src/review/tasks.ts"() {
     "use strict";
@@ -32938,7 +33335,6 @@ var init_tasks = __esm({
     accountLimits = { title: 80, why: 400 };
     snapshotIndexPlaceholder = "<index>";
     claimPathPlaceholder = "<path>";
-    answerFields = (unit) => `For each ${unit}, by index, return: \`status\` (\`applied\`, \`already-applied\`, \`deferred\` or \`blocked\`); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, a blocked or deferred ${unit}'s saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and \`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
     scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
     unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
     fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
@@ -33117,6 +33513,8 @@ function answerTaskOf(unit, review2, editing, evidence) {
     batch: unit.key,
     findings,
     owned: ownedFiles(review2, "answer", unit.key),
+    // What the run left out of date when the pass opens, so its fixer brings in line what an answer settles and its revision ends the count (PD10 of the documentation step).
+    leftDocuments: leftDocumentsOf(review2).map((document) => ({ file: document.file, facts: document.facts.map((fact) => fact.what) })),
     checks: review2.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
     unelevatedSandbox: editing.unelevatedSandbox,
@@ -33161,9 +33559,62 @@ function repairTaskOf(review2, editing, evidence) {
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
     };
   });
-  const owned = fixesRevisedPaths(fix);
+  const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
   return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+}
+function decidedWords(review2, id) {
+  const decision = review2.decisions?.find((candidate) => candidate.id === id) ?? null;
+  if (decision === null) return null;
+  const standing = standingAnswer(review2, id);
+  const answer3 = standing?.answer ?? null;
+  const owed = standing?.appliedBy === null;
+  const unapplied = ", which no fix of the run has applied yet, so the tree does not hold it yet";
+  switch (decision.decision) {
+    case "fix": {
+      const { departure } = decision;
+      const departs2 = departure === null ? "" : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
+      const rejected = owed ? unapplied : ", so the rule stands as its source states it";
+      const word2 = answer3?.kind === "accept" ? "; the author accepted the departure" : answer3?.kind === "reject" ? `; the author rejected the departure${rejected}` : "";
+      return `decided: fix: ${decision.fix.approach}${departs2}${word2}`;
+    }
+    case "ask": {
+      const { ask } = decision;
+      if (answer3?.kind === "option") return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer3.option + 1)}, "${ask.options[answer3.option]?.option ?? "an option the decision does not offer"}"${owed ? unapplied : ""}`;
+      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
+    }
+    case "leave":
+      return "decided: leave";
+  }
+}
+function documentationTaskOf(review2, editing, evidence, options2) {
+  const fix = review2.fix;
+  const plan = fix?.documentation ?? null;
+  if (fix === null || plan === null) throw new Error("The documentation step runs only once it is planned");
+  const revisions = fix.revisions.filter((revision) => revision.phase === "fixes");
+  if (options2.patches.length !== revisions.length) throw new Error(`The documentation step is given ${String(options2.patches.length)} patches for the ${String(revisions.length)} revisions of the fixes`);
+  const fixes = allBatches(fix).flatMap((batch) => (fix.answers.fixes[batch.key]?.findings ?? []).map((finding) => ({
+    batch: batch.key,
+    id: finding.id,
+    status: finding.status,
+    note: finding.note,
+    files: finding.files,
+    subject: finding.message?.subject ?? null,
+    decided: decidedWords(review2, finding.id)
+  })));
+  const owned = ownedFiles(review2, "documentation", documentationUnitKey);
+  return documentationTask({
+    documents: plan.items.flatMap((item) => item.file === null ? [] : [{ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) }]),
+    fixes,
+    patches: revisions.map((revision, index2) => ({ path: evidence.pathOf(options2.patches[index2]), subject: revisionMessageOf(fix, revision).subject })),
+    owned,
+    exclude: options2.exclude,
+    checks: fix.checks.planned?.checks ?? [],
+    snapshotCommand: editing.snapshotCommand,
+    mayHoldWork: mayHoldWork(review2, "documentation", documentationUnitKey, owned),
+    unfinished: unfinishedIds(review2, "documentation", documentationUnitKey),
+    unelevatedSandbox: editing.unelevatedSandbox
+  });
 }
 function standingSurvey(review2) {
   if (review2.continuedFrom === null || (review2.fix?.checks.planned ?? null) !== null) return null;
@@ -33227,6 +33678,9 @@ function taskFor(unit, review2, options2 = {}) {
     case "fixes":
       if (evidence === null) throw new Error("The fixer task names the baseline checks' frozen outputs and needs the evidence store");
       return fixerTaskOf(unit, review2, requireEditing(), evidence);
+    case "documentation":
+      if (evidence === null || options2.documentation === void 0 || options2.documentation === null) throw new Error("The documentation step's task names the patches of the fixes in the evidence store and the patterns scope.exclude left out, and needs them");
+      return documentationTaskOf(review2, requireEditing(), evidence, options2.documentation);
     case "repair":
       if (evidence === null) throw new Error("The repair task quotes frozen logs and needs the evidence store");
       return repairTaskOf(review2, requireEditing(), evidence);
@@ -33253,7 +33707,8 @@ function invocationFor(unit, context) {
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join28(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2 }) }, context.scopeBlock(unit.phase));
+  const documentation = unit.phase === "documentation" ? context.documentation() : null;
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2, documentation }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -33272,7 +33727,7 @@ function invocationFor(unit, context) {
   };
 }
 function failed(unit, receipt, reason, fault) {
-  return { kind: "attempt.failed", version: fault === "cut" || fault === "limit" ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  return { kind: "attempt.failed", version: unit.phase === "documentation" ? 8 : fault === "cut" || fault === "limit" ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 function recordCandidates2(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -33386,6 +33841,7 @@ function contributionEvent(unit, receipt, review2, context) {
       return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
     }
     case "fixes":
+    case "documentation":
     case "repair":
     case "answer":
       throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
@@ -33406,6 +33862,7 @@ var init_phases = __esm({
     init_review_fold();
     init_survey_state();
     init_claim_events();
+    init_documents();
     init_errors6();
     init_fix_events();
     init_labels();
@@ -33747,12 +34204,45 @@ function stopLimitations(review2, evidencePath) {
 }
 function answerLines(fix) {
   const answers = allFixerAnswers(fix);
-  const drift = answers.flatMap((answer3) => answer3.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer3.key})`));
+  const drift = answers.some((answer3) => answer3.drift.length > 0);
   const tests = answers.flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer3.key})`));
   return [
-    ...drift.length === 0 ? [] : ["", "Documentation the fixers say their edits made stale, which nothing in this run updated:", "", ...drift],
+    ...drift ? ["", "The documentation the fixers say their edits made stale is under Documentation, with what became of it."] : [],
     ...tests.length === 0 ? [] : ["", "Tests the fixers say they added or tightened:", "", ...tests]
   ];
+}
+function documentationSection(review2, fix) {
+  const plan = fix.documentation;
+  const unheld = unheldDriftLines(review2);
+  if (!review2.documentationStep && unheld.length === 0) return [];
+  const answer3 = fix.answers.documentation[documentationUnitKey];
+  const cause = stepNotRunCause(review2);
+  const notAttempted = isNotAttempted(fix, "documentation", documentationUnitKey);
+  const items = (plan?.items ?? []).flatMap((item, index2) => {
+    const finding = answer3?.findings.find((candidate) => candidate.id === item.id);
+    const outcome = finding !== void 0 ? statusWords[finding.status] : notAttempted ? "not attempted" : "not answered";
+    const document = item.file === null ? [] : [`Document: ${codeSpan(item.file)}, ${item.path === null ? "which the engine refused as a path of the repository" : `the repository path ${codeSpan(item.path)}`}`];
+    const answered2 = finding === void 0 ? notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, "documentation", documentationUnitKey))}`] : [] : [
+      `Note: ${inlineText(finding.note)}`,
+      ...finding.message === null ? [] : [`Commit message: ${inlineText(finding.message.subject)}`],
+      ...finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(", ")}; ${patchNote(patchesOf(fix, item.id, "documentation"))}`],
+      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${inlineText(entry.source)}: ${inlineText(entry.evidence)}`)
+    ];
+    const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${inlineText(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
+    return [`### ${String(index2 + 1)}. ${item.id} ${outcome}`, "", ...document, ...answered2, ...took, ""];
+  });
+  const found = (answer3?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)}`);
+  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)} (${reporterWords(line)})`);
+  const lines = [
+    "## Documentation",
+    "",
+    cause === null ? `The documentation step answered for ${counted2((plan?.items.length ?? 1) - 1, "document", "documents")} the fixers named, and for its own search.` : `The documentation step did not run: ${cause}.`,
+    "",
+    ...items,
+    ...found.length === 0 ? [] : ["Documents the documentation step found out of date at its end, which it did not bring in line:", "", ...found, ""],
+    ...untaken.length === 0 ? [] : [plan === null ? "Documentation the fixers say their edits made stale, which no step of this run took:" : "Documentation the repair or an answer pass says its edits made stale, after the documentation step:", "", ...untaken, ""]
+  ];
+  return lines.filter((line, index2) => line !== "" || lines[index2 - 1] !== "").filter((line, index2, all) => line !== "" || index2 < all.length - 1);
 }
 function patchSpan(from, to) {
   return from === to ? { subject: `patch ${String(from)}`, verb: "is" } : { subject: `patches ${String(from)} to ${String(to)}`, verb: "are" };
@@ -33814,7 +34304,7 @@ function checksSection(fix, survey, answered2, evidencePath) {
   ];
   const earlier = ran.flatMap((phase) => {
     const edit = edits.get(phase) ?? null;
-    return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of the ${edit === "fixes" ? "fixes" : "repair"} changed.`];
+    return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of ${revisionOwners[edit]} changed.`];
   });
   const columns = ["Check", "Command", ...survey === null ? [] : ["Source"], ...ran.map((phase) => `${phaseTitles[phase]}${edits.get(phase) === null ? "" : " (an earlier tree)"}`)];
   return [
@@ -33887,7 +34377,7 @@ function fixSections(state, evidencePath, patches) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [fixesSection(review2, fix), checksSection(fix, review2.survey, review2.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)];
+  return [fixesSection(review2, fix), documentationSection(review2, fix), checksSection(fix, review2.survey, review2.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -33906,6 +34396,8 @@ function fixerTitle(phase, key) {
   switch (phase) {
     case "fixes":
       return `Fixer ${key}`;
+    case "documentation":
+      return "The documentation step";
     case "repair":
       return "The repair";
     case "answer":
@@ -33949,7 +34441,7 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, allFixerAnswers, laterPass, capitalized, phaseTitles, runSeconds;
+var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, capitalized, phaseTitles, revisionOwners, runSeconds;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
@@ -33958,6 +34450,7 @@ var init_fix_report = __esm({
     init_kill_marks();
     init_review_fold();
     init_decision_report();
+    init_documents();
     init_markdown();
     init_state();
     init_survey_report();
@@ -33970,9 +34463,11 @@ var init_fix_report = __esm({
     };
     patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
     allFixerAnswers = (fix) => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
+    reporterWords = (line) => line.phase === "repair" ? "the repair" : line.phase === "answer" ? `answer pass ${String(line.time)}` : line.key;
     laterPass = (revision) => revision.phase === "answer" || revision.phase === "answer-checks" ? "an answer pass" : "the reopened fix pass";
     capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
     phaseTitles = { "baseline-checks": "Before the fixes", checks: "After the fixes", "repair-checks": "After the repair", "answer-checks": "After answers" };
+    revisionOwners = { fixes: "the fixes", documentation: "the documentation step", repair: "the repair", answer: "an answer pass" };
     runSeconds = (run2) => `${((Date.parse(run2.endedAt) - Date.parse(run2.startedAt)) / 1e3).toFixed(1)} s`;
   }
 });
@@ -34002,7 +34497,7 @@ function contextOf(state, review2) {
   const findings = rankedFindings(review2).map((entry) => ({ entry, decision: byId.get(entry.finding.id) ?? null }));
   const fix = review2.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review2, fix, entry.finding.id)]));
-  return { state, review: review2, findings, outcomes };
+  return { state, review: review2, findings, outcomes, documents: leftDocumentsOf(review2) };
 }
 function decisionsOf(context, kind) {
   return context.findings.flatMap(({ decision }) => decision !== null && decision.decision === kind ? [decision] : []);
@@ -34092,11 +34587,17 @@ function fixGaps(context, fix) {
   if (stopped.length > 0) {
     const keys = new Set(stopped.filter((unit) => unit.phase === "fixes").map((unit) => unit.key));
     const findings = new Set(allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).filter((id) => context.outcomes.get(id)?.last === "not attempted")).size;
-    const parts = [...keys.size === 0 ? [] : [findings === 0 ? "some of the fixes" : counted2(findings, "finding", "findings")], ...stopped.some((unit) => unit.phase === "repair") ? ["the repair of the checks"] : []];
+    const parts = [
+      ...keys.size === 0 ? [] : [findings === 0 ? "some of the fixes" : counted2(findings, "finding", "findings")],
+      ...stopped.some((unit) => unit.phase === "documentation") ? ["the documentation step"] : [],
+      ...stopped.some((unit) => unit.phase === "repair") ? ["the repair of the checks"] : []
+    ];
     const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? "was" : "were";
-    gaps.push({ kind: "budget", text: `The run budget stopped the fixes before ${parts.join(" and ")} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
+    gaps.push({ kind: "budget", text: `The run budget stopped the fixes before ${listed(parts)} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
   }
   if (fix.openSeries !== null) gaps.push({ kind: "stop", text: "A stop cut `deep-review commit` short; the next command completes the commits or drops them." });
+  const cause = stepNotRunCause(context.review);
+  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: "documentation", text: `The documentation step did not run: ${cause}.${context.documents.length === 0 ? "" : " The documents that the fixers named are in Documents left out of date."}` });
   return gaps;
 }
 function gapsOf(context) {
@@ -34136,7 +34637,7 @@ function changedOf(context) {
   const left = decisionsOf(context, "leave").map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, "fix").map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [] };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit2) => commit2.sha));
   return {
@@ -34152,15 +34653,33 @@ function changedOf(context) {
     patches: fix.revisions.length,
     // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
     left: [...left, ...withOutcome(context, "held for the author")],
-    checks: checksOf({ answerPasses: context.review.answerPasses, fix })
+    checks: checksOf({ answerPasses: context.review.answerPasses, fix }),
+    documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null
   };
 }
-function headlineText(questions, departures, defaultsInPlace) {
-  const total = questions + departures;
-  if (total === 0) return "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
-  const parts = [...questions === 0 ? [] : [counted2(questions, "question", "questions")], ...departures === 0 ? [] : [counted2(departures, "fix that goes against a written rule", "fixes that go against a written rule")]];
+function documentationWords(review2, fix) {
+  const cause = stepNotRunCause(review2);
+  const answer3 = fix.answers.documentation[documentationUnitKey];
+  if (cause !== null || answer3 === void 0) return `The documentation step did not run: ${cause ?? "it has not answered yet"}.`;
+  const updated = new Set(answer3.findings.flatMap((finding) => finding.files)).size;
+  const leftFiles = new Set(leftByStep(fix).map((left) => documentKey(left.file))).size;
+  if (updated === 0 && leftFiles === 0) return "The documentation step found no document out of date.";
+  if (updated === 0) return `The documentation step left ${counted2(leftFiles, "document", "documents")} out of date.`;
+  return `The documentation step updated ${counted2(updated, "document", "documents")}${leftFiles === 0 ? "" : ` and left ${String(leftFiles)}`}.`;
+}
+function headlineText(counts, defaultsInPlace, fixed) {
+  const { questions, departures, documents } = counts;
+  const total = questions + departures + documents;
+  if (total === 0) {
+    return fixed ? "Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of." : "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
+  }
+  const parts = [
+    ...questions === 0 ? [] : [counted2(questions, "question", "questions")],
+    ...departures === 0 ? [] : [counted2(departures, "fix that goes against a written rule", "fixes that go against a written rule")],
+    ...documents === 0 ? [] : [counted2(documents, "document that the edits of the run left out of date", "documents that the edits of the run left out of date")]
+  ];
   const waits = questions === 0 ? "Nothing waits for you: the run went on as it decided." : `Nothing waits for you: ${questions === 1 ? "the" : "each"} question has a default${defaultsInPlace ? " in place" : ""}.`;
-  return `${counted2(total, "thing needs", "things need")} you: ${parts.join(" and ")}. ${waits}`;
+  return `${counted2(total, "thing needs", "things need")} you: ${listed(parts)}. ${waits}`;
 }
 function coveredText(review2) {
   const { fix } = review2;
@@ -34182,13 +34701,15 @@ function briefOf(state) {
   const openQuestions = questions.filter((question) => question.answer === null).length;
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
+  const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
   return {
     run: state.id,
     title: review2.change.kind === "given" ? review2.change.reading.title : scopeTitle(state),
-    headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures, questions.every((question) => question.answer !== null || question.defaultApplied)) },
+    headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review2.fix !== null) },
     change: changeOf(review2.change),
     questions,
     departures,
+    documents: context.documents,
     notCovered,
     covered: notCovered.length === 0 ? coveredText(review2) : null,
     look: lookOf(context, departures),
@@ -34199,7 +34720,7 @@ function idWords(ids2, show = (id) => id) {
   const named = ids2.slice(0, shownIds).map(show);
   const more = ids2.length - named.length;
   if (more > 0) return `${named.join(", ")} and ${String(more)} more`;
-  return named.length <= 1 ? named.join("") : `${named.slice(0, -1).join(", ")} and ${named.at(-1)}`;
+  return listed(named);
 }
 function changePart(change) {
   const lines = ["## The change", ""];
@@ -34288,7 +34809,21 @@ function changedPart(changed) {
     ...part(changed.notAttempted, "no fixer attempted")
   ];
   const commits = changed.patches === 0 ? "No fix changed a file." : changed.commits === null ? changed.patches === 1 ? "Its patch is not committed: `deep-review commit` commits it." : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.` : `They are in ${counted2(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, and ${counted2(changed.commits.uncommittedPatches, "later patch is", "later patches are")} not committed yet`}.`;
-  return [...lines, `${outcomes.join("; ")}. ${commits}${left} ${checksWords(changed.checks)}`];
+  return [...lines, `${outcomes.join("; ")}. ${commits}${left} ${checksWords(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
+}
+function documentsPart(documents) {
+  if (documents.length === 0) return [];
+  const line = (document) => {
+    const facts = document.facts.length === 0 ? "" : `: ${document.facts.map((fact) => `${inlineText(fact.what).replace(/[.]+$/, "")} (${fact.by})`).join("; ")}`;
+    return `- ${codeSpan(document.file)}${facts}. ${document.reasons.map((reason) => inlineText(reason.text)).join(" ")}`;
+  };
+  return [
+    `## Documents left out of date (${String(documents.length)})`,
+    "",
+    "The edits of this run made each document below out of date, and the run did not bring it in line. Bring each in line before a merge.",
+    "",
+    ...documents.map(line)
+  ];
 }
 function briefMarkdown(brief) {
   const questions = brief.questions.length === 0 ? [] : [
@@ -34303,7 +34838,7 @@ function briefMarkdown(brief) {
     ...brief.departures.flatMap((departure, index2) => ["", ...departureBlock(departure, index2 + 1, brief.changed.fixed)])
   ];
   const notCovered = ["## What the review did not cover", "", ...brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered]];
-  const parts = [changePart(brief.change), questions, departures, notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, "", brief.headline.text, ...parts.flatMap((part) => ["", ...part])];
 }
 function firstSentence(text3) {
@@ -34336,13 +34871,14 @@ function briefShortForm(brief) {
     `The change: ${change}`,
     openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? "none" : "none open; each is answered"}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? "no fix" : "no fix left to review"}` : `Against a written rule: ${counted2(openDepartures.length, "fix", "fixes")}: ${idWords(openDepartures)}`,
+    ...brief.changed.fixed ? [brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file))}`] : [],
     `Not covered: ${notCovered}`,
     `Look at: ${brief.look.length === 0 ? "nothing" : brief.look.map(lookWords).join(", ")}`,
     `Changed: ${changedWords(brief.changed)}`
   ];
   return lines.map((line) => cutAtWord(line, shortLineLimit));
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, fixesChangedNothing, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -34351,12 +34887,14 @@ var init_brief = __esm({
     init_review_fold();
     init_kill_marks();
     init_decision_report();
+    init_documents();
     init_fix_report();
     init_markdown();
     init_state();
     init_survey_report();
+    init_vocabulary();
     briefFates = ["applied", "already-in-tree", "deferred", "blocked", "not-attempted", "not-fixed"];
-    gapKinds = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop"];
+    gapKinds = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop", "documentation"];
     lookConditions = ["departure", "plausible", "public-interface", "wide-effect"];
     shapeOfMode = { worktree: "working-tree", "last-commit": "commit", ref: "commits-and-tree", range: "commits-and-tree" };
     changeShapeOf = (scope) => shapeOfMode[scope.mode];
@@ -34377,6 +34915,7 @@ var init_brief = __esm({
       "not-started": "did not start"
     };
     unfinishedWords = (outcome) => outcome !== null && Object.hasOwn(unfinishedOutcomeWords, outcome) ? unfinishedOutcomeWords[outcome] : null;
+    fixesChangedNothing = "the fixes changed no file";
     judgedWords = (condition2) => `${condition2.what === null ? "" : `: ${condition2.what.trim().replace(/[.]+$/, "")}`}${condition2.files.length === 0 ? "" : ` (${condition2.files.join(", ")})`}`;
     shownIds = 8;
     fateWords = {
@@ -34511,7 +35050,12 @@ function statisticsTable(review2, input2) {
 }
 function stoppedUnitWords(units) {
   const batches = units.filter((unit) => unit.phase === "fixes").length;
-  return [...batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? "" : "es"}`], ...units.some((unit) => unit.phase === "repair") ? ["the repair"] : []].join(" and ");
+  const words = [
+    ...batches === 0 ? [] : [`${String(batches)} batch${batches === 1 ? "" : "es"}`],
+    ...units.some((unit) => unit.phase === "documentation") ? ["the documentation step"] : [],
+    ...units.some((unit) => unit.phase === "repair") ? ["the repair"] : []
+  ];
+  return listed(words);
 }
 function budgetLine(review2, statistics, budgetCheck) {
   const budget = review2.limits.runBudgetUsd;
@@ -34973,6 +35517,14 @@ async function runReview(options2) {
   const directories = claimsDirectories({ scratchBase, runId, worktree: options2.worktree, state: () => state, caseInsensitive, command: (key, directory) => claimCommandFor(engineEntry, key, directory), log });
   const { claims } = directories;
   const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, claims });
+  const storedPatches = (fix, revisions) => {
+    const messaged = revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fix, revision) } }));
+    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+  };
+  const fixPatches = (current) => {
+    const fix = current.review.fix;
+    return storedPatches(fix, fix.revisions.filter((revision) => revision.phase === "fixes"));
+  };
   const record2 = (settled3, startedAt) => {
     const name = unitName(settled3.unit.phase, settled3.unit.key);
     if ("error" in settled3) throw settled3.error;
@@ -34992,7 +35544,8 @@ async function runReview(options2) {
         const found = findDrift(state, options2.worktree, content.match);
         if (drifted(found)) {
           log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
-          return [{ kind: "worktree.checked", version: 5, payload: worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload }];
+          const check2 = worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload;
+          return [{ kind: "worktree.checked", version: worktreeCheckVersion(check2), payload: check2 }];
         }
       }
       const settling = phase === "fixes" ? directories.settleReading(settled3.unit.key) : { access: claims, lost: false };
@@ -35029,7 +35582,7 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files${excluded2 === 0 ? "" : `; scope.exclude left out ${String(excluded2)} changed path${excluded2 === 1 ? "" : "s"}`}`);
     }
     if (configure2 !== null) {
-      state = append(checkpoint, state, [{ kind: "review.configured", version: 6, payload: configure2.payload }]);
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 7, payload: configure2.payload }]);
       const pinnedNow = configure2.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure2.resolved)) log(line);
@@ -35148,13 +35701,13 @@ async function runReview(options2) {
         }
         case "start-phase":
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
-          state = append(checkpoint, state, [{ kind: "phase.started", version: 5, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: "phase.started", version: step.phase === "documentation" ? 6 : 5, payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
           const { payload: check2, unlisted } = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check2.drifted) log(`phase ${step.phase}: the worktree ${step.moment === "restored" ? "still differs from what the run expects after the write back" : "drifted from what the run expects"}: ${driftList(check2)}`);
           if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}${unlisted === 0 ? "" : `, and ${String(unlisted)} more the check does not list`}`);
-          state = append(checkpoint, state, [{ kind: "worktree.checked", version: step.moment === "restored" ? 6 : 5, payload: check2 }]);
+          state = append(checkpoint, state, [{ kind: "worktree.checked", version: worktreeCheckVersion(check2), payload: check2 }]);
           break;
         }
         case "restore-tree": {
@@ -35170,6 +35723,13 @@ async function runReview(options2) {
           const held = step.plan.routes.filter((route) => route.route === "held").length;
           log(`phase fixes: ${String(step.plan.clusters.length)} cluster${step.plan.clusters.length === 1 ? "" : "s"} in ${String(step.plan.batches.length)} batch${step.plan.batches.length === 1 ? "" : "es"} planned; ${String(held)} finding${held === 1 ? "" : "s"} no fixer sees, as decided`);
           state = append(checkpoint, state, [{ kind: "fixes.planned", version: 1, payload: step.plan }]);
+          break;
+        }
+        case "plan-documentation": {
+          const items = documentationItemsOf(state.review.fix, planPathOf(options2.worktree));
+          const documents = items.filter((item) => item.file !== null);
+          log(`phase documentation: ${documents.length === 0 ? "no document the fixes named" : `${String(documents.length)} document${documents.length === 1 ? "" : "s"} the fixes named, ${documents.map((item) => item.path ?? `${item.file} (not a path of the repository)`).join(", ")}`}, and the search planned`);
+          state = append(checkpoint, state, [{ kind: "documentation.planned", version: 1, payload: { items } }]);
           break;
         }
         case "plan-second-round": {
@@ -35201,7 +35761,7 @@ async function runReview(options2) {
                 return { kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } };
               case "unit.unattempted":
                 degraded2(`${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`, degradation.reason);
-                return { kind: "unit.unattempted", version: 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+                return { kind: "unit.unattempted", version: degradation.phase === "documentation" ? 2 : 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
@@ -35219,7 +35779,8 @@ async function runReview(options2) {
             newScratch: () => join30(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
-            claims
+            claims,
+            documentation: () => ({ patches: fixPatches(state), exclude: state.scope?.request.exclude ?? [] })
           };
           for (const unit of step.units) {
             if (unit.phase === "fixes" && !directories.prepare(unit.key)) break;
@@ -35248,12 +35809,11 @@ async function runReview(options2) {
           break;
         case "finish-phase":
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: "phase.finished", version: 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: "phase.finished", version: step.phase === "documentation" ? 7 : 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
           const fixState = state.review.fix;
-          const revisions = fixState === null ? [] : fixState.revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fixState, revision) } }));
-          const patches = revisions.length === 0 ? [] : patchSeries(revisions, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions);
           const statistics = statisticsOf(state, adapter);
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
           const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options2.rolesRoot), stoppedSpend);
@@ -35261,7 +35821,8 @@ async function runReview(options2) {
           const text3 = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options2.home ?? homedir4(), ...fix });
           const report2 = checkpoint.evidence.put(text3);
           state = append(checkpoint, state, [
-            { kind: "report.written", version: 5, payload: { report: report2, statistics, patches } },
+            // Only statistics with the documentation phase's row need version 6: a run configured before the step skips the phase and has none (TD5 of the documentation step).
+            { kind: "report.written", version: statistics.phases.some((row) => row.phase === "documentation") ? 6 : 5, payload: { report: report2, statistics, patches } },
             { kind: "phase.finished", version: 6, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report2)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
@@ -35314,7 +35875,7 @@ async function recordSettled(inFlight, record2) {
   for (let next = settledNow(inFlight); next !== null; next = settledNow(inFlight)) record2(next.settled, next.startedAt);
 }
 function unelevatedEditorsWarning(runId) {
-  return `run ${runId}: warning: its fixers and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
+  return `run ${runId}: warning: its fixers, documentation worker and repair worker run in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures, so they cannot run tools that start processes through Node, which includes most build and test commands; the sandbox is pinned on the run, so to run them abandon it with \`deep-review abandon --run ${runId} --reason <text>\` and start a new run with --codex-windows-sandbox elevated, which needs Codex's elevated setup, or none, which runs them in no sandbox`;
 }
 function pinnedRuntimeOptionsOf(configuration) {
   return configuration.codex === null ? {} : { codex: { windowsSandbox: configuration.codex.windowsSandbox } };
@@ -35410,8 +35971,8 @@ async function openRun(context) {
       let resolved = context.source.resolve({ base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
       if (scopeRequest !== null) {
         const exclude = resolvedValue(resolved, "scope.exclude") ?? [];
-        const listed = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
-        resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
+        const listed2 = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
+        resolved = withChangedPaths(resolved, [...listed2.changes.map((change) => change.path), ...listed2.excluded]);
         capture = { request: scopeRequest, exclude, base };
       } else if (found?.scope !== null && found?.scope !== void 0) {
         const captured = found.scope.request.exclude;
@@ -35477,8 +36038,8 @@ function chooseContinuation(runs, context, request) {
   };
   const reasons = /* @__PURE__ */ new Map();
   for (const run2 of continuable(runs, context.worktree)) {
-    const listed = resolved(run2.scope.request.exclude);
-    const reason = "refused" in listed ? listed.refused : scopeMismatch(listed, run2.scope, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path));
+    const listed2 = resolved(run2.scope.request.exclude);
+    const reason = "refused" in listed2 ? listed2.refused : scopeMismatch(listed2, run2.scope, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path));
     if (reason === null) return run2;
     reasons.set(run2.id, reason);
   }
@@ -35529,7 +36090,7 @@ async function reopenRun(runs, context) {
     const current = run2.review.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
     const unstaged = settle4 !== null && settle4.kind === "complete" ? resetSettledIndex(run2, settle4.series, context.worktree) : [];
-    const state = append(checkpoint, run2, [...settling, { kind: "fix.reopened", version: 1, payload: { units } }, ...changed ? [{ kind: "limits.changed", version: 1, payload: limits }] : []]);
+    const state = append(checkpoint, run2, [...settling, { kind: "fix.reopened", version: units.some((unit) => unit.phase === "documentation") ? 2 : 1, payload: { units } }, ...changed ? [{ kind: "limits.changed", version: 1, payload: limits }] : []]);
     if (settle4 !== null && settle4.kind !== "elsewhere") log(settle4.line);
     if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
     log(`run ${run2.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(", ")}; ${spendWords(budgetSpendOf(run2, context.adapter).usd, limits.runBudgetUsd)}`);
@@ -35676,7 +36237,7 @@ function recordLostWorkers(checkpoint, state, context, log) {
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost = { kind: "worker.lost", version: 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost = { kind: "worker.lost", version: unit?.phase === "documentation" ? 6 : 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason, "lost") : { claims: [], revisions: [] };
     for (const line of edits.claims.flatMap(claimLines)) log(line);
     if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? "" : "s"}`);
@@ -35690,7 +36251,7 @@ function reenterPhase(checkpoint, state, adapter, log) {
   if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
-  return append(checkpoint, state, [{ kind: "phase.started", version: 5, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: "phase.started", version: phase === "documentation" ? 6 : 5, payload: { phase, attempt } }]);
 }
 var seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped, spendBound;
 var init_controller = __esm({
@@ -35732,6 +36293,7 @@ var init_controller = __esm({
     init_fix_events();
     init_labels();
     init_lock();
+    init_documents();
     init_patch();
     init_phases();
     init_policy();
@@ -35959,9 +36521,9 @@ var init_executable = __esm({
 
 // src/review/brief-json.ts
 function briefJson(brief, local) {
-  const { change } = brief;
+  const { change, changed } = brief;
   return {
-    version: 1,
+    version: 2,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -35980,11 +36542,13 @@ function briefJson(brief, local) {
       command: question.command
     })),
     departures: brief.departures.map((departure) => ({ ...departure, review: answerJson(departure.review) })),
+    documents: brief.documents.map((document) => ({ file: document.file, facts: document.facts.map((fact) => ({ ...fact })), reasons: document.reasons.map((reason) => ({ ...reason })) })),
     notCovered: brief.notCovered.map((gap) => ({ ...gap })),
     covered: brief.covered,
     look: brief.look.map((entry) => ({ ...entry, findings: [...entry.findings] })),
     changed: {
-      ...brief.changed,
+      fixed: changed.fixed,
+      decided: changed.decided,
       applied: [...brief.changed.applied],
       alreadyInTree: [...brief.changed.alreadyInTree],
       deferred: [...brief.changed.deferred],
@@ -35992,23 +36556,26 @@ function briefJson(brief, local) {
       notAttempted: [...brief.changed.notAttempted],
       toFix: [...brief.changed.toFix],
       commits: brief.changed.commits === null ? null : { shas: [...brief.changed.commits.shas], uncommittedPatches: brief.changed.commits.uncommittedPatches },
+      patches: changed.patches,
       left: [...brief.changed.left],
       checks: brief.changed.checks.map((check2) => ({ ...check2 }))
     },
     local: { ...local }
   };
 }
-var text2, ids, condition, answer, briefJsonV1, answerJson;
+var text2, ids, condition, answer, gapKindsV1, briefJsonV1, briefJsonV2, answerJson;
 var init_brief_json = __esm({
   "src/review/brief-json.ts"() {
     "use strict";
     init_zod();
     init_brief();
+    init_documents();
     init_vocabulary();
     text2 = external_exports.string();
     ids = external_exports.array(external_exports.string());
     condition = external_exports.strictObject({ holds: external_exports.boolean(), what: text2.nullable(), files: external_exports.array(text2) });
     answer = external_exports.strictObject({ kind: external_exports.enum(["option", "accept", "reject"]), option: external_exports.number().int().min(1).nullable(), words: text2, at: text2, applied: external_exports.boolean() });
+    gapKindsV1 = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop"];
     briefJsonV1 = external_exports.strictObject({
       version: external_exports.literal(1),
       run: text2,
@@ -36040,7 +36607,7 @@ var init_brief_json = __esm({
         accept: text2,
         reject: text2
       })),
-      notCovered: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(gapKinds), text: text2 })),
+      notCovered: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(gapKindsV1), text: text2 })),
       covered: text2.nullable(),
       look: external_exports.array(external_exports.strictObject({ condition: external_exports.enum(lookConditions), findings: ids, text: text2 })),
       changed: external_exports.strictObject({
@@ -36058,6 +36625,17 @@ var init_brief_json = __esm({
         checks: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(checkKinds), before: text2.nullable(), after: text2.nullable() }))
       }),
       local: external_exports.strictObject({ copy: text2.nullable(), record: text2, repository: text2, store: text2, continueCommand: text2.nullable() })
+    });
+    briefJsonV2 = external_exports.strictObject({
+      ...briefJsonV1.shape,
+      version: external_exports.literal(2),
+      headline: external_exports.strictObject({ text: text2, questions: external_exports.number().int().min(0), departures: external_exports.number().int().min(0), documents: external_exports.number().int().min(0) }),
+      documents: external_exports.array(external_exports.strictObject({
+        file: text2,
+        facts: external_exports.array(external_exports.strictObject({ what: text2, by: text2 })),
+        reasons: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(leftReasonKinds), text: text2 }))
+      })),
+      notCovered: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(gapKinds), text: text2 }))
     });
     answerJson = (given) => given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied };
   }
@@ -36592,9 +37170,9 @@ async function configCommand(values, rest, io) {
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
   let shown = { mode: chosen.mode, base, target, empty: null };
   try {
-    const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, "scope.exclude") ?? []);
-    resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
-    shown = { ...shown, mode: listed.mode };
+    const listed2 = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, "scope.exclude") ?? []);
+    resolved = withChangedPaths(resolved, [...listed2.changes.map((change) => change.path), ...listed2.excluded]);
+    shown = { ...shown, mode: listed2.mode };
   } catch (error62) {
     if (!(error62 instanceof EmptyChangeError)) throw error62;
     shown = { ...shown, empty: error62.message };

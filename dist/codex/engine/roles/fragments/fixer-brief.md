@@ -16,8 +16,9 @@ member as though it already existed.
 **If the target remains missing or ambiguous, report `blocked` with the unresolved anchor; do not guess.**
 **Correcting a brief does not expand file ownership or authorize a different behavior.**
 If the finding still holds, adapt its authorized edit to the verified
-location. Keep a required edit to a file another cluster owns `blocked`.
-If corrected or unverified facts leave the intended fix unjustified,
+location. Keep a required edit to a file another cluster owns `blocked`,
+unless it brings a document your edit made stale in line, which goes in
+`drift`. If corrected or unverified facts leave the intended fix unjustified,
 report `deferred` with that evidence for the person rather than applying
 the literal instruction.
 
@@ -28,5 +29,5 @@ quoted context), the brief's `claim`, the current `fact`, and the
 correction is supplemental evidence, not a finding status: still return a
 `status` for each assigned finding. Leave `corrections` empty when no
 correction was needed. Use `drift` only for documentation that your
-edits made stale; a correction to the brief does not itself create
-documentation work.
+edits made stale and that you could not bring in line; a correction to
+the brief does not itself create documentation work.
