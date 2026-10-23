@@ -3,19 +3,29 @@
  * run), which `report --json` prints for a program: the loop of an author
  * agent, or a check a pull request must pass. Its shape is a contract, so
  * `briefJsonV1` states it as a schema with a version, and a change of the
- * shape is a new version, as for an event of the ledger. Beside the brief
- * it carries the local facts of the run, which the brief itself never
- * names: the paths of the copy and of the record, the repository, the
- * evidence store, and the command that continues a stopped fix pass.
+ * shape is a new version, as for an event of the ledger, and the engine
+ * writes the newest alone, version 2 since the documentation step. Beside
+ * the brief it carries the local facts of the run, which the brief itself
+ * never names: the paths of the copy and of the record, the repository,
+ * the evidence store, and the command that continues a stopped fix pass.
  */
 import { z } from 'zod';
 import { briefFates, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
+import { leftReasonKinds } from './documents.ts';
 import { checkKinds } from './vocabulary.ts';
 
 const text = z.string();
 const ids = z.array(z.string());
 const condition = z.strictObject({ holds: z.boolean(), what: text.nullable(), files: z.array(text) });
 const answer = z.strictObject({ kind: z.enum(['option', 'accept', 'reject']), option: z.number().int().min(1).nullable(), words: text, at: text, applied: z.boolean() });
+
+/**
+ * The kinds of gap version 1 holds, frozen as an event's vocabulary is:
+ * the kind `documentation` widened the brief's, so a program that reads
+ * version 1 never meets a kind it does not know (TD7 of the documentation
+ * step). A test holds them to today's kinds but the new one.
+ */
+export const gapKindsV1 = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop'] as const;
 
 /** Version 1 of the JSON form of the brief. */
 export const briefJsonV1 = z.strictObject({
@@ -49,7 +59,7 @@ export const briefJsonV1 = z.strictObject({
     accept: text,
     reject: text,
   })),
-  notCovered: z.array(z.strictObject({ kind: z.enum(gapKinds), text })),
+  notCovered: z.array(z.strictObject({ kind: z.enum(gapKindsV1), text })),
   covered: text.nullable(),
   look: z.array(z.strictObject({ condition: z.enum(lookConditions), findings: ids, text })),
   changed: z.strictObject({
@@ -70,16 +80,35 @@ export const briefJsonV1 = z.strictObject({
 });
 export type BriefJsonV1 = z.infer<typeof briefJsonV1>;
 
+/**
+ * Version 2 of the JSON form of the brief (R7, TD7 of the documentation
+ * step): version 1 with the count of the documents the run left out of
+ * date in the headline, those documents, each with its facts and who
+ * reported each and its reasons, and the kind of gap `documentation`.
+ */
+export const briefJsonV2 = z.strictObject({
+  ...briefJsonV1.shape,
+  version: z.literal(2),
+  headline: z.strictObject({ text, questions: z.number().int().min(0), departures: z.number().int().min(0), documents: z.number().int().min(0) }),
+  documents: z.array(z.strictObject({
+    file: text,
+    facts: z.array(z.strictObject({ what: text, by: text })),
+    reasons: z.array(z.strictObject({ kind: z.enum(leftReasonKinds), text })),
+  })),
+  notCovered: z.array(z.strictObject({ kind: z.enum(gapKinds), text })),
+});
+export type BriefJsonV2 = z.infer<typeof briefJsonV2>;
+
 /** The local facts the JSON form carries beside the brief: the copy's path, or null when it could not be written, the record's, the repository, the store and the continue command or null. */
-export type BriefLocal = BriefJsonV1['local'];
+export type BriefLocal = BriefJsonV2['local'];
 
-const answerJson = (given: BriefAnswer | null): BriefJsonV1['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
+const answerJson = (given: BriefAnswer | null): BriefJsonV2['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
 
-/** The brief as version 1 of its JSON form, with the run's local facts. */
-export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
-  const { change } = brief;
+/** The brief as version 2 of its JSON form, with the run's local facts; the sentence on the documentation step is the Markdown's, and the documents say what it left. */
+export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV2 {
+  const { change, changed } = brief;
   return {
-    version: 1,
+    version: 2,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -98,11 +127,13 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
       command: question.command,
     })),
     departures: brief.departures.map((departure) => ({ ...departure, review: answerJson(departure.review) })),
+    documents: brief.documents.map((document) => ({ file: document.file, facts: document.facts.map((fact) => ({ ...fact })), reasons: document.reasons.map((reason) => ({ ...reason })) })),
     notCovered: brief.notCovered.map((gap) => ({ ...gap })),
     covered: brief.covered,
     look: brief.look.map((entry) => ({ ...entry, findings: [...entry.findings] })),
     changed: {
-      ...brief.changed,
+      fixed: changed.fixed,
+      decided: changed.decided,
       applied: [...brief.changed.applied],
       alreadyInTree: [...brief.changed.alreadyInTree],
       deferred: [...brief.changed.deferred],
@@ -110,6 +141,7 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV1 {
       notAttempted: [...brief.changed.notAttempted],
       toFix: [...brief.changed.toFix],
       commits: brief.changed.commits === null ? null : { shas: [...brief.changed.commits.shas], uncommittedPatches: brief.changed.commits.uncommittedPatches },
+      patches: changed.patches,
       left: [...brief.changed.left],
       checks: brief.changed.checks.map((check) => ({ ...check })),
     },

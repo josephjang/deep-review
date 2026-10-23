@@ -154,8 +154,8 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2`);
     // The pass ends as review does: the short form of the brief, then the path of the copy of the new report (R13 of the brief of a run).
     assert.equal(lines.at(-1), reportCopyPath(box.checkpoint.root, finished), 'the copy\'s path is the last line');
-    assert.equal(lines.length, 9, 'the answer line, the seven lines of the short form and the path');
-    assert.deepEqual(lines.slice(2, 8).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);
+    assert.equal(lines.length, 10, 'the answer line, the eight lines of the short form of a fix run and the path');
+    assert.deepEqual(lines.slice(2, 9).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Documents left out of date', 'Not covered', 'Look at', 'Changed']);
     assert.equal(lines[3], 'Questions: none open; each is answered', 'the pass applied the answer the person gave');
     assert.match(first.stderr, new RegExp(`run ${finished.id}: answer pass over ${question}\\n`));
     const passed = box.run();

@@ -1,10 +1,16 @@
 # The uncommitted change on 22222222
 
-Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.
+1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.
 
 ## The change
 
 The triage of this run did not record the core of the change, because an engine before this change reviewed it.
+
+## Documents left out of date (1)
+
+The edits of this run made each document below out of date, and the run did not bring it in line. Bring each in line before a merge.
+
+- `README.md`: parse no longer throws on null (a fixer). The documentation step did not run: an engine before the documentation step configured this run.
 
 ## What the review did not cover
 

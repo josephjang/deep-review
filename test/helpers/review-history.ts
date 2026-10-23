@@ -756,3 +756,29 @@ export function withDocumentationStep(history: History, step: ((history: History
   }
   return result;
 }
+
+/** The documentation step as a run with it records it, its worker answering each item with the status `items` gives and the fields `change` gives, such as its own `drift`. */
+export const documentationStepAnswering = (items: readonly (readonly [id: string, status: string])[], change: Record<string, unknown> = {}) => (history: History): History => {
+  history.start('documentation');
+  history.add('documentation.planned', { items: documentationItems(history) });
+  return history.worker(55, 'documentation documentation:documentation').add('fix.recorded', documentationAnswer(worker(55), items, change), 3).add('worktree.checked', endCheck('documentation'), 7).finish('documentation');
+};
+
+/**
+ * A decided fix run with the documentation step, to its report: c1-1's
+ * fixer applies RIPPLE-1, revises src/a.ts and reports `drift`; `step`
+ * records the documentation phase after the fixes; the checks pass after
+ * them, the repair has nothing to repair, and the report holds a patch per
+ * revision. The decisions are `decided`, a departure and a question by
+ * default, as `decidedFixRun`'s are.
+ */
+export function documentedFixRun(drift: readonly { readonly file: string; readonly what: string }[] = [], step: (history: History) => History = documentationAnswered, decided: readonly unknown[] = answerableDecisions()): History {
+  const history = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked()), decided), 'baseline-checks'), null)
+    .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+    .add('fix.recorded', fixAnswer(worker(50), { findings: [rippleAnswered('applied')], drift })).add('tree.revised', fixRevision(worker(50)))
+    .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+  step(history);
+  checksPhase(history, 'checks').start('repair').finish('repair').start('repair-checks').finish('repair-checks');
+  const patches = history.review().fix!.revisions.length;
+  return history.start('report').add('report.written', { report: reference('9', 4096), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String(index + 1))) }, 4).finish('report');
+}

@@ -77,6 +77,8 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       edits: [{ writes: { 'README.md': 'parse returns 0 for a null text\n', 'docs/b.md': 'b imports parse\n' }, snapshot: 1 }, { writes: { 'CHANGES.md': 'parse returns 0 for a null text\n' } }],
       output: fixerAnswer([{ files: ['README.md'], subject: 'docs: Say parse returns 0 for a null' }, { files: ['docs/b.md'], subject: 'docs(b): Say b imports parse' }, { files: ['CHANGES.md'], subject: 'docs: Note the null in the changes' }]),
     }));
+    // An attempt of the step that failed would split its edits otherwise; its reasons say why.
+    assert.deepEqual(box.run().review!.units.documentation.documentation?.failures.map((failure) => failure.reason) ?? [], []);
     const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
     assert.deepEqual(outcome.commits.map((commit) => commit.subject), ['fix(a): Return 0 for a null text', 'fix(b): Import parse', 'docs: Apply doc-1, doc-2', 'docs: Note the null in the changes']);
     assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[2]!.sha), /\n\nDeep-review: run [0-9a-f-]+, documentation of README\.md, documentation of docs\/b\.md$/);

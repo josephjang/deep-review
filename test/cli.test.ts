@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
-import { briefJsonV1 } from '../src/review/brief-json.ts';
+import { briefJsonV2 } from '../src/review/brief-json.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
@@ -239,12 +239,13 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       release();
     }
 
-    // --run names an older run; --json gives version 1 of the JSON form, with the local facts.
+    // --run names an older run; --json gives version 2 of the JSON form, the one it writes since the documentation step, with the local facts.
     const named = await run(box, 'report', '--run', firstId, '--json');
     assert.equal(named.status, 0, named.stderr);
-    const json = briefJsonV1.parse(JSON.parse(named.stdout));
+    const json = briefJsonV2.parse(JSON.parse(named.stdout));
     assert.equal(json.run, firstId);
-    assert.equal(json.version, 1);
+    assert.equal(json.version, 2);
+    assert.deepEqual([json.headline.documents, json.documents], [0, []], 'a run that only reviews leaves no document out of date');
     assert.match(json.local.copy!, new RegExp(`${firstId.slice(0, 8)}\\.md$`));
     assert.match(json.local.record, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
     assert.equal(json.local.continueCommand, null);
@@ -272,7 +273,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(fallback.status, 0, fallback.stderr);
     assert.match(fallback.stdout.trim().split('\n').at(-1)!, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
     assert.match(fallback.stderr, new RegExp(`run ${firstId}: could not write the copy of the report to `));
-    const fallbackJson = briefJsonV1.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
+    const fallbackJson = briefJsonV2.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
     assert.equal(fallbackJson.local.copy, null);
   });
 
@@ -299,7 +300,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const lines = result.stdout.trim().split('\n');
     const reportPath = lines.at(-1)!;
     assert.ok(existsSync(reportPath), reportPath);
-    // The short form of the brief comes first, at most seven lines, and the last line is the path of the copy beside the ledger (R13, R14 of the brief of a run).
+    // The short form of the brief comes first, seven lines for a run that only reviews, with no line of documents, and the last line is the path of the copy beside the ledger (R13, R14 of the brief of a run; R7 of the documentation step).
     assert.equal(lines.length, 8, result.stdout);
     assert.match(lines[0]!, /^The commit [0-9a-f]{8} \(run [0-9a-f]{8}\)$/);
     assert.deepEqual(lines.slice(1, 7).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);

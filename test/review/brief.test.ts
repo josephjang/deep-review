@@ -5,7 +5,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
 import { briefFates, briefMarkdown, briefOf, briefShortForm, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
-import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with the triage's account as the fold holds it, for a history whose triage recorded version 1. */
 const withAccount = (state: RunState, change: TriageAccount): RunState => ({ ...state, review: { ...state.review!, change } });
@@ -215,8 +215,8 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.equal(briefOf(clean).covered, 'Each angle ran, and a verifier examined each candidate.');
     });
 
-    it('names every kind of gap the JSON form allows', () => {
-      assert.deepEqual([...gapKinds], ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop']);
+    it('names every kind of gap the JSON form allows, the documentation step\'s last (R7 of the documentation step)', () => {
+      assert.deepEqual([...gapKinds], ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation']);
     });
   });
 
@@ -230,7 +230,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     });
 
     it('leaves out a departure a person accepted or rejected, in the brief and in its short form, and keeps one nobody reviewed', () => {
-      const lookAt = (state: RunState): string => briefShortForm(briefOf(state))[5]!;
+      const lookAt = (state: RunState): string | undefined => briefShortForm(briefOf(state)).find((line) => line.startsWith('Look at: '));
       for (const review of ['accept', 'reject'] as const) {
         const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', review)).fold();
         assert.ok(!briefOf(state).look.some((entry) => entry.condition === 'departure'), review);
@@ -320,7 +320,7 @@ describe('cutAtWord', () => {
 
 
 describe('briefShortForm (R13 of the brief of a run)', () => {
-  it('says each part in a line that names its subject first, at most seven lines of at most 200 characters', () => {
+  it('says each part in a line that names its subject first, seven lines of at most 200 characters for a run that only reviews', () => {
     const lines = briefShortForm(briefOf(withAccount(answerable(), given())));
     assert.deepEqual(lines, [
       `Parse an empty input (run ${answerable().id.slice(0, 8)})`,
@@ -459,5 +459,78 @@ describe('the words of a question and a departure once a person answered (R8, R9
     assert.equal(brief.departures[0]!.fate, 'applied', 'the fix pass applied the departing fix');
     assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
     assert.match(markdown(state), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
+  });
+});
+
+// R7, R10, R11 and PD6 of the documentation step.
+describe('the documents a run left out of date in the brief', () => {
+  const line = (file: string, what: string): { file: string; what: string } => ({ file, what });
+  const stale = [line('./docs/a.md', 'parse throws on a null')];
+  /** A fix run whose step left its one document, with its own reason. */
+  const leftOne = (): RunState => documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']])).fold();
+
+  it('counts them in the headline, beside the questions and the departures, and says a fix run with none left none it knows of', () => {
+    assert.equal(briefOf(leftOne()).headline.text, '3 things need you: 1 question, 1 fix that goes against a written rule and 1 document that the edits of the run left out of date. Nothing waits for you: the question has a default in place.');
+    assert.equal(briefOf(leftOne()).headline.documents, 1);
+    const clean = documentedFixRun([], undefined, decisions).fold();
+    assert.equal(briefOf(clean).headline.text, 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of.');
+    assert.equal(briefOf(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']]), decisions).fold()).headline.text, '1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.');
+  });
+
+  it('keeps the sentence of a run that only reviews, which edits nothing', () => {
+    const brief = briefOf(readOnlyReported().fold());
+    assert.equal(brief.headline.text, 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.');
+    assert.deepEqual(brief.documents, []);
+    assert.equal(brief.changed.documentation, null);
+    const short = briefShortForm(brief);
+    assert.equal(short.length, 7, 'seven lines');
+    assert.ok(!short.some((entry) => entry.startsWith('Documents')));
+    assert.doesNotMatch(briefMarkdown(brief).join('\n'), /Documents left out of date|documentation step/);
+  });
+
+  it('lists each document after the departures, its facts with who reported each, then why the run left it', () => {
+    const text = briefMarkdown(briefOf(leftOne())).join('\n');
+    assert.match(text, /\n## Documents left out of date \(1\)\n\nThe edits of this run made each document below out of date, and the run did not bring it in line\. Bring each in line before a merge\.\n\n- `docs\/a\.md`: parse throws on a null \(a fixer\)\. The documentation step left it: doc-1 deferred\.\n/);
+    const order = ['\n## Fixes that go against a written rule', '\n## Documents left out of date', '\n## What the review did not cover'].map((marker) => text.indexOf(marker));
+    assert.ok(order.every((position, index) => position > 0 && (index === 0 || order[index - 1]! < position)), JSON.stringify(order));
+  });
+
+  it('gives a fix run an eighth line of the short form, after the departures, naming at most eight files and counting the rest', () => {
+    const short = briefShortForm(briefOf(leftOne()));
+    assert.equal(short.length, 8);
+    assert.equal(short[4], 'Documents left out of date: 1: docs/a.md');
+    assert.ok(short[3]!.startsWith('Against a written rule: '));
+    assert.equal(briefShortForm(briefOf(documentedFixRun([], undefined, decisions).fold()))[4], 'Documents left out of date: none');
+    const many = documentedFixRun(Array.from({ length: 10 }, (_, index) => line(`docs/${String(index + 1)}.md`, 'stale')), (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded'), decisions).fold();
+    assert.equal(briefShortForm(briefOf(many))[4], 'Documents left out of date: 10: docs/1.md, docs/2.md, docs/3.md, docs/4.md, docs/5.md, docs/6.md, docs/7.md, docs/8.md and 2 more');
+  });
+
+  it('says in what deep-review changed what the step did: how many documents it updated and left, none found, or why it did not run', () => {
+    const changed = (state: RunState): string | null => briefOf(state).changed.documentation;
+    assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']], { drift: [line('CHANGES.md', 'always translated')] })).fold()), 'The documentation step updated 1 document and left 1.');
+    assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']])).fold()), 'The documentation step updated 1 document.');
+    assert.equal(changed(leftOne()), 'The documentation step left 1 document out of date.');
+    assert.equal(changed(documentedFixRun().fold()), 'The documentation step found no document out of date.');
+    const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
+    assert.equal(changed(failedTwice), 'The documentation step did not run: its worker failed twice.');
+    assert.match(briefMarkdown(briefOf(failedTwice)).join('\n'), /The checks passed before and after the fixes\. The documentation step did not run: its worker failed twice\.$/m);
+  });
+
+  it('gives the step that did not answer a gap of its own, and none to one with nothing to do or a run before the step', () => {
+    const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
+    assert.deepEqual(briefOf(failedTwice).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents that the fixers named are in Documents left out of date.']);
+    assert.deepEqual(briefOf(documentedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a step that answered');
+    assert.deepEqual(briefOf(decidedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a run an engine before the step configured');
+  });
+
+  it('counts the drift lines of a run an engine before the step configured, and says nothing of the step it never had (R11)', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const older = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, drift: stale } } } } } } as RunState;
+    const brief = briefOf(older);
+    assert.deepEqual(brief.documents.map((document) => [document.file, document.reasons.map((reason) => reason.kind)]), [['./docs/a.md', ['not-run']]]);
+    assert.equal(brief.headline.documents, 1);
+    assert.equal(brief.changed.documentation, null);
+    assert.equal(briefShortForm(brief)[4], 'Documents left out of date: 1: ./docs/a.md');
   });
 });

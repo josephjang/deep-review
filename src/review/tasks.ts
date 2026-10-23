@@ -594,6 +594,8 @@ export interface FixerBatchTaskInput extends FixerTaskShared {
 /** An answer pass's fixer (R5 of answers): it works the answered findings alone, owns every file the run revised, may edit any other, and claims nothing. */
 export interface AnswerPassTaskInput extends FixerTaskShared {
   readonly kind: 'answer-pass';
+  /** The documents the run left out of date when the pass opened, each with its stale facts, which an answer it applies may settle (PD10 of the documentation step). */
+  readonly leftDocuments: readonly { readonly file: string; readonly facts: readonly string[] }[];
 }
 
 export type FixerTaskInput = FixerBatchTaskInput | AnswerPassTaskInput;
@@ -698,6 +700,15 @@ function unitLines(input: FixerTaskInput): { readonly head: string; readonly rou
           fileList(input.owned),
           '',
           'You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.',
+          ...(input.leftDocuments.length === 0
+            ? []
+            : [
+                '',
+                'Documents this run left out of date, which an answer you apply may settle:',
+                input.leftDocuments.map((document) => `- ${document.file}${document.facts.length === 0 ? '' : `: ${document.facts.join('; ')}`}`).join('\n'),
+                '',
+                'Bring such a document in line when an answer you apply settles what it must say, and name it under that answer\'s finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`.',
+              ]),
         ],
       };
     case 'batch': {

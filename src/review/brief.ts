@@ -2,25 +2,27 @@
  * The brief of a run (R1, R2 of the brief of a run): the part of its
  * result a person reads first, as one value computed from the fold alone.
  * It holds the core of the change, the questions only a person can
- * answer, the fixes that go against a written rule, what the run did not
- * cover, where a person must look, and what deep-review changed. Nothing
+ * answer, the fixes that go against a written rule, the documents the
+ * run left out of date (R7 of the documentation step), what the run did
+ * not cover, where a person must look, and what deep-review changed. Nothing
  * records it: each command computes it again, so it is current after an
  * answer or a commit, and the same engine computes the same brief from
  * the same ledger. The report, the output of a command and the JSON form
  * each render this one value.
  */
-import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
+import { answerWords, madeTheEdit, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState } from '../checkpoint/events.ts';
 import { allBatches, budgetStoppedUnits, committedRevisions, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
+import { leftDocumentsOf, stepNotRunCause, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { counted, findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { codeSpan, counted, findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import type { CheckKind } from './vocabulary.ts';
+import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -108,8 +110,8 @@ export interface BriefDeparture {
   readonly reject: string;
 }
 
-/** The kinds of gap of R10: what the run did not examine, and what it did not finish. */
-export const gapKinds = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop'] as const;
+/** The kinds of gap of R10: what the run did not examine, and what it did not finish, the documentation step among it (R7 of the documentation step). */
+export const gapKinds = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation'] as const;
 export type GapKind = (typeof gapKinds)[number];
 
 /** One thing the run did not cover, in plain words. */
@@ -155,16 +157,23 @@ export interface BriefChanged {
   readonly patches: number;
   readonly left: readonly string[];
   readonly checks: readonly BriefCheck[];
+  /** What the documentation step did, as one sentence, or null in a run that only reviewed or that an engine before the step configured (R10 of the documentation step). */
+  readonly documentation: string | null;
 }
+
+/** A document the edits of the run left out of date (R7 of the documentation step), as `leftDocumentsOf` gives it. */
+export type BriefDocument = LeftDocument;
 
 export interface Brief {
   readonly run: string;
   readonly title: string;
-  /** How many open questions and unreviewed departures wait for an answer, and the sentence that says so. */
-  readonly headline: { readonly questions: number; readonly departures: number; readonly text: string };
+  /** How many open questions, unreviewed departures and documents left out of date need the person, and the sentence that says so. */
+  readonly headline: { readonly questions: number; readonly departures: number; readonly documents: number; readonly text: string };
   readonly change: BriefChange;
   readonly questions: readonly BriefQuestion[];
   readonly departures: readonly BriefDeparture[];
+  /** The documents the edits of a fix run left out of date, none in a run that only reviewed (R7 of the documentation step). */
+  readonly documents: readonly BriefDocument[];
   readonly notCovered: readonly BriefGap[];
   /** The sentence that says the run covered everything R10 names, or null when a gap is listed. */
   readonly covered: string | null;
@@ -238,6 +247,8 @@ interface BriefContext {
   readonly findings: readonly { readonly entry: ReportFinding; readonly decision: RecordedDecision | null }[];
   /** In a fix run, each ranked finding's outcomes by its id, the last pass's and the fix pass's; empty in a run that only reviewed. */
   readonly outcomes: ReadonlyMap<string, FindingOutcomes>;
+  /** The documents the run left out of date, none in a run that only reviewed. */
+  readonly documents: readonly BriefDocument[];
 }
 
 function contextOf(state: RunState, review: ReviewState): BriefContext {
@@ -245,7 +256,7 @@ function contextOf(state: RunState, review: ReviewState): BriefContext {
   const findings = rankedFindings(review).map((entry) => ({ entry, decision: byId.get(entry.finding.id) ?? null }));
   const fix = review.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review, fix, entry.finding.id)] as const));
-  return { state, review, findings, outcomes };
+  return { state, review, findings, outcomes, documents: leftDocumentsOf(review) };
 }
 
 /** The decisions of a kind, in rank order. */
@@ -382,8 +393,14 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
     gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${work} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
   }
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
+  // A step that did not answer brought no document in line; one whose fixes changed no file had nothing to do, and a run an engine before the step configured never had one, though its brief counts its lines (R7, R8, R11 of the documentation step).
+  const cause = stepNotRunCause(context.review);
+  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: 'documentation', text: `The documentation step did not run: ${cause}.${context.documents.length === 0 ? '' : ' The documents that the fixers named are in Documents left out of date.'}` });
   return gaps;
 }
+
+/** Why the documentation step had nothing to do, as `stepNotRunCause` says it. */
+const fixesChangedNothing = 'the fixes changed no file';
 
 /** What the run did not cover (R10 of the brief of a run), in plain words, each gap with its kind. */
 function gapsOf(context: BriefContext): BriefGap[] {
@@ -440,7 +457,7 @@ function changedOf(context: BriefContext): BriefChanged {
   const left = decisionsOf(context, 'leave').map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, 'fix').map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [] };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit) => commit.sha));
   return {
@@ -457,16 +474,60 @@ function changedOf(context: BriefContext): BriefChanged {
     // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
     left: [...left, ...withOutcome(context, 'held for the author')],
     checks: checksOf({ answerPasses: context.review.answerPasses, fix }),
+    documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null,
   };
 }
 
-/** The headline's sentence: how many things need the person, and that nothing waits. */
-function headlineText(questions: number, departures: number, defaultsInPlace: boolean): string {
-  const total = questions + departures;
-  if (total === 0) return 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.';
-  const parts = [...(questions === 0 ? [] : [counted(questions, 'question', 'questions')]), ...(departures === 0 ? [] : [counted(departures, 'fix that goes against a written rule', 'fixes that go against a written rule')])];
+/**
+ * What the documentation step did, as the one sentence of what
+ * deep-review changed (R10 of the documentation step): how many documents
+ * it updated and how many it left, which its answer says, or why it did
+ * not run.
+ */
+function documentationWords(review: ReviewState, fix: FixState): string {
+  const cause = stepNotRunCause(review);
+  const answer = fix.answers.documentation[documentationUnitKey];
+  if (cause !== null || answer === undefined) return `The documentation step did not run: ${cause ?? 'it has not answered yet'}.`;
+  const updated = new Set(answer.findings.filter((finding) => madeTheEdit(finding.status)).flatMap((finding) => finding.files)).size;
+  const items = new Map((fix.documentation?.items ?? []).map((item) => [item.id, item]));
+  // What it left: each named document it deferred or found blocked, the file its search left, and each document of its own drift.
+  const leftFiles = new Set([
+    ...answer.findings.filter((finding) => finding.status === 'deferred' || finding.status === 'blocked').flatMap((finding) => {
+      const item = items.get(finding.id);
+      return item === undefined || item.file === null ? (finding.file === '.' ? [] : [finding.file]) : [item.path ?? item.file];
+    }),
+    ...answer.drift.map((line) => line.file),
+  ]).size;
+  if (updated === 0 && leftFiles === 0) return 'The documentation step found no document out of date.';
+  if (updated === 0) return `The documentation step left ${counted(leftFiles, 'document', 'documents')} out of date.`;
+  return `The documentation step updated ${counted(updated, 'document', 'documents')}${leftFiles === 0 ? '' : ` and left ${String(leftFiles)}`}.`;
+}
+
+/** Words in a list, the last two joined by `and` and any before them by commas. */
+const listed = (words: readonly string[]): string => (words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`);
+
+/**
+ * The headline's sentence: how many things need the person, the documents
+ * the run left out of date among them (PD6 of the documentation step), and
+ * that nothing waits. A fix run with nothing to count says too that it
+ * left no document out of date that it knows of; a run that only reviewed
+ * edits nothing, so its sentence says nothing of documents.
+ */
+function headlineText(counts: { readonly questions: number; readonly departures: number; readonly documents: number }, defaultsInPlace: boolean, fixed: boolean): string {
+  const { questions, departures, documents } = counts;
+  const total = questions + departures + documents;
+  if (total === 0) {
+    return fixed
+      ? 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of.'
+      : 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.';
+  }
+  const parts = [
+    ...(questions === 0 ? [] : [counted(questions, 'question', 'questions')]),
+    ...(departures === 0 ? [] : [counted(departures, 'fix that goes against a written rule', 'fixes that go against a written rule')]),
+    ...(documents === 0 ? [] : [counted(documents, 'document that the edits of the run left out of date', 'documents that the edits of the run left out of date')]),
+  ];
   const waits = questions === 0 ? 'Nothing waits for you: the run went on as it decided.' : `Nothing waits for you: ${questions === 1 ? 'the' : 'each'} question has a default${defaultsInPlace ? ' in place' : ''}.`;
-  return `${counted(total, 'thing needs', 'things need')} you: ${parts.join(' and ')}. ${waits}`;
+  return `${counted(total, 'thing needs', 'things need')} you: ${listed(parts)}. ${waits}`;
 }
 
 /**
@@ -500,13 +561,15 @@ export function briefOf(state: RunState): Brief {
   const openQuestions = questions.filter((question) => question.answer === null).length;
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
+  const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
   return {
     run: state.id,
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
-    headline: { questions: openQuestions, departures: openDepartures, text: headlineText(openQuestions, openDepartures, questions.every((question) => question.answer !== null || question.defaultApplied)) },
+    headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review.fix !== null) },
     change: changeOf(review.change),
     questions,
     departures,
+    documents: context.documents,
     notCovered,
     covered: notCovered.length === 0 ? coveredText(review) : null,
     look: lookOf(context, departures),
@@ -674,7 +737,27 @@ function changedPart(changed: BriefChanged): string[] {
     : changed.commits === null
       ? (changed.patches === 1 ? 'Its patch is not committed: `deep-review commit` commits it.' : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.`)
       : `They are in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, and ${counted(changed.commits.uncommittedPatches, 'later patch is', 'later patches are')} not committed yet`}.`;
-  return [...lines, `${outcomes.join('; ')}. ${commits}${left} ${checksWords(changed.checks)}`];
+  return [...lines, `${outcomes.join('; ')}. ${commits}${left} ${checksWords(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
+}
+
+/**
+ * The part "Documents left out of date" (R7 of the documentation step):
+ * after the departures, one sentence, then each document with its facts,
+ * each with who reported it, and its reasons; none when the run left none.
+ */
+function documentsPart(documents: readonly BriefDocument[]): string[] {
+  if (documents.length === 0) return [];
+  const line = (document: BriefDocument): string => {
+    const facts = document.facts.length === 0 ? '' : `: ${document.facts.map((fact) => `${inlineText(fact.what).replace(/[.]+$/, '')} (${fact.by})`).join('; ')}`;
+    return `- ${codeSpan(document.file)}${facts}. ${document.reasons.map((reason) => inlineText(reason.text)).join(' ')}`;
+  };
+  return [
+    `## Documents left out of date (${String(documents.length)})`,
+    '',
+    'The edits of this run made each document below out of date, and the run did not bring it in line. Bring each in line before a merge.',
+    '',
+    ...documents.map(line),
+  ];
 }
 
 /**
@@ -696,7 +779,7 @@ export function briefMarkdown(brief: Brief): string[] {
     ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed)]),
   ];
   const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
-  const parts = [changePart(brief.change), questions, departures, notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
 }
 
@@ -748,12 +831,14 @@ function changedWords(changed: BriefChanged): string {
 }
 
 /**
- * The short form of the brief (R13, PD12 of the brief of a run): at most
- * seven lines of at most `shortLineLimit` characters, whatever the number
- * of findings, each naming its subject in its first words so it keeps its
- * sense when a model rewords it; a list shows at most `shownIds` ids and
- * counts the rest, and a line with nothing to say says so. The caller
- * prints the path of the report after them, the last line.
+ * The short form of the brief (R13, PD12 of the brief of a run): seven
+ * lines of at most `shortLineLimit` characters, whatever the number of
+ * findings, and an eighth for a fix run, the documents it left out of date
+ * (R7 of the documentation step), each naming its subject in its first
+ * words so it keeps its sense when a model rewords it; a list shows at
+ * most `shownIds` ids and counts the rest, and a line with nothing to say
+ * says so. The caller prints the path of the report after them, the last
+ * line.
  */
 export function briefShortForm(brief: Brief): string[] {
   const open = brief.questions.filter((question) => question.answer === null);
@@ -770,6 +855,7 @@ export function briefShortForm(brief: Brief): string[] {
     `The change: ${change}`,
     openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
+    ...(brief.changed.fixed ? [brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file))}`] : []),
     `Not covered: ${notCovered}`,
     `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
     `Changed: ${changedWords(brief.changed)}`,

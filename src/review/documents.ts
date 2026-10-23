@@ -1,13 +1,18 @@
 /**
- * The documents of the documentation step (R2, TD8 of the documentation
- * step): how the controller reads the path of each `drift` line of the
- * fixes when it plans the step, against the worktree, as it reads every
- * path a worker reports.
+ * The documents of the documentation step (R2, R7, TD8 of the
+ * documentation step): how the controller reads the path of each `drift`
+ * line of the fixes when it plans the step, against the worktree, as it
+ * reads every path a worker reports; and the documents a fix run left out
+ * of date, which the brief counts.
  */
+import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
+import { allBatches, budgetStoppedUnits, unitRevisions } from '../checkpoint/fix-state.ts';
+import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
-import { worktreeLookup } from './locations.ts';
+import { normalizeFileName, worktreeLookup } from './locations.ts';
+import { documentationUnitKey, repairUnitKey, type EditingPhase } from './vocabulary.ts';
 
 /**
  * The resolver of the documentation step's plan: the repository path a
@@ -31,4 +36,147 @@ export function planPathOf(worktree: string): (file: string) => string | null {
     }
     return isClaimablePath(path) ? path : null;
   };
+}
+
+/** Why a document is left out of date (R7 of the documentation step): the step left it, the step found it at its end, the step did not run, or a worker after the step reported it. */
+export const leftReasonKinds = ['left', 'found', 'not-run', 'after'] as const;
+export type LeftReasonKind = (typeof leftReasonKinds)[number];
+
+/** One stale fact of a document, with who reported it in the plain words of the brief, which names no batch. */
+export interface LeftFact {
+  readonly what: string;
+  readonly by: string;
+}
+
+/** One reason a document is left, by its kind, in its plain words. */
+export interface LeftReason {
+  readonly kind: LeftReasonKind;
+  readonly text: string;
+}
+
+/** A document the run knows its edits made out of date and did not bring in line (R7 of the documentation step). */
+export interface LeftDocument {
+  /** The path as the first report of it gave it: the repository path of a planned document, else the path as its line wrote it. */
+  readonly file: string;
+  readonly facts: readonly LeftFact[];
+  readonly reasons: readonly LeftReason[];
+}
+
+/** Who reports a `drift` line from each editing phase, as the brief words it. */
+const reporterOf: Readonly<Record<EditingPhase, string>> = {
+  fixes: 'a fixer',
+  documentation: 'the documentation step',
+  repair: 'the repair',
+  answer: 'the fixer of an answer pass',
+};
+
+/** A path as two entries of the list compare it: as an unlocated candidate's is folded (`normalizeFileName`, then lower case). */
+const foldedPath = (path: string): string => normalizeFileName(path.trim()).toLowerCase();
+
+/**
+ * Why the documentation step of a fix run did not answer, in plain words,
+ * or null when it answered or the run has no fix pass: an engine before
+ * the step configured the run; the run budget stopped a unit of the fixes
+ * or the step's own; its worker failed twice; the fixes changed no file,
+ * so nothing of the run can have made a document stale; or it has not run
+ * or answered yet, in a run still under way.
+ */
+export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentationStep'>): string | null {
+  const fix = review.fix;
+  if (fix === null) return null;
+  if (!review.documentationStep) return 'an engine before the documentation step configured this run';
+  if (fix.documentation === null) {
+    if (budgetStoppedUnits(fix).some((unit) => unit.phase === 'fixes')) return 'the run budget was reached first';
+    if (!fix.revisions.some((revision) => revision.phase === 'fixes')) return 'the fixes changed no file';
+    return 'it has not run yet';
+  }
+  if (fix.answers.documentation[documentationUnitKey] !== undefined) return null;
+  const settled = fix.notAttempted.documentation[documentationUnitKey];
+  if (settled === undefined) return 'it has not answered yet';
+  return settled.cause === 'budget' ? 'the run budget was reached first' : 'its worker failed twice';
+}
+
+/** A sentence from a note of a worker, with one period at its end. */
+const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.`;
+
+/** A line of a `drift`, as the plan and an answer both name it: the batch, the file as written and the stale fact. */
+const lineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
+
+/**
+ * The documents a fix run left out of date (R7, PD10, TD6 of the
+ * documentation step), computed from the fold alone, grouped by the
+ * folded path, in the order they were first reported. They come from three
+ * sources. A plan the step answered gives each document it left, deferred
+ * or blocked, with its lines and the note of its answer, the search too
+ * when it left a file, and each line of the step's own `drift`, which it
+ * found out of date at its end. A plan the step did not answer gives each
+ * of its documents, with why the step did not run. And each `drift` line
+ * of an answer of the fixes, the repair or an answer pass that no item of
+ * the plan holds is left: reported after the step, when a plan exists, or
+ * else left because the step did not run. An entry ends when a later
+ * answer pass, one that opened after each of its lines, so its task listed
+ * the entry, revised its file and did not report the file in its `drift`
+ * again (PD10); a revision of the repair ends none, since the repair's
+ * task does not list the entries. None in a run without the fix pass.
+ */
+export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentationStep' | 'answerPasses'>): LeftDocument[] {
+  const fix = review.fix;
+  if (fix === null) return [];
+  // The lines of the fix pass came before every answer pass, but for a pass recorded before the run's last reopening, whose fix pass ran again after it.
+  const reopened = fix.reopenings.at(-1)?.at ?? null;
+  const fixPassTime = reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+  const entries = new Map<string, { file: string; facts: LeftFact[]; reasons: LeftReason[]; time: number }>();
+  const add = (file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
+    const key = foldedPath(file);
+    const entry = entries.get(key) ?? { file, facts: [], reasons: [], time: 0 };
+    for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
+    if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
+    entry.time = Math.max(entry.time, time);
+    entries.set(key, entry);
+  };
+  const notRun: LeftReason = { kind: 'not-run', text: `The documentation step did not run: ${stepNotRunCause(review) ?? 'it has not answered yet'}.` };
+  const plan = fix.documentation;
+  // How many times the plan holds each line of the fixes; the fold holds it to every one of them.
+  const held = new Map<string, number>();
+  if (plan !== null) {
+    const answer = fix.answers.documentation[documentationUnitKey];
+    for (const item of plan.items) {
+      for (const line of item.drift) held.set(lineKey(line.key, line), (held.get(lineKey(line.key, line)) ?? 0) + 1);
+      const facts = item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes }));
+      if (answer === undefined) {
+        if (item.file !== null) add(item.path ?? item.file, facts, notRun, fixPassTime);
+        continue;
+      }
+      const answered = answer.findings.find((finding) => finding.id === item.id);
+      if (answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) continue;
+      // The search leaves a file only when it names one; what it found and left is in its drift.
+      const file = item.file === null ? (answered.file === '.' ? null : answered.file) : item.path ?? item.file;
+      if (file !== null) add(file, facts, { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` }, fixPassTime);
+    }
+    for (const line of answer?.drift ?? []) add(line.file, [{ what: line.what, by: reporterOf.documentation }], { kind: 'found', text: 'The documentation step found it out of date at its end.' }, fixPassTime);
+  }
+  // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
+  const unheld = (phase: EditingPhase, key: string, time: number): void => {
+    for (const line of fix.answers[phase][key]?.drift ?? []) {
+      const count = phase === 'fixes' ? (held.get(lineKey(key, line)) ?? 0) : 0;
+      if (count > 0) {
+        held.set(lineKey(key, line), count - 1);
+        continue;
+      }
+      const by = reporterOf[phase];
+      add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, time);
+    }
+  };
+  for (const batch of allBatches(fix)) unheld('fixes', batch.key, fixPassTime);
+  unheld('repair', repairUnitKey, fixPassTime);
+  review.answerPasses.forEach((_, index) => unheld('answer', passKey(index + 1), index + 1));
+  // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10).
+  const endedBy = (key: string, time: number): boolean => review.answerPasses.some((_, index) => {
+    const n = index + 1;
+    const answer = fix.answers.answer[passKey(n)];
+    if (n <= time || answer === undefined) return false;
+    const revised = unitRevisions(fix, 'answer', passKey(n)).some((revision) => revision.files.some((file) => foldedPath(file.path) === key));
+    return revised && !answer.drift.some((line) => foldedPath(line.file) === key);
+  });
+  return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file, facts, reasons }]) => ({ file, facts, reasons }));
 }

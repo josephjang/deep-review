@@ -573,7 +573,7 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
     owned: ['docs/parse.md', 'src/a.ts'],
     checks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
-    snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false,
+    snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false, leftDocuments: [],
   };
   /** A fixes-phase batch of the same findings, as a continued run's fixer is given them. */
   const batch = (findings: readonly FixerTaskFinding[]): FixerBatchTaskInput => ({ ...pass, kind: 'batch', cluster: 'c1', batch: 'c1-1', secondRound: false, earlier: [], claimed: [], othersHeld: [], claimCommand: 'node claim', findings });
@@ -583,6 +583,14 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     assert.match(task, /^ {8}answered by the author: option 2, "log once", for which the decider wrote the rule "b logs once per run"\. Note: the operator reads the log$/m);
     assert.match(task, /^ {8}the author rejected the departure: follow the rule "parse trusts its callers" as docs\/parse\.md states it, and restore what the fix changed in that statement\.$/m);
     assert.match(fixerTask({ ...pass, findings: [finding('RIPPLE-1', departing, accepted)] }), /^ {8}the author accepted the departure\. Note: right call$/m);
+  });
+
+  it('lists the documents the run left out of date, to bring in line when an answer settles them, and nothing of them when it left none (PD10 of the documentation step)', () => {
+    const task = fixerTask({ ...pass, leftDocuments: [{ file: 'docs/testing.md', facts: ['the echo removes the bytes', 'test_shout prints HI'] }, { file: 'CHANGES.md', facts: [] }] });
+    assert.match(task, /^Documents this run left out of date, which an answer you apply may settle:\n- docs\/testing\.md: the echo removes the bytes; test_shout prints HI\n- CHANGES\.md\n\nBring such a document in line when an answer you apply settles what it must say, and name it under that answer's finding; leave the others as they are\. When you change such a file and leave a fact of it stale, report that fact in `drift`\.$/m);
+    assert.ok(task.indexOf('Documents this run left out of date') > task.indexOf('You may edit any other file'), 'after what it may edit');
+    assert.doesNotMatch(fixerTask(pass), /left out of date/);
+    assert.doesNotMatch(fixerTask(batch(pass.findings)), /left out of date/, 'a batch of the fixes is never told, since the documentation step runs after it');
   });
 
   it('keeps a multi-line note on the answer\'s line, so it cannot open a line of the task\'s own', () => {

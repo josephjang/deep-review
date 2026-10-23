@@ -20,6 +20,7 @@ import type { AssembledRole } from '../roles/assemble.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { settleClaims, type ClaimsAccess } from './claim-events.ts';
+import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
 import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
@@ -328,6 +329,8 @@ function answerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput
     batch: unit.key,
     findings,
     owned: ownedFiles(review, 'answer', unit.key),
+    // What the run left out of date when the pass opens, so its fixer brings in line what an answer settles and its revision ends the count (PD10 of the documentation step).
+    leftDocuments: leftDocumentsOf(review).map((document) => ({ file: document.file, facts: document.facts.map((fact) => fact.what) })),
     checks: review.fix?.checks.planned?.checks ?? [],
     snapshotCommand: editing.snapshotCommand,
     unelevatedSandbox: editing.unelevatedSandbox,
