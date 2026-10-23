@@ -77,13 +77,19 @@ A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw i
 - lint check applied: formatted the guard; patch 3
 - test check deferred: every failure was there before the fixes; no patch
 
-Documentation the fixers say their edits made stale, which nothing in this run updated:
-
-- README.md: parse no longer throws on null (c1-1)
+The documentation the fixers say their edits made stale is under Documentation, with what became of it.
 
 Tests the fixers say they added or tightened:
 
 - test/a.test.ts: parse(null) returns 0 (c1-1)
+
+## Documentation
+
+The documentation step did not run: an engine before the documentation step configured this run.
+
+Documentation the fixers say their edits made stale, which no step of this run took:
+
+- README.md: parse no longer throws on null (c1-1)
 
 ## Checks
 

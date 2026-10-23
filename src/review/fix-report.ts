@@ -1,10 +1,12 @@
 /**
  * The report's account of the fix pass (R13 of the fix pass), rendered
  * from the fold alone like the rest of the report: what became of every
- * ranked finding, what each check said before the fixes, after them and
- * after the repair, every file a revision changed, who changed it and
- * which cluster held it (R3 of commit series integrity), and the lines
- * the notes of the run gain. A run without the fix pass has none of these.
+ * ranked finding, what the documentation step did with the documents the
+ * fixers named (R10 of the documentation step), what each check said
+ * before the fixes, after them and after the repair, every file a
+ * revision changed, who changed it and which cluster held it (R3 of
+ * commit series integrity), and the lines the notes of the run gain. A
+ * run without the fix pass has none of these.
  */
 import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
@@ -15,10 +17,11 @@ import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
-import { inlineText, tableCell } from './markdown.ts';
+import { stepNotRunCause, unheldDriftLines, type UnheldLine } from './documents.ts';
+import { codeSpan, counted, inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
-import { checkPhases, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
+import { checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -218,19 +221,73 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
 }
 
 /**
- * The fixers' own lines that nothing acts on yet (PD1): the documentation
- * their edits made stale, and the tests they added. Reconciling that
- * documentation, including text one fix wrote and another made wrong, is
- * tracked at https://github.com/josephjang/deep-review/issues/29
+ * The fixers' own lines of the Fixes section: the tests they added, and
+ * where the documentation their edits made stale is, which the section
+ * Documentation lists with what became of it (R10 of the documentation
+ * step).
  */
 function answerLines(fix: FixState): string[] {
   const answers = allFixerAnswers(fix);
-  const drift = answers.flatMap((answer) => answer.drift.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.what)} (${answer.key})`));
+  const drift = answers.some((answer) => answer.drift.length > 0);
   const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
   return [
-    ...(drift.length === 0 ? [] : ['', 'Documentation the fixers say their edits made stale, which nothing in this run updated:', '', ...drift]),
+    ...(drift ? ['', 'The documentation the fixers say their edits made stale is under Documentation, with what became of it.'] : []),
     ...(tests.length === 0 ? [] : ['', 'Tests the fixers say they added or tightened:', '', ...tests]),
   ];
+}
+
+/** Who reported a `drift` line no item took, as the evidence names it: a batch by its key, the repair, or an answer pass by its number. */
+const reporterWords = (line: UnheldLine): string => (line.phase === 'repair' ? 'the repair' : line.phase === 'answer' ? `answer pass ${String(line.time)}` : line.key);
+
+/**
+ * The Documentation section (R10 of the documentation step): whether the
+ * documentation step ran, and why not; each item of its plan with its
+ * outcome, the document it names, its note, the subject of its commit,
+ * its files and their patch, the lines it took and its validation; the
+ * documents the step found out of date at its end; and each `drift` line
+ * no item took, with who reported it. A run with no step and no line has
+ * none.
+ */
+function documentationSection(review: ReviewState, fix: FixState): string[] {
+  const plan = fix.documentation;
+  const unheld = unheldDriftLines(review);
+  if (!review.documentationStep && unheld.length === 0) return [];
+  const answer = fix.answers.documentation[documentationUnitKey];
+  const cause = stepNotRunCause(review);
+  // The step is one unit, so a settled unit leaves every item of its plan not attempted, for one reason.
+  const notAttempted = isNotAttempted(fix, 'documentation', documentationUnitKey);
+  const items = (plan?.items ?? []).flatMap((item, index) => {
+    const finding = answer?.findings.find((candidate) => candidate.id === item.id);
+    const outcome = finding !== undefined ? statusWords[finding.status] : notAttempted ? 'not attempted' : 'not answered';
+    const document = item.file === null
+      ? []
+      : [`Document: ${codeSpan(item.file)}, ${item.path === null ? 'which the engine refused as a path of the repository' : `the repository path ${codeSpan(item.path)}`}`];
+    const answered = finding === undefined
+      ? (notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, 'documentation', documentationUnitKey)!)}`] : [])
+      : [
+          `Note: ${inlineText(finding.note)}`,
+          ...(finding.message === null ? [] : [`Commit message: ${inlineText(finding.message.subject)}`]),
+          ...(finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(', ')}; ${patchNote(patchesOf(fix, item.id, 'documentation'))}`]),
+          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${inlineText(entry.source)}: ${inlineText(entry.evidence)}`),
+        ];
+    const took = item.drift.length === 0 ? [] : ['Lines it took:', ...item.drift.map((line) => `- ${inlineText(line.what)} (${line.key}${line.file === item.file ? '' : `, as ${inlineText(line.file)}`})`)];
+    return [`### ${String(index + 1)}. ${item.id} ${outcome}`, '', ...document, ...answered, ...took, ''];
+  });
+  const found = (answer?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)}`);
+  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)} (${reporterWords(line)})`);
+  const lines = [
+    '## Documentation',
+    '',
+    cause === null
+      ? `The documentation step answered for ${counted((plan?.items.length ?? 1) - 1, 'document', 'documents')} the fixers named, and for its own search.`
+      : `The documentation step did not run: ${cause}.`,
+    '',
+    ...items,
+    ...(found.length === 0 ? [] : ['Documents the documentation step found out of date at its end, which it did not bring in line:', '', ...found, '']),
+    ...(untaken.length === 0 ? [] : [plan === null ? 'Documentation the fixers say their edits made stale, which no step of this run took:' : 'Documentation the repair or an answer pass says its edits made stale, after the documentation step:', '', ...untaken, '']),
+  ];
+  // One blank line between blocks, and none at the end.
+  return lines.filter((line, index) => line !== '' || lines[index - 1] !== '').filter((line, index, all) => line !== '' || index < all.length - 1);
 }
 
 /** Patches `from` to `to`, as a clause's subject and the verb that agrees with it. */
@@ -419,12 +476,12 @@ function changedFilesSection(fix: FixState, patches: readonly string[]): string[
   ];
 }
 
-/** The sections the fix pass adds after Findings, in order: Fixes, Checks, Changed files; none for a run without it. */
+/** The sections the fix pass adds after Findings, in order: Fixes, Documentation when the run has the step or a drift line, Checks, Changed files; none for a run without it. */
 export function fixSections(state: RunState, evidencePath: (reference: { sha256: string; bytes: number }) => string, patches: readonly string[]): string[][] {
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), checksSection(fix, review.survey, review.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)];
+  return [fixesSection(review, fix), documentationSection(review, fix), checksSection(fix, review.survey, review.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
 }
 
 /**

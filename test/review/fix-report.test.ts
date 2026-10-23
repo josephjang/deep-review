@@ -7,7 +7,7 @@ import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts'
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput } from '../helpers/review-history.ts';
+import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, documentationAnswer, documentationItems, documentedFixRun, endCheck, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput, type History } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
 const evidencePath = (blob: { sha256: string; bytes: number }): string => `/evidence/${blob.sha256.slice(0, 8)}`;
@@ -34,9 +34,9 @@ describe('the report of a fix run', () => {
     assert.match(report, /in rank order\. Patches 1 to 3 are committed; a patch number/);
   });
 
-  it('places Fixes, Checks and Changed files after Findings and before Angles (R12 of the brief of a run)', () => {
+  it('places Fixes, Documentation, Checks and Changed files after Findings and before Angles (R12 of the brief of a run, R10 of the documentation step)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Checks', '## Changed files', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Fixes', '## Documentation', '## Checks', '## Changed files', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
   });
@@ -46,7 +46,7 @@ describe('the report of a fix run', () => {
     assert.match(report, /^### 1\. RIPPLE-1 applied\n\nNote: guarded the null before its use\nCommit message: fix: Guard the null in parse\nCluster: c1, batch c1-1 \(src\/a\.ts\); patch 2\nCorrection: src\/a\.ts parse: parse is at line 4 -> it moved to line 6 \(git blame\)$/m);
     assert.match(report, /^### 2\. SWEEP-1 held for the author\n\nA PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it\.$/m);
     assert.match(report, /^### Repair\n\n- lint check applied: formatted the guard; patch 3$/m);
-    assert.match(report, /Documentation the fixers say their edits made stale, which nothing in this run updated:\n\n- README\.md: parse no longer throws on null \(c1-1\)/);
+    assert.match(report, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
     assert.match(report, /Tests the fixers say they added or tightened:\n\n- test\/a\.test\.ts: parse\(null\) returns 0 \(c1-1\)/);
   });
 
@@ -438,5 +438,93 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     assert.ok(report.includes(`\n- ${sentences[0]!}\n- ${sentences[1]!}\n`), report);
     const lines = describeRun(blocked, claudeAdapter, evidencePath).lines;
     assert.deepEqual(lines.filter((line) => line.startsWith('Stop: Usage limit: ')), sentences.map((sentence) => `Stop: ${sentence}`));
+  });
+});
+
+// R10 and R11 of the documentation step.
+describe('the Documentation section of the report', () => {
+  const line = (file: string, what: string): { file: string; what: string } => ({ file, what });
+  /** The section Documentation of a run's report, up to the section after it. */
+  const section = (state: RunState): string => {
+    const report = renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches: state.review!.fix!.revisions.map((_, index) => reference(String(index + 1))), continueCommand: null } });
+    const start = report.indexOf('\n## Documentation\n');
+    assert.ok(start > 0, 'the report has the section');
+    return report.slice(start + 1, report.indexOf('\n## Checks\n'));
+  };
+  /** The step's answer: doc-1 applied with its revision, doc-2 deferred, the search already applied, and the step's own drift. */
+  const answeredStep = (history: History): History => {
+    history.start('documentation');
+    history.add('documentation.planned', { items: documentationItems(history) }).worker(55, 'documentation documentation:documentation');
+    const findings = [
+      { id: 'doc-1', status: 'applied', file: 'docs/a.md', line: null, note: 'said parse returns 0 for a null', message: { subject: 'docs(a): Say parse returns 0', body: 'Why.' }, files: ['docs/a.md'], corrections: [], validation: [{ method: 'static', source: 'docs/a.md', evidence: 'parse in src/a.ts returns 0 for a null' }], requiredFiles: [] },
+      { id: 'doc-2', status: 'deferred', file: '../outside.md', line: null, note: 'the path is outside the repository', message: null, files: [], corrections: [], validation: [], requiredFiles: [] },
+      { id: 'search', status: 'already-applied', file: '.', line: null, note: 'no other document states the behavior', message: null, files: [], corrections: [], validation: [], requiredFiles: [] },
+    ];
+    return history.add('fix.recorded', documentationAnswer(worker(55), [], { findings, drift: [line('CHANGES.md', 'the bytes are always translated')] }), 3)
+      .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(55) }, change: { findings: ['doc-1'], message: { subject: 'docs(a): Say parse returns 0', body: 'Why.' } }, files: [{ path: 'docs/a.md', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('b') } }] }, 3)
+      .add('worktree.checked', endCheck('documentation'), 7).finish('documentation');
+  };
+
+  it('gives each item its outcome, its document, its note, its commit, files and patch, the lines it took and its validation, then what the step found at its end', () => {
+    const text = section(documentedFixRun([line('./docs/a.md', 'parse throws on a null'), line('../outside.md', 'parse throws')], answeredStep).fold());
+    assert.equal(text, [
+      '## Documentation',
+      '',
+      'The documentation step answered for 2 documents the fixers named, and for its own search.',
+      '',
+      '### 1. doc-1 applied',
+      '',
+      'Document: `./docs/a.md`, the repository path `docs/a.md`',
+      'Note: said parse returns 0 for a null',
+      'Commit message: docs(a): Say parse returns 0',
+      'Files: docs/a.md; patch 2',
+      'Validation: static, docs/a.md: parse in src/a.ts returns 0 for a null',
+      'Lines it took:',
+      '- parse throws on a null (c1-1)',
+      '',
+      '### 2. doc-2 deferred',
+      '',
+      'Document: `../outside.md`, which the engine refused as a path of the repository',
+      'Note: the path is outside the repository',
+      'Lines it took:',
+      '- parse throws (c1-1)',
+      '',
+      '### 3. search already applied',
+      '',
+      'Note: no other document states the behavior',
+      '',
+      'Documents the documentation step found out of date at its end, which it did not bring in line:',
+      '',
+      '- CHANGES.md: the bytes are always translated',
+      '',
+    ].join('\n'));
+  });
+
+  it('says why the step did not run, and gives an item not attempted its reason', () => {
+    const failed = documentedFixRun([line('docs/a.md', 'parse throws on a null')], (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
+    const text = section(failed);
+    assert.match(text, /^The documentation step did not run: its worker failed twice\.$/m);
+    assert.match(text, /^### 1\. doc-1 not attempted\n\nDocument: `docs\/a\.md`, the repository path `docs\/a\.md`\nNot attempted: 2 attempts did not complete\nLines it took:\n- parse throws on a null \(c1-1\)$/m);
+    assert.match(section(documentedFixRun().fold()), /^The documentation step answered for 0 documents the fixers named, and for its own search\.$/m);
+  });
+
+  it('lists the lines no item took, with who reported each, and leaves them out of the Fixes section, which points to this one', () => {
+    const report = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: null } });
+    assert.match(report, /\n## Documentation\n\nThe documentation step did not run: an engine before the documentation step configured this run\.\n\nDocumentation the fixers say their edits made stale, which no step of this run took:\n\n- README\.md: parse no longer throws on null \(c1-1\)\n\n## Checks\n/);
+    const fixes = report.slice(report.indexOf('\n## Fixes\n'), report.indexOf('\n## Documentation\n'));
+    assert.match(fixes, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
+    assert.doesNotMatch(fixes, /README\.md: parse no longer throws/);
+  });
+
+  it('names the repair and an answer pass for a line after the step, and has no section for a run before the step with no line', () => {
+    // The fold of these lines is tested with the brief's list; here only how the report names who reported each.
+    const state = passToReport(documentedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1).fold();
+    const fix = state.review!.fix!;
+    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('README.md', 'parse throws')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [] };
+    const passed = { ...fix.answers.answer['pass-1']!, drift: [line('docs/a.md', 'the example prints 4')] };
+    const late = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair }, answer: { 'pass-1': passed } } } } } as RunState;
+    assert.match(section(late), /\nDocumentation the repair or an answer pass says its edits made stale, after the documentation step:\n\n- README\.md: parse throws \(the repair\)\n- docs\/a\.md: the example prints 4 \(answer pass 1\)\n/);
+    const report = renderReport(decidedFixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1')], continueCommand: null } });
+    assert.doesNotMatch(report, /\n## Documentation\n/, 'an older run whose fixers named nothing');
   });
 });

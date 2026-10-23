@@ -102,6 +102,47 @@ const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.
 /** A line of a `drift`, as the plan and an answer both name it: the batch, the file as written and the stale fact. */
 const lineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
 
+/** A `drift` line of an answer of the run that no item of the documentation step holds, with the unit that reported it and when, as an answer pass numbers its time. */
+export interface UnheldLine {
+  readonly phase: Exclude<EditingPhase, 'documentation'>;
+  readonly key: string;
+  readonly file: string;
+  readonly what: string;
+  /** 0 for a line of the fix pass, but one an answer pass came before when a reopening followed it; n for a line of the answer pass n. */
+  readonly time: number;
+}
+
+/**
+ * Each `drift` line of an answer of the fixes, the repair or an answer
+ * pass that no item of the documentation step's plan holds, in the order
+ * of the batches, then the repair, then each answer pass: with a plan,
+ * the lines of the repair and of an answer pass, which came after it,
+ * since the fold holds the plan to every line of the fixes; with none,
+ * every line. The brief counts them and the report lists them.
+ */
+export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses'>): UnheldLine[] {
+  const fix = review.fix;
+  if (fix === null) return [];
+  // The lines of the fix pass came before every answer pass, but for a pass recorded before the run's last reopening, whose fix pass ran again after it.
+  const reopened = fix.reopenings.at(-1)?.at ?? null;
+  const fixPassTime = reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+  // How many times the plan holds each line of the fixes.
+  const held = new Map<string, number>();
+  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(lineKey(line.key, line), (held.get(lineKey(line.key, line)) ?? 0) + 1);
+  const lines: UnheldLine[] = [];
+  const unheld = (phase: UnheldLine['phase'], key: string, time: number): void => {
+    for (const line of fix.answers[phase][key]?.drift ?? []) {
+      const count = phase === 'fixes' ? (held.get(lineKey(key, line)) ?? 0) : 0;
+      if (count > 0) held.set(lineKey(key, line), count - 1);
+      else lines.push({ phase, key, file: line.file, what: line.what, time });
+    }
+  };
+  for (const batch of allBatches(fix)) unheld('fixes', batch.key, fixPassTime);
+  unheld('repair', repairUnitKey, fixPassTime);
+  review.answerPasses.forEach((_, index) => unheld('answer', passKey(index + 1), index + 1));
+  return lines;
+}
+
 /**
  * The documents a fix run left out of date (R7, PD10, TD6 of the
  * documentation step), computed from the fold alone, grouped by the
@@ -136,12 +177,9 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   };
   const notRun: LeftReason = { kind: 'not-run', text: `The documentation step did not run: ${stepNotRunCause(review) ?? 'it has not answered yet'}.` };
   const plan = fix.documentation;
-  // How many times the plan holds each line of the fixes; the fold holds it to every one of them.
-  const held = new Map<string, number>();
   if (plan !== null) {
     const answer = fix.answers.documentation[documentationUnitKey];
     for (const item of plan.items) {
-      for (const line of item.drift) held.set(lineKey(line.key, line), (held.get(lineKey(line.key, line)) ?? 0) + 1);
       const facts = item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes }));
       if (answer === undefined) {
         if (item.file !== null) add(item.path ?? item.file, facts, notRun, fixPassTime);
@@ -156,20 +194,10 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
     for (const line of answer?.drift ?? []) add(line.file, [{ what: line.what, by: reporterOf.documentation }], { kind: 'found', text: 'The documentation step found it out of date at its end.' }, fixPassTime);
   }
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
-  const unheld = (phase: EditingPhase, key: string, time: number): void => {
-    for (const line of fix.answers[phase][key]?.drift ?? []) {
-      const count = phase === 'fixes' ? (held.get(lineKey(key, line)) ?? 0) : 0;
-      if (count > 0) {
-        held.set(lineKey(key, line), count - 1);
-        continue;
-      }
-      const by = reporterOf[phase];
-      add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, time);
-    }
-  };
-  for (const batch of allBatches(fix)) unheld('fixes', batch.key, fixPassTime);
-  unheld('repair', repairUnitKey, fixPassTime);
-  review.answerPasses.forEach((_, index) => unheld('answer', passKey(index + 1), index + 1));
+  for (const line of unheldDriftLines(review)) {
+    const by = reporterOf[line.phase];
+    add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+  }
   // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10).
   const endedBy = (key: string, time: number): boolean => review.answerPasses.some((_, index) => {
     const n = index + 1;
