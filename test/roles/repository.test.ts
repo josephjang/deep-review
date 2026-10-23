@@ -66,8 +66,11 @@ describe('the repository\'s roles/', () => {
   /** Each role key whose manifest entry names `fragment`. */
   const keysNaming = (fragment: string): string[] => roles.filter((role) => role.fragments.some((named) => named.name === fragment)).map((role) => role.key);
 
-  /** The roles that run the fixer's prompt: the fix pass, its repair and an answer pass, and documentation reconciliation. */
-  const fixerRoles = ['fixer', 'documentation'];
+  /** The roles that run the fixer's prompt: the fix pass, its repair and an answer pass. */
+  const fixerRoles = ['fixer'];
+
+  /** The roles whose workers edit the tree and return a fixer's answer: the fixer's, and the documentation step's (PD8 of the documentation step). */
+  const editorRoles = ['fixer', 'documentation'];
 
   /**
    * Every place a fragment says that a role's prompt already carries some
@@ -149,8 +152,37 @@ describe('the repository\'s roles/', () => {
     assert.doesNotMatch(prompt, /When assigned documentation reconciliation/);
   });
 
-  it('tells every fixer role its defers go to the person, and promises no later audit of them (R11 of answers)', () => {
-    for (const key of fixerRoles) {
+  it('gives the documentation step its own prompt: its role first, the brief and the return format of a fixer, then its rules, and no claim (PD8, R3, R4 of the documentation step)', () => {
+    const documentation = roles.find((role) => role.key === 'documentation')!;
+    assert.deepEqual(documentation.fragments.map((fragment) => fragment.name), ['documentation-role.md', 'fixer-brief.md', 'fixer-report.md', 'documentation-reconciliation.md']);
+    const prompt = documentation.prompt.replace(/\s+/g, ' ');
+    assert.ok(prompt.startsWith('You are the documentation worker of the deep-review engine. The engine runs you once in a fix run, after every fix worker has returned and before it runs the project\'s checks again'));
+    assert.ok(prompt.includes('You are alone in the tree: no other worker edits it while you run, and you claim nothing.'));
+    assert.ok(prompt.includes('Where it would have a finding reported `blocked`, report the item `deferred` with the same reason: no item of yours is blocked.'), 'a target the brief would have blocked reads as a defer');
+    assert.doesNotMatch(prompt, /\*\*Claim before the first edit|claim command|claims it for your cluster|your batch runs/, 'the step claims nothing and has no batch');
+    // R3: what it searches and what it edits.
+    assert.ok(prompt.includes('**Search the repository for renamed members and stale descriptions yourself, even when no drift was reported.**'));
+    assert.ok(prompt.includes('The patches your task names hold the edits of this run alone'));
+    assert.ok(prompt.includes('leave a fact that was out of date before this run as it is.'));
+    assert.ok(prompt.includes('Do not change code, a test or a configuration to make a document true.'));
+    // R4: what it writes and what it leaves.
+    assert.ok(prompt.includes('never invent shipped behavior from an unanswered design question'));
+    assert.ok(prompt.includes('The scope block lists the convention sources the repository survey named. Leave each of them as it is, with the amendment of a rule that a fix departing from it made'));
+    assert.ok(prompt.includes('Respect the repository\'s rules for historical or append-only records: leave such a record as it is and report it `deferred`, naming the rule.'));
+    assert.ok(prompt.includes('Leave each path that the `scope.exclude` patterns of your task match, and name that setting as the reason for a stale fact there.'));
+    // The rules of fixer-apply.md a writer of documents needs, in its own words.
+    assert.ok(prompt.includes('**Write each edit as the convention sources of the file ask**, and where they say nothing, as the text around it.'));
+    assert.ok(prompt.includes('Before each snapshot, run the checks your task gives that finish quickly, such as a lint, on what the item touched, and correct within the item what they show'));
+    assert.ok(prompt.includes('A generator\'s output is not an edit of documentation: restore what a build, an install or a test rewrote before the snapshot.'));
+    // Its statuses and its validation, with no blocked item.
+    assert.ok(prompt.includes('No item is `blocked`: nothing holds a file from you, and `requiredFiles` stays empty.'));
+    assert.ok(prompt.includes('For each document you edited, give one `static` validation line: the document as its `source`, and in `evidence` the code you compared it with.'));
+    assert.ok(prompt.includes('In `drift`, list each document you found out of date at your end and did not bring in line.'));
+    assert.ok(prompt.includes('Redirect to a log in your scratch directory, never in the repository'));
+  });
+
+  it('tells every role that edits its defers go to the person, and promises no later audit of them (R11 of answers)', () => {
+    for (const key of editorRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt.replace(/\s+/g, ' ');
       assert.ok(prompt.includes('Every defer is reported to the person, who decides what becomes of it, so a defer states the evidence that stopped you, not a settled skip.'), key);
       assert.ok(prompt.includes('report `deferred` with that evidence for the person rather than applying the literal instruction'), key);
@@ -192,9 +224,11 @@ describe('the repository\'s roles/', () => {
   it('describes the fixer\'s answer as the fields of its output schema, and no longer as prose lines (R5 of the fix pass)', () => {
     const perFinding = Object.keys(fixerOutputSchema.shape.findings.element.shape).filter((field) => field !== 'index');
     const perAnswer = Object.keys(fixerOutputSchema.shape).filter((field) => field !== 'findings');
-    for (const key of fixerRoles) {
+    for (const key of editorRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
-      for (const field of [...perFinding, ...perAnswer, ...fixStatuses, ...validationMethods, 'subject', 'body']) assert.ok(prompt.includes(`\`${field}\``), `${key} names \`${field}\``);
+      // The documentation step validates an edited document by the code it compared, a static check, and runs no other method.
+      const methods = key === 'documentation' ? ['static'] : validationMethods;
+      for (const field of [...perFinding, ...perAnswer, ...fixStatuses, ...methods, 'subject', 'body']) assert.ok(prompt.includes(`\`${field}\``), `${key} names \`${field}\``);
       assert.doesNotMatch(prompt, /<ID> (APPLIED|DEFERRED|BLOCKED|CORRECTION|VALIDATION)|^(DRIFT|FILES|TESTS|SUITE) {2,}|APPLIED \(already applied\)/m, key);
     }
   });
@@ -227,13 +261,13 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  it('asks every fixer role for one edits field, null for a finding with no edits and otherwise its files and their message, whatever its status, a partial one for a blocked or deferred finding, and the edits an earlier attempt left (R5 of fixer edits; R11 of commit series integrity; R20 of the fix pass)', () => {
-    for (const key of fixerRoles) {
+  it('asks every role that edits for one edits field, null for a finding with no edits and otherwise its files and their message, whatever its status, a partial one for a blocked or deferred finding, and the edits an earlier attempt left (R5 of fixer edits; R11 of commit series integrity; R20 of the fix pass)', () => {
+    for (const key of editorRoles) {
       const prompt = roles.find((role) => role.key === key)!.prompt;
       assert.match(prompt, /- `edits`: null when you made no edit for this finding and no earlier\s+attempt left any; otherwise the `files` you edited or created for\s+it, or that hold an earlier attempt's edits for it, and their\s+`message`, a `subject` of at most 72 characters with no trailing\s+period and a `body` that says why/, key);
       assert.match(prompt, /A blocked or deferred finding with edits says in\s+its message that the change is partial and what it waits for\./, key);
       // A document verified correct is already applied, with no edit of its own; the documentation role's rules say so (documentation-reconciliation.md).
-      if (key === 'documentation') assert.match(prompt, /including `already-applied` for facts you verified are already correct,\s+with `edits` null unless an earlier attempt's edits hold them/, key);
+      if (key === 'documentation') assert.match(prompt, /`already-applied` when you verified its facts are\s+already correct, with `edits` null unless an earlier attempt's edits\s+hold them/, key);
       // The status rule (#26, #9) and the two fields whose pairing the model had to read across (#54) are gone.
       assert.doesNotMatch(prompt, /for an applied finding, its commit message|null otherwise\.|null for a deferred or blocked one/, key);
       assert.doesNotMatch(prompt, /^- `(files|message)`:|names files|names no file|with their `files`/m, key);
@@ -241,8 +275,8 @@ describe('the repository\'s roles/', () => {
   });
 
   it('tells no worker that returns to the engine to dispatch other workers', () => {
-    // The fixer roles each return one report; starting workers is the engine's job.
-    const returning = roles.filter((role) => role.fragments[0]!.name === 'fixer-role.md');
+    // The fixer and the documentation worker each return one report; starting workers is the engine's job.
+    const returning = roles.filter((role) => ['fixer-role.md', 'documentation-role.md'].includes(role.fragments[0]!.name));
     assert.deepEqual(returning.map((role) => role.key), ['fixer', 'documentation']);
     assert.deepEqual(returning.filter((role) => /\bdispatch/i.test(role.prompt)).map((role) => role.key), []);
   });
