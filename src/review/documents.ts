@@ -7,7 +7,7 @@
  */
 import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, unitRevisions } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
@@ -70,8 +70,8 @@ const reporterOf: Readonly<Record<EditingPhase, string>> = {
   answer: 'the fixer of an answer pass',
 };
 
-/** A path as two entries of the list compare it: as an unlocated candidate's is folded (`normalizeFileName`, then lower case). */
-const foldedPath = (path: string): string => normalizeFileName(path.trim()).toLowerCase();
+/** A path as two entries of the list compare it, so two spellings of one document are one entry: as an unlocated candidate's is folded (`normalizeFileName`, then lower case). */
+export const documentKey = (path: string): string => normalizeFileName(path.trim()).toLowerCase();
 
 /**
  * Why the documentation step of a fix run did not answer, in plain words,
@@ -143,6 +143,35 @@ export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses
   return lines;
 }
 
+/** A document the documentation step's answer left, as the step gives it: its file, its facts and why. */
+export interface StepLeft {
+  readonly file: string;
+  readonly facts: readonly LeftFact[];
+  readonly reason: LeftReason;
+}
+
+/**
+ * What the documentation step's answer left (R7 of the documentation
+ * step): each document item it deferred or found blocked, with its lines
+ * and the note of its answer, and each line of its own `drift`, which it
+ * found out of date at its end, the documents its search left among them.
+ * The search's `file` names the first document it brought in line, so it
+ * is none of them. None before the step answered. The list of documents
+ * left and the brief's sentence on the step both read it, so the two
+ * cannot count the step otherwise.
+ */
+export function leftByStep(fix: Pick<FixState, 'documentation' | 'answers'>): StepLeft[] {
+  const answer = fix.answers.documentation[documentationUnitKey];
+  if (fix.documentation === null || answer === undefined) return [];
+  const items = fix.documentation.items.flatMap((item): StepLeft[] => {
+    const answered = answer.findings.find((finding) => finding.id === item.id);
+    if (item.file === null || answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) return [];
+    return [{ file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` } }];
+  });
+  const found = answer.drift.map((line): StepLeft => ({ file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: 'found', text: 'The documentation step found it out of date at its end.' } }));
+  return [...items, ...found];
+}
+
 /**
  * The documents a fix run left out of date (R7, PD10, TD6 of the
  * documentation step), computed from the fold alone, grouped by the
@@ -168,7 +197,7 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   const fixPassTime = reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
   const entries = new Map<string, { file: string; facts: LeftFact[]; reasons: LeftReason[]; time: number }>();
   const add = (file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
-    const key = foldedPath(file);
+    const key = documentKey(file);
     const entry = entries.get(key) ?? { file, facts: [], reasons: [], time: 0 };
     for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
     if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
@@ -178,20 +207,11 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   const notRun: LeftReason = { kind: 'not-run', text: `The documentation step did not run: ${stepNotRunCause(review) ?? 'it has not answered yet'}.` };
   const plan = fix.documentation;
   if (plan !== null) {
-    const answer = fix.answers.documentation[documentationUnitKey];
-    for (const item of plan.items) {
-      const facts = item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes }));
-      if (answer === undefined) {
-        if (item.file !== null) add(item.path ?? item.file, facts, notRun, fixPassTime);
-        continue;
-      }
-      // The search's file names the first document it brought in line, not one it left; what it left is in the step's own drift.
-      if (item.file === null) continue;
-      const answered = answer.findings.find((finding) => finding.id === item.id);
-      if (answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) continue;
-      add(item.path ?? item.file, facts, { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` }, fixPassTime);
+    if (fix.answers.documentation[documentationUnitKey] === undefined) {
+      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, fixPassTime);
+    } else {
+      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, fixPassTime);
     }
-    for (const line of answer?.drift ?? []) add(line.file, [{ what: line.what, by: reporterOf.documentation }], { kind: 'found', text: 'The documentation step found it out of date at its end.' }, fixPassTime);
   }
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
   for (const line of unheldDriftLines(review)) {
@@ -203,8 +223,8 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
     const n = index + 1;
     const answer = fix.answers.answer[passKey(n)];
     if (n <= time || answer === undefined) return false;
-    const revised = unitRevisions(fix, 'answer', passKey(n)).some((revision) => revision.files.some((file) => foldedPath(file.path) === key));
-    return revised && !answer.drift.some((line) => foldedPath(line.file) === key);
+    const revised = unitRevisions(fix, 'answer', passKey(n)).some((revision) => revision.files.some((file) => documentKey(file.path) === key));
+    return revised && !answer.drift.some((line) => documentKey(line.file) === key);
   });
   return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file, facts, reasons }]) => ({ file, facts, reasons }));
 }

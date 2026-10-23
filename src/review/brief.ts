@@ -17,7 +17,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
-import { leftDocumentsOf, stepNotRunCause, type LeftDocument } from './documents.ts';
+import { documentKey, leftByStep, leftDocumentsOf, stepNotRunCause, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
@@ -490,15 +490,8 @@ function documentationWords(review: ReviewState, fix: FixState): string {
   if (cause !== null || answer === undefined) return `The documentation step did not run: ${cause ?? 'it has not answered yet'}.`;
   // What it updated: every file an item edited, whatever its status, since a deferred item may hold a partial change.
   const updated = new Set(answer.findings.flatMap((finding) => finding.files)).size;
-  const items = new Map((fix.documentation?.items ?? []).map((item) => [item.id, item]));
-  // What it left: each named document it deferred or found blocked, and each document of its own drift, where its search names what it left.
-  const leftFiles = new Set([
-    ...answer.findings.filter((finding) => finding.status === 'deferred' || finding.status === 'blocked').flatMap((finding) => {
-      const item = items.get(finding.id);
-      return item === undefined || item.file === null ? [] : [item.path ?? item.file];
-    }),
-    ...answer.drift.map((line) => line.file),
-  ]).size;
+  // What it left, as the list of documents left groups it, so two spellings of one document count once.
+  const leftFiles = new Set(leftByStep(fix).map((left) => documentKey(left.file))).size;
   if (updated === 0 && leftFiles === 0) return 'The documentation step found no document out of date.';
   if (updated === 0) return `The documentation step left ${counted(leftFiles, 'document', 'documents')} out of date.`;
   return `The documentation step updated ${counted(updated, 'document', 'documents')}${leftFiles === 0 ? '' : ` and left ${String(leftFiles)}`}.`;
