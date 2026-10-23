@@ -300,6 +300,7 @@ export function outputSchemaOf(role: ReviewRole): z.ZodType {
     case 'decider':
       return deciderOutputSchema;
     case 'fixer':
+    case 'documentation':
       return fixerOutputSchema;
   }
 }

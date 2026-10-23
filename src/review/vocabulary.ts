@@ -50,10 +50,11 @@ export function roleOfAngle(angle: Angle): 'triage' | FinderRole {
 /**
  * The roles a review runs, in phase order: the survey's `surveyor`, every
  * angle's role, the later read-only phases', the decision step's
- * `decider`, and the fix pass's `fixer`, which runs the fixes and the
- * repair. The role policy must name exactly these.
+ * `decider`, the fix pass's `fixer`, which runs the fixes, the repair and
+ * an answer pass, and the documentation step's `documentation` (PD8 of
+ * the documentation step). The role policy must name exactly these.
  */
-export const reviewRoles = ['surveyor', ...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer'] as const;
+export const reviewRoles = ['surveyor', ...angles.map(roleOfAngle), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer', 'documentation'] as const;
 export type ReviewRole = (typeof reviewRoles)[number];
 
 /** Whether a review role is one of the nine finders'. */

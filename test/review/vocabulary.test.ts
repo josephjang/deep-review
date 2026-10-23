@@ -27,14 +27,14 @@ describe('roleOfAngle', () => {
 });
 
 describe('the review roles', () => {
-  it('are the surveyor, the triage, the nine finders in launch order, then the roles of the later phases, the decider and the fix pass\'s fixer, each once', () => {
-    assert.deepEqual(reviewRoles, ['surveyor', 'triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer']);
+  it('are the surveyor, the triage, the nine finders in launch order, then the roles of the later phases, the decider, the fix pass\'s fixer and the documentation step\'s worker, each once', () => {
+    assert.deepEqual(reviewRoles, ['surveyor', 'triage', ...finderAngles.map((angle) => `finder-${angle}`), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer', 'documentation']);
     assert.equal(new Set(reviewRoles).size, reviewRoles.length, 'no role is listed twice');
   });
 
   it('name the nine finders, and only them, as finder roles', () => {
     assert.deepEqual(reviewRoles.filter(isFinderRole), finderAngles.map((angle) => `finder-${angle}`));
-    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['surveyor', 'triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer']);
+    assert.deepEqual(reviewRoles.filter((role) => !isFinderRole(role)), ['surveyor', 'triage', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer', 'documentation']);
   });
 });
 
