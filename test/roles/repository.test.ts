@@ -83,7 +83,7 @@ describe('the repository\'s roles/', () => {
     ['phase2-verify.md', /They appear\s+here because you need/, keysNaming('phase2-verify.md'), ['rubrics.md']],
     ['phase3-sweep.md', /output contract \(in the sweep's\s+role prompt/, ['sweep'], ['finder-output.md']],
     ['postreview-fix-test.md', /its test\s+requirements live in its role prompt/, fixerRoles, ['fixer-apply.md', 'fixer-tests.md']],
-    ['postreview-fix-test.md', /dispatch one fixer in documentation reconciliation mode/, ['documentation'], ['fixer-documentation.md']],
+    ['postreview-fix-test.md', /dispatch one fixer in documentation reconciliation mode/, ['documentation'], ['documentation-reconciliation.md']],
   ];
 
   it('gives each role the text a fragment says its prompt carries', () => {
@@ -119,11 +119,12 @@ describe('the repository\'s roles/', () => {
     }
   });
 
-  it('ends the documentation role with its reconciliation rule, after the fixer\'s return format', () => {
+  it('ends the documentation role with its reconciliation rules, after the fixer\'s return format', () => {
     const documentation = roles.find((role) => role.key === 'documentation')!;
-    const reconciliation = documentation.prompt.lastIndexOf('**When assigned documentation reconciliation:**');
+    const reconciliation = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'documentation-reconciliation.md'), 'utf8');
+    assert.ok(documentation.prompt.endsWith(reconciliation), `the documentation role ends with: ${documentation.prompt.slice(-200)}`);
     const returnFormat = documentation.prompt.lastIndexOf('## Return format');
-    assert.ok(returnFormat >= 0 && reconciliation > returnFormat, `reconciliation at ${String(reconciliation)}, return format at ${String(returnFormat)}`);
+    assert.ok(returnFormat >= 0 && documentation.prompt.length - reconciliation.length > returnFormat, `the return format at ${String(returnFormat)} comes before the rules`);
   });
 
   it('tells every fixer role its defers go to the person, and promises no later audit of them (R11 of answers)', () => {
