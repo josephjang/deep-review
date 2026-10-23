@@ -99,10 +99,12 @@ describe('leftDocumentsOf', () => {
     ]);
   });
 
-  it('counts a file the search left, and none for a search that names no file', () => {
-    const searched = (file: string): History => toReport(answered(planned(throughFixes([])), [{ ...item('search', 'deferred', 'the table is generated'), file }]));
-    assert.deepEqual(summary(searched('docs/table.md')), [['docs/table.md', [], ['left: The documentation step left it: the table is generated.']]]);
-    assert.deepEqual(summary(searched('.')), []);
+  it('counts what the search left by the step\'s own drift, never by its file, which names the first document it brought in line', () => {
+    const searched = (file: string, files: readonly string[], drift: readonly Line[]): History => toReport(answered(planned(throughFixes([])), [{ ...item('search', 'deferred', 'the table is generated', files), file }], drift));
+    // A partial search: it brought README.md in line and left the generated table.
+    assert.deepEqual(summary(searched('README.md', ['README.md'], [line('docs/table.md', 'the table lists 3 options')])), [['docs/table.md', ['the table lists 3 options (the documentation step)'], ['found: The documentation step found it out of date at its end.']]]);
+    assert.deepEqual(summary(searched('docs/table.md', [], [])), [], 'a file with no line of drift is no document left');
+    assert.deepEqual(summary(searched('.', [], [])), []);
   });
 
   it('counts each document of a plan the step did not answer, with why: its worker failed twice, or the run budget stopped it', () => {

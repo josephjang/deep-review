@@ -10,7 +10,7 @@
  * the same ledger. The report, the output of a command and the JSON form
  * each render this one value.
  */
-import { answerWords, madeTheEdit, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
+import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState } from '../checkpoint/events.ts';
 import { allBatches, budgetStoppedUnits, committedRevisions, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -488,13 +488,14 @@ function documentationWords(review: ReviewState, fix: FixState): string {
   const cause = stepNotRunCause(review);
   const answer = fix.answers.documentation[documentationUnitKey];
   if (cause !== null || answer === undefined) return `The documentation step did not run: ${cause ?? 'it has not answered yet'}.`;
-  const updated = new Set(answer.findings.filter((finding) => madeTheEdit(finding.status)).flatMap((finding) => finding.files)).size;
+  // What it updated: every file an item edited, whatever its status, since a deferred item may hold a partial change.
+  const updated = new Set(answer.findings.flatMap((finding) => finding.files)).size;
   const items = new Map((fix.documentation?.items ?? []).map((item) => [item.id, item]));
-  // What it left: each named document it deferred or found blocked, the file its search left, and each document of its own drift.
+  // What it left: each named document it deferred or found blocked, and each document of its own drift, where its search names what it left.
   const leftFiles = new Set([
     ...answer.findings.filter((finding) => finding.status === 'deferred' || finding.status === 'blocked').flatMap((finding) => {
       const item = items.get(finding.id);
-      return item === undefined || item.file === null ? (finding.file === '.' ? [] : [finding.file]) : [item.path ?? item.file];
+      return item === undefined || item.file === null ? [] : [item.path ?? item.file];
     }),
     ...answer.drift.map((line) => line.file),
   ]).size;

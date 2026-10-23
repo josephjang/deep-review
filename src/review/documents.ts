@@ -148,9 +148,9 @@ export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses
  * documentation step), computed from the fold alone, grouped by the
  * folded path, in the order they were first reported. They come from three
  * sources. A plan the step answered gives each document it left, deferred
- * or blocked, with its lines and the note of its answer, the search too
- * when it left a file, and each line of the step's own `drift`, which it
- * found out of date at its end. A plan the step did not answer gives each
+ * or blocked, with its lines and the note of its answer, and each line of
+ * the step's own `drift`, which it found out of date at its end, the
+ * documents its search left among them. A plan the step did not answer gives each
  * of its documents, with why the step did not run. And each `drift` line
  * of an answer of the fixes, the repair or an answer pass that no item of
  * the plan holds is left: reported after the step, when a plan exists, or
@@ -185,11 +185,11 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
         if (item.file !== null) add(item.path ?? item.file, facts, notRun, fixPassTime);
         continue;
       }
+      // The search's file names the first document it brought in line, not one it left; what it left is in the step's own drift.
+      if (item.file === null) continue;
       const answered = answer.findings.find((finding) => finding.id === item.id);
       if (answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) continue;
-      // The search leaves a file only when it names one; what it found and left is in its drift.
-      const file = item.file === null ? (answered.file === '.' ? null : answered.file) : item.path ?? item.file;
-      if (file !== null) add(file, facts, { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` }, fixPassTime);
+      add(item.path ?? item.file, facts, { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` }, fixPassTime);
     }
     for (const line of answer?.drift ?? []) add(line.file, [{ what: line.what, by: reporterOf.documentation }], { kind: 'found', text: 'The documentation step found it out of date at its end.' }, fixPassTime);
   }

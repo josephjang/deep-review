@@ -510,6 +510,11 @@ describe('the documents a run left out of date in the brief', () => {
     assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']], { drift: [line('CHANGES.md', 'always translated')] })).fold()), 'The documentation step updated 1 document and left 1.');
     assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']])).fold()), 'The documentation step updated 1 document.');
     assert.equal(changed(leftOne()), 'The documentation step left 1 document out of date.');
+    // A partial search: it brought README.md in line, which its file names, and left CHANGES.md in its drift.
+    const finding = (id: string, status: string, file: string): Record<string, unknown> => ({ id, status, file, line: null, note: `${id} ${status}`, message: { subject: `docs: Bring ${file} in line`, body: 'Why.' }, files: [file], corrections: [], validation: [], requiredFiles: [] });
+    const searched = documentedFixRun(stale, documentationStepAnswering([], { findings: [finding('doc-1', 'applied', 'docs/a.md'), finding('search', 'deferred', 'README.md')], drift: [line('CHANGES.md', 'always translated')] })).fold();
+    assert.equal(changed(searched), 'The documentation step updated 2 documents and left 1.');
+    assert.deepEqual(briefOf(searched).documents.map((document) => document.file), ['CHANGES.md']);
     assert.equal(changed(documentedFixRun().fold()), 'The documentation step found no document out of date.');
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
     assert.equal(changed(failedTwice), 'The documentation step did not run: its worker failed twice.');
