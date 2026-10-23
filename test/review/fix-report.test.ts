@@ -210,6 +210,11 @@ describe('the report of a fix run', () => {
     assert.match(refixed, /^- After the fixes: its runs checked an earlier tree, which a later revision of the fixes changed\.$/m);
     assert.doesNotMatch(header(render(later('answer'))), /an earlier tree/, 'the column after answers shows the tree an answer pass left');
     assert.match(header(render(later('repair'))), /\| After the fixes \| After the repair \(an earlier tree\) \|$/);
+    // A revision of the documentation step after the checks, as a reopening that gives its unit back makes, is named as its own (R10 of the documentation step).
+    const documented = render(later('documentation'));
+    assert.match(header(documented), /\| After the fixes \(an earlier tree\) \| After the repair \(an earlier tree\) \|$/);
+    assert.match(documented, /^- After the fixes: its runs checked an earlier tree, which a later revision of the documentation step changed\.$/m);
+    assert.match(render(later('repair')), /^- After the repair: its runs checked an earlier tree, which a later revision of the repair changed\.$/m);
   });
 
   it('says why the checks after the repair did not run: no failure to repair, a repair not attempted, or one that changed nothing (TD11 of resumable runs)', () => {

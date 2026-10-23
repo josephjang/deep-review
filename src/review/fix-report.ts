@@ -339,6 +339,9 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
 
 const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'repair-checks': 'After the repair', 'answer-checks': 'After answers' };
 
+/** Whose revision changed the tree a run checked, as the note under the Checks table names it. */
+const revisionOwners: Readonly<Record<EditingPhase, string>> = { fixes: 'the fixes', documentation: 'the documentation step', repair: 'the repair', answer: 'an answer pass' };
+
 const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000).toFixed(1)} s`;
 
 /** One table cell: a run's outcome and seconds, the frozen output's paths for one that did not pass, and the baseline mark. */
@@ -381,7 +384,7 @@ function checksSection(fix: FixState, survey: SurveyState | null, answered: bool
       ];
   const earlier = ran.flatMap((phase) => {
     const edit = edits.get(phase) ?? null;
-    return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of the ${edit === 'fixes' ? 'fixes' : 'repair'} changed.`];
+    return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of ${revisionOwners[edit]} changed.`];
   });
   // One list of columns gives the header and the separator, so the two cannot disagree on the count.
   const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => `${phaseTitles[phase]}${edits.get(phase) === null ? '' : ' (an earlier tree)'}`)];
