@@ -5,7 +5,8 @@
 // mark of a known failure names (test/helpers/resume-marks.ts). The fixed
 // set holds the first and the last append of a phase, the launch and the
 // end of a worker and of a check, a worker and a check while they run, the
-// record of a revision, the step before the report is written, and
+// record of a revision, the documentation step while its worker runs and
+// at its end, the step before the report is written, and
 // `commit` before and after it moves the branch. `npm run resume-test`
 // runs every point.
 import assert from 'node:assert/strict';
@@ -32,6 +33,9 @@ const fixedPoints = [
   // A fixer while it runs, where a person then edits a file of the change (W8), and the record of its end with its answer and revision, one append since R6.
   'child fixer fixes:c1-1#1',
   'worker.finished fixer fixes:c1-1',
+  // The documentation step while its worker runs, and the record of its end with its answer and revision (R12 of the documentation step).
+  'child documentation documentation:documentation#1',
+  'worker.finished documentation documentation:documentation',
   // The last step before the report is written.
   'worktree.checked report start',
   // `commit` before and after it moves the branch (W6).

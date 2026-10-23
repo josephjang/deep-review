@@ -9,7 +9,9 @@
  * The run holds each case a way needs: the first attempt of the finder
  * RIPPLE fails, so a stop can meet a unit at its last attempt; the fixer
  * of c1 leaves a line that the lint check removes in the checks after the
- * fixes, as a formatter does, before the check marks its start; and the
+ * fixes, as a formatter does, before the check marks its start; the fixer
+ * of c1 names a document its edit made stale, which the documentation
+ * step writes, so a stop can meet the step with a revision; and the
  * change has a file no finding names, src/c.ts, which a person edits at
  * one point while the engine is down.
  */
@@ -79,19 +81,25 @@ const personEdit = 'export const c = 2; // a person\'s edit\n';
 /** The line c1's fixer leaves and the lint check removes, as a formatter does. */
 const unformatted = '// unformatted\n';
 
+/** The document c1's fixer names as stale, and what the documentation step writes there. */
+const documentFile = 'docs/parse.md';
+const documentText = 'parse returns 0 for a null text\n';
+
 /** Which files each source of a revision may hold: what its fake writes. */
 const allowedFiles: Readonly<Record<string, readonly string[]>> = {
   'c1-1': ['src/a.ts'],
   'c2-1': ['src/b.ts'],
   'check lint': ['src/a.ts'],
+  documentation: [documentFile],
 };
 
-/** The script of the fakes: the review of fix-pass-fixture.ts, RIPPLE failing once, and a fixer for each cluster. */
+/** The script of the fakes: the review of fix-pass-fixture.ts, RIPPLE failing once, a fixer for each cluster, and the documentation step bringing the document c1's fixer names in line. */
 export const contractScript: Script = {
   ...reviewScript,
   'finder-RIPPLE': [{ exit: 1 }, {}],
-  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}${unformatted}` }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': `${fixedA}${unformatted}` }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }], [{ file: documentFile, what: 'parse throws on a null text' }]) },
   'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+  documentation: { edits: [{ writes: { [documentFile]: documentText }, snapshot: 0 }], output: fixerAnswer([{ files: [documentFile], subject: 'docs: Say parse returns 0 for a null' }, { status: 'already-applied' }]) },
 };
 
 /** The rules of the stand-in checks: lint removes the line c1's fixer leaves, and every check passes. */
@@ -210,7 +218,7 @@ export class ContractSandbox {
     }));
     const events = this.box.events(state.id);
     const degraded = events.flatMap(([kind, payload]) => (kind === 'angle.failed' || kind === 'group.unverified' || kind === 'unit.unattempted' ? [`${kind} ${String(payload.angle ?? payload.groupId ?? payload.key)}`] : []));
-    const files = Object.fromEntries(['src/a.ts', 'src/b.ts', personFile, 'src/gone.ts'].map((path) => {
+    const files = Object.fromEntries(['src/a.ts', 'src/b.ts', personFile, 'src/gone.ts', documentFile].map((path) => {
       const file = join(this.box.repo, ...path.split('/'));
       return [path, existsSync(file) ? readFileSync(file, 'utf8') : null];
     }));
@@ -453,7 +461,10 @@ export async function reference(): Promise<Reference> {
     });
     const committed = await sandbox.run(['commit']);
     assert.equal(committed.status, 0, committed.stderr);
-    const commits = git(sandbox.box.repo, 'log', '--format=%s', '-3').split('\n');
+    // One commit per revision of the run, newest first, as git log lists them.
+    const revisions = outcome.state.review!.fix!.revisions.length;
+    const commits = git(sandbox.box.repo, 'log', '--format=%s', `-${String(revisions)}`).split('\n');
+    assert.equal(commits.length, revisions, 'commit made a commit per revision');
     return { outcome, appends: [...new Set(appends)], children, commits };
   } finally {
     sandbox.close();
