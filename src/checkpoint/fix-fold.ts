@@ -25,7 +25,7 @@
 import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
+import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -432,9 +432,6 @@ const unitUnattempted: Reducer<UnitUnattempted> = (state, payload, event) => {
   const notAttempted = { ...fix.notAttempted, [payload.phase]: { ...fix.notAttempted[payload.phase], [payload.key]: { cause: payload.cause, reason: payload.reason } } };
   return withFix(current, review, { ...fix, notAttempted }, event);
 };
-
-/** A `drift` line as the plan of the documentation step and an answer of the fixes both name it: the batch, the file as written and the stale fact. */
-const driftLineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
 
 /**
  * The plan of the documentation step (R2, TD2, TD11, TD12 of the

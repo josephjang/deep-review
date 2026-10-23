@@ -839,6 +839,9 @@ export function budgetStoppedUnits(fix: Pick<FixState, 'notAttempted'>): FixReop
   return budgetDegradingPhases.flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => ({ phase, key })));
 }
 
+/** A `drift` line as the plan of the documentation step and an answer of the fixes both name it: the batch, the file as written and the stale fact. */
+export const driftLineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
+
 /**
  * The items of the documentation step (R2, TD8 of the documentation
  * step): the `drift` lines of the answers of the fixes, read batch by

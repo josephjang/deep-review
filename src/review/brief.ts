@@ -19,7 +19,7 @@ import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { documentKey, leftByStep, leftDocumentsOf, stepNotRunCause, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { codeSpan, counted, findingLink, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
@@ -389,8 +389,7 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
       ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : []),
     ];
     const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? 'was' : 'were';
-    const work = parts.length <= 2 ? parts.join(' and ') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}`;
-    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${work} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
+    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${listed(parts)} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
   }
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
   // A step that did not answer brought no document in line; one whose fixes changed no file had nothing to do, and a run an engine before the step configured never had one, though its brief counts its lines (R7, R8, R11 of the documentation step).
@@ -497,9 +496,6 @@ function documentationWords(review: ReviewState, fix: FixState): string {
   return `The documentation step updated ${counted(updated, 'document', 'documents')}${leftFiles === 0 ? '' : ` and left ${String(leftFiles)}`}.`;
 }
 
-/** Words in a list, the last two joined by `and` and any before them by commas. */
-const listed = (words: readonly string[]): string => (words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`);
-
 /**
  * The headline's sentence: how many things need the person, the documents
  * the run left out of date among them (PD6 of the documentation step), and
@@ -579,7 +575,7 @@ export function idWords(ids: readonly string[], show: (id: string) => string = (
   const named = ids.slice(0, shownIds).map(show);
   const more = ids.length - named.length;
   if (more > 0) return `${named.join(', ')} and ${String(more)} more`;
-  return named.length <= 1 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named.at(-1)!}`;
+  return listed(named);
 }
 
 /** What became of a decided fix, in the brief's plain words (the table of plain words of the design). */

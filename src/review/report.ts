@@ -24,7 +24,7 @@ import { answeringLine, decisionLine, decisionsSection } from './decision-report
 import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { codeSpan, findingAnchor, inlineText, localPathWords, paragraphText, tableCell } from './markdown.ts';
+import { codeSpan, findingAnchor, inlineText, listed, localPathWords, paragraphText, tableCell } from './markdown.ts';
 import { conditionWords } from './prompts.ts';
 import { ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
@@ -134,7 +134,7 @@ export function stoppedUnitWords(units: readonly { readonly phase: 'fixes' | 'do
     ...(units.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []),
     ...(units.some((unit) => unit.phase === 'repair') ? ['the repair'] : []),
   ];
-  return words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`;
+  return listed(words);
 }
 
 /** What bounded the run's spend: the run budget in force at the end, or why there was none. */

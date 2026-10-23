@@ -7,7 +7,7 @@
  */
 import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, driftLineKey, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
@@ -99,8 +99,11 @@ export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentation
 /** A sentence from a note of a worker, with one period at its end. */
 const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.`;
 
-/** A line of a `drift`, as the plan and an answer both name it: the batch, the file as written and the stale fact. */
-const lineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
+/** When the lines of the fix pass came, as an answer pass numbers its time: before every answer pass, 0, but for a pass recorded before the run's last reopening, whose fix pass ran again after it. */
+function fixPassTimeOf(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: Pick<FixState, 'reopenings'> }): number {
+  const reopened = review.fix.reopenings.at(-1)?.at ?? null;
+  return reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+}
 
 /** A `drift` line of an answer of the run that no item of the documentation step holds, with the unit that reported it and when, as an answer pass numbers its time. */
 export interface UnheldLine {
@@ -123,17 +126,15 @@ export interface UnheldLine {
 export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses'>): UnheldLine[] {
   const fix = review.fix;
   if (fix === null) return [];
-  // The lines of the fix pass came before every answer pass, but for a pass recorded before the run's last reopening, whose fix pass ran again after it.
-  const reopened = fix.reopenings.at(-1)?.at ?? null;
-  const fixPassTime = reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+  const fixPassTime = fixPassTimeOf({ ...review, fix });
   // How many times the plan holds each line of the fixes.
   const held = new Map<string, number>();
-  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(lineKey(line.key, line), (held.get(lineKey(line.key, line)) ?? 0) + 1);
+  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
   const lines: UnheldLine[] = [];
   const unheld = (phase: UnheldLine['phase'], key: string, time: number): void => {
     for (const line of fix.answers[phase][key]?.drift ?? []) {
-      const count = phase === 'fixes' ? (held.get(lineKey(key, line)) ?? 0) : 0;
-      if (count > 0) held.set(lineKey(key, line), count - 1);
+      const count = phase === 'fixes' ? (held.get(driftLineKey(key, line)) ?? 0) : 0;
+      if (count > 0) held.set(driftLineKey(key, line), count - 1);
       else lines.push({ phase, key, file: line.file, what: line.what, time });
     }
   };
@@ -192,9 +193,7 @@ export function leftByStep(fix: Pick<FixState, 'documentation' | 'answers'>): St
 export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentationStep' | 'answerPasses'>): LeftDocument[] {
   const fix = review.fix;
   if (fix === null) return [];
-  // The lines of the fix pass came before every answer pass, but for a pass recorded before the run's last reopening, whose fix pass ran again after it.
-  const reopened = fix.reopenings.at(-1)?.at ?? null;
-  const fixPassTime = reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+  const fixPassTime = fixPassTimeOf({ ...review, fix });
   const entries = new Map<string, { file: string; facts: LeftFact[]; reasons: LeftReason[]; time: number }>();
   const add = (file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
     const key = documentKey(file);

@@ -313,7 +313,7 @@ function committedWords(fix: FixState): string {
 
 const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-/** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, and the fixers' drift and test lines. */
+/** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, the fixers' test lines, and where the documentation they say their edits made stale is. */
 function fixesSection(review: ReviewState, fix: FixState): string[] {
   const findings = rankedFindings(review);
   const blocks = findings.flatMap((entry, index) => {

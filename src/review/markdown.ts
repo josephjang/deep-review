@@ -18,6 +18,9 @@ export const inlineText = (text: string): string => text.replaceAll(/[ \t]*[\r\n
 /** A count and the noun it counts, singular for one. */
 export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
 
+/** Words in a list, the last two joined by `and` and any before them by commas. */
+export const listed = (words: readonly string[]): string => (words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`);
+
 /**
  * Text as a Markdown code span the text cannot close, the CommonMark way:
  * a delimiter one backtick longer than the longest run the text holds,

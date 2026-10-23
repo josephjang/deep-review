@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { codeSpan, counted, findingAnchor, findingLink, inlineText, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
+import { codeSpan, counted, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
   it('quotes plain text in single backticks', () => {
@@ -41,6 +41,16 @@ describe('counted', () => {
     assert.equal(counted(0, 'fix goes', 'fixes go'), '0 fixes go');
     assert.equal(counted(2, 'fix goes', 'fixes go'), '2 fixes go');
     assert.equal(counted(1000, 'file', 'files'), '1000 files');
+  });
+});
+
+describe('listed', () => {
+  it('joins the last two words by and and any before them by commas, with nothing for no word', () => {
+    assert.equal(listed([]), '');
+    assert.equal(listed(['a']), 'a');
+    assert.equal(listed(['a', 'b']), 'a and b');
+    assert.equal(listed(['a', 'b', 'c']), 'a, b and c');
+    assert.equal(listed(['a', 'b', 'c', 'd']), 'a, b, c and d');
   });
 });
 
