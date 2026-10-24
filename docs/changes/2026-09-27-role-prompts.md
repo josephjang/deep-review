@@ -33,7 +33,7 @@ each role.
 
 ## Problem
 
-The plan's fifth principle is that role prompts are owned by this
+A principle of this rewrite is that role prompts are owned by this
 repository, and until now no engine carried its prompts.
 
 - The proof of concept's `roles.json` pointed at files of the prompt-only
@@ -58,7 +58,7 @@ repository, and until now no engine carried its prompts.
   final newline, with a byte order mark, or with a marker the assembler
   did not resolve would have reached a worker as it was.
 
-This is the fourth element of the plan and the last before the first
+This is the fourth element of the rewrite and the last before the first
 end-to-end review, which will run these prompts through the runtime
 adapter for the first time. It was read at `agent-skills` commit
 `822986e`, whose role sources and assembled roles were last changed at

@@ -263,9 +263,7 @@ request opens.
 ### Step 0: the decider before the proposal (R13)
 
 Run on 2026-10-08, on the author's Windows 11 machine, by a scratch
-script beside the corpus
-(`projects\gate\notes\2026-10-08-decider-experiment\decide.ts`) that
-imported a frozen copy of the engine at `1811a86` and ran the
+script kept with the corpus outside the repository that imported a frozen copy of the engine at `1811a86` and ran the
 `decider-brief.md` and `decider-rubric.md` this element commits, byte for
 byte. Input: the five replayed runs (zod `7daab352`, click `e0a1f834`,
 click-codex `e9755671`, pytest `64250a74`, hono `4e135100`), each

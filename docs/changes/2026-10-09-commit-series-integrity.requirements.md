@@ -58,9 +58,9 @@ Both reached a report with every check passing after the fixes. The
 numbers below come from the two runs' ledgers in this repository's
 checkpoint (`.git/deep-review-checkpoint`, folded read-only), the
 fixers' Claude Code session transcripts (each tool call with its time),
-the per-commit check logs under `projects\gate\decision\` and the local
-branch `backup/decision-step-review-run1`, which keeps the first run's
-commits.
+the per-commit check logs and a branch that keeps the first run's
+commits; the author keeps the logs and the branch outside the
+repository.
 
 | | `71ae22a2`, parallel | `8dbe23ad`, one at a time |
 |---|---|---|

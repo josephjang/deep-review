@@ -25,8 +25,9 @@ view and recorded on the ledger before any edit.
 
 ## Problem
 
-Measured on the verifier rubric's replay corpus (`C:\Users\josep\projects\gate\replay`),
-the notes of 2026-10-07 (`projects\gate\notes\2026-10-07-decision-step`):
+Measured on the verifier rubric's replay corpus (the Verification of
+`2026-10-05-verifier-rubric.md` describes it), in the author's
+measurements of 2026-10-07, which are kept outside the repository:
 
 - **The verifier's note is prose.** Under the current rubric Claude
   attached `Needs the author:` to 31 of the 89 candidates it kept and

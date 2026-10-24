@@ -76,7 +76,8 @@ gate, as `CodexSandboxOffline`:
   ENOMEM`, and `tsx` calls it on load, so `pnpm check:comments` fails;
   with a preload answering it from the environment, the same command
   passes.
-- `C:\Users\josep` carries no entry for `CodexSandboxUsers`, which has
+- The user's profile directory, `C:\Users\<user>`, carries no entry
+  for `CodexSandboxUsers`, which has
   read and execute on chosen folders under it (`projects`, `AppData`,
   `.claude`, `.agents`, `.codex`). The sandbox user cannot list the
   profile directory itself. `where.exe` fails for every file under it,

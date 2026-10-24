@@ -494,8 +494,8 @@ wording of the rubric can change that; it is named under Non-Goals.
 Measured before this proposal, on the author's Windows 11 machine on
 2026-10-05, against `a79010f` with the replay tool in the worktree,
 which `dfbf51e` then committed. Results, labels and the roles
-directories of every text tried are under `~/projects/gate/replay`
-there.
+directories of every text tried are kept by the author, outside the
+repository.
 
 - **The set.** Three recorded runs, 29 verification groups, 112
   candidates: 46 from the correctness and cost angles, 47 from the
