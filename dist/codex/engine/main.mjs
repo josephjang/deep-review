@@ -24836,6 +24836,10 @@ var init_checkpoint = __esm({
           return unknown2 === null ? foldRun(events, this.#model) : { id: run2.id, unreadable: unknown2 };
         });
       }
+      /** The id of every run of the ledger, in ledger order, unreadable runs too, with no fold: what a lookup of a run by the start of its id reads. */
+      runIds() {
+        return this.ledger.listRuns().map((run2) => run2.id);
+      }
       /** Every run's state, in ledger order, refusing the first run this engine cannot read with `UnreadableRunError`; for callers that need every run, where `listRuns` is for a command that picks one. */
       foldRuns() {
         return this.ledger.listRuns().map((run2) => this.fold(run2.id));
@@ -26323,6 +26327,16 @@ function commitMessages(repo, base, head2) {
   for (let index2 = 0; index2 + 1 < fields.length; index2 += 2) messages.push({ commit: fields[index2].trim(), message: fields[index2 + 1].trimEnd() });
   return messages;
 }
+function commitCount(repo, base, head2, paths = []) {
+  const range = isEmptyTree(base) ? [head2] : [`${base}..${head2}`];
+  try {
+    const text3 = gitText(repo, ["rev-list", "--count", "--first-parent", ...range, "--", ...paths.map(literal2)]).trim();
+    const count2 = Number(text3);
+    return /^[0-9]+$/.test(text3) && Number.isSafeInteger(count2) ? count2 : null;
+  } catch {
+    return null;
+  }
+}
 function mergeBase(repo, a, b) {
   return gitText(repo, ["merge-base", a, b]).trim();
 }
@@ -26407,12 +26421,14 @@ function objectFormat(repo) {
   if (format !== "sha1" && format !== "sha256") throw new Error(`git reports an object format this engine does not know: ${format}`);
   return format;
 }
-var maxOutputBytes, literal2, excluded, pathspecs;
+var maxOutputBytes, emptyTreeIds, isEmptyTree, literal2, excluded, pathspecs;
 var init_git = __esm({
   "src/scope/git.ts"() {
     "use strict";
     init_git_sync();
     maxOutputBytes = 512 * 1024 * 1024;
+    emptyTreeIds = /* @__PURE__ */ new Set(["4b825dc642cb6eb9a060e54bf8d69288fbee4904", "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321"]);
+    isEmptyTree = (id) => emptyTreeIds.has(id);
     literal2 = (path) => `:(literal)${path}`;
     excluded = (pattern) => `:(exclude,glob)${pattern}`;
     pathspecs = (paths, exclude) => [...paths.map(literal2), ...exclude.map(excluded)];
@@ -27752,14 +27768,96 @@ var init_files = __esm({
   }
 });
 
+// src/review/markdown.ts
+function codeSpan(text3) {
+  let longest = 0;
+  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
+  const delimiter3 = "`".repeat(longest + 1);
+  const padded = text3.startsWith("`") || text3.endsWith("`") || text3.startsWith(" ") && text3.endsWith(" ") && text3.trim() !== "";
+  const pad = padded ? " " : "";
+  return `${delimiter3}${pad}${text3}${pad}${delimiter3}`;
+}
+function localPathWords(path, places) {
+  const inside = (root) => {
+    if (root === "") return null;
+    const windows = /^[A-Za-z]:|^\\\\/.test(root);
+    const trimmed = root.replace(/[\\/]+$/, "");
+    const prefix = path.slice(0, trimmed.length);
+    if (windows ? prefix.toLowerCase() !== trimmed.toLowerCase() : prefix !== trimmed) return null;
+    const separator = path.charAt(trimmed.length);
+    if (separator === "") return "";
+    return separator === "/" || windows && separator === "\\" ? path.slice(trimmed.length + 1) : null;
+  };
+  const inWorktree = inside(places.worktree);
+  if (inWorktree !== null) return inWorktree === "" ? "." : inWorktree.replaceAll("\\", "/");
+  const inHome = inside(places.home);
+  if (inHome !== null) return inHome === "" ? "~" : `~/${inHome.replaceAll("\\", "/")}`;
+  return path;
+}
+function paragraphText(text3) {
+  const line = inlineText(text3).trimStart();
+  if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
+  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
+}
+var tableCell, inlineText, counted, listed, capitalized, findingAnchor, findingLink, sentenceText;
+var init_markdown = __esm({
+  "src/review/markdown.ts"() {
+    "use strict";
+    tableCell = (text3) => text3.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
+    inlineText = (text3) => text3.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
+    counted = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
+    listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+    capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
+    findingAnchor = (id) => `finding-${id.toLowerCase()}`;
+    findingLink = (id) => `[${id}](#${findingAnchor(id)})`;
+    sentenceText = (text3) => {
+      const inline = inlineText(text3).trimEnd();
+      if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+      return `${inline.replace(/[:,;]$/, "")}.`;
+    };
+  }
+});
+
+// src/scope/scope-line.ts
+function baseNameOf(mode, request) {
+  if (request.range !== void 0) return request.range.mergeBase ? `the merge base with ${request.range.from}` : request.range.from;
+  if (request.ref !== void 0) return request.ref;
+  return mode === "last-commit" ? "the parent of HEAD" : "HEAD";
+}
+function endWords(scope) {
+  if (scope.target !== null) return commitWords(scope.target);
+  if (scope.uncommitted === null) return "the working tree";
+  return scope.uncommitted === 0 ? "the working tree, which has no uncommitted change" : `the working tree, where ${counted(scope.uncommitted, "file holds", "files hold")} uncommitted changes`;
+}
+function sizeWords(scope) {
+  const commits = scope.commits === null ? null : scope.commits === 0 ? "no commit" : counted(scope.commits, "commit", "commits");
+  const files = counted(scope.fileCount, "file", "files");
+  const excluded2 = scope.excludedCount === 0 ? "" : ` (${counted(scope.excludedCount, "more path", "more paths")} left out by scope.exclude)`;
+  return `${commits === null ? "" : `${commits} and `}${files}${excluded2}`;
+}
+function scopeLine(scope) {
+  const ends = `from ${baseWords(scope)} to ${endWords(scope)}`;
+  return scope.empty === null ? `Scope: ${scope.mode}, ${sizeWords(scope)}, ${ends}` : `Scope: ${scope.mode}, ${ends}; ${scope.empty}`;
+}
+var commitWords, baseWords;
+var init_scope_line = __esm({
+  "src/scope/scope-line.ts"() {
+    "use strict";
+    init_markdown();
+    init_git();
+    commitWords = (commit2) => isEmptyTree(commit2) ? "the empty tree" : commit2.slice(0, 8);
+    baseWords = (scope) => isEmptyTree(scope.base) ? "the empty tree" : `${scope.baseName} (${commitWords(scope.base)})`;
+  }
+});
+
 // src/config/command.ts
 function showLines(resolved, scope) {
   const names2 = settingsOfRuntime(resolved.runtime);
   const width = Math.max(...names2.map((name) => name.length));
   const repository = resolved.repository;
   return [
-    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections).
-    `Scope: ${scope.mode}, the change from ${scope.base} to ${scope.target ?? "the working tree"}${scope.empty === null ? "" : `; ${scope.empty}`}`,
+    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections), and the counts and the base a person can check (R12 of the questions in the chat).
+    scopeLine(scope),
     `Runtime: ${resolved.runtime}`,
     "Settings:",
     ...names2.map((name) => {
@@ -27819,6 +27917,7 @@ var init_command = __esm({
     "use strict";
     init_dist();
     init_files();
+    init_scope_line();
     init_settings();
     ownerWords = {
       "repository-first": "the repository's file wins over the operator's file",
@@ -29086,8 +29185,8 @@ function progressWords(state, adapter, now) {
 }
 function budgetSpendNote({ charged, lost }) {
   const parts = [
-    ...charged > 0 ? [`counting ${counted(charged, "worker that reported no cost at its per-worker cap", "workers that reported no cost at their per-worker caps")}`] : [],
-    ...lost > 0 ? [`${counted(lost, "worker lost with an earlier engine is", "workers lost with an earlier engine are")} not counted`] : []
+    ...charged > 0 ? [`counting ${counted2(charged, "worker that reported no cost at its per-worker cap", "workers that reported no cost at their per-worker caps")}`] : [],
+    ...lost > 0 ? [`${counted2(lost, "worker lost with an earlier engine is", "workers lost with an earlier engine are")} not counted`] : []
   ];
   return parts.length === 0 ? null : parts.join("; ");
 }
@@ -29105,7 +29204,7 @@ function statisticsOf(state, adapter) {
   });
   return { phases: byPhase, total: spendOf(settled3, adapter), budgetApplied: adapter.capabilities.costInUsd && (state.review?.limits.runBudgetUsd ?? null) !== null };
 }
-var isFinished, cents, counted;
+var isFinished, cents, counted2;
 var init_spend = __esm({
   "src/review/spend.ts"() {
     "use strict";
@@ -29114,7 +29213,7 @@ var init_spend = __esm({
     init_vocabulary();
     isFinished = (worker) => worker.status === "finished";
     cents = (value) => value === null ? null : Math.round(Number((value * 100).toPrecision(12))) / 100;
-    counted = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
+    counted2 = (count2, one, many) => `${String(count2)} ${count2 === 1 ? one : many}`;
   }
 });
 
@@ -30589,56 +30688,6 @@ var init_lock = __esm({
   }
 });
 
-// src/review/markdown.ts
-function codeSpan(text3) {
-  let longest = 0;
-  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
-  const delimiter3 = "`".repeat(longest + 1);
-  const padded = text3.startsWith("`") || text3.endsWith("`") || text3.startsWith(" ") && text3.endsWith(" ") && text3.trim() !== "";
-  const pad = padded ? " " : "";
-  return `${delimiter3}${pad}${text3}${pad}${delimiter3}`;
-}
-function localPathWords(path, places) {
-  const inside = (root) => {
-    if (root === "") return null;
-    const windows = /^[A-Za-z]:|^\\\\/.test(root);
-    const trimmed = root.replace(/[\\/]+$/, "");
-    const prefix = path.slice(0, trimmed.length);
-    if (windows ? prefix.toLowerCase() !== trimmed.toLowerCase() : prefix !== trimmed) return null;
-    const separator = path.charAt(trimmed.length);
-    if (separator === "") return "";
-    return separator === "/" || windows && separator === "\\" ? path.slice(trimmed.length + 1) : null;
-  };
-  const inWorktree = inside(places.worktree);
-  if (inWorktree !== null) return inWorktree === "" ? "." : inWorktree.replaceAll("\\", "/");
-  const inHome = inside(places.home);
-  if (inHome !== null) return inHome === "" ? "~" : `~/${inHome.replaceAll("\\", "/")}`;
-  return path;
-}
-function paragraphText(text3) {
-  const line = inlineText(text3).trimStart();
-  if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
-  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
-}
-var tableCell, inlineText, counted2, listed, capitalized, findingAnchor, findingLink, sentenceText;
-var init_markdown = __esm({
-  "src/review/markdown.ts"() {
-    "use strict";
-    tableCell = (text3) => text3.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
-    inlineText = (text3) => text3.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
-    counted2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
-    listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
-    capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
-    findingAnchor = (id) => `finding-${id.toLowerCase()}`;
-    findingLink = (id) => `[${id}](#${findingAnchor(id)})`;
-    sentenceText = (text3) => {
-      const inline = inlineText(text3).trimEnd();
-      if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
-      return `${inline.replace(/[:,;]$/, "")}.`;
-    };
-  }
-});
-
 // src/review/runs.ts
 function readableRuns(checkpoint, log) {
   const readable = [];
@@ -30651,11 +30700,22 @@ function readableRuns(checkpoint, log) {
 function passedOverLine(runId, unknown2, reader) {
   return `run ${runId}: passed over: ${unreadableRunReason(unknown2, reader)}`;
 }
+function runIdOf(checkpoint, given) {
+  const ids2 = checkpoint.runIds();
+  if (ids2.includes(given) || given.length < shortRunIdLength) return given;
+  const named = ids2.filter((id) => id.startsWith(given));
+  if (named.length > 1) throw new ReviewRefusedError(`--run ${given} names ${String(named.length)} runs (${named.join(", ")}); give more of the id`);
+  return named[0] ?? given;
+}
+var shortRunIdLength, shortRunId;
 var init_runs = __esm({
   "src/review/runs.ts"() {
     "use strict";
     init_checkpoint();
     init_errors4();
+    init_errors6();
+    shortRunIdLength = 8;
+    shortRunId = (runId) => runId.slice(0, shortRunIdLength);
   }
 });
 
@@ -30958,7 +31018,7 @@ function requireCommittable(run2) {
   return run2;
 }
 function chooseRun(checkpoint, runId, log) {
-  if (runId !== void 0) return requireCommittable(checkpoint.fold(runId));
+  if (runId !== void 0) return requireCommittable(checkpoint.fold(runIdOf(checkpoint, runId)));
   const found = readableRuns(checkpoint, log).filter((run2) => whyNotCommittable(run2) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
   if (found === void 0) throw new ReviewRefusedError("no completed fix run has changes left to commit; name one with --run <id>");
   return found;
@@ -31046,7 +31106,7 @@ function seriesSettleOf(run2, head2) {
   const open2 = run2.review?.fix?.openSeries ?? null;
   if (open2 === null) return null;
   if (head2 === open2.to) {
-    const line = `run ${run2.id}: a commit a stop cut short had moved HEAD to ${open2.to.slice(0, 12)}; the ${commitCount(open2.commits.length)} it made ${open2.commits.length === 1 ? "is" : "are"} recorded now`;
+    const line = `run ${run2.id}: a commit a stop cut short had moved HEAD to ${open2.to.slice(0, 12)}; the ${commitCount2(open2.commits.length)} it made ${open2.commits.length === 1 ? "is" : "are"} recorded now`;
     return { kind: "complete", series: open2, event: { kind: "commits.created", version: 1, payload: open2 }, line };
   }
   if (head2 === open2.from) {
@@ -31169,7 +31229,7 @@ function build(run2, options2) {
     rmSync6(temporary, { recursive: true, force: true });
   }
 }
-var messageOf, subjectOf, TreeBuilder, headOf, unstagedLine, commitCount;
+var messageOf, subjectOf, TreeBuilder, headOf, unstagedLine, commitCount2;
 var init_commit = __esm({
   "src/review/commit.ts"() {
     "use strict";
@@ -31221,7 +31281,7 @@ var init_commit = __esm({
     };
     headOf = (worktree) => git2(worktree, ["rev-parse", "HEAD"]).trim();
     unstagedLine = (runId, paths) => `run ${runId}: staged paths no commit holds were unstaged and are unchanged in the tree: ${paths.join(", ")}`;
-    commitCount = (count2) => `${String(count2)} commit${count2 === 1 ? "" : "s"}`;
+    commitCount2 = (count2) => `${String(count2)} commit${count2 === 1 ? "" : "s"}`;
   }
 });
 
@@ -33006,7 +33066,7 @@ function triageTask(messages) {
     "Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:",
     "",
     `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
-    "- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.",
+    `- \`what\`: what the change does, in at most five sentences of plain words. Start with one sentence of at most ${String(accountLimits.firstSentence)} characters that says alone what the change does. Name no file, line or internal name that a reader must look up; put those in \`restsOn\`.`,
     "- `why`: why the change does it, in the change's own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.",
     "- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.",
     "- `restsOn`: the files and commits that `what` rests on, at least one.",
@@ -33396,7 +33456,7 @@ var init_tasks = __esm({
     commitMessagesLimitBytes = 32 * 1024;
     shownCommitLength = 12;
     utf8Bytes = (text3) => Buffer.byteLength(text3, "utf8");
-    accountLimits = { title: 80, why: 400 };
+    accountLimits = { title: 80, why: 400, firstSentence: 160 };
     snapshotIndexPlaceholder = "<index>";
     claimPathPlaceholder = "<path>";
     scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
@@ -34005,7 +34065,7 @@ function decisionsSection(review2) {
   return [
     "## Decisions",
     "",
-    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? "" : `; ${counted2(departures, "fix departs", "fixes depart")} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
+    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? "" : `; ${counted(departures, "fix departs", "fixes depart")} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
     ...answering,
     ...questions.length === 0 ? [] : ["", "### Asked", "", `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} The brief at the top of this report gives each question with its options.`, "", ...questions],
     ...fixes.length === 0 ? [] : ["", "### To fix", "", ...fixes],
@@ -34177,6 +34237,10 @@ function fateOf(review2, fix, id, passes = "read") {
   const reason = (batch === null ? null : notAttemptedNote(fix, "fixes", batch.key)) ?? "no fixer answered for it";
   return { id, outcome: "not attempted", decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
+function lastFixAnswer(review2, fix, id) {
+  const { answer: answer3, reason } = fateOf(review2, fix, id);
+  return { answer: answer3, reason };
+}
 function findingOutcomes(review2, fix, id) {
   const last = fateOf(review2, fix, id);
   const unattempted = last.outcome === "not attempted" && last.batch !== null ? fix.notAttempted.fixes[last.batch.key]?.cause ?? null : null;
@@ -34282,7 +34346,7 @@ function documentationSection(review2, fix) {
   const lines = [
     "## Documentation",
     "",
-    cause === null ? `The documentation step answered for ${counted2(planned.filter(isDocumentItem).length, "document", "documents")} the fixers named, and for its own search.` : stepNotRunSentence(cause),
+    cause === null ? `The documentation step answered for ${counted(planned.filter(isDocumentItem).length, "document", "documents")} the fixers named, and for its own search.` : stepNotRunSentence(cause),
     "",
     ...items,
     ...found.length === 0 ? [] : ["Documents the documentation step found out of date at its end, which it did not bring in line:", "", ...found, ""],
@@ -34635,7 +34699,7 @@ function fixGaps(context, fix) {
     const keys = new Set(stopped.filter((unit) => unit.phase === "fixes").map((unit) => unit.key));
     const findings = new Set(allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).filter((id) => context.outcomes.get(id)?.last === "not attempted")).size;
     const parts = [
-      ...keys.size === 0 ? [] : [findings === 0 ? "some of the fixes" : counted2(findings, "finding", "findings")],
+      ...keys.size === 0 ? [] : [findings === 0 ? "some of the fixes" : counted(findings, "finding", "findings")],
       ...stopped.some((unit) => unit.phase === "documentation") ? ["the documentation step"] : [],
       ...stopped.some((unit) => unit.phase === "repair") ? ["the repair of the checks"] : []
     ];
@@ -34653,23 +34717,23 @@ function gapsOf(context) {
   const gaps = [];
   for (const [angle, reason] of Object.entries(review2.anglesNotRun)) gaps.push({ kind: "angle", text: `The ${angle} angle did not run (${reason}). A later pass looked for what it would have found.` });
   for (const group of unverifiedGroupsOf(review2)) gaps.push({ kind: "unverified", text: `No verifier examined ${group.candidateIds.join(", ")} (${group.reason}); each counts as PLAUSIBLE.` });
-  if (scope.excluded.count > 0) gaps.push({ kind: "excluded", text: `${counted2(scope.excluded.count, "changed path", "changed paths")} under ${scope.request.exclude.join(", ")}, which the settings leave out.` });
+  if (scope.excluded.count > 0) gaps.push({ kind: "excluded", text: `${counted(scope.excluded.count, "changed path", "changed paths")} under ${scope.request.exclude.join(", ")}, which the settings leave out.` });
   const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => file2.path);
-  if (oversized.length > 0) gaps.push({ kind: "oversized", text: `${counted2(oversized.length, "file", "files")} too large to freeze, which no worker was given: ${oversized.join(", ")}.` });
+  if (oversized.length > 0) gaps.push({ kind: "oversized", text: `${counted(oversized.length, "file", "files")} too large to freeze, which no worker was given: ${oversized.join(", ")}.` });
   if (review2.fix !== null) gaps.push(...fixGaps(context, review2.fix));
   const workers = Object.values(state.workers);
   const stopped = workers.filter((worker) => (worker.status === "lost" || worker.status === "finished" && endedByKill(worker.finish)) && !ranAgain(workers, worker));
-  if (stopped.length > 0) gaps.push({ kind: "stop", text: `A stop ended ${counted2(stopped.length, "worker", "workers")} whose work did not run again; the notes of the run name ${stopped.length === 1 ? "it" : "them"}.` });
+  if (stopped.length > 0) gaps.push({ kind: "stop", text: `A stop ended ${counted(stopped.length, "worker", "workers")} whose work did not run again; the notes of the run name ${stopped.length === 1 ? "it" : "them"}.` });
   return gaps;
 }
 function lookOf(context, departures) {
   const { review: review2 } = context;
   const look = [];
   const unreviewed = departures.filter((departure) => departure.review === null);
-  if (unreviewed.length > 0) look.push({ condition: "departure", findings: unreviewed.map((departure) => departure.id), text: `${counted2(unreviewed.length, "fix goes", "fixes go")} against a written rule` });
+  if (unreviewed.length > 0) look.push({ condition: "departure", findings: unreviewed.map((departure) => departure.id), text: `${counted(unreviewed.length, "fix goes", "fixes go")} against a written rule` });
   const plausible = context.findings.filter(({ entry, decision }) => entry.resolution.verdict === "PLAUSIBLE" && (review2.fix === null ? decision?.decision === "fix" : context.outcomes.get(entry.finding.id)?.last === "applied")).map(({ entry }) => entry.finding.id);
   if (plausible.length > 0) {
-    const what = review2.fix === null ? counted2(plausible.length, "finding decided as a fix rests", "findings decided as fixes rest") : counted2(plausible.length, "fix rests", "fixes rest");
+    const what = review2.fix === null ? counted(plausible.length, "finding decided as a fix rests", "findings decided as fixes rest") : counted(plausible.length, "fix rests", "fixes rest");
     look.push({ condition: "plausible", findings: plausible, text: `${what} on a verdict that is only PLAUSIBLE` });
   }
   if (review2.change.kind === "given") {
@@ -34711,8 +34775,8 @@ function documentationWords(review2, fix) {
   const updated = new Set(answer3.findings.flatMap((finding) => finding.files)).size;
   const leftFiles = new Set(leftByStep(fix).map((left) => left.key)).size;
   if (updated === 0 && leftFiles === 0) return "The documentation step found no document out of date.";
-  if (updated === 0) return `The documentation step left ${counted2(leftFiles, "document", "documents")} out of date.`;
-  return `The documentation step updated ${counted2(updated, "document", "documents")}${leftFiles === 0 ? "" : ` and left ${String(leftFiles)}`}.`;
+  if (updated === 0) return `The documentation step left ${counted(leftFiles, "document", "documents")} out of date.`;
+  return `The documentation step updated ${counted(updated, "document", "documents")}${leftFiles === 0 ? "" : ` and left ${String(leftFiles)}`}.`;
 }
 function headlineText(counts, defaultsInPlace, fixed) {
   const { questions, departures, documents } = counts;
@@ -34721,12 +34785,12 @@ function headlineText(counts, defaultsInPlace, fixed) {
     return fixed ? "Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of." : "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
   }
   const parts = [
-    ...questions === 0 ? [] : [counted2(questions, "question", "questions")],
-    ...departures === 0 ? [] : [counted2(departures, "fix that goes against a written rule", "fixes that go against a written rule")],
-    ...documents === 0 ? [] : [counted2(documents, "document that the edits of the run left out of date", "documents that the edits of the run left out of date")]
+    ...questions === 0 ? [] : [counted(questions, "question", "questions")],
+    ...departures === 0 ? [] : [counted(departures, "fix that goes against a written rule", "fixes that go against a written rule")],
+    ...documents === 0 ? [] : [counted(documents, "document that the edits of the run left out of date", "documents that the edits of the run left out of date")]
   ];
   const waits = questions === 0 ? "Nothing waits for you: the run went on as it decided." : `Nothing waits for you: ${questions === 1 ? "the" : "each"} question has a default${defaultsInPlace ? " in place" : ""}.`;
-  return `${counted2(total, "thing needs", "things need")} you: ${listed(parts)}. ${waits}`;
+  return `${counted(total, "thing needs", "things need")} you: ${listed(parts)}. ${waits}`;
 }
 function coveredText(review2) {
   const { fix } = review2;
@@ -34734,10 +34798,10 @@ function coveredText(review2) {
   const after = checksOf({ answerPasses: review2.answerPasses, fix }).every((check2) => check2.after !== null);
   return after ? "Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes." : "Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.";
 }
-function changeOf(account) {
+function changeOf(account, beforeEdits) {
   if (account.kind !== "given") return { state: account.kind };
   const { reading } = account;
-  return { state: "given", what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect };
+  return { state: "given", what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
 }
 function briefOf(state) {
   const review2 = state.review;
@@ -34749,18 +34813,20 @@ function briefOf(state) {
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
   const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
+  const changed = changedOf(context);
+  const edited = changed.applied.length > 0 || review2.answers.some((answer3) => answer3.appliedBy !== null && answer3.appliedBy !== "tree");
   return {
     run: state.id,
     title: review2.change.kind === "given" ? review2.change.reading.title : scopeTitle(state),
     headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review2.fix !== null) },
-    change: changeOf(review2.change),
+    change: changeOf(review2.change, edited),
     questions,
     departures,
     documents: context.documents,
     notCovered,
     covered: notCovered.length === 0 ? coveredText(review2) : null,
     look: lookOf(context, departures),
-    changed: changedOf(context)
+    changed
   };
 }
 function idWords(ids2, show = (id) => id) {
@@ -34779,11 +34845,11 @@ function changePart(change) {
       const sources = (list) => list.map(inlineText).join(", ");
       const why = change.why === null ? "The change states no reason." : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? "the triage named no source" : `from ${sources(change.whyFrom)}`}).`;
       const restsOn = change.restsOn.length === 0 ? "" : ` It rests on ${sources(change.restsOn)}.`;
-      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn}`];
+      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn}`, ...change.beforeEdits ? ["", beforeEditsSentence] : []];
     }
   }
 }
-function questionBlock(question, position, fixed) {
+function questionBlock(question, position, fixed, words) {
   const { answer: answer3 } = question;
   const answered2 = answer3?.option ?? null;
   const standing = answer3 !== null ? `${answeredWords(answer3)} deep-review's choice was option ${String(question.choice)}.` : question.defaultApplied ? question.default === question.choice ? `In place now: option ${String(question.default)}, which is also deep-review's choice, because it is the easiest to take back.` : `In place now: option ${String(question.default)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.` : `The default: option ${String(question.default)}, because it is the easiest to take back; ${fixed ? "its fixer did not apply it" : "this run only reviewed, so `review --fix` applies it"}. deep-review's choice: option ${String(question.choice)}.`;
@@ -34795,7 +34861,7 @@ function questionBlock(question, position, fixed) {
     ...option.number === question.choice ? ["deep-review's choice"] : []
   ].join(", ");
   return [
-    `### ${String(position)}. ${inlineText(question.question)} (${findingLink(question.id)})`,
+    `### ${String(position)}. ${inlineText(question.question)} (${words.link(question.id)})`,
     "",
     standing,
     "",
@@ -34804,21 +34870,19 @@ function questionBlock(question, position, fixed) {
     ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
     ...answer3 === null ? ["", `To take deep-review's choice: \`${question.command}\`. For another option, give its number.`] : [],
     "",
-    "<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>",
-    "",
-    ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
-    `- Where deep-review looked: ${question.lookedIn.map(inlineText).join("; ")}`,
-    `- Why it asks: ${inlineText(question.grounds)}`,
-    "",
-    "</details>"
+    ...words.details("The rule that each option makes, where deep-review looked, and why it asks", [
+      ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
+      `- Where deep-review looked: ${question.lookedIn.map(inlineText).join("; ")}`,
+      `- Why it asks: ${inlineText(question.grounds)}`
+    ])
   ];
 }
-function departureBlock(departure, position, fixed) {
+function departureBlock(departure, position, fixed, words) {
   const { review: review2 } = departure;
   const reviewLine = review2 === null ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.` : answeredWords(review2);
   const fate = review2?.kind !== "reject" ? fateWords[departure.fate] : `You chose to follow the rule instead; ${review2.applied ? "the tree holds the fix that follows it" : fixed ? "no fixer has applied the fix that follows it yet" : "`review --fix` applies the fix that follows it"}.`;
   return [
-    `### ${String(position)}. ${findingLink(departure.id)}`,
+    `### ${String(position)}. ${words.link(departure.id)}`,
     "",
     `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
     "",
@@ -34827,9 +34891,9 @@ function departureBlock(departure, position, fixed) {
     reviewLine
   ];
 }
-function lookPart(brief) {
+function lookPart(brief, words) {
   const lines = ["## Where to look", ""];
-  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? "" : `: ${idWords(entry.findings, findingLink)}`}.`)];
+  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? "" : `: ${idWords(entry.findings, words.link)}`}.`)];
   const judged2 = brief.change.state === "given" ? " The triage judged that the change alters no public interface and affects no file beyond its own." : "";
   return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged2}`];
 }
@@ -34840,22 +34904,24 @@ function checksWords(checks) {
   const words = (check2) => check2.before !== null && check2.before === check2.after ? `${check2.before} before and after the fixes` : `${at(check2.before, "before the fixes")} and ${at(check2.after, "after them")}`;
   return `The checks: ${checks.map((check2) => `${check2.kind} ${words(check2)}`).join("; ")}.`;
 }
-function changedPart(changed) {
+function readOnlyChangedSentence(changed, show) {
+  const left = changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left, show)}.`;
+  const toFix = !changed.decided ? "" : changed.toFix.length === 0 ? " It decided to fix no finding." : ` It decided to fix ${counted(changed.toFix.length, "finding", "findings")}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
+  return `This run only reviewed: it changed nothing.${toFix}${left}`;
+}
+function changedPart(changed, { link }) {
   const lines = ["## What deep-review changed", ""];
-  const left = changed.left.length === 0 ? "" : ` It left ${counted2(changed.left.length, "finding", "findings")}: ${idWords(changed.left, findingLink)}.`;
-  if (!changed.fixed) {
-    const toFix = !changed.decided ? "" : changed.toFix.length === 0 ? " It decided to fix no finding." : ` It decided to fix ${counted2(changed.toFix.length, "finding", "findings")}, which \`review --fix\` applies: ${idWords(changed.toFix, findingLink)}.`;
-    return [...lines, `This run only reviewed: it changed nothing.${toFix}${left}`];
-  }
-  const part = (ids2, words) => ids2.length === 0 ? [] : [`${words} ${String(ids2.length)} (${idWords(ids2, findingLink)})`];
+  const left = changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left, link)}.`;
+  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
+  const part = (ids2, words) => ids2.length === 0 ? [] : [`${words} ${String(ids2.length)} (${idWords(ids2, link)})`];
   const outcomes = [
-    `deep-review applied ${counted2(changed.applied.length, "fix", "fixes")}${changed.applied.length === 0 ? "" : ` (${idWords(changed.applied, findingLink)})`}`,
+    `deep-review applied ${counted(changed.applied.length, "fix", "fixes")}${changed.applied.length === 0 ? "" : ` (${idWords(changed.applied, link)})`}`,
     ...part(changed.alreadyInTree, "found already in the tree"),
     ...part(changed.deferred, "its fixers put off"),
     ...part(changed.blocked, "its fixers could not apply"),
     ...part(changed.notAttempted, "no fixer attempted")
   ];
-  const commits = changed.patches === 0 ? "No fix changed a file." : changed.commits === null ? changed.patches === 1 ? "Its patch is not committed: `deep-review commit` commits it." : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.` : `They are in ${counted2(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, and ${counted2(changed.commits.uncommittedPatches, "later patch is", "later patches are")} not committed yet`}.`;
+  const commits = changed.patches === 0 ? "No fix changed a file." : changed.commits === null ? changed.patches === 1 ? "Its patch is not committed: `deep-review commit` commits it." : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.` : `They are in ${counted(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, and ${counted(changed.commits.uncommittedPatches, "later patch is", "later patches are")} not committed yet`}.`;
   return [...lines, `${outcomes.join("; ")}. ${commits}${left} ${checksWords(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
 }
 function documentsPart(documents) {
@@ -34872,21 +34938,27 @@ function documentsPart(documents) {
     ...documents.map(line)
   ];
 }
-function briefMarkdown(brief) {
+function briefMarkdown(brief, form = "report") {
+  const words = formWords[form];
   const questions = brief.questions.length === 0 ? [] : [
-    `## Questions for you (${String(brief.questions.length)})`,
-    "",
-    `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswer}`,
-    ...brief.questions.flatMap((question, index2) => ["", ...questionBlock(question, index2 + 1, brief.changed.fixed)])
+    ...questionsHeading(brief, words),
+    ...brief.questions.flatMap((question, index2) => ["", ...questionBlock(question, index2 + 1, brief.changed.fixed, words)])
   ];
   const departures = brief.departures.length === 0 ? [] : [
-    `## Fixes that go against a written rule (${String(brief.departures.length)})`,
-    ...brief.questions.length === 0 ? ["", `Each fix below went ahead as deep-review decided. Review it only to go another way. ${howToAnswer}`] : [],
-    ...brief.departures.flatMap((departure, index2) => ["", ...departureBlock(departure, index2 + 1, brief.changed.fixed)])
+    ...departuresHeading(brief, words, brief.questions.length === 0),
+    ...brief.departures.flatMap((departure, index2) => ["", ...departureBlock(departure, index2 + 1, brief.changed.fixed, words)])
   ];
   const notCovered = ["## What the review did not cover", "", ...brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered]];
-  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief, words), changedPart(brief.changed, words)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, "", brief.headline.text, ...parts.flatMap((part) => ["", ...part])];
+}
+function briefBlock(brief, id, form = "chat") {
+  const words = formWords[form];
+  const question = brief.questions.findIndex((entry) => entry.id === id);
+  if (question !== -1) return [...questionsHeading(brief, words), "", ...questionBlock(brief.questions[question], question + 1, brief.changed.fixed, words)];
+  const departure = brief.departures.findIndex((entry) => entry.id === id);
+  if (departure !== -1) return [...departuresHeading(brief, words, true), "", ...departureBlock(brief.departures[departure], departure + 1, brief.changed.fixed, words)];
+  return null;
 }
 function firstSentence(text3) {
   const inline = inlineText(text3).replaceAll(/[ \t]*[\u2028\u2029]+[ \t]*/g, " ");
@@ -34898,34 +34970,52 @@ function firstSentence(text3) {
 }
 function changedWords(changed) {
   if (!changed.fixed) return "nothing; this run only reviewed";
-  const fixes = counted2(changed.applied.length, "fix", "fixes");
+  const fixes = counted(changed.applied.length, "fix", "fixes");
   const unapplied = changed.deferred.length + changed.blocked.length + changed.notAttempted.length;
-  const rest = unapplied === 0 ? "" : `, ${counted2(unapplied, "fix", "fixes")} not applied`;
-  const where = changed.patches === 0 ? "" : changed.commits === null ? ", not committed" : `, in ${counted2(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, ${counted2(changed.commits.uncommittedPatches, "patch", "patches")} not committed`}`;
+  const rest = unapplied === 0 ? "" : `, ${counted(unapplied, "fix", "fixes")} not applied`;
+  const where = changed.patches === 0 ? "" : changed.commits === null ? ", not committed" : `, in ${counted(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, ${counted(changed.commits.uncommittedPatches, "patch", "patches")} not committed`}`;
   return `${fixes}${rest}${where}`;
+}
+function questionLines(question) {
+  const id = `  ${question.id}`;
+  const standing = question.defaultApplied ? "in place now" : "the default, which the tree does not hold";
+  const both = question.defaultApplied ? "in place now and deep-review's choice" : "the default and deep-review's choice, which the tree does not hold";
+  return [
+    `${id}: ${inlineText(question.question)}`,
+    ...question.default === question.choice ? [`${id} ${both}: ${optionWords(question, question.default)}`] : [`${id} ${standing}: ${optionWords(question, question.default)}`, `${id} deep-review's choice: ${optionWords(question, question.choice)}`]
+  ];
+}
+function departureLine(departure) {
+  const goes = departure.fate === "applied" || departure.fate === "already-in-tree" ? "goes against" : "would go against";
+  return `  ${departure.id} ${goes} a rule in ${inlineText(departure.source)}: "${inlineText(departure.rule)}"`;
 }
 function briefShortForm(brief) {
   const open2 = brief.questions.filter((question) => question.answer === null);
   const openQuestions = open2.map((question) => question.id);
   const inPlace = open2.every((question) => question.defaultApplied);
   const defaults = open2.length === 1 ? inPlace ? "with its default in place" : "with a default" : inPlace ? "each with a default in place" : "each with a default";
-  const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
+  const openDepartures = brief.departures.filter((departure) => departure.review === null);
   const change = brief.change.state === "given" ? firstSentence(brief.change.what) : brief.change.state === "none" ? "the triage gave no account of it" : "not recorded; an engine before the account reviewed this run";
   const gaps = brief.notCovered;
   const notCovered = gaps.length === 0 ? "nothing" : gaps.length === 1 ? inlineText(gaps[0].text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0].text)}`;
-  const lines = [
-    `${inlineText(brief.title)} (run ${brief.run.slice(0, 8)})`,
-    `The change: ${change}`,
-    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? "none" : "none open; each is answered"}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
-    openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? "no fix" : "no fix left to review"}` : `Against a written rule: ${counted2(openDepartures.length, "fix", "fixes")}: ${idWords(openDepartures)}`,
-    ...brief.changed.fixed ? [brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`] : [],
-    `Not covered: ${notCovered}`,
-    `Look at: ${brief.look.length === 0 ? "nothing" : brief.look.map(lookWords).join(", ")}`,
-    `Changed: ${changedWords(brief.changed)}`
+  const cut = (line) => cutAtWord(line, shortLineLimit);
+  return [
+    cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
+    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat).
+    cutAtWord(`${brief.change.state === "given" && brief.change.beforeEdits ? "The change before the fixes" : "The change"}: ${change}`, changeLineLimit),
+    cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? "none" : "none open; each is answered"}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
+    ...open2.slice(0, shownQuestions).flatMap(questionLines),
+    ...moreLine(openQuestions.slice(shownQuestions), "more question", "more questions").map(cut),
+    cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? "no fix" : "no fix left to review"}` : `Against a written rule: ${counted(openDepartures.length, "fix", "fixes")}`),
+    ...openDepartures.slice(0, shownDepartures).map(departureLine),
+    ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), "more fix", "more fixes").map(cut),
+    ...brief.changed.fixed ? [cut(brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`)] : [],
+    cut(`Not covered: ${notCovered}`),
+    cut(`Look at: ${brief.look.length === 0 ? "nothing" : brief.look.map(lookWords).join(", ")}`),
+    cut(`Changed: ${changedWords(brief.changed)}`)
   ];
-  return lines.map((line) => cutAtWord(line, shortLineLimit));
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -34937,6 +35027,7 @@ var init_brief = __esm({
     init_documents();
     init_fix_report();
     init_markdown();
+    init_runs();
     init_state();
     init_survey_report();
     init_vocabulary();
@@ -34972,30 +35063,57 @@ var init_brief = __esm({
       "not-attempted": "No fixer attempted it.",
       "not-fixed": "This run only reviewed, so no fixer applied it; `review --fix` applies it."
     };
+    fixFateWords = {
+      applied: "applied",
+      "already-in-tree": "already in the tree",
+      deferred: "put off by its fixer",
+      blocked: "not applied by its fixer",
+      "not-attempted": "not attempted"
+    };
     fateClause = (fate) => {
       const words = fateWords[fate];
       return `${words.charAt(0).toLowerCase()}${words.slice(1).replace(/[.]$/, "")}`;
     };
     howToAnswer = "To answer, ask your agent with the deep-review skill, or type the command at a terminal as the end of this report shows.";
+    howToAnswerInChat = "To answer, ask your agent with the deep-review skill.";
+    formWords = {
+      report: { link: findingLink, details: (summary, lines) => [`<details><summary>${summary}</summary>`, "", ...lines, "", "</details>"], howToAnswer },
+      chat: { link: (id) => id, details: (_summary, lines) => ["**Details.**", "", ...lines], howToAnswer: howToAnswerInChat }
+    };
     answeredWords = (given) => `Answered: ${given.words} on ${given.at}; ${given.applied ? "the tree holds it" : "not yet applied"}.`;
     missingAccountWords = {
       unrecorded: "The triage of this run did not record the core of the change, because an engine before this change reviewed it.",
       none: "The triage of this run gave no account of the change."
     };
+    beforeEditsSentence = "The title and this account describe the change before the fixes and the answers of this run; What deep-review changed names the fixes.";
+    questionsHeading = (brief, words) => [
+      `## Questions for you (${String(brief.questions.length)})`,
+      "",
+      `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${words.howToAnswer}`
+    ];
+    departuresHeading = (brief, words, alone) => [
+      `## Fixes that go against a written rule (${String(brief.departures.length)})`,
+      ...alone ? ["", `Each fix below went ahead as deep-review decided. Review it only to go another way. ${words.howToAnswer}`] : []
+    ];
     shortLineLimit = 200;
+    changeLineLimit = 400;
+    shownQuestions = 3;
+    shownDepartures = 3;
     endsAbbreviation = (before, after) => /(?:^|[^\p{L}\p{N}])(?:e\.g|i\.e|vs|cf)\.$/iu.test(before) || /(?:^|[^\p{L}\p{N}])etc\.$/iu.test(before) && new RegExp("^\\s+\\p{Ll}", "u").test(after) || /(?:^|[^\p{L}\p{N}])No\.$/u.test(before) && new RegExp("^\\s+\\p{N}", "u").test(after);
     lookWords = (entry) => {
       switch (entry.condition) {
         case "departure":
-          return counted2(entry.findings.length, "departure", "departures");
+          return counted(entry.findings.length, "fix that goes against a written rule", "fixes that go against a written rule");
         case "plausible":
-          return `${counted2(entry.findings.length, "fix", "fixes")} on a PLAUSIBLE verdict`;
+          return `${counted(entry.findings.length, "fix", "fixes")} on a PLAUSIBLE verdict`;
         case "public-interface":
           return "a change to a public interface";
         case "wide-effect":
           return "an effect on many files";
       }
     };
+    optionWords = (question, number5) => `option ${String(number5)}, ${inlineText(question.options[number5 - 1]?.option ?? "")}`;
+    moreLine = (ids2, one, many) => ids2.length === 0 ? [] : [`  ${counted(ids2.length, one, many)}: ${idWords(ids2)}`];
   }
 });
 
@@ -35345,7 +35463,7 @@ import { existsSync as existsSync9, mkdirSync as mkdirSync9, rmSync as rmSync9 }
 import { homedir as homedir3 } from "node:os";
 import { dirname as dirname5, join as join29 } from "node:path";
 function reportCopyPath(checkpointRoot, state) {
-  return join29(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${state.id.slice(0, 8)}.md`);
+  return join29(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${shortRunId(state.id)}.md`);
 }
 function stoppedContinueCommand(state, context) {
   const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
@@ -35407,6 +35525,7 @@ var init_report_copy = __esm({
     init_atomic_write();
     init_continue_command();
     init_report();
+    init_runs();
     init_spend();
     init_state();
     reportsDirectoryName = "reports";
@@ -36411,7 +36530,7 @@ function requireAdmitted(run2, finding, answer3) {
   return decision;
 }
 function chooseAnswerRun(checkpoint, runId, worktree, log) {
-  if (runId !== void 0) return checkpoint.fold(runId);
+  if (runId !== void 0) return checkpoint.fold(runIdOf(checkpoint, runId));
   const found = readableRuns(checkpoint, log).filter((run2) => whyNotAnswerable(run2, worktree) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
   if (found === void 0) throw new ReviewRefusedError("no complete run of this worktree has decisions to answer; name one with --run <id>");
   return found;
@@ -36566,10 +36685,10 @@ var init_executable = __esm({
 });
 
 // src/review/brief-json.ts
-function briefJson(brief, local) {
+function briefJson(brief, local, notShown) {
   const { change, changed } = brief;
   return {
-    version: 2,
+    version: 3,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -36606,10 +36725,11 @@ function briefJson(brief, local) {
       left: [...brief.changed.left],
       checks: brief.changed.checks.map((check2) => ({ ...check2 }))
     },
-    local: { ...local }
+    local: { ...local },
+    notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state }))
   };
 }
-var text2, ids, condition, answer, gapKindsV1, briefJsonV1, briefJsonV2, answerJson;
+var text2, ids, condition, answer, gapKindsV1, briefJsonV1, briefJsonV2, briefJsonV3, answerJson;
 var init_brief_json = __esm({
   "src/review/brief-json.ts"() {
     "use strict";
@@ -36683,7 +36803,45 @@ var init_brief_json = __esm({
       })),
       notCovered: external_exports.array(external_exports.strictObject({ kind: external_exports.enum(gapKinds), text: text2 }))
     });
+    briefJsonV3 = external_exports.strictObject({
+      ...briefJsonV2.shape,
+      version: external_exports.literal(3),
+      notShown: external_exports.array(external_exports.strictObject({ run: text2, state: text2 }))
+    });
     answerJson = (given) => given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied };
+  }
+});
+
+// src/review/fix-lines.ts
+function fixLines2(state) {
+  const { changed } = briefOf(state);
+  const review2 = state.review;
+  const fix = review2.fix;
+  if (fix === null) return [readOnlyChangedSentence(changed, (id) => id)];
+  const fates = countedFates(changed);
+  return rankedFindings(review2).flatMap(({ finding }) => {
+    const fate = fates.get(finding.id);
+    if (fate === void 0) return [];
+    const { answer: answer3, reason } = lastFixAnswer(review2, fix, finding.id);
+    const words = answer3 === null ? reason ?? "no fixer answered for it" : answer3.message === null ? firstSentence(answer3.note) : answer3.message.subject;
+    return [cutAtWord(`${finding.id}, ${fixFateWords[fate]}: ${inlineText(words)}`, shortLineLimit)];
+  });
+}
+var countedFates;
+var init_fix_lines = __esm({
+  "src/review/fix-lines.ts"() {
+    "use strict";
+    init_brief();
+    init_fix_report();
+    init_markdown();
+    init_state();
+    countedFates = (changed) => new Map([
+      ...changed.applied.map((id) => [id, "applied"]),
+      ...changed.alreadyInTree.map((id) => [id, "already-in-tree"]),
+      ...changed.deferred.map((id) => [id, "deferred"]),
+      ...changed.blocked.map((id) => [id, "blocked"]),
+      ...changed.notAttempted.map((id) => [id, "not-attempted"])
+    ]);
   }
 });
 
@@ -36697,7 +36855,20 @@ function continueLine(state, adapter, continuation) {
   const command = continueCommand(state, continuation.engineEntry, own2 ? null : rolesPlaceholder, spend);
   return { command, line: `Continue: ${command}, which continues the fix pass the run budget stopped and reviews nothing again${own2 ? "" : `, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`}` };
 }
-function describeRun(state, adapter, evidencePath, continuation = null, reportCopy = null) {
+function askedModeOf(state) {
+  const scope = state.scope;
+  if (scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const range = scope.request.range;
+  const configuration = state.review?.configuration;
+  const base = configuration === void 0 ? void 0 : recordedSetting(configuration, "review.base")?.value;
+  return range !== void 0 && range.to === "HEAD" && range.mergeBase && typeof base === "string" && range.from === base ? "branch" : scope.mode;
+}
+function shownScopeOf(state, scope, commits) {
+  const mode = askedModeOf(state);
+  return { mode, base: scope.base, baseName: baseNameOf(mode, scope.request), target: scope.mode === "last-commit" ? scope.head : null, commits, fileCount: scope.files.length, excludedCount: scope.excluded.count, uncommitted: null, empty: null };
+}
+function describeRun(state, adapter, evidencePath, facts = {}) {
+  const { continuation = null, reportCopy = null, commits = null } = facts;
   const status3 = reviewStatus(state);
   const review2 = state.review;
   const workers = Object.values(state.workers);
@@ -36717,9 +36888,11 @@ function describeRun(state, adapter, evidencePath, continuation = null, reportCo
   const decisions = review2?.decisions === null || review2?.decisions === void 0 ? null : decisionCounts(review2.decisions);
   const continuing = continueLine(state, adapter, continuation);
   const stops = [...cutWorkerLines(state.workers), ...lostWorkerLines(state.workers, review2?.fix?.revisions ?? []), ...review2 === null ? [] : [...limitBlockLines(review2), ...stopLimitations(review2, evidencePath)]].map((line) => `Stop: ${line}`);
+  const shown = state.scope === null ? null : shownScopeOf(state, state.scope, commits);
   const lines = [
     `Run ${state.id}: ${status3}${state.abandonReason === null ? "" : ` (${state.abandonReason})`}`,
     `Worktree: ${state.worktree}`,
+    ...shown === null ? [] : [scopeLine(shown)],
     review2 === null ? "Review: not configured" : `Runtime: ${review2.configuration.runtime} ${review2.configuration.version}; models ${review2.configuration.models.strong} and ${review2.configuration.models.fast}`,
     // The same lines the report gives of the settings (R7 of the configuration).
     ...review2 === null ? [] : [settingsHeaderLine(review2.configuration)],
@@ -36739,7 +36912,8 @@ function describeRun(state, adapter, evidencePath, continuation = null, reportCo
     ...patches.map((path, index2) => `Patch ${String(index2 + 1)}: ${path}`),
     ...(review2?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`)
   ];
-  const json2 = { runId: state.id, status: status3, worktree: state.worktree, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, reportCopy: copy, continuedFrom, decisions, answers: review2?.answers ?? [], answerPasses: review2?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review2?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review: review2 };
+  const scopeJson = shown === null || state.scope === null ? null : { ...shown, files: state.scope.files.map((file2) => file2.path), excluded: [...state.scope.excluded.paths] };
+  const json2 = { runId: state.id, status: status3, worktree: state.worktree, scope: scopeJson, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review2?.blocker ?? null, report: reportPath, reportCopy: copy, continuedFrom, decisions, answers: review2?.answers ?? [], answerPasses: review2?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review2?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review: review2 };
   return { lines, json: json2 };
 }
 function answersLine(review2) {
@@ -36782,20 +36956,112 @@ function fixStatus(state, review2) {
   ];
   return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }
+function scopeWords(state, scope) {
+  const end = scope.mode === "last-commit" ? commitWords(scope.head) : "the working tree";
+  return `${askedModeOf(state)}, ${counted(scope.files.length, "file", "files")}, from ${commitWords(scope.base)} to ${end}`;
+}
+function stateWords(state) {
+  const status3 = reviewStatus(state);
+  if (status3 === "abandoned") return `abandoned (${inlineText(state.abandonReason ?? "")})`;
+  if (status3 === "blocked") return `blocked (${state.review.blocker.code})`;
+  return status3;
+}
+function runListLines(runs, worktree, copyOf) {
+  const newest = [...runs].reverse().sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
+  const shown = newest.slice(0, listedRuns);
+  const lines = shown.map((state) => {
+    const id = shortRunId(state.id);
+    const scope = state.scope === null ? "no scope captured yet" : scopeWords(state, state.scope);
+    const elsewhere = sameDirectory(state.worktree, worktree) ? "" : `; worktree ${state.worktree}`;
+    const current = state.review?.report !== null && state.review?.report !== void 0;
+    const copy = current ? copyOf(state) : null;
+    const report2 = !current ? "no current report" : copy === null ? `a current report with no copy; deep-review report --run ${id} writes one` : `report ${copy}`;
+    return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report2}`;
+  });
+  const more = newest.length - shown.length;
+  return more === 0 ? lines : [...lines, `${counted(more, "older run is", "older runs are")} not shown; deep-review status --run <id> shows one`];
+}
+function noReportWords(state) {
+  const review2 = state.review;
+  if (state.status === "abandoned") return `was abandoned: ${inlineText(state.abandonReason ?? "").replace(/[\s.]+$/, "")}`;
+  if (review2 === null) return "never started its review";
+  if (review2.blocker !== null) return `is blocked (${review2.blocker.code})`;
+  const again = [
+    { at: review2.answerPasses.at(-1)?.at ?? null, words: "works again in an answer pass" },
+    { at: review2.continuedFrom?.at ?? null, words: "works again, continued into the fix pass" },
+    { at: review2.fix?.reopenings.at(-1)?.at ?? null, words: "works again in a reopened fix pass" }
+  ].filter((entry) => entry.at !== null);
+  const last = again.reduce((latest, entry) => latest === null || entry.at >= latest.at ? entry : latest, null);
+  return last?.words ?? "is in progress";
+}
+var listedRuns;
 var init_status = __esm({
   "src/review/status.ts"() {
     "use strict";
     init_answer_state();
     init_fix_state();
     init_review_fold();
+    init_paths();
+    init_settings_state();
+    init_scope_line();
     init_continue_command();
     init_fix_report();
+    init_markdown();
     init_report();
+    init_runs();
     init_settings_report();
     init_spend();
     init_labels();
     init_state();
     init_vocabulary();
+    listedRuns = 20;
+  }
+});
+
+// src/review/report-choice.ts
+function createdWorktree(checkpoint, runId) {
+  const first = checkpoint.ledger.events(runId)[0];
+  if (first?.kind !== "run.created" || first.version !== 1) return null;
+  const payload = JSON.parse(first.payload);
+  return typeof payload === "object" && payload !== null && "worktree" in payload && typeof payload.worktree === "string" ? payload.worktree : null;
+}
+function chooseReportRun(checkpoint, worktree, log) {
+  const weighed = [];
+  for (const listed2 of checkpoint.listRuns()) {
+    if (isUnreadable(listed2)) {
+      log(passedOverLine(listed2.id, listed2.unreadable, checkpoint.engine));
+      const created2 = createdWorktree(checkpoint, listed2.id);
+      if (created2 === null || sameDirectory(created2, worktree)) weighed.push({ id: listed2.id, lastSequence: checkpoint.ledger.lastSequence(listed2.id), state: null, unreadable: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
+    } else if (sameDirectory(listed2.worktree, worktree)) {
+      weighed.push({ id: listed2.id, lastSequence: listed2.lastSequence, state: listed2, unreadable: null });
+    }
+  }
+  const latestFirst = weighed.sort((a, b) => b.lastSequence - a.lastSequence);
+  const wordsOf = (entry) => entry.unreadable ?? noReportWords(entry.state);
+  const index2 = latestFirst.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== void 0);
+  const newest = latestFirst[0];
+  return {
+    run: index2 === -1 ? null : latestFirst[index2].state,
+    passedOver: index2 === -1 ? [] : latestFirst.slice(0, index2).map((entry) => ({ run: entry.id, state: wordsOf(entry) })),
+    newest: newest === void 0 ? null : { id: newest.id, state: wordsOf(newest) }
+  };
+}
+function notShownLines(passedOver) {
+  const lines = passedOver.slice(0, shownPassedOver).map((entry) => `Not shown: run ${shortRunId(entry.run)}, a later run, ${entry.state}.`);
+  const more = passedOver.length - shownPassedOver;
+  return [...lines, ...more > 0 ? [`Not shown: ${counted(more, "more later run", "more later runs")}; deep-review status --all lists them`] : []].map((line) => cutAtWord(line, shortLineLimit));
+}
+var shownPassedOver;
+var init_report_choice = __esm({
+  "src/review/report-choice.ts"() {
+    "use strict";
+    init_checkpoint();
+    init_paths();
+    init_brief();
+    init_markdown();
+    init_runs();
+    init_status();
+    shownPassedOver = 3;
   }
 });
 
@@ -36840,7 +37106,7 @@ function namedScopeOf(values, scope) {
   if (modes > 1) throw new UsageError("choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>");
   if (values["merge-base"] === true && values.from === void 0) throw new UsageError("--merge-base applies to --from and --to only");
   const chosen = modes === 1 ? null : scope.scopeDefault.value;
-  const branch = values.branch === true || chosen === "branch";
+  const branch = branchNamed(values, scope);
   if (values.base !== void 0 && !branch) throw new UsageError("--base applies to --branch only, or to a scope.default of branch");
   if (values["last-commit"] === true || chosen === "last-commit") return { mode: "last-commit", request: { paths } };
   if (values.worktree === true || chosen === "worktree") return { mode: "worktree", request: { paths } };
@@ -36956,7 +37222,7 @@ async function run(argv, io) {
     case "review":
       return review(values, io, location.root, location.worktree, location.commonDir);
     case "status":
-      return status2(values, io, location.root);
+      return status2(values, io, location.root, location.worktree);
     case "commit":
       return commit(values, io, location.root, location.worktree);
     case "answer":
@@ -37214,14 +37480,27 @@ async function configCommand(values, rest, io) {
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
   const { base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  let shown = { mode: chosen.mode, base, target, empty: null };
+  const mode = branchNamed(values, source.scopeSettings()) ? "branch" : chosen.mode !== "auto" ? chosen.mode : target === null ? "worktree" : "last-commit";
+  const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
+  let shown;
   try {
     const listed2 = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, "scope.exclude") ?? []);
-    resolved = withChangedPaths(resolved, [...listed2.changes.map((change) => change.path), ...listed2.excluded]);
-    shown = { ...shown, mode: listed2.mode };
+    const files = listed2.changes.map((change) => change.path);
+    resolved = withChangedPaths(resolved, [...files, ...listed2.excluded]);
+    const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
+    shown = {
+      ...ends,
+      commits: commitCount(location.worktree, base, target ?? listed2.guard.head, listed2.request.paths),
+      fileCount: files.length,
+      excludedCount: listed2.excluded.length,
+      uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
+      empty: null,
+      files,
+      excluded: listed2.excluded
+    };
   } catch (error62) {
     if (!(error62 instanceof EmptyChangeError)) throw error62;
-    shown = { ...shown, empty: error62.message };
+    shown = { ...ends, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: error62.message, files: [], excluded: [] };
   }
   io.stdout(values.json === true ? `${JSON.stringify({ ...resolved, scope: shown }, null, 2)}
 ` : `${showLines(resolved, shown).join("\n")}
@@ -37308,19 +37587,32 @@ function resolveRun(checkpoint, run2, io) {
   if (run2 === void 0) return findActiveRun(checkpoint, (line) => io.stderr(`${line}
 `));
   try {
-    return checkpoint.fold(run2);
+    return checkpoint.fold(runIdOf(checkpoint, run2));
   } catch (error62) {
     if (error62 instanceof UnknownRunError) throw new UsageError(error62.message);
     throw error62;
   }
 }
-function status2(values, io, root) {
+function status2(values, io, root, worktree) {
+  if (values.all === true && values.run !== void 0) throw new UsageError("--all lists every run; leave out --run, or leave out --all to show one run");
+  if (values.all === true && values.json === true) throw new UsageError("--all prints a list for a person and has no JSON form; deep-review report --run <id> --json gives one run");
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
     io.stdout(values.json === true ? "null\n" : "No run: this repository has no checkpoint yet.\n");
     return 0;
   }
   try {
+    if (values.all === true) {
+      const runs = readableRuns(checkpoint, (line) => io.stderr(`${line}
+`));
+      const copyOf = (state2) => {
+        const copy2 = reportCopyPath(checkpoint.root, state2);
+        return existsSync10(copy2) ? copy2 : null;
+      };
+      io.stdout(runs.length === 0 ? "No active run.\n" : `${runListLines(runs, worktree, copyOf).join("\n")}
+`);
+      return 0;
+    }
     const state = resolveRun(checkpoint, values.run, io);
     if (state === null) {
       io.stdout(values.json === true ? "null\n" : "No active run.\n");
@@ -37328,7 +37620,8 @@ function status2(values, io, root) {
     }
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync10(copy) ? copy : null);
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync10(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}
 ` : `${described.lines.join("\n")}
 `);
@@ -37346,32 +37639,61 @@ function runLockForCopy(checkpointRoot, runId, log) {
     return null;
   }
 }
+function reportFormOf(values) {
+  const given = [["json", values.json === true], ["brief", values.brief === true], ["fixes", values.fixes === true], ["finding", values.finding !== void 0]].filter(([, on]) => on).map(([form]) => form);
+  if (given.length > 1) throw new UsageError(`--${given[0]} and --${given[1]} do not go together; give one`);
+  if (values.finding !== void 0 && !candidateIdSchema2.safeParse(values.finding).success) throw new UsageError(`--finding takes a finding's id as the brief prints it, such as RIPPLE-2, not ${JSON.stringify(values.finding)}`);
+  return given[0] ?? "short";
+}
 function report(values, io, root, worktree) {
+  const form = reportFormOf(values);
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new ReviewRefusedError("this repository has no checkpoint, so no run has a report; deep-review status says so too");
   try {
     const log = (line) => io.stderr(`${line}
 `);
-    const found = values.run !== void 0 ? resolveRun(checkpoint, values.run, io) : readableRuns(checkpoint, log).filter((run2) => sameDirectory(run2.worktree, worktree)).reduce((newest, run2) => newest === null || run2.createdAt > newest.createdAt ? run2 : newest, null);
-    if (found === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+    const choice = values.run !== void 0 ? { run: resolveRun(checkpoint, values.run, io), passedOver: [], newest: null } : chooseReportRun(checkpoint, worktree, log);
+    const found = choice.run;
+    if (found === null) {
+      if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+    }
     const release = runLockForCopy(checkpoint.root, found.id, log);
     try {
       const state = checkpoint.fold(found.id);
       const review2 = state.review;
       if (review2 === null || review2.report === null) {
-        throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
+        throw new ReviewRefusedError(`run ${state.id} has no current report, since it ${noReportWords(state)}; deep-review status --run ${state.id} shows where it is`);
       }
       const context = copyContextOf(io, state);
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record2 = checkpoint.evidence.pathOf(review2.report.report);
       const brief = briefOf(state);
-      if (values.json === true) {
-        const local = { copy, record: record2, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
-        io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}
+      if (form === "fixes") {
+        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines2(state), copy ?? record2].join("\n")}
 `);
         return 0;
       }
-      io.stdout(`${[...briefShortForm(brief), copy ?? record2].join("\n")}
+      if (form === "brief") {
+        io.stdout(`${[...notShownLines(choice.passedOver), ...briefMarkdown(brief, "chat"), copy ?? record2].join("\n")}
+`);
+        return 0;
+      }
+      if (form === "finding") {
+        const id = values.finding;
+        const block = briefBlock(brief, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        io.stdout(`${[...notShownLines(choice.passedOver), ...block, copy ?? record2].join("\n")}
+`);
+        return 0;
+      }
+      if (form === "json") {
+        const local = { copy, record: record2, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
+        io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}
+`);
+        return 0;
+      }
+      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record2].join("\n")}
 `);
       return 0;
     } finally {
@@ -37409,7 +37731,7 @@ function abandon(values, io, root) {
     checkpoint.close();
   }
 }
-var usage, options, sourceEntry, allowed, UsageError, scopeModeFlagCount, configAllowed;
+var usage, options, sourceEntry, allowed, UsageError, scopeModeFlagCount, branchNamed, configAllowed;
 var init_command2 = __esm({
   "src/command.ts"() {
     "use strict";
@@ -37448,6 +37770,8 @@ var init_command2 = __esm({
     init_continue_command();
     init_report_copy();
     init_runs();
+    init_fix_lines();
+    init_report_choice();
     init_status();
     init_paths();
     init_codex();
@@ -37455,6 +37779,7 @@ var init_command2 = __esm({
     init_capture();
     init_errors8();
     init_git();
+    init_scope_line();
     usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                       [--strong-model <model>] [--fast-model <model>]
@@ -37468,7 +37793,8 @@ var init_command2 = __esm({
   deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
-  deep-review report  [--run <id>] [--json] [--repo <dir>]   (the brief of a finished run; writes its copy again)
+  deep-review status  --all [--repo <dir>]   (the runs of the checkpoint, newest first)
+  deep-review report  [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, or a line for each fix; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
@@ -37502,6 +37828,7 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
       roles: { type: "string" },
       run: { type: "string" },
       json: { type: "boolean" },
+      all: { type: "boolean" },
       reason: { type: "string" },
       fix: { type: "boolean" },
       fresh: { type: "boolean" },
@@ -37515,6 +37842,8 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
       reject: { type: "boolean" },
       note: { type: "string" },
       "record-only": { type: "boolean" },
+      fixes: { type: "boolean" },
+      brief: { type: "boolean" },
       into: { type: "string" },
       unit: { type: "string" },
       in: { type: "string" },
@@ -37527,13 +37856,13 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
     sourceEntry = fileURLToPath(new URL("./cli.ts", import.meta.url));
     allowed = {
       review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "branch", "base", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "fresh", "check", "no-check", "codex-windows-sandbox", "set", "config", "no-repository-config", "help"],
-      status: ["run", "json", "repo", "help"],
+      status: ["run", "json", "all", "repo", "help"],
       // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
       config: [],
       abandon: ["reason", "run", "repo", "help"],
       commit: ["run", "change-message", "repo", "help"],
       answer: ["finding", "option", "accept", "reject", "note", "record-only", "run", "budget-usd", "roles", "repo", "help"],
-      report: ["run", "json", "repo", "help"],
+      report: ["run", "json", "brief", "fixes", "finding", "repo", "help"],
       snapshot: ["finding", "into", "repo", "help"],
       claim: ["path", "unit", "in", "help"],
       hook: ["help"]
@@ -37542,6 +37871,7 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
       name = "UsageError";
     };
     scopeModeFlagCount = (values) => [values["last-commit"] === true, values.worktree === true, values.branch === true, values.ref !== void 0, values.from !== void 0 || values.to !== void 0].filter(Boolean).length;
+    branchNamed = (values, scope) => values.branch === true || scopeModeFlagCount(values) === 0 && scope.scopeDefault.value === "branch";
     configAllowed = {
       show: [...allowed.review.filter((flag) => flag !== "fresh"), "json"],
       explain: ["help"],
