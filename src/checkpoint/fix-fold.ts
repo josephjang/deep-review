@@ -22,7 +22,7 @@
  * attempted or with no revision of the fixes, and a plan that leaves out
  * a `drift` line of the fixes or lists one no answer of the fixes holds.
  */
-import { batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
+import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
@@ -342,8 +342,8 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   }
   const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
   const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
-  // A fixer that made the edit a person's answer owed applies that answer: a fixes-phase batch, for an answer a read-only run recorded before its continuation, or an answer pass (TD4 of answers). The repair answers checks and the documentation step its items, not findings.
-  const personAnswers = payload.phase === 'repair' || payload.phase === 'documentation' ? review.answers : withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings);
+  // A fixer that made the edit a person's answer owed applies that answer: a fixes-phase batch, for an answer a read-only run recorded before its continuation, or an answer pass (TD4 of answers). The repair answers checks and the documentation step its items, not findings, as `answeredUnits` records.
+  const personAnswers = answersFindings(payload.phase) ? withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings) : review.answers;
   return withReview(current, { ...review, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
 };
 

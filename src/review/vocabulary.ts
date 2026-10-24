@@ -113,6 +113,16 @@ export type EditingPhase = z.infer<typeof editingPhaseSchema>;
 export const isCheckPhase = (phase: Phase): phase is CheckPhase => (checkPhases as readonly string[]).includes(phase);
 export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingPhases as readonly string[]).includes(phase);
 
+/** What an editing worker's answer is for: a finding, a check or an item of the documentation step. */
+export type AnsweredUnit = 'finding' | 'check' | 'item';
+
+/** What each editing phase's workers answer for: the fixes and an answer pass findings, the repair the checks, the documentation step its items. Only a phase that answers findings applies a person's answer (TD4 of answers). */
+export const answeredUnits = { fixes: 'finding', documentation: 'item', repair: 'check', answer: 'finding' } as const satisfies Readonly<Record<EditingPhase, AnsweredUnit>>;
+
+/** The editing phases whose workers answer findings, as `answeredUnits` records them. */
+export type FindingPhase = { [P in EditingPhase]: (typeof answeredUnits)[P] extends 'finding' ? P : never }[EditingPhase];
+export const answersFindings = (phase: EditingPhase): phase is FindingPhase => answeredUnits[phase] === 'finding';
+
 /** The unit key of the one repair worker. */
 export const repairUnitKey = 'repair';
 

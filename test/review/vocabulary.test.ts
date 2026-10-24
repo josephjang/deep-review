@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answerPhases, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -99,6 +99,11 @@ describe('the phases', () => {
     assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks', 'answer-checks']);
     assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'documentation', 'repair', 'answer']);
     assert.deepEqual([...editingPhases], phases.filter(isEditingPhase), 'in the order of the phases');
+  });
+
+  it('give findings to the fixes and an answer pass only, the repair answering checks and the documentation step its items (TD4 of answers)', () => {
+    assert.deepEqual(editingPhases.map((phase) => answeredUnits[phase]), ['finding', 'item', 'check', 'finding']);
+    assert.deepEqual(editingPhases.filter(answersFindings), ['fixes', 'answer']);
   });
 
   it('let the run budget settle the fixes, the documentation step and the repair as not attempted, and block the answer pass before its launch (TD8 of answers, R8 of the documentation step)', () => {
