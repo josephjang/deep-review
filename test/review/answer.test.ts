@@ -134,6 +134,26 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.deepEqual(box.run().review!.report, finished.review!.report, 'the run stays complete');
 
     // --run takes the first 8 characters of the id that the brief shows (R11 of the questions in the chat).
+    // report --finding prints the block of one question or departure, and then the path of the copy (R7 of the questions in the chat).
+    const report = (...args: string[]): Promise<Finished> => node([cli, 'report', ...args], { cwd: box.repo, env: environment(box) });
+    const block = await report('--finding', question);
+    assert.equal(block.status, 0, block.stderr);
+    const blockLines = block.stdout.trimEnd().split('\n');
+    assert.equal(blockLines[0], '## Questions for you (1)');
+    assert.ok(blockLines.some((line) => line.startsWith(`### 1. `) && line.endsWith(`(${question})`)), block.stdout);
+    assert.equal(blockLines.at(-1), reportCopyPath(box.checkpoint.root, box.run()));
+    const departure = await report('--finding', departing, '--run', shortRunId(finished.id));
+    assert.equal(departure.status, 0, departure.stderr);
+    assert.ok(departure.stdout.startsWith('## Fixes that go against a written rule (1)\n'), departure.stdout);
+    const fixId = box.run().review!.decisions!.find((decision) => decision.decision === 'fix' && decision.departure === null)?.id;
+    for (const id of [...(fixId === undefined ? [] : [fixId]), 'SCAN-99']) {
+      const refusedBlock = await report('--finding', id);
+      assert.equal(refusedBlock.status, 1, `${id}: ${refusedBlock.stderr}`);
+      assert.match(refusedBlock.stderr, new RegExp(`no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`));
+    }
+    assert.match((await report('--finding', question, '--json')).stderr, /--json and --finding do not go together; give one/);
+    assert.match((await report('--finding', 'not an id')).stderr, /--finding takes a finding's id as the brief prints it/);
+
     const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought', '--run', shortRunId(finished.id));
     assert.equal(given.status, 0, given.stderr);
     assert.equal(given.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe run only reviewed; run review --fix to apply the answer with the fixes\n`);

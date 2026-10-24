@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { beforeEditsSentence, briefFates, briefMarkdown, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { beforeEditsSentence, briefBlock, briefFates, briefMarkdown, howToAnswer, howToAnswerInChat, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
@@ -517,6 +517,44 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.equal(briefShortForm(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold())).at(-1), 'Changed: 0 fixes, 1 fix not applied');
     const answered = briefShortForm(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold()));
     assert.deepEqual(answered.slice(2, 4), ['Questions: none open; each is answered', 'Against a written rule: no fix left to review']);
+  });
+});
+
+describe('the brief in a chat, and the block of one finding (R7 of the questions in the chat)', () => {
+  it('gives the chat form with plain ids, the details after a bold label, and the agent to answer, and keeps the report form as it was', () => {
+    const brief = briefOf(withAccount(answerable(), given()));
+    const report = briefMarkdown(brief).join('\n');
+    const chat = briefMarkdown(brief, 'chat').join('\n');
+    assert.equal(briefMarkdown(brief, 'report').join('\n'), report);
+    assert.match(report, /<details><summary>/);
+    assert.match(report, /\[SWEEP-1\]\(#finding-sweep-1\)/);
+    assert.doesNotMatch(chat, /<details>|<\/details>|\]\(#finding-/);
+    assert.ok(!chat.includes(howToAnswer) && chat.includes(howToAnswerInChat), 'no end of a report follows');
+    assert.match(chat, /^### 1\. Should parse accept an empty input\? \(SWEEP-1\)$/m);
+    assert.match(chat, /^\*\*Details\.\*\*\n\n- Option 1 makes this rule: /m);
+    assert.match(chat, /^### 1\. RIPPLE-1$/m);
+  });
+
+  it('gives the block of an open question, an answered question and a departure under the heading of its part', () => {
+    const brief = briefOf(answerable());
+    const question = briefBlock(brief, 'SWEEP-1')!;
+    assert.deepEqual(question.slice(0, 4), ['## Questions for you (1)', '', `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswerInChat}`, '']);
+    assert.equal(question[4], '### 1. Should parse accept an empty input? (SWEEP-1)');
+    assert.ok(question.some((line) => line.startsWith('To take deep-review\'s choice: `')), 'the command of an open question');
+    assert.ok(question.includes('| 2, deep-review\'s choice | accept it and return an empty result | an empty input passes silently |'), 'the table of its options with their costs');
+    const answered = briefBlock(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold()), 'SWEEP-1')!;
+    assert.ok(answered.some((line) => line.startsWith('Answered: option 2 on ')), answered.join('\n'));
+    const departure = briefBlock(brief, 'RIPPLE-1')!;
+    assert.equal(departure[0], '## Fixes that go against a written rule (1)');
+    assert.ok(departure.includes('### 1. RIPPLE-1') && departure.includes('The rule: parse throws on a null input (docs/parse.md).'), departure.join('\n'));
+    assert.match(departure[2]!, /Review it only to go another way\. To answer, ask your agent with the deep-review skill\.$/);
+    assert.match(briefBlock(brief, 'SWEEP-1', 'report')!.join('\n'), /\[SWEEP-1\]\(#finding-sweep-1\)/, 'the report form when asked');
+  });
+
+  it('gives no block for a fix that goes against no rule, or an id the brief does not hold', () => {
+    const brief = briefOf(decidedFixRun(decisions).fold());
+    assert.equal(briefBlock(brief, 'RIPPLE-1'), null);
+    assert.equal(briefBlock(brief, 'SCAN-9'), null);
   });
 });
 

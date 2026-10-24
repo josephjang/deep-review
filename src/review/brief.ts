@@ -616,6 +616,31 @@ const fateClause = (fate: BriefFate): string => {
 /** How a person runs a command the brief gives, said once, with no path (R8 of the brief of a run). */
 export const howToAnswer = 'To answer, ask your agent with the deep-review skill, or type the command at a terminal as the end of this report shows.';
 
+/** How a person answers in a chat, where no end of a report follows (R7 of the questions in the chat). */
+export const howToAnswerInChat = 'To answer, ask your agent with the deep-review skill.';
+
+/**
+ * Where the brief is read (R7 of the questions in the chat): in the
+ * report, a file, or in a chat, as `report --brief` and
+ * `report --finding` print it. In a chat an id is plain text, since no
+ * evidence follows to link to; the details the report folds under a
+ * `<details>` tag follow a bold label; and the person answers by asking
+ * the agent.
+ */
+export type BriefForm = 'report' | 'chat';
+
+/** What a form changes in the words of the brief. */
+interface FormWords {
+  readonly link: (id: string) => string;
+  readonly details: (summary: string, lines: readonly string[]) => string[];
+  readonly howToAnswer: string;
+}
+
+const formWords: Readonly<Record<BriefForm, FormWords>> = {
+  report: { link: findingLink, details: (summary, lines) => [`<details><summary>${summary}</summary>`, '', ...lines, '', '</details>'], howToAnswer },
+  chat: { link: (id) => id, details: (_summary, lines) => ['**Details.**', '', ...lines], howToAnswer: howToAnswerInChat },
+};
+
 /** An answer a person gave, as a line of the brief. */
 const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
 
@@ -647,7 +672,7 @@ function changePart(change: BriefChange): string[] {
 }
 
 /** One question as a block of the brief: its words, the option in place now and deep-review's choice, the options, the command, and the details one step below. */
-function questionBlock(question: BriefQuestion, position: number, fixed: boolean): string[] {
+function questionBlock(question: BriefQuestion, position: number, fixed: boolean, words: FormWords): string[] {
   const { answer } = question;
   // What stands: the answer a person gave, else the default, in place or, when it edits the code and no fixer applied it, only the default.
   const answered = answer?.option ?? null;
@@ -666,7 +691,7 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
     ...(option.number === question.choice ? ['deep-review\'s choice'] : []),
   ].join(', ');
   return [
-    `### ${String(position)}. ${inlineText(question.question)} (${findingLink(question.id)})`,
+    `### ${String(position)}. ${inlineText(question.question)} (${words.link(question.id)})`,
     '',
     standing,
     '',
@@ -675,13 +700,11 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
     ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
     ...(answer === null ? ['', `To take deep-review's choice: \`${question.command}\`. For another option, give its number.`] : []),
     '',
-    '<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>',
-    '',
-    ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
-    `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
-    `- Why it asks: ${inlineText(question.grounds)}`,
-    '',
-    '</details>',
+    ...words.details('The rule that each option makes, where deep-review looked, and why it asks', [
+      ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
+      `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
+      `- Why it asks: ${inlineText(question.grounds)}`,
+    ]),
   ];
 }
 
@@ -691,7 +714,7 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
  * instead, its fate, and the commands that review it. The approach the
  * fixer was given is in the evidence's Decisions, not here (R9).
  */
-function departureBlock(departure: BriefDeparture, position: number, fixed: boolean): string[] {
+function departureBlock(departure: BriefDeparture, position: number, fixed: boolean, words: FormWords): string[] {
   const { review } = departure;
   const reviewLine = review === null
     ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.`
@@ -701,7 +724,7 @@ function departureBlock(departure: BriefDeparture, position: number, fixed: bool
     ? fateWords[departure.fate]
     : `You chose to follow the rule instead; ${review.applied ? 'the tree holds the fix that follows it' : fixed ? 'no fixer has applied the fix that follows it yet' : '`review --fix` applies the fix that follows it'}.`;
   return [
-    `### ${String(position)}. ${findingLink(departure.id)}`,
+    `### ${String(position)}. ${words.link(departure.id)}`,
     '',
     `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
     '',
@@ -712,9 +735,9 @@ function departureBlock(departure: BriefDeparture, position: number, fixed: bool
 }
 
 /** The part "Where to look": each condition of principle 8 that holds, with its findings linked, or one line that none does. */
-function lookPart(brief: Brief): string[] {
+function lookPart(brief: Brief, words: FormWords): string[] {
   const lines = ['## Where to look', ''];
-  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, findingLink)}`}.`)];
+  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, words.link)}`}.`)];
   const judged = brief.change.state === 'given' ? ' The triage judged that the change alters no public interface and affects no file beyond its own.' : '';
   return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged}`];
 }
@@ -736,13 +759,13 @@ export function readOnlyChangedSentence(changed: BriefChanged, show: (id: string
 }
 
 /** The paragraph "What deep-review changed" (R2 of the brief of a run). */
-function changedPart(changed: BriefChanged): string[] {
+function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
   const lines = ['## What deep-review changed', ''];
-  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, findingLink)}.`;
-  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, findingLink)];
-  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, findingLink)})`]);
+  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, link)}.`;
+  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
+  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, link)})`]);
   const outcomes = [
-    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, findingLink)})`}`,
+    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, link)})`}`,
     ...part(changed.alreadyInTree, 'found already in the tree'),
     ...part(changed.deferred, 'its fixers put off'),
     ...part(changed.blocked, 'its fixers could not apply'),
@@ -776,27 +799,57 @@ function documentsPart(documents: readonly BriefDocument[]): string[] {
   ];
 }
 
+/** The heading of the part of the questions, and the sentence under it that says what a default is and how to answer. */
+const questionsHeading = (brief: Brief, words: FormWords): string[] => [
+  `## Questions for you (${String(brief.questions.length)})`,
+  '',
+  `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${words.howToAnswer}`,
+];
+
+/** The heading of the part of the fixes that go against a written rule, and the sentence under it when no part of questions said how to answer. */
+const departuresHeading = (brief: Brief, words: FormWords, alone: boolean): string[] => [
+  `## Fixes that go against a written rule (${String(brief.departures.length)})`,
+  ...(alone ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${words.howToAnswer}`] : []),
+];
+
 /**
  * The Markdown form of the brief (R8 to R12, R15 of the brief of a run):
  * the title, the headline, and the parts in the order of principle 5,
  * then what deep-review changed. It names no local path; it says once,
- * in the first part that gives a command, how a person runs one.
+ * in the first part that gives a command, how a person runs one. In the
+ * chat form, which `report --brief` prints, an id is plain text and the
+ * details follow a bold label (R7 of the questions in the chat).
  */
-export function briefMarkdown(brief: Brief): string[] {
+export function briefMarkdown(brief: Brief, form: BriefForm = 'report'): string[] {
+  const words = formWords[form];
   const questions = brief.questions.length === 0 ? [] : [
-    `## Questions for you (${String(brief.questions.length)})`,
-    '',
-    `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswer}`,
-    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed)]),
+    ...questionsHeading(brief, words),
+    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed, words)]),
   ];
   const departures = brief.departures.length === 0 ? [] : [
-    `## Fixes that go against a written rule (${String(brief.departures.length)})`,
-    ...(brief.questions.length === 0 ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${howToAnswer}`] : []),
-    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed)]),
+    ...departuresHeading(brief, words, brief.questions.length === 0),
+    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed, words)]),
   ];
   const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
-  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief, words), changedPart(brief.changed, words)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
+}
+
+/**
+ * The block of one finding of the brief, under the heading of its part
+ * and the sentence that says how to answer (R7 of the questions in the
+ * chat): a question, open or answered, or a fix that goes against a
+ * written rule, numbered as the brief numbers it; null for an id that
+ * names neither, a fix that goes against no rule among them. The chat
+ * form by default, which `report --finding` prints.
+ */
+export function briefBlock(brief: Brief, id: string, form: BriefForm = 'chat'): string[] | null {
+  const words = formWords[form];
+  const question = brief.questions.findIndex((entry) => entry.id === id);
+  if (question !== -1) return [...questionsHeading(brief, words), '', ...questionBlock(brief.questions[question]!, question + 1, brief.changed.fixed, words)];
+  const departure = brief.departures.findIndex((entry) => entry.id === id);
+  if (departure !== -1) return [...departuresHeading(brief, words, true), '', ...departureBlock(brief.departures[departure]!, departure + 1, brief.changed.fixed, words)];
+  return null;
 }
 
 /**
