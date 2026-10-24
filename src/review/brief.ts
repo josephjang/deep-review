@@ -772,8 +772,18 @@ export function briefMarkdown(brief: Brief): string[] {
   return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
 }
 
-/** The most characters of a line of the short form; the path that ends it has no limit, since a path cannot be cut (R13 of the brief of a run). */
+/**
+ * The most characters of a line of the short form; the path that ends it
+ * has no limit, since a path cannot be cut (R13 of the brief of a run).
+ * Nor do the lines of an open question, its options and an open
+ * departure, which give the words of the decider whole: its schema holds
+ * each text to 400 characters (PD12 of the questions in the chat).
+ */
 export const shortLineLimit = 200;
+
+/** The most open questions, and the most open departures, the short form names with their words; it counts the others (PD2 of the questions in the chat). */
+export const shownQuestions = 3;
+export const shownDepartures = 3;
 
 /**
  * Whether the period that ends `before` ends an abbreviation, not a
@@ -795,11 +805,11 @@ function firstSentence(text: string): string {
   return inline;
 }
 
-/** A condition of principle 8 in a few words, for the short form. */
+/** A condition of principle 8 in a few words, for the short form; a departure in the words of the line `Against a written rule:`, so one thing has one name (R3 of the questions in the chat). */
 const lookWords = (entry: BriefLook): string => {
   switch (entry.condition) {
     case 'departure':
-      return counted(entry.findings.length, 'departure', 'departures');
+      return counted(entry.findings.length, 'fix that goes against a written rule', 'fixes that go against a written rule');
     case 'plausible':
       return `${counted(entry.findings.length, 'fix', 'fixes')} on a PLAUSIBLE verdict`;
     case 'public-interface':
@@ -819,15 +829,52 @@ function changedWords(changed: BriefChanged): string {
   return `${fixes}${rest}${where}`;
 }
 
+/** An option of a question as a line of the short form names it: its number and its words, whole. */
+const optionWords = (question: BriefQuestion, number: number): string => `option ${String(number)}, ${inlineText(question.options[number - 1]?.option ?? '')}`;
+
+/**
+ * The lines of one open question in the short form (R1 of the questions
+ * in the chat): the question, then the option in place now and
+ * deep-review's choice, one line for the two when they are one option.
+ * A default that edits the code and that no fixer applied is named as the
+ * default, which the tree does not hold. Each line starts with the id of
+ * the finding and gives the words of the decider whole.
+ */
+function questionLines(question: BriefQuestion): string[] {
+  const id = `  ${question.id}`;
+  const standing = question.defaultApplied ? 'in place now' : 'the default, which the tree does not hold';
+  const both = question.defaultApplied ? 'in place now and deep-review\'s choice' : 'the default and deep-review\'s choice, which the tree does not hold';
+  return [
+    `${id}: ${inlineText(question.question)}`,
+    ...(question.default === question.choice
+      ? [`${id} ${both}: ${optionWords(question, question.default)}`]
+      : [`${id} ${standing}: ${optionWords(question, question.default)}`, `${id} deep-review's choice: ${optionWords(question, question.choice)}`]),
+  ];
+}
+
+/** The line of one open departure in the short form (R2 of the questions in the chat): where the rule is written, then the rule, whole; a fix no fixer applied, or one of a run that only reviewed, would go against it. */
+function departureLine(departure: BriefDeparture): string {
+  const goes = departure.fate === 'applied' || departure.fate === 'already-in-tree' ? 'goes against' : 'would go against';
+  return `  ${departure.id} ${goes} a rule in ${inlineText(departure.source)}: "${inlineText(departure.rule)}"`;
+}
+
+/** The line that counts the open findings a list of the short form does not name with their words, and names their ids, or none. */
+const moreLine = (ids: readonly string[], one: string, many: string): string[] => (ids.length === 0 ? [] : [`  ${counted(ids.length, one, many)}: ${idWords(ids)}`]);
+
 /**
  * The short form of the brief (R13, PD12 of the brief of a run): seven
- * lines of at most `shortLineLimit` characters, whatever the number of
- * findings, and an eighth for a fix run, the documents it left out of date
- * (R7 of the documentation step), each naming its subject in its first
- * words so it keeps its sense when a model rewords it; a list shows at
- * most `shownIds` ids and counts the rest, and a line with nothing to say
- * says so. The caller prints the path of the report after them, the last
- * line.
+ * lines, whatever the number of findings, and an eighth for a fix run, the
+ * documents it left out of date (R7 of the documentation step), each
+ * naming its subject in its first words so it keeps its sense when a model
+ * rewords it; a list shows at most `shownIds` ids and counts the rest, and
+ * a line with nothing to say says so. Under the line `Questions:` come
+ * the lines of each open question, at most `shownQuestions`, and under
+ * `Against a written rule:` the line of each open departure, at most
+ * `shownDepartures`, each list with one more line that counts the others
+ * (R1, R2 of the questions in the chat): at most 22 lines in all. A line
+ * has at most `shortLineLimit` characters, but the lines of a question, an
+ * option and a departure, which give the words of the decider whole. The
+ * caller prints the path of the report after them, the last line.
  */
 export function briefShortForm(brief: Brief): string[] {
   const open = brief.questions.filter((question) => question.answer === null);
@@ -835,19 +882,24 @@ export function briefShortForm(brief: Brief): string[] {
   // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run); one question reads as one.
   const inPlace = open.every((question) => question.defaultApplied);
   const defaults = open.length === 1 ? (inPlace ? 'with its default in place' : 'with a default') : inPlace ? 'each with a default in place' : 'each with a default';
-  const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
+  const openDepartures = brief.departures.filter((departure) => departure.review === null);
   const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
   const gaps = brief.notCovered;
   const notCovered = gaps.length === 0 ? 'nothing' : gaps.length === 1 ? inlineText(gaps[0]!.text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0]!.text)}`;
-  const lines = [
-    `${inlineText(brief.title)} (run ${shortRunId(brief.run)})`,
-    `The change: ${change}`,
-    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
-    openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
-    ...(brief.changed.fixed ? [brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`] : []),
-    `Not covered: ${notCovered}`,
-    `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
-    `Changed: ${changedWords(brief.changed)}`,
+  // The lines that give the words of the decider whole are not cut; every other line is.
+  const cut = (line: string): string => cutAtWord(line, shortLineLimit);
+  return [
+    cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
+    cut(`The change: ${change}`),
+    cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
+    ...open.slice(0, shownQuestions).flatMap(questionLines),
+    ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),
+    cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}`),
+    ...openDepartures.slice(0, shownDepartures).map(departureLine),
+    ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), 'more fix', 'more fixes').map(cut),
+    ...(brief.changed.fixed ? [cut(brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`)] : []),
+    cut(`Not covered: ${notCovered}`),
+    cut(`Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`),
+    cut(`Changed: ${changedWords(brief.changed)}`),
   ];
-  return lines.map((line) => cutAtWord(line, shortLineLimit));
 }
