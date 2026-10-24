@@ -920,11 +920,11 @@ background command, then abandons the stopped run before the corrected
 request, so that request starts a new run. Asked to fix the findings,
 it passes `--fix`, says in that message that the engine's workers will
 edit the working tree, that it runs the check commands it chose from
-the repository and that the run commits nothing, saying it before the
-command instead when `--fix` continues a finished read-only run, which
-starts its fixes at once, and afterwards offers
-to commit the edits with `deep-review commit`, after which it shows
-the short form again with `deep-review report`. It ends each turn
+the repository and that the run commits nothing, also when `--fix`
+continues a finished read-only run, which starts its checks and fixes
+at once, so the user can read it after they begin, and afterwards
+offers to commit the edits with `deep-review commit`, after which it
+shows the short form again with `deep-review report`. It ends each turn
 with the result it relays. Asked for more on one question, or on one
 fix that goes against a written rule, it runs `report --finding <id>`;
 for the whole result or a document left out of date, `report --brief`;

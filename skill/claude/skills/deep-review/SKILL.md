@@ -38,13 +38,8 @@ Bash tool from then on.
    and `--no-check <kind>` only for a check the user says to skip (kind
    `build`, `typecheck`, `lint` or `test`): each settles its kind over
    the survey. The message of step 3 tells the user what a fix run
-   does. A run that `--fix` continues starts its fixes at once, so when
-   you continue a read-only run that finished, tell the user before you
-   run the review that the engine's workers will edit the working tree,
-   that it runs the check commands it chose from the repository, and
-   that the run commits nothing.
-   Without such a request, do not pass `--fix`: the review then edits
-   nothing and runs no check.
+   does. Without such a request, do not pass `--fix`: the review then
+   edits nothing and runs no check.
 3. First find out what the run will review. Run this from the
    repository and wait for it to exit:
 

@@ -65,10 +65,11 @@ describe('the skill texts', () => {
         assert.ok(warning > review, 'the warning comes in the message after the review starts');
         assert.doesNotMatch(text, /Before you run it, tell the/);
         assert.match(text, /The message of step 3 tells the user what a fix run\s+does\./);
-        // A run that --fix continues goes straight to its fixes, so the skill warns before the command there (R13 of the questions in the chat).
-        const continued = text.search(/A run that `--fix` continues starts its fixes at once, so when\s+you continue a read-only run that finished, tell the user before you\s+run the review that the engine's workers will edit the working tree,\s+that it runs the check commands it chose from the repository, and\s+that the run commits nothing\./);
-        assert.ok(text.indexOf('continues that run') < continued && continued !== -1 && continued < review, 'the continuation, then its warning, then the command');
-        assert.doesNotMatch(text, /until its fixes phase the run has edited nothing/, 'a continued run is in its fixes phase from its start');
+        // A run that --fix continues is warned of in the same message, after it starts (R13 of the questions in the chat), so no warning comes before the command.
+        assert.doesNotMatch(text.slice(0, review), /tell the user before you\s+run the review|will edit the working\s+tree/, 'no warning before the command, also for a continued run');
+        // A continued run is in its fixes phase from its start, so the skill does not say that every run has edited nothing until the message is read.
+        assert.doesNotMatch(text, /until its fixes phase the run has edited nothing/);
+        assert.match(text, /a run that reviews edits nothing until its fixes phase\./);
       }
       assert.match(text, /the fixes are in the working tree,\s+uncommitted, one\s+patch per finding/);
       assert.match(text, /offer\s+to commit them/);
@@ -346,8 +347,8 @@ describe('the skill texts', () => {
       'If the PowerShell tool cannot check a command of this skill ("malformed\nsyntax that cannot be parsed"), run the commands of this skill with the\nBash tool from then on.\n',
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
-      // The warning of a fix run goes into the message of step 3 (PD10 of the questions in the chat), but before the command for a run that --fix continues (R13).
-      '   the survey. The message of step 3 tells the user what a fix run\n   does. A run that `--fix` continues starts its fixes at once, so when\n   you continue a read-only run that finished, tell the user before you\n   run the review that the engine\'s workers will edit the working tree,\n   that it runs the check commands it chose from the repository, and\n   that the run commits nothing.\n   Without such a request, do not pass `--fix`: the review then edits\n   nothing and runs no check.\n',
+      // The warning of a fix run goes into the message of step 3 (PD10 of the questions in the chat), also for a run that --fix continues (R13).
+      '   the survey. The message of step 3 tells the user what a fix run\n   does. Without such a request, do not pass `--fix`: the review then\n   edits nothing and runs no check.\n',
       // Step 3's first sentence ends here with `exit:`; the Codex skill goes on, on that line, with where engine/main.mjs is, so the shared text wraps apart only here.
       '   repository and wait for it to exit:\n',
       // The review starts in the background first, and the message with the scope ends the turn (R13 of the questions in the chat).
