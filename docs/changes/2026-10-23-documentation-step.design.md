@@ -266,7 +266,7 @@ The gap of the run budget names the step among the work that the budget stopped.
 
 The evidence gets `## Documentation` after `## Fixes`. It says if the step ran. For each item, it gives the status, the note and the files. It also gives the subject of the commit and its patch, the lines that the item took, and the validation. It lists the lines of the own `drift` of the step, and the lines that no item holds, with who reported each.
 
-`answerLines` no longer lists the `drift` lines, and the Fixes section points to the new section. The lines of the tests stay. `fixerTitle('documentation')` is "The documentation step".
+`answerLines` no longer lists the `drift` lines, and the Fixes section points to the new section. The lines of the tests stay. `answerLines` and the validation lines of the notes leave out the answer of the step, which the new section reports, so its `drift` and its tests are not credited to the fixers and its validation shows once. `fixerTitle('documentation')` is "The documentation step".
 
 ### The events and the fold (R1, R11)
 
