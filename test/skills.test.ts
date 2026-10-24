@@ -153,7 +153,7 @@ describe('the skill texts', () => {
       assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
       // The two lines the skill names are lines config show prints.
       // The words the skill names, not the code that fills them in.
-      assert.ok(read('src/config/command.ts').includes('`Scope: '), 'config show prints a Scope: line');
+      assert.ok(read('src/scope/scope-line.ts').includes('`Scope: ') && read('src/config/command.ts').includes('scopeLine(scope)'), 'config show prints a Scope: line');
       assert.ok(read('src/config/command.ts').includes('\'Settings:\''), 'config show prints a Settings: header');
       assert.ok((settingNames as readonly string[]).includes('budget.usd'), 'budget.usd is a setting config show lists');
     });

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { commitMessages, emptyTree } from '../../src/scope/git.ts';
+import { commitCount, commitMessages, emptyTree, isEmptyTree } from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, write } from '../helpers/repository.ts';
 
 describe('commitMessages (R6 of the brief of a run)', () => {
@@ -68,5 +68,81 @@ describe('commitMessages (R6 of the brief of a run)', () => {
     const base = commit('base');
     const head = commit('feat: Accept "quotes", `ticks` and ünïcode\n\n- one\n- two\n\n\n');
     assert.deepEqual(commitMessages(repo, base, head), [{ commit: head, message: 'feat: Accept "quotes", `ticks` and ünïcode\n\n- one\n- two' }]);
+  });
+});
+
+describe('commitCount (R12 of the questions in the chat)', () => {
+  let sandbox: string;
+  let repo: string;
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-commit-count-'));
+    repo = createRepository(join(sandbox, 'repo'));
+  });
+  afterEach(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+  const commit = (path: string, text: string): string => {
+    write(repo, path, `${text}\n`);
+    return commitAll(repo, text);
+  };
+
+  it('counts the commits of a range, none for a range that ends at its start', () => {
+    const base = commit('a.txt', 'base');
+    commit('a.txt', 'one');
+    const head = commit('b.txt', 'two');
+    assert.equal(commitCount(repo, base, head), 2);
+    assert.equal(commitCount(repo, head, head), 0);
+  });
+
+  it('counts a merge as one commit, on the first parent', () => {
+    const base = commit('a.txt', 'base');
+    git(repo, 'checkout', '-q', '-b', 'topic');
+    commit('t.txt', 'topic one');
+    commit('t.txt', 'topic two');
+    git(repo, 'checkout', '-q', 'main');
+    commit('a.txt', 'main one');
+    git(repo, 'merge', '-q', '--no-ff', '-m', 'Merge the topic', 'topic');
+    assert.equal(commitCount(repo, base, git(repo, 'rev-parse', 'HEAD')), 2, 'main one and the merge');
+  });
+
+  it('counts only the commits that change a path it is given, a path with glob characters literally', () => {
+    const base = commit('a.txt', 'base');
+    commit('a.txt', 'one');
+    commit('b.txt', 'two');
+    commit('a1.txt', 'three');
+    const head = commit('a[1].txt', 'four');
+    assert.equal(commitCount(repo, base, head, ['a.txt']), 1);
+    assert.equal(commitCount(repo, base, head, ['a.txt', 'b.txt']), 2);
+    assert.equal(commitCount(repo, base, head, ['a[1].txt']), 1, 'the file named a[1].txt, not a1.txt, which the glob would match too');
+  });
+
+  it('counts every commit up to the head from the empty tree', () => {
+    commit('a.txt', 'root');
+    const head = commit('a.txt', 'second');
+    assert.equal(commitCount(repo, emptyTree(repo), head), 2);
+  });
+
+  it('gives null for a revision that does not exist', () => {
+    const head = commit('a.txt', 'base');
+    assert.equal(commitCount(repo, 'f'.repeat(40), head), null);
+    assert.equal(commitCount(repo, head, 'no-such-branch'), null);
+  });
+});
+
+describe('isEmptyTree', () => {
+  it('knows the empty tree of each object format, and no other id', () => {
+    assert.equal(isEmptyTree('4b825dc642cb6eb9a060e54bf8d69288fbee4904'), true);
+    assert.equal(isEmptyTree('6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321'), true);
+    assert.equal(isEmptyTree('4b825dc6'), false);
+    assert.equal(isEmptyTree('1'.repeat(40)), false);
+  });
+
+  it('matches the empty tree that git gives for this repository', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'deep-review-empty-tree-'));
+    try {
+      assert.equal(isEmptyTree(emptyTree(createRepository(join(sandbox, 'repo')))), true);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 });
