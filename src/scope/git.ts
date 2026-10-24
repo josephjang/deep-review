@@ -95,15 +95,16 @@ export function commitMessages(repo: string, base: string, head: string): Commit
 /**
  * How many commits a change holds (R12 of the questions in the chat): the
  * commits on the first parent from `head` back to `base`, so a merge
- * counts as one, and with `paths` only those that change one of them;
- * every commit up to `head` when `base` is the empty tree, the base of a
- * root commit. Null when git cannot count them, so that a line that names
- * the count leaves it out rather than fail.
+ * counts as one, and with `paths` only those that change one of them; a
+ * commit that changes only paths `exclude` leaves out is not counted, since
+ * the run reviews nothing of it; every commit up to `head` when `base` is
+ * the empty tree, the base of a root commit. Null when git cannot count
+ * them, so that a line that names the count leaves it out rather than fail.
  */
-export function commitCount(repo: string, base: string, head: string, paths: readonly string[] = []): number | null {
+export function commitCount(repo: string, base: string, head: string, paths: readonly string[] = [], exclude: readonly string[] = []): number | null {
   const range = isEmptyTree(base) ? [head] : [`${base}..${head}`];
   try {
-    const text = gitText(repo, ['rev-list', '--count', '--first-parent', ...range, '--', ...paths.map(literal)]).trim();
+    const text = gitText(repo, ['rev-list', '--count', '--first-parent', ...range, '--', ...pathspecs(paths, exclude)]).trim();
     const count = Number(text);
     return /^[0-9]+$/.test(text) && Number.isSafeInteger(count) ? count : null;
   } catch {
