@@ -259,9 +259,11 @@ git commit -m "docs(readme): Describe the questions in the short form, the list 
 - deep-review on this pull request on Claude Code, with the command of the skill and the settings of the repository.
 - Then `deep-review commit`, and typecheck and lint at each commit alone. Then `npm run check` and `npm run verify` at the head, the audit of the ledger, and a stacked pull request with the commits of the gate.
 - pallets/click #3878 in fresh clones at the head `f8c5a8e` and the base `2247b35`, with a test identity. The Claude Code plugin and the Codex skill take the engine of the head for the sessions, and they go back to `main` after them.
-- An interactive session of each host. It has a start with `--branch --fix`, the result, and a question about the open question. Then it has a start with a wrong scope that the user stops and abandons. A new session then asks for the last result and for the runs.
-- The record gives the four measures of R15. The first is the message with the scope as a text block of the transcript at each start of Claude Code. The second is the questions learned from the chat with no read of the report.
-- The third measure is the last report after an abandoned run, with one command. The fourth is the number of lines of each short form.
+- An interactive session of each host. It has a start with `--branch --fix`, the result, a question about the open question, and a commit. Then it has a start with a wrong scope that the user stops and abandons. A new session then asks for the last result and for the runs.
+- When the run of a host asks no question, the same request runs once more in that host, on the author's word. With no question again, the record says that the gate did not measure the questions in that host.
+- The record gives the measures of R15. On Claude Code, it gives the message of each start as a text block of the transcript, with the words of step 2 for the fix run. In each host, it gives the `Scope:` line of each start against the commits and the files that git gives for the clone.
+- In each host, the record also gives the questions learned from the chat with no read of a report. It gives the last message of each turn with a result, against the stdout of the engine, also after `commit`.
+- Last, it gives the stop and the `abandon` of the run with a wrong scope, with no refusal, and the last report after it with one command.
 
 ## 15. The verification, and this plan out
 

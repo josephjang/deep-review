@@ -205,11 +205,15 @@ After `commit`, the skill runs `report`. The last message holds the lines that `
 
 ### R15: The gate
 
-The gate is a real run (principle 12). deep-review reviews and fixes this pull request on Claude Code. Then the engine of this branch runs on pallets/click #3878 in interactive sessions of Claude Code and Codex. The sessions follow the steps of the report: a start, a result with a question, a question that the person asks about, an abandoned run, and a request for the last result.
+The gate is a real run (principle 12). deep-review reviews and fixes this pull request on Claude Code. Then the engine of this branch runs on pallets/click #3878 in interactive sessions of Claude Code and Codex. The sessions follow the steps of the report: a start, a result with a question, a question that the person asks about, and a commit. Then come a start with a wrong scope that the person stops and abandons, and a request for the last result.
 
-The gate records four measures. On Claude Code, the message with the scope is a text block of the transcript at each start. Before this change, it was a text block at none of four starts.
+The gate records the measures that no test of the engine can show. On Claude Code, the message with the scope is a text block of the transcript at each start, and for a fix run it holds the words of step 2. Before this change, it was a text block at none of four starts. In each host, the `Scope:` line of each start names `branch`, the counts and the base, and they match what git gives for the clone.
 
-In each host, the person learns what each open question asks from the chat, and the host reads no report for it. After an abandoned run, one command of the engine shows the last report. Before this change, the host searched for 1 minute 6 seconds, with 2 permission prompts. The short form of each gate run has at most the lines that R1 and R2 permit.
+In each host, the person learns what each open question asks from the chat, and the host reads no report for it. The last message of each turn that ends with a result holds the short form as the engine printed it, also after `commit` (R14).
+
+After the person stops the run with a wrong scope, `abandon` closes it with no refusal. After an abandoned run, one command of the engine shows the last report. Before this change, the host searched for 1 minute 6 seconds, with 2 permission prompts.
+
+When the run of a host asks no question, the same request runs once more in that host, on the author's word (PD13). When that run asks none either, the record says that the gate did not measure the questions in that host.
 
 ## Product Decisions
 
@@ -276,6 +280,10 @@ The author chose this on 2026-10-24. The decider writes a question, an option, a
 So the question and each of the two options get a line of their own, and the short form gives their words whole. A line of a departure gives its source and its rule whole too. This revises R13 of the brief of a run, whose lines have at most 200 characters, for these lines, as R4 does for the line of the change.
 
 The proposal rejects two other ways. A cut at 200 characters on lines of their own still drops the question of most runs on Claude Code. Option numbers alone keep the lines short, but the person then opens the report to learn the options, which is the fault of U1.
+
+### PD13: The gate when a run asks no question
+
+The author chose this on 2026-10-24. One run on pallets/click #3878 asked no question (U8), so a run of the gate can give no question to measure. A second run in that host costs one more run, and the author decides it when it comes. The proposal rejects two other ways. A record of "not measured" at once gives up the measure after one run. The question of the run on this pull request is no measure of the chat, because no session of a host shows that run.
 
 ## Against the vision note
 
