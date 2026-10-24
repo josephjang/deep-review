@@ -113,6 +113,9 @@ export type EditingPhase = z.infer<typeof editingPhaseSchema>;
 export const isCheckPhase = (phase: Phase): phase is CheckPhase => (checkPhases as readonly string[]).includes(phase);
 export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingPhases as readonly string[]).includes(phase);
 
+/** The editing phases of the fix pass before its `checks`: the fixes and the documentation step, whose edits `checks` runs on and the repair owns (TD8 of the fix pass, R9 of the documentation step). */
+export const fixPassEditingPhases = ['fixes', 'documentation'] as const satisfies readonly EditingPhase[];
+
 /** What an editing worker's answer is for: a finding, a check or an item of the documentation step. */
 export type AnsweredUnit = 'finding' | 'check' | 'item';
 

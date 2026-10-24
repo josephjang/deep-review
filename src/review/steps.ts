@@ -23,6 +23,7 @@ import {
   continuedCheckUnavailableAction,
   documentationUnitKey,
   finderAngles,
+  fixPassEditingPhases,
   isBudgetDegradingPhase,
   isCheckPhase,
   isEditingPhase,
@@ -500,7 +501,7 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   const fix = review.fix;
   const planned = fix?.checks.planned ?? null;
   if (fix === null || planned === null) return null;
-  if (phase === 'checks' && !fix.revisions.some((revision) => revision.phase === 'fixes' || revision.phase === 'documentation')) return null;
+  if (phase === 'checks' && !fix.revisions.some((revision) => (fixPassEditingPhases as readonly string[]).includes(revision.phase))) return null;
   if (phase === 'repair-checks' && !fix.revisions.some((revision) => revision.phase === 'repair')) return null;
   if (phase === 'answer-checks') {
     const pass = currentPass(review);

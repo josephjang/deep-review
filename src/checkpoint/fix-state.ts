@@ -10,7 +10,7 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecorded, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
@@ -705,7 +705,7 @@ export function fixesRevisedPaths(fix: FixState): string[] {
 
 /** Every path the fixes phase and the documentation step revised, sorted: what the repair owns (TD8 of the fix pass, R9 of the documentation step). */
 export function fixPassRevisedPaths(fix: FixState): string[] {
-  return revisedPathsOf(fix, ['fixes', 'documentation']);
+  return revisedPathsOf(fix, fixPassEditingPhases);
 }
 
 /** Every path any revision of the run changed, sorted. */
