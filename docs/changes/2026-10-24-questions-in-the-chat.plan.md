@@ -56,6 +56,8 @@ Files:
 - In the same function, a run that works again names the open answer pass, the continuation or the reopened fix pass. The fold has `review.answerPasses` and `review.continuedFrom` for this. A run with no review says that its review is not configured.
 - `src/command.ts`: `report` with no `--run` takes the run of the worktree with a current report and the highest `lastSequence`, as `chooseRun` and `chooseAnswerRun` do. Before the short form, it prints one `Not shown:` line for each run of the worktree with a higher `lastSequence`, with `noReportWords`.
 - In the same command, a worktree with no run that has a report gets a refusal. The refusal gives the state of the newest run and names `status --all`. A refusal of `report --run <id>` uses `noReportWords`, and it still names `status --run <id>`. The comment of `report` says so.
+- `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3` and `notShown`, a list of the runs that `report` passed over, each with `run` and `state`. `briefJson` takes that list beside the local facts and writes version 3. The comment of the module says that the engine writes version 3 after this change.
+- `src/command.ts`: `report --json` gives `briefJson` the runs that its choice passed over, with `noReportWords`, and it prints no `Not shown:` line. The comment of `report` names version 3.
 
 Tests:
 
@@ -63,6 +65,8 @@ Tests:
 - `test/cli.test.ts`, the case "shows the brief of the newest run of the worktree with report". A new run with no report no longer makes `report` refuse. `report` shows the second run, and its first line names the new run.
 - In the same case, an abandoned newest run gives `abandoned` with its reason and its phase. `report --run <abandoned>` refuses with the same words. A worktree whose runs have no report refuses and names `status --all`.
 - `test/cli.test.ts`, a continued run: a read-only run, then a later run with a report, then the first run continued into the fix pass to its report. `report` shows the continued run and prints no `Not shown:` line. This case fails on an order by `createdAt`.
+- `test/review/brief-json.test.ts`: version 3 parses with `notShown`, and versions 1 and 2 still parse their outputs.
+- `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`. With a later run that has no report, stdout parses as JSON whole, and `notShown` names that run with its state. `report --run <id> --json` gives an empty list.
 
 ```sh
 npm run check
@@ -165,32 +169,29 @@ npm run check
 git commit -m "feat(brief): Say when the core describes the change before the fixes"
 ```
 
-## 9. A line for each fix, and version 3 of the JSON form (R6)
+## 9. A line for each fix with `report --fixes` (R6)
 
 Files:
 
-- `src/review/fix-report.ts`: `findingOutcomes` also gives `subject`. For an applied finding, it is the subject of the message of the answer that gave the last outcome, else the note of that answer. For any other outcome, it is null.
-- `src/review/brief.ts`: `BriefChanged` gets `appliedLines`, the id and the subject of each applied fix, in the order of `applied`. `changedPart` lists them after its paragraph, one line each, with `findingLink`.
-- `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3`, `changed.appliedLines` and `notShown`, a list of the runs that `report` passed over, each with `run` and `state`. `briefJson` takes that list beside the local facts and writes version 3, and the comment of the module says that the engine writes version 3 after this change.
-- `src/command.ts`: `report --json` gives `briefJson` the runs that the choice of step 3 passed over, with `noReportWords`, and prints no `Not shown:` line. The comment of `report` names version 3.
+- `src/review/fix-report.ts`: a new `fixLines(state)`. It gives a line for each fix that `briefOf(state).changed` counts, in rank order. A line has the id, the words of its fate, and the subject of the commit message of the answer that gave its last outcome. With no message, it has the first sentence of the note of that answer. With no answer, it has the reason that no fixer attempted the fix. Each line goes through `cutAtWord` at `shortLineLimit`. A run that only reviewed gets the sentence of `changedPart`.
+- `src/review/brief.ts`: a new `fixFateWords`, the words of each fate as a line of `report --fixes` names it, beside `fateWords`.
+- `src/command.ts`: `options` and `allowed.report` get `fixes`. `report --fixes` refuses `--json` and `--brief` with a usage error. It prints the lines of R8, then `fixLines(state)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The comment of `report` names `--fixes`, and the usage line becomes `deep-review report [--run <id>] [--json | --fixes] [--repo <dir>]`.
 
 Tests:
 
-- `test/review/fix-report.test.ts`: `subject` of a fix of the fix pass, of a fix that an answer pass applied, and of a fix whose answer has no message.
-- `test/review/brief.test.ts`: the lines of the part "What deep-review changed", and none in a run that only reviewed.
-- `test/review/brief-json.test.ts`: version 3 parses with `appliedLines` and `notShown`, and versions 1 and 2 still parse their outputs.
-- `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`. With a later run that has no report, stdout parses as JSON whole, and `notShown` names that run with its state. `report --run <id> --json` gives an empty list.
+- `test/review/fix-report.test.ts`: `fixLines` for a fix of the fix pass with its subject, a fix that an answer pass applied, and a fix whose answer has no message. Also for each other fate, a line past 200 characters, and a run that only reviewed.
+- `test/cli.test.ts`: `report --fixes` prints the lines and then the path. `--fixes --json` and `--fixes --brief` are refused.
 
 ```sh
 npm run check
-git commit -m "feat(brief): List each applied fix with the subject of its commit"
+git commit -m "feat(report): Print a line for each fix with --fixes"
 ```
 
 ## 10. `report --brief` (R7)
 
 Files:
 
-- `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The usage line becomes `deep-review report [--run <id>] [--json | --brief] [--repo <dir>]`.
+- `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` and `--fixes` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The usage line becomes `deep-review report [--run <id>] [--json | --brief | --fixes] [--repo <dir>]`.
 
 Tests:
 
@@ -201,7 +202,7 @@ npm run check
 git commit -m "feat(report): Print the brief in Markdown with --brief"
 ```
 
-## 11. The skills (R7, R10, R11, R13, R14)
+## 11. The skills (R6, R7, R10, R11, R13, R14)
 
 Files:
 
@@ -210,7 +211,7 @@ Files:
 - In the same step, a user who stops the review gets the background command stopped first, and then `abandon`.
 - In the same file, step 4 puts the short form in the last message of the turn.
 - In the same file, step 5 runs `report` after `commit`. The last message shows the lines of `commit`, and then the short form that `report` printed, which names the commits. `skill/codex/SKILL.md` gets the same sentences.
-- Step 4 also names `report --brief` for a question about a question or a fix that goes against a written rule. It names it for a document left out of date, or for what the run changed, too.
+- Step 4 also names `report --brief` for a question about a question or a fix that goes against a written rule. It names it for a document left out of date too. It names `report --fixes` for a question about what the run changed.
 - In the same file, the paragraph about a finished run names `status --all` for a user who does not know the run. It says that `--run` takes the eight characters that the brief shows.
 - `skill/codex/SKILL.md`: the same sentences for step 4 and for the paragraph about a finished run. Step 3 keeps its order.
 
@@ -229,7 +230,7 @@ git commit -m "feat(skill): Show the scope after the review starts and name the 
 
 Files:
 
-- `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief` and the run that `report` takes.
+- `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief`, `report --fixes` and the run that `report` takes.
 - In the same file, the paragraph about `config show` gets the new `Scope:` line. The paragraph about the skill gets the order of step 3, `status --all` and `--run` by its start.
 - Each comment that describes the old behavior, from `grep -rn "newest run of the worktree\|seven lines\|an eighth\|has no current report" src/ README.md`.
 

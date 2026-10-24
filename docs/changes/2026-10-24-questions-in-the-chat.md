@@ -6,7 +6,7 @@ The report [`2026-10-23-skill-ux.md`](../reports/2026-10-23-skill-ux.md) reads d
 
 The documentation step settled one part of the first change, the count of the documents that the fixes left out of date (U2). This proposal is for the three changes.
 
-After the change, the short form of the brief says what each open question asks, what the tree holds now and what deep-review chose. It names the rule of each fix that goes against a written rule. Its line of the change gives a whole sentence, and it says when the account describes the change before the fixes. `report --brief` prints the brief as the report starts with it, and the brief gives one line for each fix, with the subject of its commit.
+After the change, the short form of the brief says what each open question asks, what the tree holds now and what deep-review chose. It names the rule of each fix that goes against a written rule. Its line of the change gives a whole sentence, and it says when the account describes the change before the fixes. `report --brief` prints the brief as the report starts with it, and `report --fixes` prints one line for each fix, with the subject of its commit.
 
 `report` takes the newest run that has a report, and it names each newer run that it passed over. A run with no report says why. `status --all` lists the runs, and `--run` takes the eight characters of a run id that the brief shows. The `Scope:` line counts the commits and the files of the change and names its base. The Claude Code skill starts the review before it shows the scope, so that the scope comes as a message.
 
@@ -50,7 +50,7 @@ The line itself is hard to judge. In one run, it was `Scope: range, the change f
 
 ## Goals
 
-After a run, the person learns from the lines in the chat what each open question asks and what the tree holds now. The person also learns what deep-review chose, and which rule each fix goes against. The person does not read the report for this. A person who wants more gets the whole brief from a command of the engine, with a line for each fix.
+After a run, the person learns from the lines in the chat what each open question asks and what the tree holds now. The person also learns what deep-review chose, and which rule each fix goes against. The person does not read the report for this. A person who wants more gets the whole brief, or a line for each fix, from a command of the engine.
 
 The person does not take the core of the change for the code after the fixes. The person finds the report of a finished run again after any later run, with the id that the brief shows. The person also learns why a run has no report. Before a run, the person sees the scope as a message, with facts that the person can check.
 
@@ -74,7 +74,7 @@ One run of a change can ask a question that another run of the same change decid
 
 ### A line for each fix in the short form
 
-The report asks for it. PD3 says why the line goes into the brief instead.
+The report asks for it. PD3 says why `report --fixes` prints the line instead.
 
 ### The pull request as the surface
 
@@ -124,17 +124,26 @@ The line `The change:` gives the first sentence of the account whole, up to 400 
 
 ### R5: The core of the change says when it describes the change before the fixes
 
-In a run whose fixes changed a file, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" lists them. A run that changed no file keeps the words of today.
+In a run whose fixes changed a file, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. A run that changed no file keeps the words of today.
 
-### R6: The brief gives one line for each fix
+### R6: `report --fixes` prints a line for each fix
 
-The part "What deep-review changed" keeps its paragraph. Then it lists each fix that a fixer applied, one line each, in the order of the brief. A line gives the id with its link and the subject of the commit message that the fixer gave. A fix with no message gets the note of its fixer. The brief value holds the subject. The JSON form of the brief gets it as version 3, which is version 2 with the subject of each applied fix and the runs that `report` passed over (R8).
+`deep-review report --fixes` prints one line for each fix of the run, in rank order, as the part Fixes of the evidence gives them. The fixes are the ones that the part "What deep-review changed" counts: applied, found already in the tree, put off, not applied and not attempted. A line gives the id, what became of the fix in the words of the brief, and the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
+
+It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
+
+```text
+RIPPLE-1, applied: Guard the cache against a missing entry
+SWEEP-2, put off by its fixer: The fix needs the format of the record, which the next change sets.
+```
+
+Both skills get one sentence. When the user asks what the run changed, the skill runs `report --fixes`. It shows the lines before the path as printed, and then the path.
 
 ### R7: `report --brief` prints the brief
 
 `deep-review report --brief` prints the brief in Markdown, as the report starts with it, and then the path of the copy as the last line. It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 before the brief. It writes the copy again as `report` does. `--brief` and `--json` do not go together.
 
-Both skills get one sentence. The skill runs `report --brief` when the user asks about a question or about a fix that goes against a written rule. It does the same when the user asks about a document left out of date, or about what the run changed. It shows the lines before the path as Markdown, as printed, and then the path.
+Both skills get one sentence. The skill runs `report --brief` when the user asks about a question or about a fix that goes against a written rule. It does the same when the user asks about a document left out of date. It shows the lines before the path as Markdown, as printed, and then the path.
 
 ### R8: `report` takes the newest run with a report
 
@@ -212,11 +221,11 @@ R13 of the brief of a run fixes a maximum of lines for any number of findings. T
 
 The gate run of the documentation step on its own pull request, a change of 71 files, asked three questions. Three shows such a run whole, and the line of the count keeps the others in view. A maximum of one hides the second question of a run with two. No maximum breaks R13. The author can change the number when the questions of more runs are counted.
 
-### PD3: The fixes go into the brief, not into the short form
+### PD3: The fixes stay in the evidence, and `report --fixes` prints them
 
-The report asks for a line for each fix in the short form. This proposal puts that line into the brief (R6), and the short form keeps the count. Principle 5 puts the fixes in the evidence, after what the person must know and decide. The gate run of the documentation step decided 23 findings to fix. A line for each fix makes the short form grow with the number of fixes. R13 of the brief of a run does not permit that.
+The author chose this on 2026-10-24. The report asks for a line for each fix in the short form, which keeps the count instead. Principle 5 puts the fixes in the evidence, after what the person must know and decide. The gate run of the documentation step decided 23 findings to fix. A line for each fix makes the short form grow with the number of fixes. R13 of the brief of a run does not permit that.
 
-A person who asks what the run fixed gets the lines from `report --brief`, and `commit` prints the subject of each commit. The block "Before you merge" (U3) can then choose which fixes a person must see before a merge.
+The brief is the part of the report that the person reads first, so the same principle keeps the lines out of the brief too. The brief names each fix by its id, with a link to its evidence. `report --fixes` prints the lines when the person asks what the run changed, and `commit` prints the subject of each commit. The proposal rejects the lines in the brief: they depart from principle 5, and a run with 23 fixes adds 23 lines to what the person reads first. The block "Before you merge" (U3) can later choose which fixes a person must see before a merge.
 
 ### PD4: The whole first sentence, and a short first sentence from the triage
 
@@ -270,7 +279,7 @@ Each new line is text of the engine from the ledger: the question and the option
 
 ### Principle 5, the core, the questions, and the departures go to the person
 
-The short form now gives what each open question asks, and the rule of each fix that goes against one. These are the lines that the person reads first. The mark of R5 keeps the core of the change true to what it is.
+The short form now gives what each open question asks, and the rule of each fix that goes against one. These are the lines that the person reads first. The mark of R5 keeps the core of the change true to what it is. The fixes stay in the evidence, and `report --fixes` prints them when the person asks (PD3).
 
 ### Principle 6, easy to understand, with little context
 
@@ -290,9 +299,9 @@ The fault of U6 shows only in a real session of a host, and no test of the engin
 
 ### How to use this document
 
-The vision note counts a proposal against it if it increases what the person must read. The short form grows from at most 8 lines to at most 22, and the lines of the questions and the departures give the words of the decider whole, up to 400 characters each. The brief gets a line for each fix. In exchange, the person does not open a report of 400 to 506 lines to learn what a question asks. The person also does not ask the host to read it.
+The vision note counts a proposal against it if it increases what the person must read. The short form grows from at most 8 lines to at most 22, and the lines of the questions and the departures give the words of the decider whole, up to 400 characters each. In exchange, the person does not open a report of 400 to 506 lines to learn what a question asks. The person also does not ask the host to read it.
 
-This is a conflict between principles 5 and 6 and that item of the list. This proposal follows principles 5 and 6, and it names the longer short form here. The lines of the fixes are in the last part of the brief. A person who does not ask what the run changed does not read them.
+This is a conflict between principles 5 and 6 and that item of the list. This proposal follows principles 5 and 6, and it names the longer short form here. The lines of the fixes stay in the evidence, so a person who does not ask what the run changed does not read them.
 
 ## Risks
 
