@@ -177,7 +177,7 @@ describe('the repository\'s roles/', () => {
     // Its statuses and its validation, with no blocked item.
     assert.ok(prompt.includes('No item is `blocked`: nothing holds a file from you, and `requiredFiles` stays empty.'));
     assert.ok(prompt.includes('For each document you edited, give one `static` validation line: the document as its `source`, and in `evidence` the code you compared it with.'));
-    assert.ok(prompt.includes('In `drift`, list each document you found out of date at your end and did not bring in line.'));
+    assert.ok(prompt.includes('In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift.'), 'drift holds only the staleness of this run');
     assert.ok(prompt.includes('Redirect to a log in your scratch directory, never in the repository'));
   });
 
