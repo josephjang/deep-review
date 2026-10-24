@@ -36,6 +36,7 @@ import {
   fixReopenedV1,
   fixReopenedV2,
   groupUnverifiedV1,
+  isDocumentItem,
   phaseFinishedV2,
   phaseFinishedV3,
   phaseFinishedV4,
@@ -787,5 +788,11 @@ describe('documentation.planned@1', () => {
   it('refuses two items with one path, and a path a claim could not record', () => {
     assert.equal(plans(testing, { ...outside, path: 'docs/testing.md' }, search), false);
     for (const path of ['/etc/passwd', '../x.md', './docs/testing.md', 'docs\\testing.md', '.git/config', 'a//b']) assert.equal(plans({ ...testing, path }, search), false, path);
+  });
+
+  it('tells a document, a refused path among them, from the search', () => {
+    const items = documentationPlannedV1.parse({ items: [testing, outside, search] }).items;
+    assert.deepEqual(items.filter(isDocumentItem).map((item) => item.file), ['./docs/testing.md', '../outside.md']);
+    assert.deepEqual(items.filter((item) => !isDocumentItem(item)).map((item) => item.id), ['search']);
   });
 });

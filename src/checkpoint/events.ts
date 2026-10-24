@@ -2176,6 +2176,15 @@ export const documentationPlannedV1 = z.strictObject({
 export type DocumentationPlanned = z.infer<typeof documentationPlannedV1>;
 export type DocumentationItem = DocumentationPlanned['items'][number];
 
+/**
+ * Whether a documentation item is a document rather than the search: the
+ * plan's form gives every document its file and the search none, so the
+ * null file means the search and no other item.
+ */
+export function isDocumentItem(item: DocumentationItem): item is DocumentationItem & { readonly file: string } {
+  return item.file !== null;
+}
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
