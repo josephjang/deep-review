@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefFates, briefMarkdown, briefOf, briefShortForm, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { briefFates, briefMarkdown, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
@@ -350,6 +350,20 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.equal(briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))))[0], `${title} (run ${run})`);
     const first = briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title: 'word '.repeat(60).trim() } as unknown as ChangeReading))))[0]!;
     assert.ok(first.length <= shortLineLimit && first.endsWith('...'), first);
+  });
+
+  it('keeps the first sentence of the change whole up to 400 characters, and cuts a longer one at a word (R4 of the questions in the chat)', () => {
+    const changeLine = (what: string): string => briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    assert.equal(changeLineLimit, 400);
+    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
+    const three = sentence(300);
+    assert.equal(changeLine(`${three} More.`), `The change: ${three}`, 'a sentence of 300 characters, past the 200 of the other lines');
+    assert.ok(changeLine(`${three} More.`).length > shortLineLimit);
+    const five = sentence(500);
+    const cut = changeLine(`${five} More.`);
+    assert.ok(cut.length <= changeLineLimit && cut.endsWith('...'), cut);
+    const kept = cut.slice('The change: '.length, -3);
+    assert.ok(five.startsWith(kept) && five[kept.length] === ' ', 'cut at a word, with three periods');
   });
 
   it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {

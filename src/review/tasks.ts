@@ -273,7 +273,7 @@ export function commitMessagesSection(words: ChangeMessages): string[] {
 }
 
 /** The most characters of a title and of why that the triage's task asks for; the brief cuts neither (R3 of the brief of a run). */
-export const accountLimits = { title: 80, why: 400 } as const;
+export const accountLimits = { title: 80, why: 400, firstSentence: 160 } as const;
 
 /**
  * The triage's task (R3, R4, R6 of the brief of a run): the `SCAN` review,
@@ -290,7 +290,7 @@ export function triageTask(messages: ChangeMessages): string {
     'Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:',
     '',
     `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
-    '- `what`: what the change does, in at most five sentences of plain words. Name no file, line or internal name that a reader must look up; put those in `restsOn`.',
+    `- \`what\`: what the change does, in at most five sentences of plain words. Start with one sentence of at most ${String(accountLimits.firstSentence)} characters that says alone what the change does. Name no file, line or internal name that a reader must look up; put those in \`restsOn\`.`,
     '- `why`: why the change does it, in the change\'s own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.',
     '- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.',
     '- `restsOn`: the files and commits that `what` rests on, at least one.',

@@ -781,6 +781,14 @@ export function briefMarkdown(brief: Brief): string[] {
  */
 export const shortLineLimit = 200;
 
+/**
+ * The most characters of the first sentence of the account that the line
+ * of the change gives whole; only a longer one is cut at a word (R4 of the
+ * questions in the chat). The triage is asked for one of at most
+ * `accountLimits.firstSentence`, which a model does not keep exactly.
+ */
+export const changeLineLimit = 400;
+
 /** The most open questions, and the most open departures, the short form names with their words; it counts the others (PD2 of the questions in the chat). */
 export const shownQuestions = 3;
 export const shownDepartures = 3;
@@ -873,8 +881,10 @@ const moreLine = (ids: readonly string[], one: string, many: string): string[] =
  * `shownDepartures`, each list with one more line that counts the others
  * (R1, R2 of the questions in the chat): at most 22 lines in all. A line
  * has at most `shortLineLimit` characters, but the lines of a question, an
- * option and a departure, which give the words of the decider whole. The
- * caller prints the path of the report after them, the last line.
+ * option and a departure, which give the words of the decider whole, and
+ * the line of the change, which gives the first sentence of the account
+ * whole up to `changeLineLimit` (R4). The caller prints the path of the
+ * report after them, the last line.
  */
 export function briefShortForm(brief: Brief): string[] {
   const open = brief.questions.filter((question) => question.answer === null);
@@ -890,7 +900,7 @@ export function briefShortForm(brief: Brief): string[] {
   const cut = (line: string): string => cutAtWord(line, shortLineLimit);
   return [
     cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
-    cut(`The change: ${change}`),
+    cutAtWord(`The change: ${change}`, changeLineLimit),
     cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
     ...open.slice(0, shownQuestions).flatMap(questionLines),
     ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),
