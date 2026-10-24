@@ -4,14 +4,16 @@
  * agent, or a check a pull request must pass. Its shape is a contract, so
  * `briefJsonV1` states it as a schema with a version, and a change of the
  * shape is a new version, as for an event of the ledger, and the engine
- * writes the newest alone, version 2 since the documentation step. Beside
- * the brief it carries the local facts of the run, which the brief itself
- * never names: the paths of the copy and of the record, the repository,
- * the evidence store, and the command that continues a stopped fix pass.
+ * writes the newest alone, version 3 since the questions in the chat.
+ * Beside the brief it carries the local facts of the run, which the brief
+ * itself never names: the paths of the copy and of the record, the
+ * repository, the evidence store, and the command that continues a
+ * stopped fix pass; and the later runs `report` passed over.
  */
 import { z } from 'zod';
 import { briefFates, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
 import { leftReasonKinds } from './documents.ts';
+import type { PassedOver } from './report-choice.ts';
 import { checkKinds } from './vocabulary.ts';
 
 const text = z.string();
@@ -99,16 +101,30 @@ export const briefJsonV2 = z.strictObject({
 });
 export type BriefJsonV2 = z.infer<typeof briefJsonV2>;
 
+/**
+ * Version 3 of the JSON form of the brief (R8 of the questions in the
+ * chat): version 2 with `notShown`, each later run of the worktree that
+ * `report` passed over because it has no report, with its id and why, so
+ * that a program does not take an older result for the current one; empty
+ * when `--run` named the run.
+ */
+export const briefJsonV3 = z.strictObject({
+  ...briefJsonV2.shape,
+  version: z.literal(3),
+  notShown: z.array(z.strictObject({ run: text, state: text })),
+});
+export type BriefJsonV3 = z.infer<typeof briefJsonV3>;
+
 /** The local facts the JSON form carries beside the brief: the copy's path, or null when it could not be written, the record's, the repository, the store and the continue command or null. */
-export type BriefLocal = BriefJsonV2['local'];
+export type BriefLocal = BriefJsonV3['local'];
 
-const answerJson = (given: BriefAnswer | null): BriefJsonV2['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
+const answerJson = (given: BriefAnswer | null): BriefJsonV3['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
 
-/** The brief as version 2 of its JSON form, with the run's local facts; the sentence on the documentation step is the Markdown's, and the documents say what it left. */
-export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV2 {
+/** The brief as version 3 of its JSON form, with the run's local facts and the later runs `report` passed over; the sentence on the documentation step is the Markdown's, and the documents say what it left. */
+export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly PassedOver[]): BriefJsonV3 {
   const { change, changed } = brief;
   return {
-    version: 2,
+    version: 3,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -146,5 +162,6 @@ export function briefJson(brief: Brief, local: BriefLocal): BriefJsonV2 {
       checks: brief.changed.checks.map((check) => ({ ...check })),
     },
     local: { ...local },
+    notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state })),
   };
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { describeRun, listedRuns, runListLines } from '../../src/review/status.ts';
+import { describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, triaged, worker } from '../helpers/review-history.ts';
@@ -246,5 +246,48 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     const state = configured().fold();
     const runs = [as(state, 1), { ...as(state, 2), createdAt: as(state, 1).createdAt }];
     assert.deepEqual(runListLines(runs, '/w', copyOf).map((line) => line.slice(0, 8)), ['00000002', '00000001']);
+  });
+});
+
+describe('noReportWords (R9 of the questions in the chat)', () => {
+  const blocker = { code: 'budget', detail: 'd', action: blockerActions.budget };
+
+  it('gives the reason of an abandon, with no period of its own at the end, also between two phases', () => {
+    assert.equal(noReportWords(configured().add('run.abandoned', { reason: 'wrong scope.' }).fold()), 'was abandoned: wrong scope');
+    assert.equal(noReportWords(triaged().add('run.abandoned', { reason: 'the wrong\nbranch' }).fold()), 'was abandoned: the wrong branch');
+    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).add('run.abandoned', { reason: 'r' }).fold()), 'was abandoned: r', 'an abandon comes before a review that never started');
+  });
+
+  it('gives the code of the blocker of a blocked run, and says that a run with no blocker is in progress', () => {
+    assert.equal(noReportWords(triaged().start('finders').finish('finders', 'blocked', 1, blocker).fold()), 'is blocked (budget)');
+    assert.equal(noReportWords(configured().fold()), 'is in progress');
+    assert.equal(noReportWords(triaged().start('finders').fold()), 'is in progress');
+  });
+
+  it('says that a run whose review never started never started it', () => {
+    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).fold()), 'never started its review');
+  });
+
+  it('names the answer pass, the continuation or the reopened fix pass that a run works again in', () => {
+    const passing = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }).fold();
+    assert.equal(passing.review!.report, null);
+    assert.equal(noReportWords(passing), 'works again in an answer pass');
+    const continued = continuedRun().fold();
+    assert.equal(continued.review!.report, null);
+    assert.equal(noReportWords(continued), 'works again, continued into the fix pass');
+    // A reopening as the fold holds it, on a run whose report it set aside.
+    const fixedRun = decidedFixRun().fold();
+    const reopening = { at: '2026-09-27T01:00:00.000Z', units: [], reportBefore: fixedRun.review!.report!, answerPassesBefore: 0, repairAnswered: false };
+    const reopened: RunState = { ...fixedRun, review: { ...fixedRun.review!, report: null, fix: { ...fixedRun.review!.fix!, reopenings: [reopening] } } };
+    assert.equal(noReportWords(reopened), 'works again in a reopened fix pass');
+    assert.equal(noReportWords({ ...reopened, review: { ...reopened.review!, blocker: { ...blocker, code: 'budget' as const, phase: 'fixes' as const } } }), 'is blocked (budget)', 'a blocker comes first');
+  });
+
+  it('names the one that opened last when a run worked again before', () => {
+    const continued = continuedToReport().fold();
+    const pass = { ids: ['SWEEP-1'], at: '2026-09-28T00:00:00.000Z', reportBefore: continued.review!.report!, openedAt: { answer: 0, checks: 0 } };
+    const passing: RunState = { ...continued, review: { ...continued.review!, report: null, answerPasses: [pass] } };
+    assert.ok(continued.review!.continuedFrom!.at < pass.at);
+    assert.equal(noReportWords(passing), 'works again in an answer pass');
   });
 });

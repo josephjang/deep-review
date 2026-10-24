@@ -55,8 +55,9 @@ import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
 import { readableRuns, runIdOf } from './review/runs.ts';
-import { describeRun, runListLines, type StatusContinuation } from './review/status.ts';
-import { canonicalPath, isInside, sameDirectory } from './paths.ts';
+import { chooseReportRun, notShownLines, type ReportChoice } from './review/report-choice.ts';
+import { describeRun, noReportWords, runListLines, type StatusContinuation } from './review/status.ts';
+import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
@@ -860,23 +861,29 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
 
 /**
  * `deep-review report` (R16, PD11 of the brief of a run): the brief of a
- * run, the one `--run` names or else the newest run of this worktree by
- * the time it started. It writes the copy of the report again under the
- * run's lock, or not while another engine holds it, then prints the short
- * form and the path of the copy, or else of the record, last, or with
- * `--json` version 2 of the JSON form. A worktree with no run, and a run with no current
- * report, are refused with exit 2, naming `status`: such a run is not done,
- * or works again in an answer pass, a continuation or a reopened fix pass.
+ * run, the one `--run` names or else the run of this worktree with a
+ * current report whose last event is the latest (R8 of the questions in
+ * the chat). It writes the copy of the report again under the run's lock,
+ * or not while another engine holds it, then prints a `Not shown:` line
+ * for each later run of the worktree it passed over, the short form, and
+ * the path of the copy, or else of the record, last; or with `--json`
+ * version 3 of the JSON form, which names those runs in `notShown`. A
+ * worktree with no run is refused with exit 2, naming `status`; one whose
+ * runs have no report with the state of the newest, naming `status --all`;
+ * and a run `--run` names with no current report with its state (R9),
+ * naming `status --run`.
  */
 function report(values: Values, io: CommandIo, root: string, worktree: string): number {
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a report; deep-review status says so too');
   try {
     const log = (line: string): void => io.stderr(`${line}\n`);
-    const found = values.run !== undefined
-      ? resolveRun(checkpoint, values.run, io)!
-      : readableRuns(checkpoint, log).filter((run) => sameDirectory(run.worktree, worktree)).reduce<RunState | null>((newest, run) => (newest === null || run.createdAt > newest.createdAt ? run : newest), null);
-    if (found === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+    const choice: ReportChoice = values.run !== undefined ? { run: resolveRun(checkpoint, values.run, io)!, passedOver: [], newest: null } : chooseReportRun(checkpoint, worktree, log);
+    const found = choice.run;
+    if (found === null) {
+      if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+    }
     // Under the run's lock, as every other writer of the copy, so this fold cannot write over the copy of a command that appended since (R14 of the brief of a run).
     // An engine that holds it writes the copy itself; this command then writes none and names the record, since a copy never fails a command (TD6).
     const release = runLockForCopy(checkpoint.root, found.id, log);
@@ -884,7 +891,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const state = checkpoint.fold(found.id);
       const review = state.review;
       if (review === null || review.report === null) {
-        throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
+        throw new ReviewRefusedError(`run ${state.id} has no current report, since it ${noReportWords(state)}; deep-review status --run ${state.id} shows where it is`);
       }
       // One context for the copy and the JSON form, so the engine's own roles are read at most once.
       const context = copyContextOf(io, state);
@@ -894,10 +901,10 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       if (values.json === true) {
         // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
         const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
-        io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
+        io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}\n`);
         return 0;
       }
-      io.stdout(`${[...briefShortForm(brief), copy ?? record].join('\n')}\n`);
+      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record].join('\n')}\n`);
       return 0;
     } finally {
       release?.();
