@@ -470,7 +470,48 @@ The gate runs are paid runs, and each waits for the word of the author. The engi
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The proposal and the work are the 20 commits from `3c53d4b` to `3f396b4`, written on `eda4e82`: the proposal and the plan, the steps of the work, the fixes of an independent review of the diff (1 finding of medium weight and 4 of low weight, each fixed after a test that failed first), and the build of `dist/`. One part went elsewhere than planned: the fixer of the fix-pass fixture that reports a `drift` line is in a script local to the fix-pass test and in the script of the contract test, not in `test/helpers/fix-pass-fixture.ts`.
+
+CI found one failure after the push. The test of a Codex fix pass took the last launch that the fake runtime recorded for a fixer's, to check that its sandbox may write the claims directory. Since the documentation step runs after the fixes, the last launch is the step's worker, so the test failed on Linux and macOS from the commit that runs the step to the build of `dist/`; on Windows it skipped the check and passed. The fake now records a worker of one role, and the test runs the engine as on Linux, so the check holds on every system. On the author's answer to a question of the gate run (below), that fix was folded into the commit that runs the step, `d791d9c`, and the branch was pushed again; the tree of each commit after it is unchanged. Typecheck, lint and `test/review/fix-pass.test.ts` then passed at each of the 12 commits from `d791d9c` to `3f396b4` alone, and CI passed at `3f396b4` on the three systems: the check took 208 seconds on Linux, 374 on macOS and 482 on Windows.
+
+At the head of the work, `npm run verify` passed. `npm run resume-test` ran 462 cases before the fixes of the independent review, and again at the head of the gate's fixes, `2f0ebde`; neither time did a case break the contract.
+
+### The gate (R13)
+
+The engine of the gate was a copy of `dist/claude` and of `dist/codex` at the head of the work, run from outside the worktree of the gate, because the build check rewrites `dist/`. The three runs went at once.
+
+**pallets/click #3878 on Claude Code.** Run `f655c26e`, in a clone at the commit and the base of the runs of the report on what a person gets from a run, with `--branch --fix` and no settings file. It took 19 minutes and 8.55 USD. As in those runs, the decision step put the code fixes in one cluster and the fix of the testing docs in another, and the code's fixer reported `docs/testing.md` as made stale by its edits, since the other cluster held it. The documentation step brought it in line in its own commit, and its search found that the `CliRunner` docstring, its `versionchanged` note and the changelog entry said the bytes never reach the command, which a fix had made false for prompts and `getchar`; it brought them in line in a second commit. The brief said `Documents left out of date: none`.
+
+**pallets/click #3878 on Codex.** Run `f2ad377b`, in a clone of its own at the same commits. It took 27 minutes; Codex reports no spend. The decision step made one cluster that owned the code alone. Its fixer changed how the runner reads the input and neither updated `docs/testing.md`, which no cluster held, nor reported it. The step's search found that the document no longer described the reads, and brought it in line. The brief said `Documents left out of date: none`.
+
+**This pull request on Claude Code.** Run `92d41061`, with the settings of the repository, reviewed 71 files; `scope.exclude` left out 114 paths under `dist/` and the golden fixtures. It took 112 minutes and 51.09 USD. The decision step decided 30 findings: 23 to fix, 4 to leave and 3 questions. Fixers applied 24 fixes, 14 of them in a second round of one cluster, and none timed out. Three fixers claimed this design and updated it in their own commits; no fixer reported a document as stale. The step's search found that the design's section on the report no longer matched a fix, and brought it in line. After the fixes the `test` check failed on a test that a fix to the repair's task had broken; the repair fixed the test, and each check passed after it. The brief said `Documents left out of date: none`.
+
+The documents were checked against the trees. The example of `docs/testing.md` ran and passed in both clones of click, and the changed docstrings and changelog entries agree with the code. The author accepted the gate and answered the three questions of the run on this pull request:
+
+- Twelve commits of the branch failed the test above on Linux and macOS (the question said three): fold the fix into the commit that broke the test, deep-review's choice. Done by hand, as above.
+- Where the version of a ledger event is chosen: at each writer, the default and deep-review's choice, with the one writer that cannot name the documentation step typed so that it cannot.
+- A left document reported later under another spelling of its path: compared as written, folded for case and slashes, the default and deep-review's choice.
+
+`deep-review commit` made 30 commits, `3f396b4` to `2f0ebde`, in pull request #72, which merged into this branch by a fast-forward. Typecheck and lint passed at each of them alone. At `2f0ebde`, `npm run check` passed (2807 tests: 2783 passed, 0 failed, 24 skipped), and `npm run verify` and `npm run test:contract` passed. CI passed there on the three systems: the check took 263 seconds on Linux, 409 on macOS and 619 on Windows. An audit of a copy of the ledger found no commit that holds a path its cluster did not own or claim: 0 of 30, with 25 claims and none late or lost.
+
+### Metrics
+
+Documents committed out of date with no count: 0 in each gate run on pallets/click #3878, against 1 or 2 in each fix run on Claude Code before. The target of 0 is met.
+
+The cost of the step: 0.42 of 8.55 USD (4.9 percent) on click on Claude Code, and 1.33 of 51.09 USD (2.6 percent) on this pull request. Codex reports no spend; there the step took 117 seconds of the run's 1617 (7.3 percent). The target of less than 10 percent is met.
+
+The commits of the documentation: the step made 4 commits in the three runs, and each says in its body what change of the code made the old text false. The target is met.
+
+The second round: on this pull request each of the 14 findings of the second round was first blocked on a source file, none on a document, and each was applied; the runs on click had no second round. The target is met.
+
+### What the gate showed
+
+- On Codex the fixer neither updated nor reported a document its edit made stale, although no cluster held it; R6 did not act there, and the step's search covered it.
+- The first question of the run on this pull request counted three failing commits where there were twelve.
+- On click on Claude Code, a fixer could not take a snapshot after a finding, since its Bash tool was denied.
+- Some commit bodies that fixers wrote are one line per paragraph, not wrapped at 72 characters.
 
 ## Risks & Migration
 
