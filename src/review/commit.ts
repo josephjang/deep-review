@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { CommitsCreated, CommitsPrepared, FrozenFile, TreeRevised } from '../checkpoint/events.ts';
+import { isDocumentItem, type CommitsCreated, type CommitsPrepared, type FrozenFile, type TreeRevised } from '../checkpoint/events.ts';
 import { committedRevisions, nextSeries, revisionMessageOf, runHead, type NextSeries } from '../checkpoint/fix-state.ts';
 import { attemptOwner } from './fix-events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -150,7 +150,7 @@ function namedDocuments(run: RunState, revision: TreeRevised): string {
     const item = items.get(id);
     // The fold holds a revision of the step to its items, so an id no item has is never met; it is named as it is.
     if (item === undefined) return id;
-    if (item.file === null) return 'documentation that the search found';
+    if (!isDocumentItem(item)) return 'documentation that the search found';
     // A fixer's path can hold a line break, which would split the trailer.
     return `documentation of ${inlineText(item.path ?? item.file)}`;
   }).join(', ');

@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, appliedOptionOf, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -441,7 +441,7 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
   })));
   const owned = ownedFiles(review, 'documentation', documentationUnitKey);
   return documentationTask({
-    documents: plan.items.flatMap((item) => (item.file === null ? [] : [{ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) }])),
+    documents: plan.items.filter(isDocumentItem).map((item) => ({ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) })),
     fixes,
     patches: options.patches.map((patch) => ({ path: evidence.pathOf(patch.reference), subject: patch.subject })),
     owned,

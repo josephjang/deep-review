@@ -8,7 +8,7 @@
  * commit series integrity), and the lines the notes of the run gain. A
  * run without the fix pass has none of these.
  */
-import type { CheckRan, FixedFinding, FixRecorded, RecordedDecision, TreeRevised } from '../checkpoint/events.ts';
+import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -262,9 +262,9 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
   const items = planned.flatMap((item, index) => {
     const finding = answer?.findings.find((candidate) => candidate.id === item.id);
     const outcome = finding !== undefined ? statusWords[finding.status] : notAttempted ? 'not attempted' : 'not answered';
-    const document = item.file === null
-      ? []
-      : [`Document: ${codeSpan(item.file)}, ${item.path === null ? 'which the engine refused as a path of the repository' : `the repository path ${codeSpan(item.path)}`}`];
+    const document = isDocumentItem(item)
+      ? [`Document: ${codeSpan(item.file)}, ${item.path === null ? 'which the engine refused as a path of the repository' : `the repository path ${codeSpan(item.path)}`}`]
+      : [];
     const answered = finding === undefined
       ? (notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, 'documentation', documentationUnitKey)!)}`] : [])
       : [
@@ -282,7 +282,7 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
     '## Documentation',
     '',
     cause === null
-      ? `The documentation step answered for ${counted(planned.filter((item) => item.file !== null).length, 'document', 'documents')} the fixers named, and for its own search.`
+      ? `The documentation step answered for ${counted(planned.filter(isDocumentItem).length, 'document', 'documents')} the fixers named, and for its own search.`
       : stepNotRunSentence(cause),
     '',
     ...items,

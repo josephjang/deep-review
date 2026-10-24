@@ -6,7 +6,7 @@
  * of date, which the brief counts.
  */
 import { passKey } from '../checkpoint/answer-state.ts';
-import { isClaimablePath } from '../checkpoint/events.ts';
+import { isClaimablePath, isDocumentItem } from '../checkpoint/events.ts';
 import { allBatches, documentationReadiness, documentKey, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -218,7 +218,7 @@ export function leftByStep(fix: Pick<FixState, 'documentation' | 'answers'>): St
   if (fix.documentation === null || answer === undefined) return [];
   const items = fix.documentation.items.flatMap((item): StepLeft[] => {
     const answered = answer.findings.find((finding) => finding.id === item.id);
-    if (item.file === null || answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) return [];
+    if (!isDocumentItem(item) || answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) return [];
     return [{ key: documentKey({ path: item.path, file: item.file }), file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` } }];
   });
   const plan = fix.documentation;
@@ -262,7 +262,7 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   const plan = fix.documentation;
   if (plan !== null) {
     if (notRun !== null) {
-      for (const item of plan.items) if (item.file !== null) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
+      for (const item of plan.items.filter(isDocumentItem)) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
     } else {
       for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
     }

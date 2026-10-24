@@ -17,7 +17,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
 import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
-import { reviewConfiguredV6 } from '../checkpoint/events.ts';
+import { isDocumentItem, reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
 import { isConfiguredRuntime, runtimeSettingNames } from '../config/settings.ts';
@@ -777,8 +777,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'plan-documentation': {
           // The controller reads each drift line's path against the worktree, as it reads every path a worker reports, and records the items before the worker starts (R2, TD2, TD8 of the documentation step).
           const items = documentationItemsOf(state.review!.fix!, planPathOf(options.worktree));
-          const documents = items.filter((item) => item.file !== null);
-          log(`phase documentation: ${documents.length === 0 ? 'no document the fixes named' : `${String(documents.length)} document${documents.length === 1 ? '' : 's'} the fixes named, ${documents.map((item) => item.path ?? `${item.file!} (not a path of the repository)`).join(', ')}`}, and the search planned`);
+          const documents = items.filter(isDocumentItem);
+          log(`phase documentation: ${documents.length === 0 ? 'no document the fixes named' : `${String(documents.length)} document${documents.length === 1 ? '' : 's'} the fixes named, ${documents.map((item) => item.path ?? `${item.file} (not a path of the repository)`).join(', ')}`}, and the search planned`);
           state = append(checkpoint, state, [{ kind: 'documentation.planned', version: 1, payload: { items } }]);
           break;
         }
