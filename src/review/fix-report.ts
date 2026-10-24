@@ -18,7 +18,7 @@ import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { codeSpan, counted, inlineText, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, counted, inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
@@ -313,8 +313,6 @@ function committedWords(fix: FixState): string {
   const passes = [...new Set(fix.revisions.slice(committed).map(laterPass))].sort().reverse().map((pass) => `${pass}'s`).join(' and ');
   return `${head}; ${rest.subject}, ${passes}, ${rest.verb} in the working tree, uncommitted`;
 }
-
-const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
 /** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, the fixers' test lines, and where the documentation they say their edits made stale is. */
 function fixesSection(review: ReviewState, fix: FixState): string[] {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { codeSpan, counted, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
+import { capitalized, codeSpan, counted, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
   it('quotes plain text in single backticks', () => {
@@ -51,6 +51,15 @@ describe('listed', () => {
     assert.equal(listed(['a', 'b']), 'a and b');
     assert.equal(listed(['a', 'b', 'c']), 'a, b and c');
     assert.equal(listed(['a', 'b', 'c', 'd']), 'a, b, c and d');
+  });
+});
+
+describe('capitalized', () => {
+  it('puts the first character in upper case and leaves the rest, an empty text and a capital as they are', () => {
+    assert.equal(capitalized('the fixer of c1-1'), 'The fixer of c1-1');
+    assert.equal(capitalized('deep-review commit'), 'Deep-review commit');
+    assert.equal(capitalized('Already'), 'Already');
+    assert.equal(capitalized(''), '');
   });
 });
 

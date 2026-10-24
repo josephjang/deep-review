@@ -12,6 +12,7 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
 import { normalizeFileName, worktreeLookup } from './locations.ts';
+import { capitalized } from './markdown.ts';
 import { documentationUnitKey, repairUnitKey, type EditingPhase } from './vocabulary.ts';
 
 /**
@@ -270,7 +271,7 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
   for (const line of unheldDriftLines(review)) {
     const by = reporterOf[line.phase];
-    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: 'after', text: `${capitalized(by)} reported it after the documentation step.` }, line.time);
   }
   // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10); a document of the repository only by its own path.
   const endedBy = (key: string, time: number): boolean => review.answerPasses.some((_, index) => {

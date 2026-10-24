@@ -21,6 +21,9 @@ export const counted = (n: number, one: string, many: string): string => `${Stri
 /** Words in a list, the last two joined by `and` and any before them by commas. */
 export const listed = (words: readonly string[]): string => (words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`);
 
+/** Text with its first character in upper case, to start a sentence. */
+export const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
 /**
  * Text as a Markdown code span the text cannot close, the CommonMark way:
  * a delimiter one backtick longer than the longest run the text holds,
