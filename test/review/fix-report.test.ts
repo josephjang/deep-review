@@ -538,7 +538,7 @@ describe('the Documentation section of the report', () => {
 
   it('lists the lines no item took, with who reported each, and leaves them out of the Fixes section, which points to this one', () => {
     const report = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: null } });
-    assert.match(report, /\n## Documentation\n\nThe documentation step did not run: an engine before the documentation step configured this run\.\n\nDocumentation the fixers say their edits made stale, which no step of this run took:\n\n- README\.md: parse no longer throws on null \(c1-1\)\n\n## Checks\n/);
+    assert.match(report, /\n## Documentation\n\nThe documentation step did not run: an engine before the documentation step configured this run\.\n\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- README\.md: parse no longer throws on null \(c1-1\)\n\n## Checks\n/);
     const fixes = report.slice(report.indexOf('\n## Fixes\n'), report.indexOf('\n## Documentation\n'));
     assert.match(fixes, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
     assert.doesNotMatch(fixes, /README\.md: parse no longer throws/);
@@ -554,5 +554,15 @@ describe('the Documentation section of the report', () => {
     assert.match(section(late), /\nDocumentation the repair or an answer pass says its edits made stale, after the documentation step:\n\n- README\.md: parse throws \(the repair\)\n- docs\/a\.md: the example prints 4 \(answer pass 1\)\n/);
     const report = renderReport(decidedFixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1')], continueCommand: null } });
     assert.doesNotMatch(report, /\n## Documentation\n/, 'an older run whose fixers named nothing');
+  });
+
+  it('names no fixer in the heading of the lines no step took when only the repair reported one', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('docs/api.md', 'the check name changed')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [] };
+    const repaired = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair } } } } } as RunState;
+    const text = section(repaired);
+    assert.match(text, /\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- docs\/api\.md: the check name changed \(the repair\)\n/);
+    assert.doesNotMatch(text, /the fixers say/);
   });
 });

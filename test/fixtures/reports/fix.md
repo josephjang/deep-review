@@ -87,7 +87,7 @@ Tests the fixers say they added or tightened:
 
 The documentation step did not run: an engine before the documentation step configured this run.
 
-Documentation the fixers say their edits made stale, which no step of this run took:
+Documentation the workers of this run say their edits made stale, which no step of this run took:
 
 - README.md: parse no longer throws on null (c1-1)
 

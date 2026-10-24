@@ -287,7 +287,7 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
     '',
     ...items,
     ...(found.length === 0 ? [] : ['Documents the documentation step found out of date at its end, which it did not bring in line:', '', ...found, '']),
-    ...(untaken.length === 0 ? [] : [plan === null ? 'Documentation the fixers say their edits made stale, which no step of this run took:' : 'Documentation the repair or an answer pass says its edits made stale, after the documentation step:', '', ...untaken, '']),
+    ...(untaken.length === 0 ? [] : [plan === null ? 'Documentation the workers of this run say their edits made stale, which no step of this run took:' : 'Documentation the repair or an answer pass says its edits made stale, after the documentation step:', '', ...untaken, '']),
   ];
   // One blank line between blocks, and none at the end.
   return lines.filter((line, index) => line !== '' || lines[index - 1] !== '').filter((line, index, all) => line !== '' || index < all.length - 1);
