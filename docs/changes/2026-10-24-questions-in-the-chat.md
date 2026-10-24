@@ -6,7 +6,7 @@ The report [`2026-10-23-skill-ux.md`](../reports/2026-10-23-skill-ux.md) reads d
 
 The documentation step settled one part of the first change, the count of the documents that the fixes left out of date (U2). This proposal is for the three changes.
 
-After the change, the short form of the brief says what each open question asks, what the tree holds now and what deep-review chose. It names the rule of each fix that goes against a written rule. Its line of the change gives a whole sentence, and it says when the account describes the change before the fixes. `report --brief` prints the brief as the report starts with it, and `report --fixes` prints one line for each fix, with the subject of its commit.
+After the change, the short form of the brief says what each open question asks, what the tree holds now and what deep-review chose. It names the rule of each fix that goes against a written rule. Its line of the change gives a whole sentence, and it says when the account describes the change before the fixes. `report --brief` prints the brief as the report starts with it, and `report --finding <id>` prints the block of one question. `report --fixes` prints one line for each fix, with the subject of its commit.
 
 `report` takes the newest run that has a report, and it names each newer run that it passed over. A run with no report says why. `status --all` lists the runs, and `--run` takes the eight characters of a run id that the brief shows. The `Scope:` line counts the commits and the files of the change and names its base. The Claude Code skill starts the review before it shows the scope, so that the scope comes as a message.
 
@@ -62,7 +62,7 @@ The report proposes a block that gives the behavior after the fixes and compares
 
 ### The rule for the interpretation by the host
 
-Step 4 still tells the host not to summarize, quote or interpret the findings (U4). `report --brief` gives the host text of the engine to show, in place of an account of its own. A rule that lets the host quote the report is a decision of its own.
+Step 4 still tells the host not to summarize, quote or interpret the findings (U4). `report --brief`, `report --finding <id>` and `report --fixes` give the host text of the engine to show, in place of an account of its own. A rule that lets the host quote the report is a decision of its own.
 
 ### The shape of the report and the language of the reader
 
@@ -139,11 +139,13 @@ SWEEP-2, put off by its fixer: The fix needs the format of the record, which the
 
 Both skills get one sentence. When the user asks what the run changed, the skill runs `report --fixes`. It shows the lines before the path as printed, and then the path.
 
-### R7: `report --brief` prints the brief
+### R7: `report --brief` prints the brief, and `report --finding <id>` one block of it
 
 `deep-review report --brief` prints the brief in Markdown, as the report starts with it, and then the path of the copy as the last line. It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 before the brief. It writes the copy again as `report` does. `--brief` and `--json` do not go together.
 
-Both skills get one sentence. The skill runs `report --brief` when the user asks about a question or about a fix that goes against a written rule. It does the same when the user asks about a document left out of date. It shows the lines before the path as Markdown, as printed, and then the path.
+`deep-review report --finding <id>` prints one block of the brief in the same way. The block is the one of a question, open or answered, or of a fix that goes against a written rule. The block of a question gives the question, the table of its options with the cost and the rule of each, and the command that answers it. An id that names no such block is refused, and the refusal names `report --fixes` for a fix. `--finding` does not go with `--json`, `--brief` or `--fixes`.
+
+Both skills get one sentence. The skill runs `report --finding <id>` when the user asks about one question or about one fix that goes against a written rule. It runs `report --brief` when the user asks about a document left out of date, or for the whole result. It shows the lines before the path as Markdown, as printed, and then the path.
 
 ### R8: `report` takes the newest run with a report
 
@@ -209,11 +211,13 @@ In each host, the person learns what each open question asks from the chat, and 
 
 ## Product Decisions
 
-### PD1: The words of each question in the short form, and the whole brief in a command
+### PD1: The words of each question in the short form, and its block in a command
 
 Two ways were open. One prints the questions with a command, and the skill shows them when the person asks. The other puts the questions into the short form. This proposal does both. The short form reaches the person after each run, and principle 5 puts the questions first. A person must not ask to learn what they are asked.
 
-A question block has a table of options, the cost of each option, the rule of each option and the command. That does not fit in two lines, so `report --brief` gives it. The proposal rejects a short form with whole question blocks, because a run with several questions then fills the chat.
+A question block has a table of options, the cost of each option, the rule of each option and the command. That does not fit in a few lines, so `report --finding <id>` gives it. The proposal rejects a short form with whole question blocks, because a run with several questions then fills the chat.
+
+The author chose on 2026-10-24 that a question about one finding gets the block of that finding. The proposal rejects the whole brief for it: a brief has 27 to 69 lines in the runs of the report, and the person asked about one finding.
 
 ### PD2: At most three questions and three fixes against a rule
 

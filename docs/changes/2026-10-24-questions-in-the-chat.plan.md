@@ -187,19 +187,23 @@ npm run check
 git commit -m "feat(report): Print a line for each fix with --fixes"
 ```
 
-## 10. `report --brief` (R7)
+## 10. `report --brief` and `report --finding <id>` (R7)
 
 Files:
 
-- `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` and `--fixes` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The usage line becomes `deep-review report [--run <id>] [--json | --brief | --fixes] [--repo <dir>]`.
+- `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` and `--fixes` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record.
+- `src/review/brief.ts`: a new `briefBlock(brief, id)`. It gives the block of a question, through `questionBlock`, or of a departure, through `departureBlock`, under the heading of its part, or null for an id with no such block.
+- `src/command.ts`: `options` gets `finding`, a string, and `allowed.report` gets it too. `report --finding <id>` refuses `--json`, `--brief` and `--fixes` with a usage error. It prints the lines of R8, then `briefBlock`, then the path as `--brief` does. A null block is a usage error that names `report --fixes` for a fix. The usage line becomes `deep-review report [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]`.
 
 Tests:
 
+- `test/review/brief.test.ts`: `briefBlock` of an open question, of an answered question, of a departure, and null for the id of a fix and for an unknown id.
 - `test/cli.test.ts`: `report --brief` prints the Markdown brief, whose first line is the heading of the title and whose last line is the path of the copy. `report --run <id> --brief` takes the named run. `--brief --json` is refused.
+- In the same file: `report --finding <id>` prints the block of a question and then the path. The id of a fix is refused with words that name `report --fixes`, and `--finding --json` is refused.
 
 ```sh
 npm run check
-git commit -m "feat(report): Print the brief in Markdown with --brief"
+git commit -m "feat(report): Print the brief, or the block of one finding, in Markdown"
 ```
 
 ## 11. The skills (R6, R7, R10, R11, R13, R14)
@@ -211,7 +215,7 @@ Files:
 - In the same step, a user who stops the review gets the background command stopped first, and then `abandon`.
 - In the same file, step 4 puts the short form in the last message of the turn.
 - In the same file, step 5 runs `report` after `commit`. The last message shows the lines of `commit`, and then the short form that `report` printed, which names the commits. `skill/codex/SKILL.md` gets the same sentences.
-- Step 4 also names `report --brief` for a question about a question or a fix that goes against a written rule. It names it for a document left out of date too. It names `report --fixes` for a question about what the run changed.
+- Step 4 also names `report --finding <id>` for a question about one question or one fix that goes against a written rule. It names `report --brief` for a document left out of date or for the whole result, and `report --fixes` for a question about what the run changed.
 - In the same file, the paragraph about a finished run names `status --all` for a user who does not know the run. It says that `--run` takes the eight characters that the brief shows.
 - `skill/codex/SKILL.md`: the same sentences for step 4 and for the paragraph about a finished run. Step 3 keeps its order.
 
@@ -230,7 +234,7 @@ git commit -m "feat(skill): Show the scope after the review starts and name the 
 
 Files:
 
-- `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief`, `report --fixes` and the run that `report` takes.
+- `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief`, `report --finding <id>`, `report --fixes` and the run that `report` takes.
 - In the same file, the paragraph about `config show` gets the new `Scope:` line. The paragraph about the skill gets the order of step 3, `status --all` and `--run` by its start.
 - Each comment that describes the old behavior, from `grep -rn "newest run of the worktree\|seven lines\|an eighth\|has no current report" src/ README.md`.
 
