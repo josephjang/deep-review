@@ -475,6 +475,34 @@ function earlierWork(unit: AnsweredUnit, unfinished: readonly string[]): string 
   return `${warning} An earlier attempt left edits for ${unfinished.join(', ')}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 
+/** What every task of a worker that edits says after its checks, from fields its input names alike. */
+interface EditingTailInput {
+  /** Whether the worker runs in Codex's unelevated Windows sandbox (R6 of the Codex sandbox). */
+  readonly unelevatedSandbox: boolean;
+  /** The snapshot command, holding `snapshotIndexPlaceholder` for the index. */
+  readonly snapshotCommand: string;
+  readonly mayHoldWork: boolean;
+  readonly unfinished: readonly string[];
+}
+
+/**
+ * The lines every task of a worker that edits ends with, in one order: the
+ * sandbox rule when it applies, the snapshot command, the warning of an
+ * earlier attempt's work when the tree may hold it, the answer's fields
+ * with `answerSuffix` after them, and the scratch rule.
+ */
+function editingTail(input: EditingTailInput, unit: AnsweredUnit, answerSuffix = ''): string[] {
+  return [
+    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
+    snapshotBlock(input.snapshotCommand, unit),
+    '',
+    ...(input.mayHoldWork ? [earlierWork(unit, input.unfinished), ''] : []),
+    `${answerFields(unit)}${answerSuffix}`,
+    '',
+    scratchRule,
+  ];
+}
+
 /** A candidate as a task names it beside the others of its finding: what it claims, where, and what its verifier said of it alone. */
 export interface TaskCandidate {
   readonly id: string;
@@ -771,13 +799,7 @@ export function fixerTask(input: FixerTaskInput): string {
     '',
     checksBlock(input.checks, input.baselineFailures),
     '',
-    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
-    snapshotBlock(input.snapshotCommand, 'finding'),
-    '',
-    ...(input.mayHoldWork ? [earlierWork('finding', input.unfinished), ''] : []),
-    answerFields('finding'),
-    '',
-    scratchRule,
+    ...editingTail(input, 'finding'),
   ].join('\n');
 }
 
@@ -860,13 +882,7 @@ export function repairTask(input: RepairTaskInput): string {
     '',
     checksBlock(input.allChecks),
     '',
-    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
-    snapshotBlock(input.snapshotCommand, 'check'),
-    '',
-    ...(input.mayHoldWork ? [earlierWork('check', input.unfinished), ''] : []),
-    `${answerFields('check')} The message in an applied check's \`edits\` describes what the repair changed.`,
-    '',
-    scratchRule,
+    ...editingTail(input, 'check', ' The message in an applied check\'s `edits` describes what the repair changed.'),
   ].join('\n');
 }
 
@@ -974,13 +990,7 @@ export function documentationTask(input: DocumentationTaskInput): string {
     '',
     checksBlock(input.checks),
     '',
-    ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
-    snapshotBlock(input.snapshotCommand, 'item'),
-    '',
-    ...(input.mayHoldWork ? [earlierWork('item', input.unfinished), ''] : []),
-    answerFields('item'),
-    '',
-    scratchRule,
+    ...editingTail(input, 'item'),
   ].join('\n');
 }
 
