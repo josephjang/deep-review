@@ -66,7 +66,7 @@ export interface PassedOver {
 export interface ReportChoice {
   readonly run: RunState | null;
   readonly passedOver: readonly PassedOver[];
-  readonly newest: { readonly id: string; readonly state: string } | null;
+  readonly newest: PassedOver | null;
 }
 
 /** The most `Not shown:` lines `report` prints before a line that counts the others. */
@@ -95,10 +95,11 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
   const ordered = latestFirst(weighed);
   const index = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
   const newest = ordered[0];
+  const passed = (entry: Weighed): PassedOver => ({ run: entry.id, state: entry.words });
   return {
     run: index === -1 ? null : ordered[index]!.state,
-    passedOver: index === -1 ? [] : ordered.slice(0, index).map((entry) => ({ run: entry.id, state: entry.words })),
-    newest: newest === undefined ? null : { id: newest.id, state: newest.words },
+    passedOver: index === -1 ? [] : ordered.slice(0, index).map(passed),
+    newest: newest === undefined ? null : passed(newest),
   };
 }
 

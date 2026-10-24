@@ -118,13 +118,13 @@ describe('chooseReportRun over runs this engine cannot read (R8 of the questions
       const reader = Checkpoint.open(root, { engine: '1.0.0-reader', model: runModel });
       try {
         const words = 'cannot be read by this engine (1.0.0-reader); an engine that declares its events can show it';
-        assert.deepEqual(chooseReportRun(reader, '/here', () => {}), { run: null, passedOver: [], newest: { id: here, state: words } }, 'the later run of another worktree is not this worktree\'s newest');
+        assert.deepEqual(chooseReportRun(reader, '/here', () => {}), { run: null, passedOver: [], newest: { run: here, state: words } }, 'the later run of another worktree is not this worktree\'s newest');
         // A creation event at a version a later build might write, so the reader cannot tell the run's worktree.
         reader.ledger.write((tx) => {
           tx.createRun({ id: 'later', createdAt: '2026-10-25T00:00:00.000Z' });
           tx.insertEvent({ runId: 'later', kind: 'run.created', version: 2, payload: '{"worktree":"/elsewhere"}', recordedAt: '2026-10-25T00:00:00.000Z', engine: '9.9.9-writer' });
         });
-        assert.deepEqual(chooseReportRun(reader, '/here', () => {}).newest, { id: 'later', state: words }, 'a run whose worktree cannot be read may be this worktree\'s, so it is named');
+        assert.deepEqual(chooseReportRun(reader, '/here', () => {}).newest, { run: 'later', state: words }, 'a run whose worktree cannot be read may be this worktree\'s, so it is named');
       } finally {
         reader.close();
       }
