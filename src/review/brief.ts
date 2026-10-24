@@ -140,7 +140,10 @@ export interface BriefLook {
   readonly text: string;
 }
 
-/** One check's outcome before the fixes and after them, by its current run, else the run that checked the newest tree, or null where it did not run. */
+/**
+ * One check's outcome before the fixes and after them, by its current run, else the run that checked the newest tree, or null where it did not run.
+ * After an answer pass that newest run is the answer pass's check, which `after` then words as after the fixes: https://github.com/josephjang/deep-review/issues/78
+ */
 export interface BriefCheck {
   readonly kind: CheckKind;
   readonly before: string | null;

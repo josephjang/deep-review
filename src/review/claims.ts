@@ -432,7 +432,9 @@ function judged(path: string, cluster: string, marker: LiveClaim, created: boole
  * directory or `held.json` that is gone throws `ClaimsDirectoryLostError`,
  * a directory inside the worktree and a path outside the repository
  * `InvalidScopeRequestError`, a unit the round lacks or one whose cluster
- * has settled `ClaimRequestError`.
+ * has settled `ClaimRequestError`. A path that `scope.exclude` leaves out,
+ * such as generated output a check rebuilds, is claimed like any other:
+ * https://github.com/josephjang/deep-review/issues/79
  */
 export function claimFile(dir: string, rawPath: string, unit: string, now: () => Date = () => new Date()): ClaimOutcome {
   const held = readHeld(dir);

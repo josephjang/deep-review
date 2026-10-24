@@ -427,8 +427,8 @@ The commits of the gate are the 31 from `f8a30c5` to `6801468`, in pull request 
 
 ### What the gate showed
 
-- The Codex skill says nothing of ending the engine before `abandon`, which R13 says for the Claude Code skill only, so a stop on Codex meets `lock-held` first.
-- A person who asks Claude Code for a result without naming the skill waits while the model looks for it, because the plugin's skill is not offered to the model. On that machine the model also read the files of an older prompt skill and the transcript of the earlier session.
-- A fixer and the answer pass each edited `dist/claude/skills/deep-review/SKILL.md` by hand with the same lines as its source. `dist/` matched the build at each head, but `AGENTS.md` says that `dist/` is never edited by hand.
-- After the answer pass, the report said that the `test` check "failed after them", the fixes, and that no check failed after the fixes, while the failure came after the answers; the short form has no line for a failed check. The brief takes the last check of the newest tree as the outcome after the fixes, a rule older than this change.
+- The Codex skill says nothing of ending the engine before `abandon`, which R13 says for the Claude Code skill only, so a stop on Codex meets `lock-held` first (#76).
+- A person who asks Claude Code for a result without naming the skill waits while the model looks for it, because the plugin's skill is not offered to the model. On that machine the model also read the files of an older prompt skill and the transcript of the earlier session (#77).
+- A fixer and the answer pass each edited `dist/claude/skills/deep-review/SKILL.md` by hand with the same lines as its source. `dist/` matched the build at each head, but `AGENTS.md` says that `dist/` is never edited by hand (#79).
+- After the answer pass, the report said that the `test` check "failed after them", the fixes, and that no check failed after the fixes, while the failure came after the answers; the short form has no line for a failed check. The brief takes the last check of the newest tree as the outcome after the fixes, a rule older than this change (#78).
 - Four subjects of this work were over the limit of `AGENTS.md`, which the review of the run found and the work did not.

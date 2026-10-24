@@ -176,6 +176,7 @@ describe('the skill texts', () => {
         assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);
         assert.match(step3, /A user who sees a wrong scope stops the\s+review/);
         // A stopped run stays active, and the next review would resume it with the wrong scope.
+        // Esc leaves the engine running, so this abandon can meet lock-held; the Codex skill does not say to end it first: https://github.com/josephjang/deep-review/issues/76
         assert.match(step3, /When the user stops it because its scope is wrong,\s+close it with `abandon --reason <text>` before you run the corrected\s+request, so that the next review starts a new run rather than resume\s+this one\./);
       } else {
         // The message comes after the review starts, as the last text of the turn, where the model writes text and not its thinking (R13, PD10 of the questions in the chat).
@@ -223,6 +224,7 @@ describe('the skill texts', () => {
     });
   }
 
+  // A new Claude Code session that asks for a result without naming the skill therefore searches for it first: https://github.com/josephjang/deep-review/issues/77
   it('keeps the Claude skill out of automatic invocation and the Codex skill out of implicit invocation', () => {
     assert.match(read('skill/claude/skills/deep-review/SKILL.md'), /^disable-model-invocation: true$/m);
     assert.match(read('skill/claude/skills/deep-review/SKILL.md'), /\$\{CLAUDE_PLUGIN_ROOT\}\/engine\/main\.mjs/);
