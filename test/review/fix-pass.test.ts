@@ -540,11 +540,13 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.deepEqual(fix.checks.runs['repair-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'passed'], ['lint', 'passed'], ['test', 'passed']]);
     assert.deepEqual(fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['repair', ['test']]]);
     const repair = box.promptOf(state, 'fixer repair:repair');
-    assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the fixers' edits\./m);
+    // The documentation step answered before the checks, so the repair is told its edits and its answer beside the fixers'.
+    assert.match(repair, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the edits of the fixers and the documentation step\./m);
     assert.match(repair, /^ {4}It passed before any fixer edited the tree\.$/m);
     assert.match(repair, /^\[0\] test: .*fake-check\.ts" test\n {4}exited with code 1\n {4}stdout, its last \d+ bytes \(the whole is at .+\):\n```text\ntest: src\/a\.ts is broken\n```/m);
-    assert.match(repair, /Files you own: every file the fixers changed\.\n- src\/a\.ts\n/);
+    assert.match(repair, /Files you own: every file the fixers and the documentation step changed\.\n- src\/a\.ts\n/);
     assert.match(repair, /^- c1-1 SCAN-1 applied: fake applied \[0\]$/m);
+    assert.match(repair, /^What the documentation step did:\n- search already-applied: fake already-applied \[0\]$/m);
   });
 
   /** Lint after the fixes rewrites half of src/a.ts and hangs, as a formatter a slow moment stops, each time `hangs` says; the checks time out after 10 s. */
