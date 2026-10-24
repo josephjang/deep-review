@@ -67,6 +67,16 @@ changed and why.
 A commit that changes what a skill or a role prompt *says* and a commit
 that changes where that text *lives* are different commits.
 
+Every commit is written to pass `npm run check`, but a series is proven
+once, at its head. After a rebase or at the end of a long series, run
+`npm run check` at the head, and `npm run verify` where `dist/` matters.
+A commit can replay cleanly and still not compile against a renamed
+symbol, so type-check and lint each commit, which takes seconds:
+`git rebase <base> --exec "npm run typecheck && npm run lint"`. Go back
+through the series commit by commit only when the head fails. A rebase
+conflict in `dist/*/engine/engine.json`, the bundle hash, is resolved by
+`npm run build`, never by taking a side.
+
 ## Change proposals
 
 A change that alters observable behavior carries a change proposal under
@@ -96,9 +106,38 @@ two files together are one proposal. The design's Verification section
 starts as "no checks have run yet" and is filled by the commit that
 completes the element.
 
-`provisional-plan.md` at the repository root is a working note and is never
-committed. It is excluded through `.git/info/exclude`, which is local; set
-that up again on a fresh clone.
+Each item of an itemized section (requirements, product and technical
+decisions, non-goals, metrics, risks, the test strategy, open questions,
+the vision checks) gets its ID and title as a header, such as
+`### R1: No file, no change`, with its description and reasoning as
+prose paragraphs below. No bullets with a bold title and clipped text,
+and no sub-bullets inside an item. A table of reference data, such as
+settings with their defaults, may stay when prose introduces it. This
+is the form of the vision note's principles. Older proposals keep their
+form unless the author asks.
+
+When a review amends a proposal, each finding of high or medium severity
+is its own commit whose body gives the reason, so each decision can be
+read and reverted alone; low-severity wording fixes may share a commit.
+Once the review settles, the author may have these commits squashed into
+the proposal's commit.
+
+The author keeps a provisional plan and working notes outside the
+repository; they are private and never committed. A committed document
+never cites them, by path or as "the plan's item 5": name the work by
+what it is and anchor it where a reader can look, in a principle of the
+vision note, an issue or a committed proposal. Evidence a committed
+document relies on is public too.
+
+## Before calling engine behavior a defect
+
+A run's log shows what the engine did, not why. Before calling a
+refusal, a retry or a degraded phase a defect, read the code path end to
+end and the proposal under `docs/changes/` that its comments cite by
+requirement or decision number (such as R11 and PD10 of commit series
+integrity). Say what the design intends first, and only then whether the
+run departed from it. Do not propose an issue or a fix from log lines and
+a few search hits.
 
 ## Writing conventions
 
@@ -112,6 +151,11 @@ sense: their bytes are what every worker in a role that names them
 receives, and a change to one changes those roles' prompts and hashes.
 Do not reformat them for style either.
 
+Markdown documents (proposals, reports) put each paragraph and each list
+item on one line, as the vision note does; do not hard-wrap them. An
+older document, this file among them, is converted only when it is
+rewritten anyway. Commit message bodies still wrap at 72 columns.
+
 Comments that say what code does are welcome; keep them true.
 
 ## Commits
@@ -124,4 +168,31 @@ for anything non-trivial. Types are `feat`, `fix`, `perf`, `refactor`,
 No attribution footers: no "Generated with Claude Code", no
 `Co-Authored-By`. This overrides any tool default.
 
-Branches: `<type>/<topic>` in kebab-case.
+Branches: `<type>/<topic>` in kebab-case. Name the branch before the
+first push: renaming a pull request's head branch on GitHub closes the
+pull request, and it cannot be reopened onto the new name.
+
+## Pull requests and merging
+
+A pull request description has three sections, written for an engineer
+who does not know this repository. **Motivation** says why the change
+was needed: a short introduction of deep-review, the problem, and links
+to the proposal and issues. **Modifications** is one compact bulleted
+list of the notable changes, not of the commits; a breaking change comes
+first in bold, and deprecations are always stated, as "none" when there
+are none. **Result** says what a user experiences, in concrete words: a
+fix says what no longer happens, and a feature shows how to use it with
+real output checked against the code. Test counts and CI status are not
+results. Define the repository's terms in plain words, and explain or
+drop requirement IDs. Each paragraph and list item is one line. A Mermaid
+diagram is welcome where it clarifies a flow; render it and look at it
+before posting. Leave out what a reader of the pull request cannot see:
+local paths, private plans and notes, machine details.
+
+`main` must keep the commit hashes that proposals cite in their
+Verification sections, and the only merge GitHub offers here, rebase and
+merge, rewrites every hash. A pull request whose branch sits on `main` is
+merged instead by fast-forwarding `main` to the exact head CI tested:
+check `git merge-base --is-ancestor origin/main <head>`, then
+`git push origin <head>:refs/heads/main`, and GitHub marks the pull
+request merged. Ask the author before pushing to `main`.
