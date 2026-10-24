@@ -38,6 +38,14 @@ export type BriefChange =
       /** The triage's two judgments of principle 8, which `look` names when they hold. */
       readonly publicInterface: ChangeCondition;
       readonly wideEffect: ChangeCondition;
+      /**
+       * Whether a fixer or an answer pass applied a fix, so the account,
+       * written before any fix, describes the change before the fixes
+       * (R5 of the questions in the chat). A rewrite by a check or an
+       * edit of the documentation step changes no behavior the account
+       * describes, so it does not count.
+       */
+      readonly beforeEdits: boolean;
     }
   /** The triage gave no account. */
   | { readonly state: 'none' }
@@ -533,11 +541,11 @@ function coveredText(review: ReviewState): string {
     : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
 }
 
-/** The core of the change from the triage's whole account, or why the run has none. */
-function changeOf(account: TriageAccount): BriefChange {
+/** The core of the change from the triage's whole account, or why the run has none; `beforeEdits` says whether a fixer or an answer pass applied a fix since the account was written. */
+function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
   if (account.kind !== 'given') return { state: account.kind };
   const { reading } = account;
-  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect };
+  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
 }
 
 /** The brief of a run, from its fold alone (R1). The run must be configured for review and have its scope. */
@@ -551,18 +559,21 @@ export function briefOf(state: RunState): Brief {
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
   const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
+  const changed = changedOf(context);
+  // A fixer applied a fix, or an answer pass applied an answer, after the triage wrote its account (R5 of the questions in the chat).
+  const edited = changed.applied.length > 0 || review.answers.some((answer) => answer.appliedBy !== null && answer.appliedBy !== 'tree');
   return {
     run: state.id,
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
     headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review.fix !== null) },
-    change: changeOf(review.change),
+    change: changeOf(review.change, edited),
     questions,
     departures,
     documents: context.documents,
     notCovered,
     covered: notCovered.length === 0 ? coveredText(review) : null,
     look: lookOf(context, departures),
-    changed: changedOf(context),
+    changed,
   };
 }
 
@@ -605,7 +616,10 @@ export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>
   none: 'The triage of this run gave no account of the change.',
 };
 
-/** The part "The change": the core of the change, marked as the triage's unverified account, or why the run has none. */
+/** The sentence that ends the part "The change" of a run whose fixes or answers changed the code after the account was written (R5 of the questions in the chat). */
+export const beforeEditsSentence = 'The title and this account describe the change before the fixes and the answers of this run; What deep-review changed names the fixes.';
+
+/** The part "The change": the core of the change, marked as the triage's unverified account, and as the change before the fixes when a fix was applied, or why the run has none. */
 function changePart(change: BriefChange): string[] {
   const lines = ['## The change', ''];
   switch (change.state) {
@@ -618,7 +632,7 @@ function changePart(change: BriefChange): string[] {
         ? 'The change states no reason.'
         : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'the triage named no source' : `from ${sources(change.whyFrom)}`}).`;
       const restsOn = change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`;
-      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`];
+      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`, ...(change.beforeEdits ? ['', beforeEditsSentence] : [])];
     }
   }
 }
@@ -900,7 +914,8 @@ export function briefShortForm(brief: Brief): string[] {
   const cut = (line: string): string => cutAtWord(line, shortLineLimit);
   return [
     cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
-    cutAtWord(`The change: ${change}`, changeLineLimit),
+    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat).
+    cutAtWord(`${brief.change.state === 'given' && brief.change.beforeEdits ? 'The change before the fixes' : 'The change'}: ${change}`, changeLineLimit),
     cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
     ...open.slice(0, shownQuestions).flatMap(questionLines),
     ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),

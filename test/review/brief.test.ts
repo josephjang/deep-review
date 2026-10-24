@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefFates, briefMarkdown, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { beforeEditsSentence, briefFates, briefMarkdown, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
@@ -53,7 +53,58 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
   describe('the core of the change (R3, R18)', () => {
     it('shows what the change does and why with their sources, whole', () => {
       const brief = briefOf(withAccount(answerable(), given()));
-      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect });
+      assert.deepEqual(brief.change, { state: 'given', what: changeReading.what, why: changeReading.why, whyFrom: changeReading.whyFrom, restsOn: changeReading.restsOn, publicInterface: changeReading.publicInterface, wideEffect: changeReading.wideEffect, beforeEdits: false });
+    });
+
+    describe('the mark of the change before the fixes (R5 of the questions in the chat)', () => {
+      const marked = (state: RunState): { beforeEdits: boolean | null; line: string; sentence: boolean } => {
+        const brief = briefOf(state);
+        return {
+          beforeEdits: brief.change.state === 'given' ? brief.change.beforeEdits : null,
+          line: briefShortForm(brief)[1]!,
+          sentence: briefMarkdown(brief).includes(beforeEditsSentence),
+        };
+      };
+      const first = 'The change: The parser returns no value for an empty input, where it threw before.';
+      const before = 'The change before the fixes: The parser returns no value for an empty input, where it threw before.';
+
+      it('marks the account of a fix run with an applied fix, in the part The change and on the line of the change, and keeps the title line', () => {
+        const state = withAccount(decidedFixRun().fold(), given());
+        assert.deepEqual(marked(state), { beforeEdits: true, line: before, sentence: true });
+        assert.equal(briefShortForm(briefOf(state))[0], `Parse an empty input (run ${state.id.slice(0, 8)})`);
+        const markdown = briefMarkdown(briefOf(state));
+        assert.ok(markdown[markdown.indexOf(beforeEditsSentence) - 2]!.startsWith('This is the triage\'s account of the change, which no verifier examined.'), 'after the sentence that says whose account it is');
+        assert.ok(markdown.indexOf(beforeEditsSentence) < markdown.indexOf('## Questions for you (1)'), 'the last sentence of the part The change');
+      });
+
+      it('leaves the account of a run that only reviewed, and of a fix run with no patch, as it was', () => {
+        assert.deepEqual(marked(withAccount(answerable(), given())), { beforeEdits: false, line: first, sentence: false });
+        assert.deepEqual(marked(withAccount(decidedFixRun(answerableDecisions(), 'deferred').fold(), given())), { beforeEdits: false, line: first, sentence: false });
+        assert.deepEqual(marked(withAccount(decidedFixRun(answerableDecisions(), 'already-applied').fold(), given())), { beforeEdits: false, line: first, sentence: false });
+      });
+
+      it('leaves the account of a fix run whose only patch is the rewrite of a check, or an edit of the documentation step, as it was', () => {
+        const state = withAccount(decidedFixRun(answerableDecisions(), 'deferred').fold(), given());
+        const fix = state.review!.fix!;
+        const repaired: RunState = { ...state, review: { ...state.review!, fix: { ...fix, revisions: [{ ...fix.revisions[0]!, phase: 'repair' } as never] } } };
+        assert.deepEqual(marked(repaired), { beforeEdits: false, line: first, sentence: false });
+        const documented = withAccount(documentedFixRun([], undefined, answerableDecisions((decisions[0] as Record<string, unknown>))).fold(), given());
+        assert.equal(marked(documented).beforeEdits, briefOf(documented).changed.applied.length > 0, 'only a fixer\'s fix marks it');
+      });
+
+      it('marks the account once an answer pass applies the first answer', () => {
+        const passed = passToReport(decidedFixRun(answerableDecisions(), 'deferred').add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 1).fold();
+        assert.equal(briefOf(passed).changed.applied.includes('RIPPLE-1'), false, 'no fixer of the fix pass applied a fix');
+        assert.ok(passed.review!.answers.some((given) => given.appliedBy !== null && given.appliedBy !== 'tree'));
+        assert.deepEqual(marked(withAccount(passed, given())), { beforeEdits: true, line: before, sentence: true });
+      });
+
+      it('marks no run whose triage gave no account or recorded none, which has no account to mark', () => {
+        const fixed = decidedFixRun().fold();
+        assert.equal(briefShortForm(briefOf(withAccount(fixed, { kind: 'none' })))[1], 'The change: the triage gave no account of it');
+        assert.equal(briefShortForm(briefOf(fixed))[1], 'The change: not recorded; an engine before the account reviewed this run');
+        assert.ok(!briefMarkdown(briefOf(fixed)).includes(beforeEditsSentence));
+      });
     });
 
     it('keeps a what and a why longer than the triage is asked for whole, in the value and in the Markdown, and points nowhere else for them (R3)', () => {
