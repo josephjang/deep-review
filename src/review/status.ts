@@ -268,21 +268,24 @@ function abandonWords(reason: string): string {
  * in the chat), as words that follow "it" or "a later run,": an abandoned
  * run with the reason of its abandon, a blocked one with the code of its
  * blocker, one whose review never started, one that works again in an
- * answer pass, a continuation or a reopened fix pass, the one of them it
- * opened last, or one in progress. No words name a phase, a term of the
- * engine (R12 of the brief of a run); `status --run <id>` gives it.
+ * answer pass, a continuation or a reopened fix pass, the one the fold
+ * records as having set its last report aside, or one in progress. No
+ * words name a phase, a term of the engine (R12 of the brief of a run);
+ * `status --run <id>` gives it.
  */
 export function noReportWords(state: RunState): string {
   const review = state.review;
   if (state.status === 'abandoned') return `was abandoned: ${abandonWords(state.abandonReason ?? '')}`;
   if (review === null) return 'never started its review';
   if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
-  // What made a finished run work again sets its report aside when it opens, so the one opened last is the one that runs.
-  const again = [
-    { at: review.answerPasses.at(-1)?.at ?? null, words: 'works again in an answer pass' },
-    { at: review.continuedFrom?.at ?? null, words: 'works again, continued into the fix pass' },
-    { at: review.fix?.reopenings.at(-1)?.at ?? null, words: 'works again in a reopened fix pass' },
-  ].filter((entry): entry is { at: string; words: string } => entry.at !== null);
-  const last = again.reduce<{ at: string; words: string } | null>((latest, entry) => (latest === null || entry.at >= latest.at ? entry : latest), null);
-  return last?.words ?? 'is in progress';
+  switch (review.reportSetAsideBy) {
+    case 'answer-pass':
+      return 'works again in an answer pass';
+    case 'continuation':
+      return 'works again, continued into the fix pass';
+    case 'reopened-fix-pass':
+      return 'works again in a reopened fix pass';
+    case null:
+      return 'is in progress';
+  }
 }

@@ -231,6 +231,7 @@ describe('answer.pass (R5 of answers)', () => {
     assert.deepEqual(review.phases['answer-checks'], { status: 'pending', attempt: 0 });
     assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 }, 'the report starts its next attempt');
     assert.equal(review.report, null);
+    assert.equal(review.reportSetAsideBy, 'answer-pass');
     assert.deepEqual(review.answerPasses, [{ ids: ['RIPPLE-1', 'SWEEP-1'], at: history.events.at(-1)!.recordedAt, reportBefore: was.report, openedAt: { answer: 0, checks: 0 } }]);
     assert.equal(reviewStatus(history.fold()), 'active', 'the run is active again, so review resumes it');
     for (const phase of ['fixes', 'checks', 'repair', 'decision'] as const) assert.deepEqual(review.phases[phase], was.phases[phase], `${phase} stays as it finished`);
@@ -241,6 +242,7 @@ describe('answer.pass (R5 of answers)', () => {
     const history = passToReport(answered().add('answer.pass', { ids: ['RIPPLE-1', 'SWEEP-1'] }), 1, [['RIPPLE-1', 'applied'], ['SWEEP-1', 'deferred']], 2);
     const review = history.review();
     assert.equal(reviewStatus(history.fold()), 'complete');
+    assert.equal(review.reportSetAsideBy, null, 'the next report is current');
     assert.deepEqual(standingAnswer(review, 'RIPPLE-1')?.appliedBy, { phase: 'answer', key: passKey(1) });
     assert.equal(standingAnswer(review, 'SWEEP-1')?.appliedBy, null, 'a deferred answer is still owed, for the next pass');
     assert.equal(review.fix?.answers.answer['pass-1']?.findings.length, 2);

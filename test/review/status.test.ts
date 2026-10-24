@@ -330,16 +330,19 @@ describe('noReportWords (R9 of the questions in the chat)', () => {
     // A reopening as the fold holds it, on a run whose report it set aside.
     const fixedRun = decidedFixRun().fold();
     const reopening = { at: '2026-09-27T01:00:00.000Z', units: [], reportBefore: fixedRun.review!.report!, answerPassesBefore: 0, repairAnswered: false };
-    const reopened: RunState = { ...fixedRun, review: { ...fixedRun.review!, report: null, fix: { ...fixedRun.review!.fix!, reopenings: [reopening] } } };
+    const reopened: RunState = { ...fixedRun, review: { ...fixedRun.review!, report: null, reportSetAsideBy: 'reopened-fix-pass', fix: { ...fixedRun.review!.fix!, reopenings: [reopening] } } };
     assert.equal(noReportWords(reopened), 'works again in a reopened fix pass');
     assert.equal(noReportWords({ ...reopened, review: { ...reopened.review!, blocker: { ...blocker, code: 'budget' as const, phase: 'fixes' as const } } }), 'is blocked (budget)', 'a blocker comes first');
   });
 
-  it('names the one that opened last when a run worked again before', () => {
-    const continued = continuedToReport().fold();
-    const pass = { ids: ['SWEEP-1'], at: '2026-09-28T00:00:00.000Z', reportBefore: continued.review!.report!, openedAt: { answer: 0, checks: 0 } };
-    const passing: RunState = { ...continued, review: { ...continued.review!, report: null, answerPasses: [pass] } };
-    assert.ok(continued.review!.continuedFrom!.at < pass.at);
-    assert.equal(noReportWords(passing), 'works again in an answer pass');
+  it('names what set the last report aside, whatever the times of the earlier reopenings', () => {
+    // A continued run that then opened an answer pass; the clock of these histories wraps each minute, so the continuation's time is the later one.
+    const passing = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }).fold();
+    const continuedFrom = continuedToReport().fold().review!.continuedFrom;
+    const worked: RunState = { ...passing, review: { ...passing.review!, continuedFrom } };
+    assert.ok(continuedFrom!.at > passing.review!.answerPasses.at(-1)!.at, 'the continuation reads as the later one by its time');
+    assert.equal(noReportWords(worked), 'works again in an answer pass');
+    // At the same time, too.
+    assert.equal(noReportWords({ ...worked, review: { ...worked.review!, continuedFrom: { ...continuedFrom!, at: passing.review!.answerPasses.at(-1)!.at } } }), 'works again in an answer pass');
   });
 });
