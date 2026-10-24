@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { cutAtWord, shortLineLimit } from '../../src/review/brief.ts';
-import { askedModeOf, describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
+import { askedModeOf, describeRun, listedRuns, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { maxExcludedNamed } from '../../src/scope/capture.ts';
@@ -303,56 +303,5 @@ describe('the scope of a run in status (R12 of the questions in the chat)', () =
   it('names branch in the list of runs too', () => {
     const state = { ...ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true }), id: '00000001-0000-4000-8000-000000000000', createdAt: '2026-10-01T00:00:00.000Z' };
     assert.deepEqual(runListLines([state], '/w', () => null), [`00000001 started 2026-10-01T00:00:00.000Z: active; branch, 1 file, from ${'1'.repeat(8)} to the working tree; no current report`]);
-  });
-});
-
-describe('noReportWords (R9 of the questions in the chat)', () => {
-  const blocker = { code: 'budget', detail: 'd', action: blockerActions.budget };
-
-  it('gives the reason of an abandon, with no period of its own at the end, also between two phases', () => {
-    assert.equal(noReportWords(configured().add('run.abandoned', { reason: 'wrong scope.' }).fold()), 'was abandoned: wrong scope');
-    assert.equal(noReportWords(triaged().add('run.abandoned', { reason: 'the wrong\nbranch' }).fold()), 'was abandoned: the wrong branch');
-    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).add('run.abandoned', { reason: 'r' }).fold()), 'was abandoned: r', 'an abandon comes before a review that never started');
-  });
-
-  it('keeps a reason made only of periods, so something follows the colon', () => {
-    assert.equal(noReportWords(configured().add('run.abandoned', { reason: '.' }).fold()), 'was abandoned: .');
-    assert.equal(noReportWords(configured().add('run.abandoned', { reason: ' ...\n' }).fold()), 'was abandoned: ...');
-  });
-
-  it('gives the code of the blocker of a blocked run, and says that a run with no blocker is in progress', () => {
-    assert.equal(noReportWords(triaged().start('finders').finish('finders', 'blocked', 1, blocker).fold()), 'is blocked (budget)');
-    assert.equal(noReportWords(configured().fold()), 'is in progress');
-    assert.equal(noReportWords(triaged().start('finders').fold()), 'is in progress');
-  });
-
-  it('says that a run whose review never started never started it', () => {
-    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).fold()), 'never started its review');
-  });
-
-  it('names the answer pass, the continuation or the reopened fix pass that a run works again in', () => {
-    const passing = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }).fold();
-    assert.equal(passing.review!.report, null);
-    assert.equal(noReportWords(passing), 'works again in an answer pass');
-    const continued = continuedRun().fold();
-    assert.equal(continued.review!.report, null);
-    assert.equal(noReportWords(continued), 'works again, continued into the fix pass');
-    // A reopening as the fold holds it, on a run whose report it set aside.
-    const fixedRun = decidedFixRun().fold();
-    const reopening = { at: '2026-09-27T01:00:00.000Z', units: [], reportBefore: fixedRun.review!.report!, answerPassesBefore: 0, repairAnswered: false };
-    const reopened: RunState = { ...fixedRun, review: { ...fixedRun.review!, report: null, reportSetAsideBy: 'reopened-fix-pass', fix: { ...fixedRun.review!.fix!, reopenings: [reopening] } } };
-    assert.equal(noReportWords(reopened), 'works again in a reopened fix pass');
-    assert.equal(noReportWords({ ...reopened, review: { ...reopened.review!, blocker: { ...blocker, code: 'budget' as const, phase: 'fixes' as const } } }), 'is blocked (budget)', 'a blocker comes first');
-  });
-
-  it('names what set the last report aside, whatever the times of the earlier reopenings', () => {
-    // A continued run that then opened an answer pass; the clock of these histories wraps each minute, so the continuation's time is the later one.
-    const passing = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }).fold();
-    const continuedFrom = continuedToReport().fold().review!.continuedFrom;
-    const worked: RunState = { ...passing, review: { ...passing.review!, continuedFrom } };
-    assert.ok(continuedFrom!.at > passing.review!.answerPasses.at(-1)!.at, 'the continuation reads as the later one by its time');
-    assert.equal(noReportWords(worked), 'works again in an answer pass');
-    // At the same time, too.
-    assert.equal(noReportWords({ ...worked, review: { ...worked.review!, continuedFrom: { ...continuedFrom!, at: passing.review!.answerPasses.at(-1)!.at } } }), 'works again in an answer pass');
   });
 });
