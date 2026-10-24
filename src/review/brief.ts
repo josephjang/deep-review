@@ -845,7 +845,7 @@ export function briefShortForm(brief: Brief): string[] {
     `The change: ${change}`,
     openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
-    ...(brief.changed.fixed ? [brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file))}`] : []),
+    ...(brief.changed.fixed ? [brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`] : []),
     `Not covered: ${notCovered}`,
     `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
     `Changed: ${changedWords(brief.changed)}`,

@@ -541,4 +541,14 @@ describe('the documents a run left out of date in the brief', () => {
     assert.equal(brief.changed.documentation, null);
     assert.equal(briefShortForm(brief)[4], 'Documents left out of date: 1: ./docs/a.md');
   });
+
+  it('keeps the short form one line per part when a fixer names a file with a line break', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const broken = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, drift: [line('docs/a\r\nb.md', 'stale')] } } } } } } as RunState;
+    const short = briefShortForm(briefOf(broken));
+    assert.equal(short.length, 8);
+    assert.ok(short.every((entry) => !/[\r\n]/.test(entry)), JSON.stringify(short));
+    assert.equal(short[4], 'Documents left out of date: 1: docs/a b.md');
+  });
 });
