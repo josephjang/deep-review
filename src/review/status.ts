@@ -10,16 +10,23 @@
  * (R8 of the decision step), and for a fix run (R13 of the fix
  * pass) its batches, its claims (R3 of commit series integrity), its
  * checks, its patches and its commits, every series of them, and its
- * answers and answer passes (R10 of answers), as text lines and as JSON.
+ * answers and answer passes (R10 of answers), as text lines and as JSON;
+ * and the list of the runs of the checkpoint that `status --all` prints
+ * (R10 of the questions in the chat).
  */
 import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
 import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
+import type { ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
+import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import { isEmptyTree } from '../scope/git.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
+import { counted, inlineText } from './markdown.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines } from './report.ts';
+import { shortRunId } from './runs.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
@@ -157,4 +164,52 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
     ...checks.map((check) => `Check ${check.kind}: ${check.command === null ? 'not available' : shown.map((phase) => `${phase} ${check.outcomes[phase] ?? '-'}${check.earlier.includes(phase) ? ' (an earlier tree)' : ''}`).join(', ')}`),
   ];
   return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
+}
+
+/** The most runs `status --all` lists (R10 of the questions in the chat). */
+export const listedRuns = 20;
+
+/** A commit as the list of runs names it: its first 8 characters, as the brief names one, or the empty tree, the base of a root commit. */
+const commitWords = (commit: string): string => (isEmptyTree(commit) ? 'the empty tree' : commit.slice(0, 8));
+
+/** The change a captured scope reviews, as the list of runs names it: the mode, the number of files, and both ends; a `last-commit` scope ends at its commit, any other at the working tree. */
+function scopeWords(scope: ScopeState): string {
+  const end = scope.mode === 'last-commit' ? commitWords(scope.head) : 'the working tree';
+  return `${scope.mode}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${end}`;
+}
+
+/** The state of a run as the list of runs names it: an abandoned run with its reason, a blocked one with the code of its blocker. */
+function stateWords(state: RunState): string {
+  const status = reviewStatus(state);
+  if (status === 'abandoned') return `abandoned (${inlineText(state.abandonReason ?? '')})`;
+  if (status === 'blocked') return `blocked (${state.review!.blocker!.code})`;
+  return status;
+}
+
+/**
+ * The lines of `status --all` (R10 of the questions in the chat): one for
+ * each run, newest first by the time it started, at most `listedRuns`,
+ * and one more that counts the others. A line gives the first 8
+ * characters of the id, which `--run` takes (R11), the time the run
+ * started, its state, its scope, its worktree when that is not
+ * `worktree`, and the path of the copy of its current report. `copyOf`
+ * gives the path of the copy of a run's report when that file exists. A
+ * run whose report is not current, because it works again, names no copy,
+ * since the copy then holds the report before.
+ */
+export function runListLines(runs: readonly RunState[], worktree: string, copyOf: (state: RunState) => string | null): string[] {
+  // Newest first; runs that started at the same moment keep the reverse of their ledger order.
+  const newest = [...runs].reverse().sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  const shown = newest.slice(0, listedRuns);
+  const lines = shown.map((state) => {
+    const id = shortRunId(state.id);
+    const scope = state.scope === null ? 'no scope captured yet' : scopeWords(state.scope);
+    const elsewhere = sameDirectory(state.worktree, worktree) ? '' : `; worktree ${state.worktree}`;
+    const current = state.review?.report !== null && state.review?.report !== undefined;
+    const copy = current ? copyOf(state) : null;
+    const report = !current ? 'no current report' : copy === null ? `a current report with no copy; deep-review report --run ${id} writes one` : `report ${copy}`;
+    return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report}`;
+  });
+  const more = newest.length - shown.length;
+  return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --run <id> shows one`];
 }

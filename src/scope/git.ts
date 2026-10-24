@@ -54,6 +54,12 @@ export function firstParent(repo: string, commit: string): string | null {
   return parent ?? null;
 }
 
+/** The id of the empty tree in each object format of git, SHA-1 and SHA-256, which the format fixes. */
+const emptyTreeIds: ReadonlySet<string> = new Set(['4b825dc642cb6eb9a060e54bf8d69288fbee4904', '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321']);
+
+/** Whether an id is the empty tree, the base of a root commit, in either object format: what names a recorded base with no git command. */
+export const isEmptyTree = (id: string): boolean => emptyTreeIds.has(id);
+
 /** The id of the empty tree in this repository's object format, the base of a root commit. */
 export function emptyTree(repo: string): string {
   return gitText(repo, ['hash-object', '-t', 'tree', '--stdin'], { okExitCodes: [] }).trim();

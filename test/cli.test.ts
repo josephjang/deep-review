@@ -98,6 +98,10 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint'), /--check takes <kind>=<command>, not "lint"/],
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint= '), /--check lint= needs a command/],
       [['status', '--fix'], /--fix does not apply to status/],
+      // R10 of the questions in the chat: --all lists every run, for a person.
+      [['status', '--all', '--run', '00000000'], /--all lists every run; leave out --run/],
+      [['status', '--all', '--json'], /--all prints a list for a person and has no JSON form/],
+      [['report', '--all'], /--all does not apply to report/],
       // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
       [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
       [['status', '--fresh'], /--fresh does not apply to status/],
@@ -189,6 +193,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const box = ReviewSandbox.forTest(t);
     assert.equal((await run(box, 'status')).stdout, 'No run: this repository has no checkpoint yet.\n');
     assert.equal((await run(box, 'status', '--json')).stdout, 'null\n');
+    assert.equal((await run(box, 'status', '--all')).stdout, 'No run: this repository has no checkpoint yet.\n', 'status --all says what status says (R10 of the questions in the chat)');
     const elsewhere = await node([cli, 'status', '--repo', box.repo], { cwd: box.directory, env: environment(box) });
     assert.equal(elsewhere.stdout, 'No run: this repository has no checkpoint yet.\n', elsewhere.stderr);
     const relative = await node([cli, 'status', '--repo', 'repo'], { cwd: box.directory, env: environment(box) });
@@ -199,6 +204,11 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const abandon = await run(box, 'abandon', '--reason', 'nothing');
     assert.equal(abandon.status, 1);
     assert.match(abandon.stderr, /no checkpoint, so there is no run to abandon/);
+    // A checkpoint that holds no run yet.
+    Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test' }).close();
+    const empty = await run(box, 'status', '--all');
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.equal(empty.stdout, 'No active run.\n');
   });
 
   it('shows the brief of the newest run of the worktree with report, or of the run --run names, as text and as JSON, and writes its copy (R16 of the brief of a run)', async (t) => {
@@ -223,6 +233,16 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(lines[0]!, new RegExp(`\\(run ${secondId.slice(0, 8)}\\)$`));
     assert.match(lines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${secondId.slice(0, 8)}\\.md$`));
     assert.ok(existsSync(lines.at(-1)!));
+
+    // status --all lists both runs, newest first, each with the path of its copy (R10 of the questions in the chat).
+    const listed = await run(box, 'status', '--all');
+    assert.equal(listed.status, 0, listed.stderr);
+    const listLines = listed.stdout.trimEnd().split('\n');
+    assert.equal(listLines.length, 2, listed.stdout);
+    assert.ok(listLines[0]!.startsWith(`${shortRunId(secondId)} started `) && listLines[0]!.includes(': complete; worktree, ') && listLines[0]!.endsWith(`; report ${lines.at(-1)!}`), listLines[0]!);
+    assert.ok(listLines[1]!.startsWith(`${shortRunId(firstId)} started `) && listLines[1]!.includes(': complete; last-commit, '), listLines[1]!);
+    assert.match(listLines[1]!, new RegExp(`; report .*[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+
     rmSync(lines.at(-1)!);
     await run(box, 'report');
     assert.ok(existsSync(lines.at(-1)!), 'report writes the copy again');

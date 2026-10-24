@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { describeRun } from '../../src/review/status.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
+import { describeRun, listedRuns, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, triaged, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256.slice(0, 8)}-${String(reference.bytes)}`;
@@ -181,5 +182,69 @@ describe('describeRun of an answered run (R10 of answers)', () => {
     const first = { commits: [{ sha: 'a'.repeat(40), revision: 'change', subject: 'the change' }, { sha: 'b'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'b'.repeat(40) };
     const lines = describeRun(decidedFixRun().add('commits.created', first).fold(), claudeAdapter, evidencePath).lines;
     assert.ok(lines.includes(`Commits: 2 created, ${'2'.repeat(40)} to ${'b'.repeat(40)}`), lines.join('\n'));
+  });
+});
+
+describe('runListLines (R10 of the questions in the chat)', () => {
+  // Each run of a list has an id and a start of its own; the histories here all fold to run-1.
+  const as = (state: RunState, n: number, worktree = '/w'): RunState => ({ ...state, id: `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`, createdAt: `2026-10-${String(n).padStart(2, '0')}T00:00:00.000Z`, worktree });
+  const copyOf = (state: RunState): string | null => `/w/.git/deep-review-checkpoint/reports/${state.id.slice(0, 8)}.md`;
+  const scopeWords = 'worktree, 1 file, from 11111111 to the working tree';
+
+  it('gives a line for each state, newest first, with the reason of an abandon and the code of a blocker', () => {
+    const blocker = { code: 'budget', detail: 'd', action: blockerActions.budget };
+    const runs = [
+      as(reported().fold(), 1),
+      as(configured().add('run.abandoned', { reason: 'the wrong\nscope' }).fold(), 2),
+      as(triaged().start('finders').finish('finders', 'blocked', 1, blocker).fold(), 3),
+      as(configured().fold(), 4),
+    ];
+    assert.deepEqual(runListLines(runs, '/w', copyOf), [
+      `00000004 started 2026-10-04T00:00:00.000Z: active; ${scopeWords}; no current report`,
+      `00000003 started 2026-10-03T00:00:00.000Z: blocked (budget); ${scopeWords}; no current report`,
+      `00000002 started 2026-10-02T00:00:00.000Z: abandoned (the wrong scope); ${scopeWords}; no current report`,
+      `00000001 started 2026-10-01T00:00:00.000Z: complete; ${scopeWords}; report /w/.git/deep-review-checkpoint/reports/00000001.md`,
+    ]);
+  });
+
+  it('says that a run has no scope yet, and names the worktree of a run of another one', () => {
+    const runs = [as(new History().add('run.created', { worktree: '/other' }).fold(), 1, '/other'), as(reported().fold(), 2, '/other')];
+    assert.deepEqual(runListLines(runs, '/w', copyOf), [
+      `00000002 started 2026-10-02T00:00:00.000Z: complete; ${scopeWords}; worktree /other; report /w/.git/deep-review-checkpoint/reports/00000002.md`,
+      '00000001 started 2026-10-01T00:00:00.000Z: active; no scope captured yet; worktree /other; no current report',
+    ]);
+  });
+
+  it('names a commit as its end, and the empty tree as the base of a root commit', () => {
+    const root = new History().add('run.created', { worktree: '/w' }).add('scope.captured', { ...scope, mode: 'last-commit', base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' }).fold();
+    assert.deepEqual(runListLines([as(root, 1)], '/w', copyOf), ['00000001 started 2026-10-01T00:00:00.000Z: active; last-commit, 1 file, from the empty tree to 22222222; no current report']);
+  });
+
+  it('says how to write the copy of a current report that has none, and names no copy for a run that works again, whose copy holds the report before', () => {
+    const lines = runListLines([as(reported().fold(), 1), as(continuedRun().fold(), 2)], '/w', (state) => (state.id.startsWith('00000001') ? null : copyOf(state)));
+    assert.deepEqual(lines, [
+      `00000002 started 2026-10-02T00:00:00.000Z: active; ${scopeWords}; no current report`,
+      `00000001 started 2026-10-01T00:00:00.000Z: complete; ${scopeWords}; a current report with no copy; deep-review report --run 00000001 writes one`,
+    ]);
+  });
+
+  it('lists at most 20 runs, the newest, and counts the others', () => {
+    const state = configured().fold();
+    const runs = Array.from({ length: 22 }, (_, index) => as(state, index + 1));
+    const lines = runListLines(runs, '/w', copyOf);
+    assert.equal(listedRuns, 20);
+    assert.equal(lines.length, 21);
+    assert.ok(lines[0]!.startsWith('00000022 started'), lines[0]!);
+    assert.ok(lines[19]!.startsWith('00000003 started'), lines[19]!);
+    assert.equal(lines[20], '2 older runs are not shown; deep-review status --run <id> shows one');
+    assert.equal(runListLines(runs.slice(0, 21), '/w', copyOf).at(-1), '1 older run is not shown; deep-review status --run <id> shows one');
+    assert.equal(runListLines(runs.slice(0, 20), '/w', copyOf).length, 20, 'no count line when every run is shown');
+    assert.deepEqual(runListLines([], '/w', copyOf), []);
+  });
+
+  it('keeps the reverse of the ledger order for runs that started at the same moment', () => {
+    const state = configured().fold();
+    const runs = [as(state, 1), { ...as(state, 2), createdAt: as(state, 1).createdAt }];
+    assert.deepEqual(runListLines(runs, '/w', copyOf).map((line) => line.slice(0, 8)), ['00000002', '00000001']);
   });
 });
