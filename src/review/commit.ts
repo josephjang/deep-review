@@ -26,6 +26,7 @@ import { sameDirectory } from '../paths.ts';
 import { gitFailureDetail, gitTimedOut, runGitSync } from '../runtime/git-sync.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
+import { inlineText } from './markdown.ts';
 import { readableRuns } from './runs.ts';
 import { rankedFindings } from './state.ts';
 import { gitContent } from './content.ts';
@@ -150,7 +151,8 @@ function namedDocuments(run: RunState, revision: TreeRevised): string {
     // The fold holds a revision of the step to its items, so an id no item has is never met; it is named as it is.
     if (item === undefined) return id;
     if (item.file === null) return 'documentation that the search found';
-    return `documentation of ${item.path ?? item.file}`;
+    // A fixer's path can hold a line break, which would split the trailer.
+    return `documentation of ${inlineText(item.path ?? item.file)}`;
   }).join(', ');
 }
 

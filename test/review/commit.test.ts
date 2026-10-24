@@ -97,6 +97,17 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[2]!.sha), /\n\nDeep-review: run [0-9a-f-]+, documentation of README\.md, from an unfinished attempt of the documentation step$/);
   });
 
+  it('keeps a documentation trailer on one line when the fixer\'s path holds a line break', async (t) => {
+    const box = await fixedBox(t, {
+      ...twoFixes,
+      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }], [{ file: 'docs/odd\nFoo: bar.md', what: 'parse throws on a null text' }]) },
+      documentation: { edits: [{ writes: { 'README.md': 'parse returns 0 for a null text\n' }, snapshot: 0 }], output: fixerAnswer([{ files: ['README.md'], subject: 'docs: Say parse returns 0 for a null' }, { status: 'already-applied' }]) },
+    });
+    const outcome = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
+    assert.equal(outcome.commits[2]?.subject, 'docs: Say parse returns 0 for a null');
+    assert.match(git(box.repo, 'log', '-1', '--format=%B', outcome.commits[2]!.sha), /\n\nDeep-review: run [0-9a-f-]+, documentation of docs\/odd Foo: bar\.md$/);
+  });
+
   it('commits an answer pass\'s revisions as a later series from the last commit it made, without the change again (R6, R8 of answers)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text!.length;\n}\n');
