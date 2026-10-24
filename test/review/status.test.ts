@@ -239,7 +239,7 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     ]);
   });
 
-  it('lists at most 20 runs, the newest, and counts the others', () => {
+  it('lists at most 20 runs, the newest, and counts the others, naming the command that lists every run', () => {
     const state = configured().fold();
     const runs = Array.from({ length: 22 }, (_, index) => as(state, index + 1));
     const lines = runListLines(runs, '/w', copyOf);
@@ -247,10 +247,20 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     assert.equal(lines.length, 21);
     assert.ok(lines[0]!.startsWith('00000022 started'), lines[0]!);
     assert.ok(lines[19]!.startsWith('00000003 started'), lines[19]!);
-    assert.equal(lines[20], '2 older runs are not shown; deep-review status --run <id> shows one');
-    assert.equal(runListLines(runs.slice(0, 21), '/w', copyOf).at(-1), '1 older run is not shown; deep-review status --run <id> shows one');
+    assert.equal(lines[20], '2 older runs are not shown; deep-review status --all --every lists every run');
+    assert.equal(runListLines(runs.slice(0, 21), '/w', copyOf).at(-1), '1 older run is not shown; deep-review status --all --every lists every run');
     assert.equal(runListLines(runs.slice(0, 20), '/w', copyOf).length, 20, 'no count line when every run is shown');
     assert.deepEqual(runListLines([], '/w', copyOf), []);
+  });
+
+  it('lists every run with every, the older ones after the 20 newest, and counts none', () => {
+    const state = configured().fold();
+    const runs = Array.from({ length: 22 }, (_, index) => as(state, index + 1));
+    const lines = runListLines(runs, '/w', copyOf, true);
+    assert.equal(lines.length, 22);
+    assert.deepEqual(lines.map((line) => line.slice(0, 8)), runListLines(runs, '/w', copyOf).slice(0, 20).map((line) => line.slice(0, 8)).concat(['00000002', '00000001']));
+    assert.ok(lines.every((line) => / started /.test(line)), 'no count line');
+    assert.deepEqual(runListLines([], '/w', copyOf, true), []);
   });
 
   it('keeps the reverse of the ledger order for runs that started at the same moment', () => {

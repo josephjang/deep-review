@@ -57,7 +57,7 @@ import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyCon
 import { readableRuns, runIdOf } from './review/runs.ts';
 import { fixLines } from './review/fix-lines.ts';
 import { chooseReportRun, noReportWords, notShownLines, type ReportChoice } from './review/report-choice.ts';
-import { describeRun, runListLines, type StatusContinuation } from './review/status.ts';
+import { describeRun, listedRuns, runListLines, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -79,7 +79,7 @@ export const usage = `usage:
   deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
-  deep-review status  --all [--repo <dir>]   (the runs of the checkpoint, newest first)
+  deep-review status  --all [--every] [--repo <dir>]   (the runs of the checkpoint, newest first: the ${String(listedRuns)} newest, or every run with --every)
   deep-review report  [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, or a line for each fix; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
@@ -116,6 +116,7 @@ const options = {
   run: { type: 'string' },
   json: { type: 'boolean' },
   all: { type: 'boolean' },
+  every: { type: 'boolean' },
   reason: { type: 'string' },
   fix: { type: 'boolean' },
   fresh: { type: 'boolean' },
@@ -164,7 +165,7 @@ const sourceEntry = fileURLToPath(new URL('./cli.ts', import.meta.url));
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
-  status: ['run', 'json', 'all', 'repo', 'help'],
+  status: ['run', 'json', 'all', 'every', 'repo', 'help'],
   // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
   config: [],
   abandon: ['reason', 'run', 'repo', 'help'],
@@ -834,11 +835,12 @@ function resolveRun(checkpoint: Checkpoint, run: string | undefined, io: Command
  * `deep-review status`: the run `--run` names, or the active run, as text
  * or as JSON; or with `--all` the list of the runs of the checkpoint (R10
  * of the questions in the chat), which goes with neither `--run` nor
- * `--json`.
+ * `--json`: the newest `listedRuns` runs, or every run with `--every`.
  */
 function status(values: Values, io: CommandIo, root: string, worktree: string): number {
   if (values.all === true && values.run !== undefined) throw new UsageError('--all lists every run; leave out --run, or leave out --all to show one run');
   if (values.all === true && values.json === true) throw new UsageError('--all prints a list for a person and has no JSON form; deep-review report --run <id> --json gives one run');
+  if (values.every === true && values.all !== true) throw new UsageError('--every applies to --all only, which it makes list every run past the newest');
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
     io.stdout(values.json === true ? 'null\n' : 'No run: this repository has no checkpoint yet.\n');
@@ -851,7 +853,7 @@ function status(values: Values, io: CommandIo, root: string, worktree: string): 
         const copy = reportCopyPath(checkpoint.root, state);
         return existsSync(copy) ? copy : null;
       };
-      io.stdout(runs.length === 0 ? 'No active run.\n' : `${runListLines(runs, worktree, copyOf).join('\n')}\n`);
+      io.stdout(runs.length === 0 ? 'No active run.\n' : `${runListLines(runs, worktree, copyOf, values.every === true).join('\n')}\n`);
       return 0;
     }
     const state = resolveRun(checkpoint, values.run, io);

@@ -53,14 +53,14 @@ git commit -m "feat(cli): Take a run by the first eight characters of its id"
 
 Files:
 
-- `src/command.ts`: `options` and `allowed.status` get `all`. `status --all` refuses `--run` and `--json` with a usage error. The usage gets two lines: `deep-review status [--run <id>] [--json] [--repo <dir>]` and `deep-review status --all [--repo <dir>]`. With no checkpoint, or with no run, `status --all` prints the line that `status` prints today.
-- `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others.
+- `src/command.ts`: `options` and `allowed.status` get `all` and `every`. `status --all` refuses `--run` and `--json` with a usage error, and `--every` without `--all` is refused too. The usage gets two lines: `deep-review status [--run <id>] [--json] [--repo <dir>]` and `deep-review status --all [--every] [--repo <dir>]`. With no checkpoint, or with no run, `status --all` prints the line that `status` prints today.
+- `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf, every)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others and names `status --all --every`. With `every`, it gives every run and no count.
 - In the same function, each line gives the first 8 characters of the id, `createdAt`, and the state with the reason of an abandon, cut at a word at `shortLineLimit`, so the rest of the line stays whole. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the current report, or `no current report`. A run with no scope says so.
 
 Tests:
 
-- `test/review/status.test.ts`: a line for each state, a reason of an abandon past 200 characters, a run with no scope, a run of another worktree, and 21 runs. Also a copy that does not exist, and a run that works again, whose copy holds an older report.
-- `test/cli.test.ts`: `status --all` with two runs, newest first, and with a checkpoint that has no run. `--all --run` and `--all --json` are refused.
+- `test/review/status.test.ts`: a line for each state, a reason of an abandon past 200 characters, a run with no scope, a run of another worktree, and 21 runs, also with `every`. Also a copy that does not exist, and a run that works again, whose copy holds an older report.
+- `test/cli.test.ts`: `status --all` with two runs, newest first, also with `--every`, and with a checkpoint that has no run. `--all --run`, `--all --json` and `--every` alone are refused.
 
 ```sh
 npm run check

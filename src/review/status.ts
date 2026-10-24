@@ -226,7 +226,8 @@ function stateWords(state: RunState): string {
 /**
  * The lines of `status --all` (R10 of the questions in the chat): one for
  * each run, newest first by the time it started, at most `listedRuns`,
- * and one more that counts the others. A line gives the first 8
+ * and one more that counts the others and names `status --all --every`,
+ * which lists every run, as `every` does here. A line gives the first 8
  * characters of the id, which `--run` takes (R11), the time the run
  * started, its state, its scope, its worktree when that is not
  * `worktree`, and the path of the copy of its current report. `copyOf`
@@ -234,10 +235,10 @@ function stateWords(state: RunState): string {
  * run whose report is not current, because it works again, names no copy,
  * since the copy then holds the report before.
  */
-export function runListLines(runs: readonly RunState[], worktree: string, copyOf: (state: RunState) => string | null): string[] {
+export function runListLines(runs: readonly RunState[], worktree: string, copyOf: (state: RunState) => string | null, every = false): string[] {
   // Newest first; runs that started at the same moment keep the reverse of their ledger order.
   const newest = [...runs].reverse().sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
-  const shown = newest.slice(0, listedRuns);
+  const shown = every ? newest : newest.slice(0, listedRuns);
   const lines = shown.map((state) => {
     const id = shortRunId(state.id);
     const scope = state.scope === null ? 'no scope captured yet' : scopeWords(state, state.scope);
@@ -248,5 +249,5 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
     return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report}`;
   });
   const more = newest.length - shown.length;
-  return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --run <id> shows one`];
+  return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --all --every lists every run`];
 }

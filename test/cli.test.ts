@@ -102,6 +102,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [['status', '--all', '--run', '00000000'], /--all lists every run; leave out --run/],
       [['status', '--all', '--json'], /--all prints a list for a person and has no JSON form/],
       [['report', '--all'], /--all does not apply to report/],
+      [['status', '--every'], /--every applies to --all only/],
+      [['report', '--every'], /--every does not apply to report/],
       // R6 of the questions in the chat: report prints one form of its run.
       [['report', '--fixes', '--json'], /--json and --fixes do not go together; give one/],
       [['report', '--brief', '--json'], /--json and --brief do not go together; give one/],
@@ -261,6 +263,10 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.ok(listLines[0]!.startsWith(`${shortRunId(secondId)} started `) && listLines[0]!.includes(': complete; worktree, ') && listLines[0]!.endsWith(`; report ${lines.at(-1)!}`), listLines[0]!);
     assert.ok(listLines[1]!.startsWith(`${shortRunId(firstId)} started `) && listLines[1]!.includes(': complete; last-commit, '), listLines[1]!);
     assert.match(listLines[1]!, new RegExp(`; report .*[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+    // --every lists every run, here the same two, which are fewer than the 20 newest.
+    const every = await run(box, 'status', '--all', '--every');
+    assert.equal(every.status, 0, every.stderr);
+    assert.equal(every.stdout, listed.stdout);
 
     rmSync(lines.at(-1)!);
     await run(box, 'report');
