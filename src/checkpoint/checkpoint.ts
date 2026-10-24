@@ -30,6 +30,8 @@ export interface UnreadableRun {
   readonly id: string;
   /** The run's first event this engine does not declare, and the engine that wrote it. */
   readonly unreadable: UnknownEvent;
+  /** The worktree the run was created in, from its creation event when this engine declares that event, else null. */
+  readonly worktree: string | null;
 }
 
 /** A run as `listRuns` gives it: folded, or unreadable to this engine. */
@@ -112,13 +114,17 @@ export class Checkpoint {
    * never throws for such a run, which another engine build may have
    * written into this shared ledger; any other failure to fold still
    * throws. A command that picks a run reads this and passes the
-   * unreadable ones over.
+   * unreadable ones over. An unreadable entry carries the worktree of
+   * its creation event when that event is one this engine declares,
+   * folded through its schema as any event is.
    */
   listRuns(): ListedRun[] {
     return this.ledger.listRuns().map((run): ListedRun => {
       const events = this.ledger.events(run.id).map(decode);
       const unknown = firstUnknownEvent(events, this.#model);
-      return unknown === null ? foldRun(events, this.#model) : { id: run.id, unreadable: unknown };
+      if (unknown === null) return foldRun(events, this.#model);
+      const created = events[0];
+      return { id: run.id, unreadable: unknown, worktree: created === undefined || created.sequence === unknown.sequence ? null : foldRun([created], this.#model).worktree };
     });
   }
 

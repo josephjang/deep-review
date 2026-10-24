@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
+import { runModel } from '../../src/checkpoint/fold.ts';
 import { chooseReportRun, notShownLines, shownPassedOver } from '../../src/review/report-choice.ts';
 import { shortRunId } from '../../src/review/runs.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment, node } from '../helpers/launcher.ts';
+import { testModel } from '../helpers/model.ts';
 import { git } from '../helpers/repository.ts';
 import { ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -41,6 +45,39 @@ describe('notShownLines (R8 of the questions in the chat)', () => {
     const [line] = notShownLines([later(1, `was abandoned: ${'very '.repeat(60)}long`)]);
     assert.ok(line!.length <= 200, String(line!.length));
     assert.ok(line!.endsWith('very...'), line!);
+  });
+});
+
+describe('chooseReportRun over runs this engine cannot read (R8 of the questions in the chat)', () => {
+  it('names an unreadable run of this worktree and one whose worktree it cannot read, never one of another worktree', () => {
+    const root = join(mkdtempSync(join(tmpdir(), 'deep-review-report-choice-')), 'checkpoint');
+    try {
+      // The writer is a build whose model has test.note@1; the reader is the engine's own model, which lacks it.
+      const writer = Checkpoint.open(root, { engine: '9.9.9-writer', model: testModel });
+      const unreadable = (worktree: string): string => {
+        const created = writer.createRun({ worktree });
+        writer.append(created.id, created.lastSequence, [{ kind: 'test.note', version: 1, payload: { text: 'only the writer knows this' } }]);
+        return created.id;
+      };
+      const here = unreadable('/here');
+      unreadable('/elsewhere');
+      writer.close();
+      const reader = Checkpoint.open(root, { engine: '1.0.0-reader', model: runModel });
+      try {
+        const words = 'cannot be read by this engine (1.0.0-reader); an engine that declares its events can show it';
+        assert.deepEqual(chooseReportRun(reader, '/here', () => {}), { run: null, passedOver: [], newest: { id: here, state: words } }, 'the later run of another worktree is not this worktree\'s newest');
+        // A creation event at a version a later build might write, so the reader cannot tell the run's worktree.
+        reader.ledger.write((tx) => {
+          tx.createRun({ id: 'later', createdAt: '2026-10-25T00:00:00.000Z' });
+          tx.insertEvent({ runId: 'later', kind: 'run.created', version: 2, payload: '{"worktree":"/elsewhere"}', recordedAt: '2026-10-25T00:00:00.000Z', engine: '9.9.9-writer' });
+        });
+        assert.deepEqual(chooseReportRun(reader, '/here', () => {}).newest, { id: 'later', state: words }, 'a run whose worktree cannot be read may be this worktree\'s, so it is named');
+      } finally {
+        reader.close();
+      }
+    } finally {
+      rmSync(join(root, '..'), { recursive: true, force: true });
+    }
   });
 });
 
