@@ -680,10 +680,10 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
-  const { base, target } = scopeEnds(location.worktree, chosen.request);
+  const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; with no mode named, the one the capture would choose.
-  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : chosen.mode !== 'auto' ? chosen.mode : target === null ? 'worktree' : 'last-commit';
+  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; any other, the mode the capture chooses.
+  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : captured;
   const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
   let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {
