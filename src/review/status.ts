@@ -213,3 +213,27 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
   const more = newest.length - shown.length;
   return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --run <id> shows one`];
 }
+
+/**
+ * Why a run has no current report, in its own terms (R9 of the questions
+ * in the chat), as words that follow "it" or "a later run,": an abandoned
+ * run with the reason of its abandon, a blocked one with the code of its
+ * blocker, one whose review never started, one that works again in an
+ * answer pass, a continuation or a reopened fix pass, the one of them it
+ * opened last, or one in progress. No words name a phase, a term of the
+ * engine (R12 of the brief of a run); `status --run <id>` gives it.
+ */
+export function noReportWords(state: RunState): string {
+  const review = state.review;
+  if (state.status === 'abandoned') return `was abandoned: ${inlineText(state.abandonReason ?? '').replace(/[\s.]+$/, '')}`;
+  if (review === null) return 'never started its review';
+  if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
+  // What made a finished run work again sets its report aside when it opens, so the one opened last is the one that runs.
+  const again = [
+    { at: review.answerPasses.at(-1)?.at ?? null, words: 'works again in an answer pass' },
+    { at: review.continuedFrom?.at ?? null, words: 'works again, continued into the fix pass' },
+    { at: review.fix?.reopenings.at(-1)?.at ?? null, words: 'works again in a reopened fix pass' },
+  ].filter((entry): entry is { at: string; words: string } => entry.at !== null);
+  const last = again.reduce<{ at: string; words: string } | null>((latest, entry) => (latest === null || entry.at >= latest.at ? entry : latest), null);
+  return last?.words ?? 'is in progress';
+}
