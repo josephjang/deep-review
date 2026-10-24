@@ -121,13 +121,6 @@ read and reverted alone; low-severity wording fixes may share a commit.
 Once the review settles, the author may have these commits squashed into
 the proposal's commit.
 
-The author keeps a provisional plan and working notes outside the
-repository; they are private and never committed. A committed document
-never cites them, by path or as "the plan's item 5": name the work by
-what it is and anchor it where a reader can look, in a principle of the
-vision note, an issue or a committed proposal. Evidence a committed
-document relies on is public too.
-
 ## Before calling engine behavior a defect
 
 A run's log shows what the engine did, not why. Before calling a
@@ -149,6 +142,17 @@ The role prompt fragments under `roles/fragments/` are prompts in the same
 sense: their bytes are what every worker in a role that names them
 receives, and a change to one changes those roles' prompts and hashes.
 Do not reformat them for style either.
+
+The author keeps a provisional plan and working notes outside the
+repository; they are private and never committed. Text others read (a
+document, a comment, a commit message, a pull request) never cites
+them, by path or as "the plan's item 5": name the work by what it is
+and anchor it where a reader can look, in a principle of the vision
+note, an issue or a committed proposal. The same holds for what only
+one machine has, such as a local path, a local branch or a scratch
+script. Evidence a committed document relies on must be public too,
+committed or in an issue; when it cannot be, say that the author keeps
+it outside the repository, and keep the numbers the text relies on.
 
 Markdown documents (proposals, reports) put each paragraph and each list
 item on one line, as the vision note does; do not hard-wrap them. An
