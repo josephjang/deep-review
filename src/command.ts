@@ -921,7 +921,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
     const found = choice.run;
     if (found === null) {
       if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
-      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.run}, ${choice.newest.state}; deep-review status --all lists the runs`);
     }
     // Under the run's lock, as every other writer of the copy, so this fold cannot write over the copy of a command that appended since (R14 of the brief of a run).
     // An engine that holds it writes the copy itself; this command then writes none and names the record, since a copy never fails a command (TD6).
