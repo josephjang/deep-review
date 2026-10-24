@@ -320,6 +320,15 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
     });
 
+    it('names what a run that only reviewed left in the words a fix run names it with, each id as the form gives it', () => {
+      const brief = briefOf(readOnlyReported().fold());
+      const last = (form: 'report' | 'chat'): string => briefMarkdown(brief, form).at(-1)!;
+      assert.match(last('report'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: \[SWEEP-1\]\(#finding-sweep-1\)\.$/);
+      assert.match(last('chat'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: SWEEP-1\.$/);
+      assert.ok(briefMarkdown(briefOf(answerable())).at(-1)!.startsWith('This run only reviewed: it changed nothing.'));
+      assert.doesNotMatch(briefMarkdown(briefOf(answerable())).at(-1)!, /It left/, 'a run that left nothing says nothing of it');
+    });
+
     it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
       const applied = briefOf(decidedFixRun().fold()).changed;
       assert.deepEqual([applied.fixed, applied.applied, applied.deferred, applied.patches, applied.commits], [true, ['RIPPLE-1'], [], 1, null]);

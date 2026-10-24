@@ -751,17 +751,19 @@ function checksWords(checks: readonly BriefCheck[]): string {
   return `The checks: ${checks.map((check) => `${check.kind} ${words(check)}`).join('; ')}.`;
 }
 
+/** The sentence of what deep-review changed that names the findings a run left, each id as `show` gives it, with a space before it; none when it left none. */
+const leftSentence = (changed: BriefChanged, show: (id: string) => string): string =>
+  (changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, show)}.`);
+
 /** What a run that only reviewed changed, as the one sentence of the part "What deep-review changed": nothing, what it decided to fix, which `review --fix` applies, and what it left, each id as `show` gives it. */
 export function readOnlyChangedSentence(changed: BriefChanged, show: (id: string) => string): string {
-  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, show)}.`;
   const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
-  return `This run only reviewed: it changed nothing.${toFix}${left}`;
+  return `This run only reviewed: it changed nothing.${toFix}${leftSentence(changed, show)}`;
 }
 
 /** The paragraph "What deep-review changed" (R2 of the brief of a run). */
 function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
   const lines = ['## What deep-review changed', ''];
-  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, link)}.`;
   if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
   const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, link)})`]);
   const outcomes = [
@@ -776,7 +778,7 @@ function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
     : changed.commits === null
       ? (changed.patches === 1 ? 'Its patch is not committed: `deep-review commit` commits it.' : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.`)
       : `They are in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, and ${counted(changed.commits.uncommittedPatches, 'later patch is', 'later patches are')} not committed yet`}.`;
-  return [...lines, `${outcomes.join('; ')}. ${commits}${left} ${checksWords(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
+  return [...lines, `${outcomes.join('; ')}. ${commits}${leftSentence(changed, link)} ${checksWords(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
 }
 
 /**
