@@ -105,13 +105,15 @@ completes the element.
 
 Each item of an itemized section (requirements, product and technical
 decisions, non-goals, metrics, risks, the test strategy, open questions,
-the vision checks) gets its ID and title as a header, such as
-`### R1: No file, no change`, with its description and reasoning as
-prose paragraphs below. No bullets with a bold title and clipped text,
-and no sub-bullets inside an item. A table of reference data, such as
-settings with their defaults, may stay when prose introduces it. This
-is the form of the vision note's principles. Older proposals keep their
-form unless the author asks.
+and the points of the section "Against the vision note") gets its ID and
+title as a header, such as `### R1: No file, no change`, with its
+description and reasoning as prose paragraphs below. No bullets with a
+bold title and clipped text, and no sub-bullets inside an item. A table
+of reference data, such as settings with their defaults, may stay when
+prose introduces it. This is the form of the vision note's principles,
+and here this repository departs from the practice's templates, which
+list requirements as bullets and decisions as bullets with a bold
+title. Older proposals keep their form unless the author asks.
 
 When a review amends a proposal, each finding of high or medium severity
 is its own commit whose body gives the reason, so each decision can be
