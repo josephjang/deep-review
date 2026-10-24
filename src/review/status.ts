@@ -248,6 +248,17 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
 }
 
 /**
+ * The reason of an abandon on one line with no period of its own at the
+ * end, since the words that follow it end the sentence; a reason made only
+ * of periods, such as `...`, keeps them, so the colon before it is never
+ * left with nothing after it.
+ */
+function abandonWords(reason: string): string {
+  const inline = inlineText(reason).trim();
+  return inline.replace(/[\s.]+$/, '') || inline;
+}
+
+/**
  * Why a run has no current report, in its own terms (R9 of the questions
  * in the chat), as words that follow "it" or "a later run,": an abandoned
  * run with the reason of its abandon, a blocked one with the code of its
@@ -258,7 +269,7 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
  */
 export function noReportWords(state: RunState): string {
   const review = state.review;
-  if (state.status === 'abandoned') return `was abandoned: ${inlineText(state.abandonReason ?? '').replace(/[\s.]+$/, '')}`;
+  if (state.status === 'abandoned') return `was abandoned: ${abandonWords(state.abandonReason ?? '')}`;
   if (review === null) return 'never started its review';
   if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
   // What made a finished run work again sets its report aside when it opens, so the one opened last is the one that runs.

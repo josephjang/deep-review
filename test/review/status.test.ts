@@ -297,6 +297,11 @@ describe('noReportWords (R9 of the questions in the chat)', () => {
     assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).add('run.abandoned', { reason: 'r' }).fold()), 'was abandoned: r', 'an abandon comes before a review that never started');
   });
 
+  it('keeps a reason made only of periods, so something follows the colon', () => {
+    assert.equal(noReportWords(configured().add('run.abandoned', { reason: '.' }).fold()), 'was abandoned: .');
+    assert.equal(noReportWords(configured().add('run.abandoned', { reason: ' ...\n' }).fold()), 'was abandoned: ...');
+  });
+
   it('gives the code of the blocker of a blocked run, and says that a run with no blocker is in progress', () => {
     assert.equal(noReportWords(triaged().start('finders').finish('finders', 'blocked', 1, blocker).fold()), 'is blocked (budget)');
     assert.equal(noReportWords(configured().fold()), 'is in progress');
