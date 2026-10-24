@@ -115,15 +115,16 @@ git commit -m "feat(config): Give the Scope line the counts and the base a perso
 
 Files:
 
-- `src/review/brief.ts`, `briefShortForm`: the line `Questions:` keeps its count and its words about the default, with no ids. After it come two lines for each open question, for at most `shownQuestions` (3). One more line counts the others with `idWords`.
-- In the same function, the line `Against a written rule:` keeps its count, with no ids. After it comes one line for each open departure, for at most `shownDepartures` (3), with the rule and its source. One more line counts the others.
-- Each new line starts with two spaces and the id of the finding. `lookWords` names a departure as a fix that goes against a written rule. The comments of `briefShortForm` and `shortLineLimit` give the new maximum of 19 lines.
+- `src/review/brief.ts`, `briefShortForm`: the line `Questions:` keeps its count and its words about the default, with no ids. After it come the lines of each open question, for at most `shownQuestions` (3): the question, the option in place and deep-review's choice, or one line for the two when they are one option. One more line counts the others with `idWords`.
+- In the same function, the line `Against a written rule:` keeps its count, with no ids. After it comes one line for each open departure, for at most `shownDepartures` (3), with the source and then the rule. One more line counts the others.
+- Each new line starts with two spaces and the id of the finding. The lines of a question, an option and a departure skip `cutAtWord`, since the schema of the decider holds each text to 400 characters. `lookWords` names a departure as a fix that goes against a written rule. The comments of `briefShortForm` and `shortLineLimit` give the new maximum of 22 lines and the lines that pass 200 characters.
 
 Tests:
 
-- `test/review/brief.test.ts`, the cases under `briefShortForm (R13 of the brief of a run)`: the two lines of a question. The default in place and the choice as one option, and as two options.
+- `test/review/brief.test.ts`, the cases under `briefShortForm (R13 of the brief of a run)`: the lines of a question. The default in place and the choice as one option on one line, and as two options on two lines.
+- In the same file: a question of 400 characters with two options of 400 characters each, given whole. A departure whose source and rule have 400 characters each, given whole with the source first.
 - In the same file: a default that no fixer applied, in a run that only reviewed. Four questions, with the line of the count. The line of a departure, and the line of the count.
-- In the same file: the words of `Look at:`. A run with many of each gives at most 19 lines and the path. Each line has at most 200 characters, but the line of the change. The case of the accepted departure keeps `Look at: nothing`.
+- In the same file: the words of `Look at:`. A run with many of each gives at most 22 lines and the path. Each line has at most 200 characters, but the lines of the change, the questions, the options and the departures. The case of the accepted departure keeps `Look at: nothing`.
 - Each other test that pins a line of the short form or its count of lines, from `grep -rn "briefShortForm\|lines.length\|Questions: \|Against a written rule: " test/`.
 
 ```sh

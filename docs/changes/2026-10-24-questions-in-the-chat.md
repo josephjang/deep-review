@@ -92,23 +92,26 @@ This proposal does not change how a person stops a run, which commands a host as
 
 ### R1: The short form names each open question with its words
 
-The line `Questions:` keeps its count and its words about the default, and it no longer lists the ids. After it, each open question gets two lines, for at most three questions, in the order of the brief. The first line is the id of the finding and the question as the decider wrote it. The second line is the id, the option in place now with its words, and the choice of deep-review with its words. When the two are one option, the line says so.
+The line `Questions:` keeps its count and its words about the default, and it no longer lists the ids. After it, each open question gets its own lines, for at most three questions, in the order of the brief. The first line is the id of the finding and the question as the decider wrote it. The next line is the id and the option in place now, with its number and its words. The last line is the id and the choice of deep-review, with its number and its words. When the two are one option, one line gives both.
 
-When the default edits the code and no fixer applied it, the second line names the default. It then says that the tree does not hold it. When more than three questions are open, one more line counts the others and names their ids, at most eight. Each line has at most 200 characters, cut at a word as today. This is an invented example:
+When the default edits the code and no fixer applied it, the line of the option in place names the default. It then says that the tree does not hold it. When more than three questions are open, one more line counts the others and names their ids, at most eight.
+
+These lines give the words of the decider whole (PD12). The decider writes the question and each option in at most 400 characters, so no such line is cut. The other lines of the short form keep their limit of 200 characters, cut at a word as today. This is an invented example:
 
 ```text
 Questions: 1, with its default in place
   REMOVALS-3: Must a command read the input bytes unchanged when the runner echoes them?
-  REMOVALS-3 in place now: option 1, Keep the removal of the two bytes. deep-review's choice: option 2, Pass each byte on and change only the echo.
+  REMOVALS-3 in place now: option 1, Keep the removal of the two bytes.
+  REMOVALS-3 deep-review's choice: option 2, Pass each byte on and change only the echo.
 ```
 
 ### R2: The short form names the rule of each fix that goes against one
 
-The line `Against a written rule:` keeps its count, and it no longer lists the ids. After it, each fix that no person reviewed yet gets one line, for at most three fixes. The line gives the id, the rule as the decision states it, and where the rule is written. When more fixes are open, one more line counts the others and names their ids. The reason and the commands stay in the brief (R7). This is an invented example:
+The line `Against a written rule:` keeps its count, and it no longer lists the ids. After it, each fix that no person reviewed yet gets one line, for at most three fixes. The line gives the id, then where the rule is written, then the rule as the decision states it. It gives the words of the decider whole, as R1 does (PD12). When more fixes are open, one more line counts the others and names their ids. The reason and the commands stay in the brief (R7). This is an invented example:
 
 ```text
 Against a written rule: 1 fix
-  SCAN-1 goes against "Each option is documented in the help of its command" (docs/options.md)
+  SCAN-1 goes against a rule in docs/options.md: "Each option is documented in the help of its command"
 ```
 
 ### R3: One name for one thing in the short form
@@ -203,7 +206,7 @@ A question block has a table of options, the cost of each option, the rule of ea
 
 ### PD2: At most three questions and three fixes against a rule
 
-R13 of the brief of a run fixes a maximum of lines for any number of findings. Thus the short form stays short in a large run. This proposal keeps a maximum and makes it larger. The new maximum is 19 lines. These are the eight lines of today, two lines for each of three questions, and one line for each of three fixes. Each of the two lists also gets one line that counts the others.
+R13 of the brief of a run fixes a maximum of lines for any number of findings. Thus the short form stays short in a large run. This proposal keeps a maximum and makes it larger. The new maximum is 22 lines. These are the eight lines of today, three lines for each of three questions, and one line for each of three fixes. Each of the two lists also gets one line that counts the others.
 
 The gate run of the documentation step on its own pull request, a change of 71 files, asked three questions. Three shows such a run whole, and the line of the count keeps the others in view. A maximum of one hides the second question of a run with two. No maximum breaks R13. The author can change the number when the questions of more runs are counted.
 
@@ -249,6 +252,14 @@ The cost is that the run starts a few seconds before the person sees its scope. 
 
 The three changes are lines of the engine and sentences of the skills, and each is small. One gate covers them (principle 12), and the report on what a person gets from a run proposes them as one.
 
+### PD12: The words of the decider whole in the short form
+
+The author chose this on 2026-10-24. The decider writes a question, an option, a rule and its source in at most 400 characters each. On Claude Code, the questions of the two gate runs on this repository's own pull requests have 244 to 335 characters. The decider puts the sentence that asks last, so a cut at 200 characters drops it. The options of one of those runs have 56 to 158 characters, so a line with both options cuts the choice of deep-review.
+
+So the question and each of the two options get a line of their own, and the short form gives their words whole. A line of a departure gives its source and its rule whole too. This revises R13 of the brief of a run, whose lines have at most 200 characters, for these lines, as R4 does for the line of the change.
+
+The proposal rejects two other ways. A cut at 200 characters on lines of their own still drops the question of most runs on Claude Code. Option numbers alone keep the lines short, but the person then opens the report to learn the options, which is the fault of U1.
+
 ## Against the vision note
 
 ### Principle 1, evidence, not trust
@@ -277,7 +288,7 @@ The fault of U6 shows only in a real session of a host, and no test of the engin
 
 ### How to use this document
 
-The vision note counts a proposal against it if it increases what the person must read. The short form grows from at most 8 lines to at most 19, and the brief gets a line for each fix. In exchange, the person does not open a report of 400 to 506 lines to learn what a question asks. The person also does not ask the host to read it.
+The vision note counts a proposal against it if it increases what the person must read. The short form grows from at most 8 lines to at most 22, and the lines of the questions and the departures give the words of the decider whole, up to 400 characters each. The brief gets a line for each fix. In exchange, the person does not open a report of 400 to 506 lines to learn what a question asks. The person also does not ask the host to read it.
 
 This is a conflict between principles 5 and 6 and that item of the list. This proposal follows principles 5 and 6, and it names the longer short form here. The lines of the fixes are in the last part of the brief. A person who does not ask what the run changed does not read them.
 
@@ -287,9 +298,9 @@ This is a conflict between principles 5 and 6 and that item of the list. This pr
 
 A model of a host can reword the lines that it shows (PD12 of the brief of a run). Each new line names its finding first, so it keeps its sense when a model rewords it. The gate records what each host showed.
 
-### A long question is cut
+### Long lines in the short form
 
-A question longer than its line is cut at a word. The line names the finding, and `report --brief` gives the whole question.
+With its id, a line of a question, of an option or of a departure can have more than 400 characters. A chat wraps such a line. Only the lines of the change, the questions and the departures can pass 200 characters, and the short form keeps its maximum of lines.
 
 ### `report` can show an older result while a newer run is in progress
 
