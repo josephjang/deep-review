@@ -32,12 +32,12 @@ export interface ReportChoice {
 /** The most `Not shown:` lines `report` prints before a line that counts the others. */
 export const shownPassedOver = 3;
 
-/** A run as the choice weighs it: its id, its last sequence, and its state, or null for a run this engine cannot read with why. */
+/** A run as the choice weighs it: its id, its last sequence, its state, or null for a run this engine cannot read, and why it has no report, in the words a `Not shown:` line gives. */
 interface Weighed {
   readonly id: string;
   readonly lastSequence: number;
   readonly state: RunState | null;
-  readonly unreadable: string | null;
+  readonly words: string;
 }
 
 /**
@@ -60,19 +60,18 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
       log(passedOverLine(listed.id, listed.unreadable, checkpoint.engine));
       const created = createdWorktree(checkpoint, listed.id);
       // A run whose worktree cannot be read may be this worktree's, so it is named rather than hidden.
-      if (created === null || sameDirectory(created, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, unreadable: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
+      if (created === null || sameDirectory(created, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, words: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
     } else if (sameDirectory(listed.worktree, worktree)) {
-      weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, unreadable: null });
+      weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, words: noReportWords(listed) });
     }
   }
   const latestFirst = weighed.sort((a, b) => b.lastSequence - a.lastSequence);
-  const wordsOf = (entry: Weighed): string => entry.unreadable ?? noReportWords(entry.state!);
   const index = latestFirst.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== undefined);
   const newest = latestFirst[0];
   return {
     run: index === -1 ? null : latestFirst[index]!.state,
-    passedOver: index === -1 ? [] : latestFirst.slice(0, index).map((entry) => ({ run: entry.id, state: wordsOf(entry) })),
-    newest: newest === undefined ? null : { id: newest.id, state: wordsOf(newest) },
+    passedOver: index === -1 ? [] : latestFirst.slice(0, index).map((entry) => ({ run: entry.id, state: entry.words })),
+    newest: newest === undefined ? null : { id: newest.id, state: newest.words },
   };
 }
 
