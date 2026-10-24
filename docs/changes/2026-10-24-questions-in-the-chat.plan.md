@@ -31,7 +31,7 @@ git commit -m "chore(changes): Add the working plan for the questions in the cha
 
 Files:
 
-- `src/review/runs.ts`: a new `runIdOf(checkpoint, given)`. It gives `given` when the ledger holds that id. Else, when `given` has 8 or more characters, it gives the one run whose id starts with `given`. It reads the ids from `checkpoint.listRuns()`, with the unreadable runs.
+- `src/review/runs.ts`: a new `runIdOf(checkpoint, given)`. It gives `given` when the ledger holds that id. Else, when `given` has 8 or more characters, it gives the one run whose id starts with `given`. It reads the ids from a new `Checkpoint.runIds()` in `src/checkpoint/checkpoint.ts`, which gives the id of each run of the ledger, unreadable runs too, with no fold. `listRuns()` folds each run, and a lookup of an id does not need that.
 - In the same function, a start that names two or more runs is a `ReviewRefusedError` that names them. A start that names none, or a start of fewer than 8 characters, goes on to `checkpoint.fold`. Its `UnknownRunError` gets the same report as today in each command.
 - `src/command.ts`: `resolveRun` takes the id from `runIdOf` before `checkpoint.fold`. This covers `status`, `report` and `abandon`.
 - `src/review/answer.ts`: `chooseAnswerRun` takes a given id through `runIdOf`.
@@ -39,6 +39,7 @@ Files:
 
 Tests:
 
+- `test/checkpoint/checkpoint.test.ts`: `runIds` gives each run of the ledger, with an unreadable one.
 - `test/review/runs.test.ts`, new. It takes a whole id and a start of 8 characters. It refuses a start of 7 characters as an unknown id, and a start that two runs share with both ids. It names an unreadable run by its start.
 - `test/cli.test.ts`: `status --run`, `report --run` and `abandon --run` with the first 8 characters of an id.
 - `test/review/answer.test.ts` and `test/review/commit.test.ts`: `--run` by the start of an id.
@@ -48,22 +49,40 @@ npm run check
 git commit -m "feat(cli): Take a run by the first eight characters of its id"
 ```
 
-## 3. The state of a run with no report, and the run that `report` takes (R8, R9)
+## 3. The list of runs (R10)
 
 Files:
 
-- `src/review/status.ts`: a new `noReportWords(state)`, the state of a run with no current report in its own terms. An abandoned run gives `state.abandonReason` and the phase that `currentPhase` names. A blocked run gives the code of its blocker. A run in progress gives its phase.
-- In the same function, a run that works again names the open answer pass, the continuation or the reopened fix pass. The fold has `review.answerPasses` and `review.continuedFrom` for this. A run with no review says that its review is not configured.
-- `src/command.ts`: `report` with no `--run` takes the run of the worktree with a current report and the highest `lastSequence`, as `chooseRun` and `chooseAnswerRun` do. Before the short form, it prints one `Not shown:` line for each run of the worktree with a higher `lastSequence`, with `noReportWords`.
-- In the same command, a worktree with no run that has a report gets a refusal. The refusal gives the state of the newest run and names `status --all`. A refusal of `report --run <id>` uses `noReportWords`, and it still names `status --run <id>`. The comment of `report` says so.
+- `src/command.ts`: `options` and `allowed.status` get `all`. `status --all` refuses `--run` and `--json` with a usage error. The usage gets two lines: `deep-review status [--run <id>] [--json] [--repo <dir>]` and `deep-review status --all [--repo <dir>]`. With no checkpoint, or with no run, `status --all` prints the line that `status` prints today.
+- `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others.
+- In the same function, each line gives the first 8 characters of the id, `createdAt`, and the state with the reason of an abandon. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the current report, or `no current report`. A run with no scope says so.
+
+Tests:
+
+- `test/review/status.test.ts`: a line for each state, a run with no scope, a run of another worktree, 21 runs, a copy that does not exist, and a run that works again, whose copy holds an older report.
+- `test/cli.test.ts`: `status --all` with two runs, newest first, and with a checkpoint that has no run. `--all --run` and `--all --json` are refused.
+
+```sh
+npm run check
+git commit -m "feat(status): List the runs of the checkpoint with --all"
+```
+
+## 4. The state of a run with no report, and the run that `report` takes (R8, R9)
+
+Files:
+
+- `src/review/status.ts`: a new `noReportWords(state)`, the state of a run with no current report in its own terms. An abandoned run gives `state.abandonReason`. A blocked run gives the code of its blocker. A run in progress says that it runs. No words name a phase.
+- In the same function, a run that works again names the open answer pass, the continuation or the reopened fix pass. The fold has `review.answerPasses`, `review.continuedFrom` and `review.fix.reopenings` for this. A run with no review says that its review never started.
+- `src/command.ts`: `report` with no `--run` takes the run of the worktree with a current report and the highest `lastSequence`, as `chooseRun` and `chooseAnswerRun` do. Before the short form, it prints one `Not shown:` line for each run of the worktree with a higher `lastSequence`, with `noReportWords`. A later run that this engine cannot read gets a line that says so. At most three lines come, then one that counts the others, and each goes through `cutAtWord` at `shortLineLimit`.
+- In the same command, a worktree with no run that has a report gets a refusal. The refusal gives the state of the newest run and names `status --all`. A worktree with no run keeps the refusal of today. A refusal of `report --run <id>` uses `noReportWords`, and it still names `status --run <id>`. The comment of `report` says so.
 - `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3` and `notShown`, a list of the runs that `report` passed over, each with `run` and `state`. `briefJson` takes that list beside the local facts and writes version 3. The comment of the module says that the engine writes version 3 after this change.
 - `src/command.ts`: `report --json` gives `briefJson` the runs that its choice passed over, with `noReportWords`, and it prints no `Not shown:` line. The comment of `report` names version 3.
 
 Tests:
 
-- `test/review/status.test.ts`: `noReportWords` for each state. The cases are an abandoned run in the triage with its reason, a blocked run with its code, and a run in progress. They also include an open answer pass, a continuation and a reopened fix pass.
+- `test/review/status.test.ts`: `noReportWords` for each state. The cases are an abandoned run with its reason, one abandoned between two phases, a blocked run with its code, a run in progress and a run with no review. They also include an open answer pass, a continuation and a reopened fix pass.
 - `test/cli.test.ts`, the case "shows the brief of the newest run of the worktree with report". A new run with no report no longer makes `report` refuse. `report` shows the second run, and its first line names the new run.
-- In the same case, an abandoned newest run gives `abandoned` with its reason and its phase. `report --run <abandoned>` refuses with the same words. A worktree whose runs have no report refuses and names `status --all`.
+- In the same case, an abandoned newest run gives `abandoned` with its reason. `report --run <abandoned>` refuses with the same words. A worktree whose runs have no report refuses and names `status --all`. Four later runs give three lines and a line that counts the fourth, and a later run that this engine cannot read gets its line.
 - `test/cli.test.ts`, a continued run: a read-only run, then a later run with a report, then the first run continued into the fix pass to its report. `report` shows the continued run and prints no `Not shown:` line. This case fails on an order by `createdAt`.
 - `test/review/brief-json.test.ts`: version 3 parses with `notShown`, and versions 1 and 2 still parse their outputs.
 - `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`. With a later run that has no report, stdout parses as JSON whole, and `notShown` names that run with its state. `report --run <id> --json` gives an empty list.
@@ -73,41 +92,23 @@ npm run check
 git commit -m "feat(report): Show the newest run with a report and say why others have none"
 ```
 
-## 4. The list of runs (R10)
-
-Files:
-
-- `src/command.ts`: `options` and `allowed.status` get `all`. `status --all` refuses `--run` and `--json` with a usage error. The usage line becomes `deep-review status [--run <id> | --all] [--json] [--repo <dir>]`.
-- `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others.
-- In the same function, each line gives the whole id, `createdAt`, and the state with the reason of an abandon. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the report, or `no report`. A run with no scope says so.
-
-Tests:
-
-- `test/review/status.test.ts`: a line for each state, a run with no scope, a run of another worktree, 21 runs, and a copy that does not exist.
-- `test/cli.test.ts`: `status --all` with two runs, newest first. `--all --run` and `--all --json` are refused.
-
-```sh
-npm run check
-git commit -m "feat(status): List the runs of the checkpoint with --all"
-```
-
 ## 5. The `Scope:` line (R12)
 
 Files:
 
-- `src/scope/git.ts`: a new `commitCount(repo, base, head)`. It runs `git rev-list --count <base>..<head>`, and it gives null when git fails.
-- `src/config/command.ts`: `ShownScope` gets the mode as the person asked for it and the name of the base. It also gets the counts of commits, of files and of the paths that `scope.exclude` leaves out. Last, it gets the count of uncommitted files, or null.
-- In the same file, a new `scopeLine(scope)` builds the line, and `showLines` uses it. The comment beside the line names this proposal beside R11 of the skill surface corrections.
+- `src/scope/git.ts`: a new `commitCount(repo, base, head, paths)`. It runs `git rev-list --count --first-parent <base>..<head>`, with `-- <paths>` when the scope has `--path`. For a base that is the empty tree, it runs `git rev-list --count --first-parent <head>`. It gives null when git fails.
+- A new module `src/scope/scope-line.ts`, the `Scope:` line that `config show` and `status` print. `ShownScope` moves there from `src/config/command.ts`, and it gets the mode as the person asked for it and the name of the base. It also gets the counts of commits, of files and of the paths that `scope.exclude` leaves out. Last, it gets the count of uncommitted files, or null.
+- In the same module, a new `scopeLine(scope)` builds the line, and `showLines` of `src/config/command.ts` uses it. The comment beside the line names this proposal beside R11 of the skill surface corrections.
 - `src/command.ts`, `config show`: it fills the new fields. The mode is `branch` when `--branch` or a `scope.default` of `branch` named the scope. The name of the base comes from the request. For `--branch`, it is the merge base with the `--base` or `review.base` ref. It is the ref of `--ref`, the revision of `--from`, `HEAD` for `worktree`, or the parent for `last-commit`.
-- In the same command, the files and the paths left out come from `resolveScopeRequest`. The uncommitted files come from `changedAgainstHead`, for a change that ends at the working tree. The `--json` output gets the same fields in `scope`, and also `files`, the path of each of `listed.changes`, and `excluded`, the paths of `listed.excluded`. An empty change keeps its reason, with two empty lists.
+- In the same command, the files and the paths left out come from `resolveScopeRequest`. For a change that ends at the working tree, the uncommitted files are the reviewed files that `changedAgainstHead` names, so a changed file outside `--path` or under `scope.exclude` does not count. The `--json` output gets the same fields in `scope`, and also `files`, the path of each of `listed.changes`, and `excluded`, the paths of `listed.excluded`. An empty change keeps its reason, with two empty lists.
 - `src/review/status.ts`: `describeRun` gives a `Scope:` line from `state.scope` through `scopeLine`, with no count of uncommitted files. The caller in `src/command.ts` gives it the count of commits.
 - In the same file, a new `askedModeOf(state)` gives the mode that the line names. It is `branch` when `state.scope.request.range` ends at `HEAD`, takes the merge base, and starts at the value of `review.base` in `review.configuration.settings`. Else it is the captured mode, also for a run with no recorded settings. `runListLines` of step 4 names the mode with it from this step on, and its test of a `--branch` run changes with it.
 - In the same function, the JSON form gets `scope`: the facts of the line, `files` from `state.scope.files` and `excluded` from `state.scope.excluded.paths`. It is null for a run with no scope.
 
 Tests:
 
-- `test/scope/git.test.ts`: `commitCount` of a range, and null for a revision that does not exist.
-- `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. The two cases that pin the line of today change.
+- `test/scope/git.test.ts`: `commitCount` of a range, of a range with a merge that counts as one commit, of a range limited to a path, and from the empty tree. It gives null for a revision that does not exist.
+- `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. An uncommitted file outside `--path` is not counted. The two cases that pin the line of today change.
 - `test/review/status.test.ts`: the `Scope:` line of a captured scope. The JSON form gives the paths of the files and the excluded paths, and null for a run with no scope.
 - In the same file, `askedModeOf`: `branch` for the range that `--branch` records, and for the same range from `--from <base> --to HEAD --merge-base`. `range` for a range with another start, with another end, or with no merge base, and for a run with no recorded settings.
 - `test/cli.test.ts`: `config show --branch` names `branch` and the merge base with the base ref. `config show --json` gives each reviewed path and each excluded path, and `status --run <id> --json` gives the paths that the run captured.
@@ -122,14 +123,14 @@ git commit -m "feat(config): Give the Scope line the counts and the base a perso
 Files:
 
 - `src/review/brief.ts`, `briefShortForm`: the line `Questions:` keeps its count and its words about the default, with no ids. After it come the lines of each open question, for at most `shownQuestions` (3): the question, the option in place and deep-review's choice, or one line for the two when they are one option. One more line counts the others with `idWords`.
-- In the same function, the line `Against a written rule:` keeps its count, with no ids. After it comes one line for each open departure, for at most `shownDepartures` (3), with the source and then the rule. One more line counts the others.
+- In the same function, the line `Against a written rule:` keeps its count, with no ids. After it comes one line for each open departure, for at most `shownDepartures` (3), with the source and then the rule. A departure of a run that only reviewed, or one that no fixer applied, says `would go against`. One more line counts the others.
 - Each new line starts with two spaces and the id of the finding. The lines of a question, an option and a departure skip `cutAtWord`, since the schema of the decider holds each text to 400 characters. `lookWords` names a departure as a fix that goes against a written rule. The comments of `briefShortForm` and `shortLineLimit` give the new maximum of 22 lines and the lines that pass 200 characters.
 
 Tests:
 
 - `test/review/brief.test.ts`, the cases under `briefShortForm (R13 of the brief of a run)`: the lines of a question. The default in place and the choice as one option on one line, and as two options on two lines.
 - In the same file: a question of 400 characters with two options of 400 characters each, given whole. A departure whose source and rule have 400 characters each, given whole with the source first.
-- In the same file: a default that no fixer applied, in a run that only reviewed. Four questions, with the line of the count. The line of a departure, and the line of the count.
+- In the same file: a default that no fixer applied, in a run that only reviewed. Four questions, with the line of the count. The line of a departure, of a departure in a run that only reviewed, and the line of the count.
 - In the same file: the words of `Look at:`. A run with many of each gives at most 22 lines and the path. Each line has at most 200 characters, but the lines of the change, the questions, the options and the departures. The case of the accepted departure keeps `Look at: nothing`.
 - Each other test that pins a line of the short form or its count of lines, from `grep -rn "briefShortForm\|lines.length\|Questions: \|Against a written rule: " test/`.
 
@@ -159,11 +160,12 @@ git commit -m "feat(brief): Keep the first sentence of the change whole"
 
 Files:
 
-- `src/review/brief.ts`: `changePart` takes the brief, and it ends with the sentence of R5 when `change.state` is `given` and `changed.patches` is more than 0. `briefShortForm` starts the line with `The change before the fixes:` in the same case. The states `none` and `unrecorded` keep their words of today.
+- `src/review/brief.ts`: `briefOf` sets a new `BriefChange` field, `beforeEdits`. It is true when the account is given and a fixer or an answer pass applied a fix: `changed.applied` is not empty, or an answer has an `appliedBy` that names a pass. A rewrite by a check or an edit of the documentation step alone leaves it false. The states `none` and `unrecorded` keep their words of today.
+- In the same file, `changePart` takes the brief, and it ends with the sentence of R5 when `beforeEdits` is true. `briefShortForm` starts the line of the change with `The change before the fixes:` in the same case, and the title line stays as it is.
 
 Tests:
 
-- `test/review/brief.test.ts`: a fix run with a patch gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today. An answer pass that makes the first patch gives both. A fix run with a patch whose triage gave no account, and one whose triage recorded none, keep the words of today.
+- `test/review/brief.test.ts`: a fix run with an applied fix gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today, and so does a fix run whose only patch is the rewrite of a check. An answer pass that applies the first answer gives both. A fix run with an applied fix whose triage gave no account, and one whose triage recorded none, keep the words of today.
 - `test/review/report.test.ts` and `test/review/report-copy.test.ts`, where they pin the part "The change".
 - The snapshots `test/fixtures/reports/fix.md`, `survey.md` and `synthetic.md` stay as they are. Each is the report of a run whose triage recorded no account. `test/review/fix-report.test.ts`, `test/review/survey-report.test.ts` and `test/review/report.test.ts` compare them, and each passes with no new snapshot.
 
@@ -196,11 +198,12 @@ Files:
 
 - `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` and `--fixes` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record.
 - `src/review/brief.ts`: a new `briefBlock(brief, id)`. It gives the block of a question, through `questionBlock`, or of a departure, through `departureBlock`, under the heading of its part, or null for an id with no such block.
+- In the same file, `briefMarkdown` and `briefBlock` take a form, `report` or `chat`. In the chat form, `findingLink` gives the plain id, a `<details>` block becomes a paragraph after a bold `Details.`, and the sentence of `howToAnswer` tells the person to ask the agent. `report --brief` and `report --finding` use the chat form, and the report keeps its form.
 - `src/command.ts`: `options` gets `finding`, a string, and `allowed.report` gets it too. `report --finding <id>` refuses `--json`, `--brief` and `--fixes` with a usage error. It prints the lines of R8, then `briefBlock`, then the path as `--brief` does. A null block is a usage error that names `report --fixes` for a fix. The usage line becomes `deep-review report [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]`.
 
 Tests:
 
-- `test/review/brief.test.ts`: `briefBlock` of an open question, of an answered question, of a departure, and null for the id of a fix and for an unknown id.
+- `test/review/brief.test.ts`: `briefBlock` of an open question, of an answered question, of a departure, and null for the id of a fix and for an unknown id. The chat form has no link, no `<details>` tag and no words about the end of a report, and the snapshots of the report stay as they are.
 - `test/cli.test.ts`: `report --brief` prints the Markdown brief, whose first line is the heading of the title and whose last line is the path of the copy. `report --run <id> --brief` takes the named run. `--brief --json` is refused.
 - In the same file: `report --finding <id>` prints the block of a question and then the path. The id of a fix is refused with words that name `report --fixes`, and `--finding --json` is refused.
 
@@ -239,6 +242,7 @@ Files:
 
 - `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief`, `report --finding <id>`, `report --fixes` and the run that `report` takes.
 - In the same file, the paragraph about `config show` gets the new `Scope:` line. The paragraph about the skill gets the order of step 3, `status --all` and `--run` by its start.
+- In the same file, the sentence about `status` and `abandon` names `status --all` and `--run` by its start. The paragraph about the Codex skill no longer says that it runs the same `status` and `config show` step as the Claude Code skill, whose step 3 now starts the review first.
 - Each comment that describes the old behavior, from `grep -rn "newest run of the worktree\|seven lines\|an eighth\|has no current report" src/ README.md`.
 
 ```sh

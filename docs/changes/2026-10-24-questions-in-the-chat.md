@@ -82,7 +82,7 @@ Principle 7 makes the pull request the surface on which a person answers. The li
 
 ### Other parts of the surface
 
-This proposal does not change how a person stops a run, which commands a host asks permission for, or what a failure prints. Each is a change of its own.
+This proposal does not change which commands a host asks permission for, or what a failure prints. Each is a change of its own. A person stops a run as before, and only the Claude Code skill gets a sentence for it (R13).
 
 ### A JSON form of the list of runs
 
@@ -107,7 +107,7 @@ Questions: 1, with its default in place
 
 ### R2: The short form names the rule of each fix that goes against one
 
-The line `Against a written rule:` keeps its count, and it no longer lists the ids. After it, each fix that no person reviewed yet gets one line, for at most three fixes. The line gives the id, then where the rule is written, then the rule as the decision states it. It gives the words of the decider whole, as R1 does (PD12). When more fixes are open, one more line counts the others and names their ids. The reason and the commands stay in the brief (R7). This is an invented example:
+The line `Against a written rule:` keeps its count, and it no longer lists the ids. After it, each fix that no person reviewed yet gets one line, for at most three fixes. The line gives the id, then where the rule is written, then the rule as the decision states it. It gives the words of the decider whole, as R1 does (PD12). In a run that only reviewed, and for a fix that no fixer applied, the line says `would go against` in place of `goes against`. When more fixes are open, one more line counts the others and names their ids. The reason and the commands stay in the brief (R7). This is an invented example:
 
 ```text
 Against a written rule: 1 fix
@@ -124,7 +124,9 @@ The line `The change:` gives the first sentence of the account whole, up to 400 
 
 ### R5: The core of the change says when it describes the change before the fixes
 
-In a run whose fixes changed a file, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. A run that changed no file keeps the words of today. So does a run whose triage gave no account, or recorded none: it has no account to mark.
+In a run where a fixer applied a fix, or an answer pass applied an answer, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. The title line of the short form stays as it is, and the line below it carries the mark.
+
+A run that applied no fix and no answer keeps the words of today. A rewrite by a check, or an edit of the documentation step, changes no behavior that the account describes, so it gives no mark. A run whose triage gave no account, or recorded none, keeps the words of today too: it has no account to mark.
 
 ### R6: `report --fixes` prints a line for each fix
 
@@ -145,31 +147,35 @@ Both skills get one sentence. When the user asks what the run changed, the skill
 
 `deep-review report --finding <id>` prints one block of the brief in the same way. The block is the one of a question, open or answered, or of a fix that goes against a written rule. The block of a question gives the question, the table of its options with the cost and the rule of each, and the command that answers it. An id that names no such block is refused, and the refusal names `report --fixes` for a fix. `--finding` does not go with `--json`, `--brief` or `--fixes`.
 
+The brief in the report is text for a file, and `--brief` and `--finding` print it for a chat. So an id is plain text, not a link into the report. The details that the report folds under a `<details>` tag follow as a paragraph. The sentence on how to answer tells the person to ask the agent, since no end of a report follows. The report keeps its form.
+
 Both skills get one sentence. The skill runs `report --finding <id>` when the user asks about one question or about one fix that goes against a written rule. It runs `report --brief` when the user asks about a document left out of date, or for the whole result. It shows the lines before the path as Markdown, as printed, and then the path.
 
 ### R8: `report` takes the newest run with a report
 
 `report` with no `--run` takes the run of the worktree that has a current report and whose last event is the latest in the ledger. `answer` and `commit` take their run in the same order, and they also pass over the runs that they cannot act on. R9 of fix pass continuation gives the reason: a read-only run that `review --fix` continues ends after runs that started later. This revises R16 of the brief of a run, whose design took the newest run by the time that it started.
 
-Before the short form, stdout gives one line for each run of the worktree that `report` passed over and whose last event is later. The line gives the state of that run as R9 says it. This is an invented example of the line:
+Before the short form, stdout gives one line for each run of the worktree that `report` passed over and whose last event is later. The line gives the state of that run as R9 says it, and a later run that this engine cannot read gets a line that says so. At most three such lines come, and one more line counts the others. Each line has at most 200 characters, cut at a word, because the reason of an abandon has no limit. This is an invented example of the line:
 
 ```text
-Not shown: run 171fd810, a later run, was abandoned in the phase triage: wrong scope.
+Not shown: run 171fd810, a later run, was abandoned: wrong scope.
 ```
 
-With no run that has a report, `report` refuses with exit code 2. The refusal gives the state of the newest run and names `status --all`.
+With no run that has a report, `report` refuses with exit code 2. The refusal gives the state of the newest run and names `status --all`. A worktree with no run at all gets the refusal of today.
 
 With `--json`, stdout holds the JSON form alone. Version 3 of the JSON form lists the same runs in `notShown`, each with its id and its state as R9 says it. So a program also learns that a later run exists. With `--run`, the list is empty.
 
 ### R9: A run with no report says why
 
-The refusal of `report --run <id>` and the line of R8 give the state of the run in its own terms. An abandoned run gives the reason of the abandon and the phase that it was in. A blocked run gives the code of its blocker. A run in progress gives its phase. A run that works again gives the answer pass, the continuation or the reopened fix pass that runs. The refusal still names `status --run <id>`.
+The refusal of `report --run <id>` and the line of R8 give the state of the run in its own terms. An abandoned run gives the reason of the abandon. A blocked run gives the code of its blocker. A run in progress says that it runs. A run that works again gives the answer pass, the continuation or the reopened fix pass that runs. A run whose review never started says so. The refusal still names `status --run <id>`.
+
+These words name no phase, because a phase is a term of the engine (R12 of the brief of a run). `status --run <id>` gives the phase.
 
 ### R10: `status --all` lists the runs
 
-`deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others.
+`deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others. With no checkpoint, or with no run, it prints the line that `status` prints today.
 
-A line gives the whole id of the run, the time that it started, and its state with the reason of an abandon. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its report, or says that the run has none. `--all` does not go with `--run` or with `--json`.
+A line gives the first 8 characters of the id of the run (R11), the time that it started, and its state with the reason of an abandon. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`.
 
 Both skills get one sentence. When the user asks for a run and does not know which, the skill runs `status --all` and shows what it prints. Then it runs `report --run` with the run that the user chooses.
 
@@ -179,7 +185,9 @@ Each command that takes `--run` takes the whole id of a run, or its first 8 or m
 
 ### R12: The `Scope:` line gives facts that a person can check
 
-The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch` or for a `scope.default` of `branch`. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it says how many files hold uncommitted changes, or that none do. It counts apart the paths that `scope.exclude` leaves out. This is an invented example:
+The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch` or for a `scope.default` of `branch`. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it says how many of the files that the run reviews hold uncommitted changes, or that none do.
+
+The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A change that starts at the empty tree counts each commit up to its end. It counts apart the paths that `scope.exclude` leaves out. This is an invented example:
 
 ```text
 Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b35) to the working tree, which has no uncommitted change
@@ -193,7 +201,9 @@ The run records `--branch` as a range, so `status` names the mode from what the 
 
 Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review. This message is the last text of the turn.
 
-When the review exits, the skill goes on with step 4. When the user stops the review, the skill stops the background command first and then abandons the run, as today.
+When the review exits, the skill goes on with step 4. This needs nothing new of Claude Code: today too, step 3 runs the review as a background command, the turn ends while it runs, and the host calls the model again when it exits.
+
+When the user stops the review, the skill stops the background command first, and then it abandons the run. Step 3 today says only to abandon it. But `abandon` refuses with `lock-held` while the engine of the run still holds the lock of the run.
 
 The Codex skill keeps its order. Codex shows a message that the model writes before a command (U6), and its review runs in the foreground of the turn. Its message for an active run copies the `Scope:` line of `status` too.
 
@@ -227,7 +237,7 @@ The author chose on 2026-10-24 that a question about one finding gets the block 
 
 ### PD2: At most three questions and three fixes against a rule
 
-R13 of the brief of a run fixes a maximum of lines for any number of findings. Thus the short form stays short in a large run. This proposal keeps a maximum and makes it larger. The new maximum is 22 lines. These are the eight lines of today, three lines for each of three questions, and one line for each of three fixes. Each of the two lists also gets one line that counts the others.
+R13 of the brief of a run fixes a maximum of lines for any number of findings. Thus the short form stays short in a large run. This proposal keeps a maximum and makes it larger. The new maximum is 22 lines. These are the eight lines of today, three lines for each of three questions, and one line for each of three fixes. Each of the two lists also gets one line that counts the others. The maximum counts the lines of the short form. The path after them stands apart, as today, and so do the lines of R8 before them, which have a maximum of their own.
 
 The gate run of the documentation step on its own pull request, a change of 71 files, asked three questions. Three shows such a run whole, and the line of the count keeps the others in view. A maximum of one hides the second question of a run with two. No maximum breaks R13. The author can change the number when the questions of more runs are counted.
 
@@ -263,11 +273,11 @@ From this line, the person judges if the run reviews what the person asked for. 
 
 ### PD10: The Claude Code skill starts the review first and shows the scope after
 
-Step 3 told the model to write the message before its next tool call, in the same reply. In each of four starts, Opus 5.5 wrote the message in its `thinking`. The same model wrote the last message of each turn as text. In the work on the skill surface, three different words in step 3 did not make the model write the message before the review. So this proposal moves the message to where the model writes text: the end of the turn, after the review starts.
+Step 3 told the model to write the message before its next tool call, in the same reply. In each of four starts, Opus 5.5 wrote the message in its `thinking`. The same model wrote the last message of each turn as text. In the work on the skill surface, the model wrote no such message before the review in four runs in print mode, with three different words in step 3. In two interactive sessions, it wrote one in its own words. So the place of the message in the middle of a turn does not hold. This proposal moves the message to where the model writes text: the end of the turn, after the review starts.
 
 The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way.
 
-The cost is that the run starts a few seconds before the person sees its scope. Until its fixes phase, the run edits nothing, as step 3 of the skills says. A person who stops it then loses only the start of its triage. The proposal rejects a hook that prints the scope, because it works only on Claude Code and gives the same text a second place.
+The cost is that the run starts a few seconds before the person sees its scope. The run edits nothing and runs no check before the decision, and the triage, the finders and the verification come first. A person who stops it in its first minutes loses the survey, when the run has one, and the start of its triage. The proposal rejects a hook that prints the scope, because it works only on Claude Code and gives the same text a second place.
 
 ### PD11: One proposal for the three changes
 
@@ -341,7 +351,7 @@ The refusal names both runs, and the whole id still works.
 
 ### The run starts before the person sees its scope
 
-A wrong scope costs the first seconds of the run, before the triage ends. PD10 accepts this.
+A wrong scope costs the first seconds of the run: the survey, when the run has one, and the start of the triage. PD10 accepts this.
 
 ### A program reads version 2 of the JSON form
 
