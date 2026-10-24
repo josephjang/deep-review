@@ -94,15 +94,16 @@ Files:
 - `src/config/command.ts`: `ShownScope` gets the mode as the person asked for it and the name of the base. It also gets the counts of commits, of files and of the paths that `scope.exclude` leaves out. Last, it gets the count of uncommitted files, or null.
 - In the same file, a new `scopeLine(scope)` builds the line, and `showLines` uses it. The comment beside the line names this proposal beside R11 of the skill surface corrections.
 - `src/command.ts`, `config show`: it fills the new fields. The mode is `branch` when `--branch` or a `scope.default` of `branch` named the scope. The name of the base comes from the request. For `--branch`, it is the merge base with the `--base` or `review.base` ref. It is the ref of `--ref`, the revision of `--from`, `HEAD` for `worktree`, or the parent for `last-commit`.
-- In the same command, the files and the paths left out come from `resolveScopeRequest`. The uncommitted files come from `changedAgainstHead`, for a change that ends at the working tree. The `--json` output gets the same fields in `scope`. An empty change keeps its reason.
+- In the same command, the files and the paths left out come from `resolveScopeRequest`. The uncommitted files come from `changedAgainstHead`, for a change that ends at the working tree. The `--json` output gets the same fields in `scope`, and also `files`, the path of each of `listed.changes`, and `excluded`, the paths of `listed.excluded`. An empty change keeps its reason, with two empty lists.
 - `src/review/status.ts`: `describeRun` gives a `Scope:` line from `state.scope` through `scopeLine`, with no count of uncommitted files. The caller in `src/command.ts` gives it the count of commits.
+- In the same function, the JSON form gets `scope`: the facts of the line, `files` from `state.scope.files` and `excluded` from `state.scope.excluded.paths`. It is null for a run with no scope.
 
 Tests:
 
 - `test/scope/git.test.ts`: `commitCount` of a range, and null for a revision that does not exist.
 - `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. The two cases that pin the line of today change.
-- `test/review/status.test.ts`: the `Scope:` line of a captured scope.
-- `test/cli.test.ts`: `config show --branch` names `branch` and the merge base with the base ref.
+- `test/review/status.test.ts`: the `Scope:` line of a captured scope. The JSON form gives the paths of the files and the excluded paths, and null for a run with no scope.
+- `test/cli.test.ts`: `config show --branch` names `branch` and the merge base with the base ref. `config show --json` gives each reviewed path and each excluded path, and `status --run <id> --json` gives the paths that the run captured.
 
 ```sh
 npm run check

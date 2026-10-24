@@ -165,7 +165,7 @@ The `Scope:` line of `config show` gives the scope as the person asked for it: `
 Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b35) to the working tree, which has no uncommitted change
 ```
 
-The `--json` output gives these facts in `scope`. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. When git cannot count the commits, the line leaves the count out and does not fail.
+The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. `status --json` gives the same two lists in `scope`. When git cannot count the commits, the line leaves the count out and does not fail.
 
 ### R13: The Claude Code skill shows the scope after it starts the review
 
@@ -229,7 +229,7 @@ The brief, the name of the copy and the list show eight characters of a run id. 
 
 ### PD9: Counts and names in the `Scope:` line, not the files
 
-From this line, the person judges if the run reviews what the person asked for. The count of commits and of files, and the name of the base, answer that. A list of the files is too long for the chat in a large change, and `config show --json` and the report give it. The count of commits costs one more git command for `config show` and for `status`.
+From this line, the person judges if the run reviews what the person asked for. The count of commits and of files, and the name of the base, answer that. A list of the files is too long for the chat in a large change. So the line gives the counts, and the JSON forms give the list: `config show --json` before the run, and `status --run <id> --json` for a run. Today no command gives the list: `config show` finds the paths, but it uses them only to see if the change edits the file of the repository's settings. The count of commits costs one more git command for `config show` and for `status`.
 
 ### PD10: The Claude Code skill starts the review first and shows the scope after
 
