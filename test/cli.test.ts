@@ -476,6 +476,13 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.deepEqual(settings.values['tools.path'], [join(box.repo, 'bin')]);
     assert.deepEqual(settings.files.map((file) => [file.layer, file.path]), [['operator', operatorFile], ['clone', join(commonDir, 'deep-review.toml')], ['invocation', invocation]]);
     assert.match(result.stderr, /settings from the operator's file /);
+    // status names the scope the run recorded as branch, counts its commits, and gives the paths it captured (R12 of the questions in the chat).
+    const status = await run(box, 'status', '--run', state.id);
+    assert.equal(status.status, 0, status.stderr);
+    const branchCommits = Number(git(box.repo, 'rev-list', '--count', '--first-parent', `${start}..HEAD`));
+    assert.ok(status.stdout.includes(`\nScope: branch, ${String(branchCommits)} commits and 4 files, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree\n`), status.stdout);
+    const json = JSON.parse((await run(box, 'status', '--run', state.id, '--json')).stdout) as { scope: { mode: string; commits: number; files: string[]; excluded: string[] } };
+    assert.deepEqual([json.scope.mode, json.scope.commits, [...json.scope.files].sort(), json.scope.excluded], ['branch', branchCommits, ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/gone.ts'], []]);
   });
 
   it('refuses --branch in a clone with no origin/HEAD, naming the setting and the flag, and takes --base over it', async (t) => {

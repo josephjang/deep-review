@@ -110,8 +110,8 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     assert.match(facts, /^Settings: no configuration file\nscope\.exclude \(dist\/\*\*\) left out 1 changed path, which no worker reviewed: dist\/a\.js\.\nNot followed: checks\.test: the repository's "npm test", this run's "make test" from the operator's file\.$/m);
     assert.doesNotMatch(report.slice(0, report.indexOf('\n## The run\n')), /Not followed: |scope\.exclude \(/, 'nowhere else');
     const lines = describeRun(state, claudeAdapter, (reference) => `/evidence/${reference.sha256.slice(0, 8)}`).lines;
-    assert.equal(lines[3], 'Settings: no configuration file');
-    assert.deepEqual(lines.slice(4, 6), ['scope.exclude (dist/**) left out 1 changed path, which no worker reviewed: dist/a.js.', 'Not followed: checks.test: the repository\'s "npm test", this run\'s "make test" from the operator\'s file.']);
+    assert.equal(lines[4], 'Settings: no configuration file');
+    assert.deepEqual(lines.slice(5, 7), ['scope.exclude (dist/**) left out 1 changed path, which no worker reviewed: dist/a.js.', 'Not followed: checks.test: the repository\'s "npm test", this run\'s "make test" from the operator\'s file.']);
     // A run configured before the settings renders as it did, with no settings line.
     assert.doesNotMatch(renderReport(finished, reportInput), /^Settings:/m);
   });

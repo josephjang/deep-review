@@ -28,7 +28,7 @@ import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
-import { explainLines, initText, showLines, validateBytes, type ShownScope } from './config/command.ts';
+import { explainLines, initText, showLines, validateBytes } from './config/command.ts';
 import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
 import { SettingFlagError } from './config/errors.ts';
 import { cloneConfigPath, operatorConfigPath, readConfigBytes, repositoryConfigFile } from './config/files.ts';
@@ -62,7 +62,8 @@ import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
 import { EmptyChangeError } from './scope/errors.ts';
-import { status as gitStatus } from './scope/git.ts';
+import { changedAgainstHead, commitCount, status as gitStatus } from './scope/git.ts';
+import { baseNameOf, type AskedMode, type ShownScope } from './scope/scope-line.ts';
 
 export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
@@ -210,6 +211,9 @@ export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSet
 /** How many scope modes the flags name. */
 const scopeModeFlagCount = (values: Values): number => [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
 
+/** Whether the scope is `--branch`, given or named by `scope.default` with no mode among the flags: the range from `review.base` to HEAD from their merge base. */
+const branchNamed = (values: Values, scope: ScopeSettings): boolean => values.branch === true || (scopeModeFlagCount(values) === 0 && scope.scopeDefault.value === 'branch');
+
 /**
  * The scope the flags name, or `scope.default` with no mode among them,
  * as `scopeRequestOf` gives it but before its check of the tree: what a
@@ -223,7 +227,7 @@ export function namedScopeOf(values: Values, scope: ScopeSettings): NamedScope {
   if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>');
   if (values['merge-base'] === true && values.from === undefined) throw new UsageError('--merge-base applies to --from and --to only');
   const chosen = modes === 1 ? null : scope.scopeDefault.value;
-  const branch = values.branch === true || chosen === 'branch';
+  const branch = branchNamed(values, scope);
   if (values.base !== undefined && !branch) throw new UsageError('--base applies to --branch only, or to a scope.default of branch');
   if (values['last-commit'] === true || chosen === 'last-commit') return { mode: 'last-commit', request: { paths } };
   if (values.worktree === true || chosen === 'worktree') return { mode: 'worktree', request: { paths } };
@@ -675,14 +679,29 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
   const { base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  let shown: ShownScope = { mode: chosen.mode, base, target, empty: null };
+  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; with no mode named, the one the capture would choose.
+  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : chosen.mode !== 'auto' ? chosen.mode : target === null ? 'worktree' : 'last-commit';
+  const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
+  let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {
     const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, 'scope.exclude') ?? []);
-    resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
-    shown = { ...shown, mode: listed.mode };
+    const files = listed.changes.map((change) => change.path);
+    resolved = withChangedPaths(resolved, [...files, ...listed.excluded]);
+    // A change that ends at the working tree counts the reviewed files that hold uncommitted changes; a file outside --path or left out by scope.exclude is no reviewed file.
+    const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
+    shown = {
+      ...ends,
+      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths),
+      fileCount: files.length,
+      excludedCount: listed.excluded.length,
+      uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
+      empty: null,
+      files,
+      excluded: listed.excluded,
+    };
   } catch (error) {
     if (!(error instanceof EmptyChangeError)) throw error;
-    shown = { ...shown, empty: error.message };
+    shown = { ...ends, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: error.message, files: [], excluded: [] };
   }
   io.stdout(values.json === true ? `${JSON.stringify({ ...resolved, scope: shown }, null, 2)}\n` : `${showLines(resolved, shown).join('\n')}\n`);
   return 0;
@@ -840,7 +859,9 @@ function status(values: Values, io: CommandIo, root: string, worktree: string): 
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync(copy) ? copy : null);
+    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects (R12 of the questions in the chat).
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
   } finally {

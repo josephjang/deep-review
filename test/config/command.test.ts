@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import { main, type CommandIo } from '../../src/command.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { explainLines, initText, tomlValue, validateBytes } from '../../src/config/command.ts';
+import { baseNameOf, scopeLine } from '../../src/scope/scope-line.ts';
 import { cloneConfigName, parseConfig, repositoryConfigPath } from '../../src/config/files.ts';
 import { fileLayers, layerSettings, settingNames, settings } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
@@ -47,6 +48,18 @@ describe('the config command\'s text', () => {
     assert.match(initText('operator', policy), /^# budget\.usd = 60$/m, 'the role policy\'s default');
     assert.match(initText('operator', policy), /^# runtimes\.codex\.strong = "gpt-6-astra"$/m, 'a runtime\'s own default');
     assert.match(initText('clone', policy), /^# checks\.test = "npm test"$/m, 'an example where the engine decides');
+  });
+
+  it('gives the Scope line with no count of commits when git gave none, the empty tree by its name, and one of each in the singular (R12 of the questions in the chat)', () => {
+    const shown = { mode: 'last-commit', base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904', baseName: 'the parent of HEAD', target: 'a'.repeat(40), commits: null, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null } as const;
+    assert.equal(scopeLine(shown), `Scope: last-commit, 1 file (1 more path left out by scope.exclude), from the empty tree to ${'a'.repeat(8)}`);
+    assert.equal(scopeLine({ ...shown, mode: 'worktree', base: 'b'.repeat(40), baseName: 'HEAD', target: null, commits: 0, excludedCount: 0, uncommitted: 1 }), `Scope: worktree, no commit and 1 file, from HEAD (${'b'.repeat(8)}) to the working tree, where 1 file holds uncommitted changes`);
+    assert.equal(scopeLine({ ...shown, mode: 'ref', base: 'b'.repeat(40), baseName: 'v1.0', target: null, commits: 1, excludedCount: 0, uncommitted: 0 }), `Scope: ref, 1 commit and 1 file, from v1.0 (${'b'.repeat(8)}) to the working tree, which has no uncommitted change`);
+    assert.equal(baseNameOf('branch', { range: { from: 'origin/main', to: 'HEAD', mergeBase: true } }), 'the merge base with origin/main');
+    assert.equal(baseNameOf('range', { range: { from: 'v1', to: 'HEAD', mergeBase: false } }), 'v1');
+    assert.equal(baseNameOf('ref', { ref: 'v1' }), 'v1');
+    assert.equal(baseNameOf('worktree', {}), 'HEAD');
+    assert.equal(baseNameOf('last-commit', {}), 'the parent of HEAD');
   });
 
   it('writes a value as TOML takes it back', () => {
@@ -93,8 +106,8 @@ describe('deep-review config', () => {
     writeFileSync(join(locateCheckpoint(repo).commonDir, cloneConfigName), 'schema = 1\nchecks.test = "make test"\n');
     assert.equal(await config('show', '--runtime', 'claude', '--set', 'run.concurrency=2'), 0, err.join(''));
     const text = out.join('');
-    // Both ends of the change, so a retelling of the line cannot take the base for the commit reviewed (R11 of the skill surface corrections).
-    assert.match(text, new RegExp(`^Scope: last-commit, the change from ${base} to ${head}$`, 'm'));
+    // Both ends of the change, so a retelling of the line cannot take the base for the commit reviewed (R11 of the skill surface corrections), and the counts and the name of the base (R12 of the questions in the chat).
+    assert.match(text, new RegExp(`^Scope: last-commit, 1 commit and 1 file \\(1 more path left out by scope\\.exclude\\), from the parent of HEAD \\(${base.slice(0, 8)}\\) to ${head.slice(0, 8)}$`, 'm'));
     assert.match(text, /^ {2}scope\.exclude +\[ "dist\/\*\*" \] {2}from the repository's file$/m);
     assert.match(text, /^ {2}checks\.test +"make test" {2}from the clone's file$/m);
     assert.match(text, /^ {2}run\.concurrency +2 {2}from a flag$/m);
@@ -102,9 +115,10 @@ describe('deep-review config', () => {
     assert.doesNotMatch(text, /runtimes\.codex/, 'only the settings of the run\'s runtime');
     out.length = 0;
     assert.equal(await config('show', '--runtime', 'claude', '--json'), 0, err.join(''));
-    const json = JSON.parse(out.join('')) as { values: Record<string, { value: unknown; layer: string }>; scope: { mode: string; base: string; target: string | null }; repository: { state: string } };
+    const json = JSON.parse(out.join('')) as { values: Record<string, { value: unknown; layer: string }>; scope: unknown; repository: { state: string } };
     assert.deepEqual(json.values['scope.exclude'], { value: ['dist/**'], layer: 'repository' });
-    assert.deepEqual(json.scope, { mode: 'last-commit', base, target: head, empty: null });
+    // The facts of the line, and the path of each reviewed file and of each path left out (PD9 of the questions in the chat).
+    assert.deepEqual(json.scope, { mode: 'last-commit', base, baseName: 'the parent of HEAD', target: head, commits: 1, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null, files: ['src/b.ts'], excluded: ['dist/b.js'] });
     assert.equal(json.repository.state, 'read');
     assert.equal(existsSync(join(locateCheckpoint(repo).root, 'ledger.sqlite')), false, 'no checkpoint, so no run');
   });
@@ -115,7 +129,58 @@ describe('deep-review config', () => {
     write(repo, 'src/c.ts', 'c\n');
     const head = git(repo, 'rev-parse', 'HEAD');
     assert.equal(await config('show', '--runtime', 'claude'), 0, err.join(''));
-    assert.match(out.join(''), new RegExp(`^Scope: auto, the change from ${head} to the working tree; The change has no path left to review: scope\\.exclude \\(src/\\*\\*\\) leaves out all 1 of its changed paths$`, 'm'));
+    // With no mode named, the line names the mode the capture would choose (R12 of the questions in the chat).
+    assert.match(out.join(''), new RegExp(`^Scope: worktree, from HEAD \\(${head.slice(0, 8)}\\) to the working tree; The change has no path left to review: scope\\.exclude \\(src/\\*\\*\\) leaves out all 1 of its changed paths$`, 'm'));
+    out.length = 0;
+    assert.equal(await config('show', '--runtime', 'claude', '--json'), 0, err.join(''));
+    const json = JSON.parse(out.join('')) as { scope: unknown };
+    assert.deepEqual(json.scope, { mode: 'worktree', base: head, baseName: 'HEAD', target: null, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: 'The change has no path left to review: scope.exclude (src/**) leaves out all 1 of its changed paths', files: [], excluded: [] }, 'an empty change keeps its reason, with two empty lists');
+  });
+
+  describe('the Scope line (R12 of the questions in the chat)', () => {
+    const scopeOf = async (...args: string[]): Promise<string> => {
+      out.length = 0;
+      assert.equal(await config('show', '--runtime', 'claude', ...args), 0, err.join(''));
+      return out.join('').split('\n')[0]!;
+    };
+    const short = (revision: string): string => git(repo, 'rev-parse', revision).slice(0, 8);
+
+    it('names the last commit with its parent, and the working tree with its uncommitted files', async () => {
+      assert.equal(await scopeOf('--last-commit'), `Scope: last-commit, 1 commit and 1 file, from the parent of HEAD (${short('HEAD~1')}) to ${short('HEAD')}`);
+      write(repo, 'src/a.ts', 'c\n');
+      write(repo, 'src/new.ts', 'new\n');
+      assert.equal(await scopeOf('--worktree'), `Scope: worktree, no commit and 2 files, from HEAD (${short('HEAD')}) to the working tree, where 2 files hold uncommitted changes`);
+    });
+
+    it('names a ref and a range by what the flags gave, the merge base by its ref, and says when the working tree holds no uncommitted change', async () => {
+      write(repo, 'src/b.ts', 'b\n');
+      commitAll(repo, 'a second commit');
+      assert.equal(await scopeOf('--ref', 'HEAD~2'), `Scope: ref, 2 commits and 2 files, from HEAD~2 (${short('HEAD~2')}) to the working tree, which has no uncommitted change`);
+      assert.equal(await scopeOf('--from', 'HEAD~1', '--to', 'HEAD'), `Scope: range, 1 commit and 1 file, from HEAD~1 (${short('HEAD~1')}) to the working tree, which has no uncommitted change`);
+      assert.equal(await scopeOf('--from', 'HEAD~1', '--to', 'HEAD', '--merge-base'), `Scope: range, 1 commit and 1 file, from the merge base with HEAD~1 (${short('HEAD~1')}) to the working tree, which has no uncommitted change`);
+    });
+
+    it('names branch for --branch, with the merge base with the base ref, counts a merge as one commit and an uncommitted file only inside --path', async () => {
+      const start = git(repo, 'rev-parse', 'HEAD');
+      git(repo, 'update-ref', 'refs/remotes/origin/main', start);
+      git(repo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+      const branch = git(repo, 'rev-parse', '--abbrev-ref', 'HEAD');
+      // A side branch merged into this one: two commits on it, one merge on the first parent.
+      git(repo, 'checkout', '-q', '-b', 'side');
+      write(repo, 'src/side.ts', 'side\n');
+      commitAll(repo, 'side one');
+      write(repo, 'src/side.ts', 'side two\n');
+      commitAll(repo, 'side two');
+      git(repo, 'checkout', '-q', branch);
+      write(repo, 'src/b.ts', 'b\n');
+      commitAll(repo, 'on the branch');
+      git(repo, 'merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+      assert.equal(await scopeOf('--branch'), `Scope: branch, 2 commits and 2 files, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree, which has no uncommitted change`);
+      write(repo, 'src/b.ts', 'b changed\n');
+      write(repo, 'src/side.ts', 'side changed\n');
+      assert.equal(await scopeOf('--branch', '--path', 'src/b.ts'), `Scope: branch, 1 commit and 1 file, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree, where 1 file holds uncommitted changes`, 'the commits and the uncommitted files of the path alone');
+      assert.equal(await scopeOf('--branch', '--base', 'HEAD~1'), `Scope: branch, 1 commit and 2 files, from the merge base with HEAD~1 (${short('HEAD~1')}) to the working tree, where 2 files hold uncommitted changes`);
+    });
   });
 
   it('refuses show without a runtime, a mistaken subcommand, an argument or a flag the subcommand does not take, with the usage', async () => {

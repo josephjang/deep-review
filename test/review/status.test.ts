@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
+import { askedModeOf, describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, triaged, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, settingsConfigured, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
 const evidencePath = (reference: { sha256: string; bytes: number }): string => `/evidence/${reference.sha256.slice(0, 8)}-${String(reference.bytes)}`;
@@ -20,7 +20,7 @@ describe('describeRun', () => {
       'Workers: 0 running, 0 finished, 0 lost',
       'Spend: none',
     ]);
-    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, reportCopy: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], continueCommand: null, review: null });
+    assert.deepEqual(described.json, { runId: 'run-1', status: 'active', worktree: '/w', scope: null, phase: null, workers: { running: 0, finished: 0, lost: 0 }, statistics: null, budgetCheck: null, blocker: null, report: null, reportCopy: null, continuedFrom: null, decisions: null, answers: [], answerPasses: [], fix: null, patches: [], commits: [], continueCommand: null, review: null });
   });
 
   it('names the reason of an abandoned run on its first line', () => {
@@ -44,6 +44,8 @@ describe('describeRun', () => {
     assert.deepEqual(described.lines, [
       'Run run-1: blocked',
       'Worktree: /w',
+      // The scope the run captured, with no count of commits, which status gives it from git (R12 of the questions in the chat).
+      `Scope: worktree, 1 file, from HEAD (${'1'.repeat(8)}) to the working tree`,
       'Runtime: claude 2.1.283; models opus and sonnet',
       // A run configured before the settings says so, as the report's account of the settings would (R17 of the configuration).
       'Settings: recorded before the settings existed; the run\'s values came from the defaults and its flags',
@@ -69,17 +71,17 @@ describe('describeRun', () => {
 
   it('shows the reported spend against the budget when the check counts only that, and both numbers when it charged a worker at its cap', () => {
     const plain = triaged().fold();
-    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[6], 'Spend: 0.50 USD of 30.00 USD; 200 input, 100 output tokens');
-    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[7], undefined, 'no budget check line when it counts the reported spend alone');
+    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[7], 'Spend: 0.50 USD of 30.00 USD; 200 input, 100 output tokens');
+    assert.equal(describeRun(plain, claudeAdapter, evidencePath).lines[8], undefined, 'no budget check line when it counts the reported spend alone');
     const timedOut = triaged().start('finders').worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' }).fold();
     const described = describeRun(timedOut, claudeAdapter, evidencePath);
-    assert.deepEqual(described.lines.slice(6), [
+    assert.deepEqual(described.lines.slice(7), [
       'Spend: 0.50 USD; 200 input, 100 output tokens',
       'Budget check: 8.50 USD of 30.00 USD, counting 1 worker that reported no cost at its per-worker cap',
     ]);
     assert.deepEqual(described.json.budgetCheck, { usd: 8.5, charged: 1, lost: 0 });
     const unbudgeted = triaged().add('limits.changed', { concurrency: 4, runBudgetUsd: null }).start('finders').worker(2, 'finder-RIPPLE finders:RIPPLE', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, usage: null, error: 'timed out' }).fold();
-    assert.deepEqual(describeRun(unbudgeted, claudeAdapter, evidencePath).lines.slice(6), ['Spend: 0.50 USD; 200 input, 100 output tokens'], 'no budget in force, so no check to describe');
+    assert.deepEqual(describeRun(unbudgeted, claudeAdapter, evidencePath).lines.slice(7), ['Spend: 0.50 USD; 200 input, 100 output tokens'], 'no budget in force, so no check to describe');
   });
 
   it('describes a spend no worker reported, and a run with no budget in force, without inventing either', () => {
@@ -88,14 +90,14 @@ describe('describeRun', () => {
       .start('triage')
       .worker(1, 'triage triage:SCAN', { usage: null })
       .fold();
-    assert.equal(describeRun(state, claudeAdapter, evidencePath).lines[6], 'Spend: no cost reported; no tokens reported');
+    assert.equal(describeRun(state, claudeAdapter, evidencePath).lines[7], 'Spend: no cost reported; no tokens reported');
   });
 
   it('names the report of a complete run through the evidence path, and no phase', () => {
     const state = reported().fold();
     const described = describeRun(state, claudeAdapter, evidencePath);
     assert.equal(described.lines[0], 'Run run-1: complete');
-    assert.equal(described.lines[4], 'Phase: none running');
+    assert.equal(described.lines[5], 'Phase: none running');
     // The report, then what a stop did: this run lost a WRAPPERS worker and ran it again (R15 of resumable runs).
     assert.deepEqual(described.lines.slice(-2), [`Report: /evidence/${'e'.repeat(8)}-2048`, 'Stop: Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.']);
     assert.ok(!described.lines.some((line) => line.startsWith('Blocker: ')));
@@ -106,11 +108,11 @@ describe('describeRun', () => {
 
   it('names the copy of the report beside the ledger with the record, and only beside a current report (R16 of the brief of a run)', () => {
     const copy = '/w/.git/deep-review-checkpoint/reports/2026-09-27-run-1.md';
-    const described = describeRun(reported().fold(), claudeAdapter, evidencePath, null, copy);
+    const described = describeRun(reported().fold(), claudeAdapter, evidencePath, { reportCopy: copy });
     assert.ok(described.lines.includes(`Report: ${copy}, a copy of the record /evidence/${'e'.repeat(8)}-2048`), described.lines.join('\n'));
     assert.equal(described.json.reportCopy, copy);
     assert.equal(describeRun(reported().fold(), claudeAdapter, evidencePath).json.reportCopy, null, 'no copy given');
-    const working = describeRun(continuedRun().fold(), claudeAdapter, evidencePath, null, copy);
+    const working = describeRun(continuedRun().fold(), claudeAdapter, evidencePath, { reportCopy: copy });
     assert.equal(working.json.reportCopy, null, 'the copy holds the report before while the run works again');
     assert.ok(!working.lines.some((line) => line.startsWith('Report: ')));
   });
@@ -246,6 +248,43 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     const state = configured().fold();
     const runs = [as(state, 1), { ...as(state, 2), createdAt: as(state, 1).createdAt }];
     assert.deepEqual(runListLines(runs, '/w', copyOf).map((line) => line.slice(0, 8)), ['00000002', '00000001']);
+  });
+});
+
+describe('the scope of a run in status (R12 of the questions in the chat)', () => {
+  const values = { 'review.base': 'origin/main', 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [] };
+  /** A run whose settings recorded `origin/main` as its base, with the range `range` captured, or with no recorded settings. */
+  const ranged = (range: { from: string; to: string; mergeBase: boolean } | null, recorded = true): RunState => {
+    const state = (recorded ? settingsConfigured(false, { values }) : configured()).fold();
+    return range === null ? state : { ...state, scope: { ...state.scope!, mode: 'range', request: { ...state.scope!.request, range } } };
+  };
+
+  it('reads branch for the range that --branch records, and for the same range given by --from, --to and --merge-base', () => {
+    assert.equal(askedModeOf(ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true })), 'branch');
+  });
+
+  it('keeps range for a range with another start, another end or no merge base, and for a run with no recorded settings', () => {
+    assert.equal(askedModeOf(ranged({ from: 'origin/dev', to: 'HEAD', mergeBase: true })), 'range');
+    assert.equal(askedModeOf(ranged({ from: 'origin/main', to: 'main', mergeBase: true })), 'range');
+    assert.equal(askedModeOf(ranged({ from: 'origin/main', to: 'HEAD', mergeBase: false })), 'range');
+    assert.equal(askedModeOf(ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true }, false)), 'range');
+    assert.equal(askedModeOf(ranged(null)), 'worktree', 'any other mode as it was captured');
+  });
+
+  it('gives the Scope line of a captured scope, with the count of commits status gives it, and the paths in the JSON form', () => {
+    const state = ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true });
+    const withExcluded: RunState = { ...state, scope: { ...state.scope!, request: { ...state.scope!.request, exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 } } };
+    const described = describeRun(withExcluded, claudeAdapter, evidencePath, { commits: 3 });
+    assert.equal(described.lines[2], `Scope: branch, 3 commits and 1 file (2 more paths left out by scope.exclude), from the merge base with origin/main (${'1'.repeat(8)}) to the working tree`);
+    assert.deepEqual(described.json.scope, { mode: 'branch', base: '1'.repeat(40), baseName: 'the merge base with origin/main', target: null, commits: 3, fileCount: 1, excludedCount: 2, uncommitted: null, empty: null, files: ['src/a.ts'], excluded: ['dist/a.js', 'dist/b.js'] });
+    // With no count, the line leaves it out; a last-commit scope ends at its commit.
+    const lastCommit: RunState = { ...state, scope: { ...state.scope!, mode: 'last-commit', request: { paths: [], exclude: [] } } };
+    assert.equal(describeRun(lastCommit, claudeAdapter, evidencePath).lines[2], `Scope: last-commit, 1 file, from the parent of HEAD (${'1'.repeat(8)}) to ${'2'.repeat(8)}`);
+  });
+
+  it('names branch in the list of runs too', () => {
+    const state = { ...ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true }), id: '00000001-0000-4000-8000-000000000000', createdAt: '2026-10-01T00:00:00.000Z' };
+    assert.deepEqual(runListLines([state], '/w', () => null), [`00000001 started 2026-10-01T00:00:00.000Z: active; branch, 1 file, from ${'1'.repeat(8)} to the working tree; no current report`]);
   });
 });
 

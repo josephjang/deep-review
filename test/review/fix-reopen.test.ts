@@ -64,7 +64,7 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   assert.ok(text.indexOf(command) > text.indexOf('\n## The run\n'), 'only the facts of the run name the command, which holds local paths');
   assert.match(text, /^- The run budget stopped the fixes before [^\n]+ (was|were) attempted\. The facts of the run at the end of the report give the command that continues them\.$/m);
   // status names the same command, and in place of a roles directory it is not given, a placeholder it explains.
-  const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest }).lines;
+  const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { continuation: { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest } }).lines;
   const withoutRoles = command.replace(` --roles "${box.rolesRoot}"`, '');
   assert.ok(status(stopped.review!.configuration.rolesDigest).includes(`Continue: ${withoutRoles}, which continues the fix pass the run budget stopped and reviews nothing again`));
   assert.ok(status('0'.repeat(64)).includes(`Continue: ${withoutRoles} --roles "${rolesPlaceholder}", which continues the fix pass the run budget stopped and reviews nothing again, with the roles directory the run was reviewed with in place of ${rolesPlaceholder}`));
@@ -140,7 +140,7 @@ describe('a fix pass the run budget stopped', { timeout: 900_000, concurrency: s
     const reopening = state.review!.fix!.reopenings[0]!;
     assert.ok(text.includes(`\nReopened: the fix pass past the run budget on ${reopening.at}, after the report artifacts/${stopped.review!.report!.report.sha256}\n`), text);
     assert.doesNotMatch(text, /The run budget stopped the fix pass/, 'nothing is left for the budget');
-    assert.ok(!describeRun(state, claudeAdapter, () => '', { engineEntry: cliEntry, ownRolesDigest: () => '' }).lines.some((line) => line.startsWith('Continue: ')));
+    assert.ok(!describeRun(state, claudeAdapter, () => '', { continuation: { engineEntry: cliEntry, ownRolesDigest: () => '' } }).lines.some((line) => line.startsWith('Continue: ')));
   });
 
   it('names the --check and --no-check it is given as ignored, since it keeps the checks it pinned, as a resume names them', async (t) => {
