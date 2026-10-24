@@ -240,7 +240,7 @@ function scopeTitle(state: RunState): string {
 const answerOf = (answer: RecordedAnswer): BriefAnswer => ({ kind: answer.answer.kind, option: answer.answer.kind === 'option' ? answer.answer.option + 1 : null, words: answerWords(answer.answer), at: answer.at, applied: answer.appliedBy !== null });
 
 /** A fix pass's outcome of a finding in the brief's vocabulary; a finding no fixer was given has none. */
-const fateWordsOf: Readonly<Partial<Record<FindingOutcome, BriefFate>>> = {
+export const fateWordsOf: Readonly<Partial<Record<FindingOutcome, Exclude<BriefFate, 'not-fixed'>>>> = {
   applied: 'applied',
   'already applied': 'already-in-tree',
   deferred: 'deferred',
