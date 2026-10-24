@@ -64,7 +64,7 @@ Conventional commits, in English: `<type>(<scope>): <subject>` with an imperativ
 
 No attribution footers: no "Generated with Claude Code", no `Co-Authored-By`. This overrides any tool default.
 
-Branches: `<type>/<topic>` in kebab-case. Name the branch before the first push: renaming a pull request's head branch on GitHub closes the pull request, and it cannot be reopened onto the new name.
+Branches: `<type>/<topic>` in kebab-case. Name the branch before the push that opens its pull request.
 
 ## Pull requests and merging
 
