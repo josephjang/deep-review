@@ -134,7 +134,7 @@ A run that applied no fix and no answer keeps the words of today. A rewrite by a
 
 `deep-review report --fixes` prints one line for each fix of the run, in rank order, as the part Fixes of the evidence gives them. The fixes are the ones that the part "What deep-review changed" counts: applied, found already in the tree, put off, not applied and not attempted.
 
-A line gives the id and what became of the fix, in the words of the brief. Then it gives the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
+A line gives the id and what became of the fix, in short words of its own: applied, already in the tree, put off by its fixer, not applied by its fixer, or not attempted. These are not the sentences of the brief, such as "Its fixer put it off." Then it gives the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
 
 It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
 
