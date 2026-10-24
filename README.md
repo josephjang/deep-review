@@ -236,7 +236,8 @@ with a report whose last event is the latest, after a `Not shown:`
 line for each later run it passed over that says why that run has no
 report; `--run` names another run by its id or its first eight
 characters. With `--json` it prints the JSON form, version 3, which
-names those runs in `notShown`; with `--brief`, the whole brief as a
+names those runs in `notShown` and marks an account written before the
+fixes with `beforeEdits` in `change`; with `--brief`, the whole brief as a
 chat shows it; with `--finding <id>`, the block of one question or one
 fix that goes against a written rule; and with `--fixes`, a line for
 each fix with the subject of its commit message. See

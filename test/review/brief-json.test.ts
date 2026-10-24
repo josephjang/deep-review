@@ -28,8 +28,11 @@ const runs = (): [string, RunState][] => {
   ];
 };
 
-/** Version 2 of the JSON form as an engine before version 3 wrote it, from a version 3 output: the same fields less `notShown`. */
-const asV2 = (json: Record<string, unknown>): Record<string, unknown> => ({ ...Object.fromEntries(Object.entries(json).filter(([key]) => key !== 'notShown')), version: 2 });
+/** Version 2 of the JSON form as an engine before version 3 wrote it, from a version 3 output: the same fields less `notShown`, and the change less its `beforeEdits`. */
+const asV2 = (json: Record<string, unknown>): Record<string, unknown> => {
+  const change = json.change === null ? null : Object.fromEntries(Object.entries(json.change as Record<string, unknown>).filter(([key]) => key !== 'beforeEdits'));
+  return { ...Object.fromEntries(Object.entries(json).filter(([key]) => key !== 'notShown')), change, version: 2 };
+};
 
 describe('briefJson (R16, TD8 of the brief of a run; R7, TD7 of the documentation step; R8 of the questions in the chat)', () => {
   for (const [name, state] of runs()) {
@@ -46,7 +49,7 @@ describe('briefJson (R16, TD8 of the brief of a run; R7, TD7 of the documentatio
     assert.deepEqual(Object.keys(json), ['version', 'run', 'title', 'headline', 'changeState', 'change', 'questions', 'departures', 'documents', 'notCovered', 'covered', 'look', 'changed', 'local', 'notShown']);
     assert.equal(json.version, 3);
     assert.deepEqual(Object.keys(json.headline), ['questions', 'departures', 'documents', 'text']);
-    assert.deepEqual(Object.keys(json.change!), ['what', 'why', 'whyFrom', 'restsOn', 'publicInterface', 'wideEffect']);
+    assert.deepEqual(Object.keys(json.change!), ['what', 'why', 'whyFrom', 'restsOn', 'publicInterface', 'wideEffect', 'beforeEdits']);
     assert.deepEqual(Object.keys(json.questions[0]!), ['id', 'question', 'default', 'defaultApplied', 'choice', 'options', 'lookedIn', 'grounds', 'answer', 'command']);
     assert.deepEqual(Object.keys(json.departures[0]!), ['id', 'rule', 'source', 'fact', 'fix', 'fate', 'review', 'accept', 'reject']);
     assert.deepEqual(Object.keys(json.changed), ['fixed', 'decided', 'applied', 'alreadyInTree', 'deferred', 'blocked', 'notAttempted', 'toFix', 'commits', 'patches', 'left', 'checks']);
@@ -58,6 +61,16 @@ describe('briefJson (R16, TD8 of the brief of a run; R7, TD7 of the documentatio
     assert.equal(json.headline.documents, 1);
     assert.deepEqual(json.documents, [{ file: 'docs/a.md', facts: [{ what: 'parse throws on a null', by: 'a fixer' }], reasons: [{ kind: 'not-run', text: 'The documentation step did not run: an engine before the documentation step configured this run.' }] }]);
     assert.deepEqual(briefJson(briefOf(runs()[0]![1]), local, []).documents, [], 'a run that only reviewed left none');
+  });
+
+  it('marks the account written before the fixes and the answers of the run, as the text forms do (R5 of the questions in the chat)', () => {
+    const fixed = decidedFixRun().fold();
+    const account = { kind: 'given', reading: changeReading as never } as const;
+    const marked = briefJson(briefOf({ ...fixed, review: { ...fixed.review!, change: account } }), local, []);
+    assert.equal(marked.change?.beforeEdits, true, 'a fix run with an applied fix');
+    assert.equal(briefJsonV3.safeParse(marked).success, true);
+    assert.equal(briefJson(briefOf(runs()[4]![1]), local, []).change?.beforeEdits, false, 'a run that only reviewed');
+    assert.equal(briefJsonV3.safeParse({ ...marked, change: { ...marked.change, beforeEdits: undefined } }).success, false, 'version 3 holds the mark');
   });
 
   it('gives no change, and says why, for a run whose triage recorded none', () => {

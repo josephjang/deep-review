@@ -162,10 +162,12 @@ Files:
 
 - `src/review/brief.ts`: `briefOf` sets a new `BriefChange` field, `beforeEdits`. It is true when the account is given and a fixer or an answer pass applied a fix: `changed.applied` is not empty, or an answer has an `appliedBy` that names a pass. A rewrite by a check or an edit of the documentation step alone leaves it false. The states `none` and `unrecorded` keep their words of today.
 - In the same file, `changePart` takes the brief, and it ends with the sentence of R5 when `beforeEdits` is true. `briefShortForm` starts the line of the change with `The change before the fixes:` in the same case, and the title line stays as it is.
+- `src/review/brief-json.ts`: the `change` of `briefJsonV3` gets `beforeEdits`, and `briefJson` writes it. Versions 1 and 2 keep their `change`.
 
 Tests:
 
 - `test/review/brief.test.ts`: a fix run with an applied fix gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today. So does a fix run whose only patch is the rewrite of a check. An answer pass that applies the first answer gives both. A fix run with an applied fix whose triage gave no account, and one whose triage recorded none, keep the words of today.
+- `test/review/brief-json.test.ts`: `beforeEdits` is true for a fix run with an applied fix and false for a run that only reviewed, and version 3 refuses a `change` without it.
 - `test/review/report.test.ts` and `test/review/report-copy.test.ts`, where they pin the part "The change".
 - The snapshots `test/fixtures/reports/fix.md`, `survey.md` and `synthetic.md` stay as they are. Each is the report of a run whose triage recorded no account. `test/review/fix-report.test.ts`, `test/review/survey-report.test.ts` and `test/review/report.test.ts` compare them, and each passes with no new snapshot.
 

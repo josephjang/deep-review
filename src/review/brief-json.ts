@@ -29,6 +29,9 @@ const answer = z.strictObject({ kind: z.enum(['option', 'accept', 'reject']), op
  */
 export const gapKindsV1 = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop'] as const;
 
+/** The core of the change as versions 1 and 2 hold it. */
+const changeV1 = z.strictObject({ what: text, why: text.nullable(), whyFrom: z.array(text), restsOn: z.array(text), publicInterface: condition, wideEffect: condition });
+
 /** Version 1 of the JSON form of the brief. */
 export const briefJsonV1 = z.strictObject({
   version: z.literal(1),
@@ -37,7 +40,7 @@ export const briefJsonV1 = z.strictObject({
   headline: z.strictObject({ text, questions: z.number().int().min(0), departures: z.number().int().min(0) }),
   /** Whether the triage gave the core of the change, gave none, or recorded none, as an engine before the account did. */
   changeState: z.enum(['given', 'none', 'unrecorded']),
-  change: z.strictObject({ what: text, why: text.nullable(), whyFrom: z.array(text), restsOn: z.array(text), publicInterface: condition, wideEffect: condition }).nullable(),
+  change: changeV1.nullable(),
   questions: z.array(z.strictObject({
     id: text,
     question: text,
@@ -102,15 +105,18 @@ export const briefJsonV2 = z.strictObject({
 export type BriefJsonV2 = z.infer<typeof briefJsonV2>;
 
 /**
- * Version 3 of the JSON form of the brief (R8 of the questions in the
+ * Version 3 of the JSON form of the brief (R5, R8 of the questions in the
  * chat): version 2 with `notShown`, each later run of the worktree that
  * `report` passed over because it has no report, with its id and why, so
  * that a program does not take an older result for the current one; empty
- * when `--run` named the run.
+ * when `--run` named the run. Its `change` also holds `beforeEdits`, the
+ * mark the text forms give an account written before the fixes and the
+ * answers of the run.
  */
 export const briefJsonV3 = z.strictObject({
   ...briefJsonV2.shape,
   version: z.literal(3),
+  change: z.strictObject({ ...changeV1.shape, beforeEdits: z.boolean() }).nullable(),
   notShown: z.array(z.strictObject({ run: text, state: text })),
 });
 export type BriefJsonV3 = z.infer<typeof briefJsonV3>;
@@ -129,7 +135,7 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
     title: brief.title,
     headline: { ...brief.headline },
     changeState: change.state,
-    change: change.state !== 'given' ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] } },
+    change: change.state !== 'given' ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, beforeEdits: change.beforeEdits },
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,

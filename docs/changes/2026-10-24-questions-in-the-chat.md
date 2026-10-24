@@ -126,7 +126,7 @@ The line `The change:` gives the first sentence of the account whole, up to 400 
 
 ### R5: The core of the change says when it describes the change before the fixes
 
-In a run where a fixer applied a fix, or an answer pass applied an answer, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. The title line of the short form stays as it is, and the line below it carries the mark.
+In a run where a fixer applied a fix, or an answer pass applied an answer, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. The title line of the short form stays as it is, and the line below it carries the mark. Version 3 of the JSON form carries it too, as `beforeEdits` in `change`, so a program learns each fact about the account that the text gives.
 
 A run that applied no fix and no answer keeps the words of today. A rewrite by a check, or an edit of the documentation step, changes no behavior that the account describes, so it gives no mark. A run whose triage gave no account, or recorded none, keeps the words of today too: it has no account to mark.
 
