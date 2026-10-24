@@ -45,6 +45,8 @@ stays empty. Every defer is reported to the person, who decides what
 becomes of it, so a defer states the evidence that stopped you, not a
 settled skip. For each document you edited, give one `static`
 validation line: the document as its `source`, and in `evidence` the
-code you compared it with. In `drift`, list each document you found out
-of date at your end and did not bring in line. Return `tests` and
+code you compared it with. In `drift`, list each document that the edits
+of this run made out of date, which you found so at your end and did
+not bring in line; a fact that was out of date before this run is not
+drift. Return `tests` and
 `suite` once.

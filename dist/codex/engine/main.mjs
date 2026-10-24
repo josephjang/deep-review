@@ -16616,12 +16616,12 @@ function rewriteKeyNames(ctx) {
   const rewrites = /* @__PURE__ */ new Map();
   for (const record2 of pendingRecords.get(ctx) ?? []) {
     const seen = ctx.seen.get(record2);
-    const names = (seen?.def ?? seen?.schema)?.propertyNames;
-    if (!names || names === true || rewrites.has(names))
+    const names2 = (seen?.def ?? seen?.schema)?.propertyNames;
+    if (!names2 || names2 === true || rewrites.has(names2))
       continue;
-    const rewritten = stringifyKeyNames(bySchema, names, /* @__PURE__ */ new Set());
-    if (rewritten !== names)
-      rewrites.set(names, rewritten);
+    const rewritten = stringifyKeyNames(bySchema, names2, /* @__PURE__ */ new Set());
+    if (rewritten !== names2)
+      rewrites.set(names2, rewritten);
   }
   if (!rewrites.size)
     return;
@@ -21239,6 +21239,9 @@ function refineDocumentationPlan(plan, context) {
   const paths = plan.items.flatMap((item) => item.path === null ? [] : [item.path]);
   if (new Set(paths).size !== paths.length) context.addIssue({ code: "custom", message: "no two items have one path", path: ["items"] });
 }
+function isDocumentItem(item) {
+  return item.file !== null;
+}
 var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
@@ -22637,7 +22640,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22690,6 +22693,9 @@ var init_vocabulary = __esm({
     editingPhaseSchema = external_exports.enum(editingPhases);
     isCheckPhase = (phase) => checkPhases.includes(phase);
     isEditingPhase = (phase) => editingPhases.includes(phase);
+    fixPassEditingPhases = ["fixes", "documentation"];
+    answeredUnits = { fixes: "finding", documentation: "item", repair: "check", answer: "finding" };
+    answersFindings = (phase) => answeredUnits[phase] === "finding";
     repairUnitKey = "repair";
     documentationUnitKey = "documentation";
     budgetDegradingPhases = ["fixes", "documentation", "repair"];
@@ -22877,18 +22883,18 @@ function worktreeLookup(worktree) {
   const listings = /* @__PURE__ */ new Map();
   const list = (segments) => {
     const key = segments.join("/");
-    let names = listings.get(key);
-    if (names === void 0) {
+    let names2 = listings.get(key);
+    if (names2 === void 0) {
       try {
-        names = readdirSync(join5(worktree, ...segments));
+        names2 = readdirSync(join5(worktree, ...segments));
       } catch (error62) {
         const code = error62.code;
         if (code !== "ENOENT" && code !== "ENOTDIR") throw error62;
-        names = [];
+        names2 = [];
       }
-      listings.set(key, names);
+      listings.set(key, names2);
     }
-    return names;
+    return names2;
   };
   const spellings = (parent, rest) => {
     const [segment, ...below] = rest;
@@ -23259,7 +23265,7 @@ function fixesRevisedPaths(fix) {
   return revisedPathsOf(fix, ["fixes"]);
 }
 function fixPassRevisedPaths(fix) {
-  return revisedPathsOf(fix, ["fixes", "documentation"]);
+  return revisedPathsOf(fix, fixPassEditingPhases);
 }
 function revisedPaths(fix) {
   return [...new Set(fix.revisions.flatMap((revision) => revision.files.map((file2) => file2.path)))].sort();
@@ -23331,12 +23337,18 @@ function notAttemptedNote(fix, phase, key) {
 function budgetStoppedUnits(fix) {
   return budgetDegradingPhases.flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled3]) => settled3.cause === "budget").map(([key]) => ({ phase, key })));
 }
+function documentationReadiness(fix) {
+  const keys = budgetStoppedUnits(fix).filter((unit) => unit.phase === "fixes").map((unit) => unit.key);
+  if (keys.length > 0) return { kind: "budget", keys };
+  if (!fix.revisions.some((revision) => revision.phase === "fixes")) return { kind: "no-fixes-revision" };
+  return { kind: "ready" };
+}
 function documentationItemsOf(fix, resolve13) {
   const groups = /* @__PURE__ */ new Map();
   for (const batch of allBatches(fix)) {
     for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
       const path = resolve13(line.file);
-      const group = path === null ? `folded:${normalizeFileName(line.file).toLowerCase()}` : `path:${path}`;
+      const group = documentKey({ path, file: line.file });
       const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
       entry.drift.push({ key: batch.key, file: line.file, what: line.what });
       groups.set(group, entry);
@@ -23366,7 +23378,7 @@ function routeOfDecision(decision) {
       return appliedOptionOf(decision.ask).edits ? "fixer" : "held";
   }
 }
-var plannedCheckOfV2, stalingPhases, markingPhases, killedRun, batchSettled, exactPath, pathsClaimedBy, driftLineKey;
+var plannedCheckOfV2, stalingPhases, markingPhases, killedRun, batchSettled, exactPath, pathsClaimedBy, driftLineKey, documentKey;
 var init_fix_state = __esm({
   "src/checkpoint/fix-state.ts"() {
     "use strict";
@@ -23388,6 +23400,7 @@ var init_fix_state = __esm({
     exactPath = (path) => path;
     pathsClaimedBy = (claims, cluster) => [...new Set(claims.filter((claim3) => claim3.cluster === cluster).map((claim3) => claim3.path))];
     driftLineKey = (key, line) => JSON.stringify([key, line.file, line.what]);
+    documentKey = (document) => document.path === null ? `folded:${normalizeFileName(document.file.trim()).toLowerCase()}` : `path:${document.path}`;
   }
 });
 
@@ -24004,7 +24017,7 @@ function pinFix(state, payload, settings2, event, drafts) {
     units = review2.units;
   }
   const phaseStates = { ...review2.phases };
-  for (const phase of fixPhases) if (phase !== "documentation" || review2.documentationStep) phaseStates[phase] = { status: "pending", attempt: 0 };
+  for (const phase of configuredPhases(review2, fixPhases)) phaseStates[phase] = { status: "pending", attempt: 0 };
   for (const phase of reopened2) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
   const configuration = { ...review2.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings2 };
   return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
@@ -24021,7 +24034,7 @@ function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `${verb} commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
 }
-var withFix, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
+var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
 var init_fix_fold = __esm({
   "src/checkpoint/fix-fold.ts"() {
     "use strict";
@@ -24032,6 +24045,7 @@ var init_fix_fold = __esm({
     init_settings_state();
     init_survey_state();
     withFix = (current, review2, fix, event, units = review2.units) => withReview(current, { ...review2, fix, units }, event);
+    configuredPhases = (review2, phases2) => phases2.filter((phase) => phase !== "documentation" || review2.documentationStep);
     checksPlannedV12 = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       if (fix.checks.planned !== null) throw invalid(event, "plans its checks twice");
@@ -24188,7 +24202,7 @@ var init_fix_fold = __esm({
       }
       const answers = { ...fix.answers, [payload.phase]: { ...fix.answers[payload.phase], [payload.key]: payload } };
       const violationHolders = holders.length === 0 ? fix.violationHolders : { ...fix.violationHolders, [payload.key]: Object.fromEntries(holders) };
-      const personAnswers = payload.phase === "repair" || payload.phase === "documentation" ? review2.answers : withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings);
+      const personAnswers = answersFindings(payload.phase) ? withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings) : review2.answers;
       return withReview(current, { ...review2, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
     };
     treeRevised = (state, payload, event) => {
@@ -24270,9 +24284,9 @@ var init_fix_fold = __esm({
       const { current, review: review2, fix } = requireFix(state, event);
       requireRunning(review2, event, "documentation");
       if (fix.documentation !== null) throw invalid(event, "plans its documentation step twice");
-      const stopped = budgetStoppedUnits(fix).filter((unit) => unit.phase === "fixes").map((unit) => unit.key);
-      if (stopped.length > 0) throw invalid(event, `plans its documentation step while the run budget leaves ${stopped.join(", ")} of the fixes not attempted`);
-      if (!fix.revisions.some((revision) => revision.phase === "fixes")) throw invalid(event, "plans its documentation step for fixes that revised nothing");
+      const readiness = documentationReadiness(fix);
+      if (readiness.kind === "budget") throw invalid(event, `plans its documentation step while the run budget leaves ${readiness.keys.join(", ")} of the fixes not attempted`);
+      if (readiness.kind === "no-fixes-revision") throw invalid(event, "plans its documentation step for fixes that revised nothing");
       const unlisted = /* @__PURE__ */ new Map();
       for (const [key, answer3] of Object.entries(fix.answers.fixes)) {
         for (const line of answer3.drift) unlisted.set(driftLineKey(key, line), (unlisted.get(driftLineKey(key, line)) ?? 0) + 1);
@@ -24318,12 +24332,12 @@ var init_fix_fold = __esm({
       if (listed2.length !== stopped.length || !stopped.every((unit) => listed2.includes(unit))) throw invalid(event, `reopens [${listed2.join(", ")}], not each unit the run budget left not attempted [${stopped.join(", ")}]`);
       const notAttempted = { ...fix.notAttempted };
       for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
-      const reopening = { at: event.recordedAt, units: payload.units, reportBefore: report2 };
+      const reopening = { at: event.recordedAt, units: payload.units, reportBefore: report2, answerPassesBefore: review2.answerPasses.length, repairAnswered: fix.answers.repair[repairUnitKey] !== void 0 };
       const phaseStates = { ...review2.phases };
       const fixes = payload.units.some((unit) => unit.phase === "fixes");
-      const documentation = review2.documentationStep && (fixes || payload.units.some((unit) => unit.phase === "documentation"));
+      const documentation = fixes || payload.units.some((unit) => unit.phase === "documentation");
       const reopenedPhases = [...fixes ? ["fixes"] : [], ...documentation ? ["documentation"] : [], "checks", "repair", "repair-checks", "report"];
-      for (const phase of reopenedPhases) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
+      for (const phase of configuredPhases(review2, reopenedPhases)) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
       return withReview(current, { ...review2, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
     };
     fixReducers = {
@@ -24877,8 +24891,8 @@ function spellingsOf(environment, name, platform) {
   const wanted = comparable(name, platform);
   return Object.entries(environment).filter(([key]) => comparable(key, platform) === wanted);
 }
-function withoutVariables(environment, names, platform) {
-  const removed = new Set(names.map((name) => comparable(name, platform)));
+function withoutVariables(environment, names2, platform) {
+  const removed = new Set(names2.map((name) => comparable(name, platform)));
   return Object.fromEntries(Object.entries(environment).filter(([key]) => !removed.has(comparable(key, platform))));
 }
 function pinVariables(environment, values, platform) {
@@ -25187,8 +25201,8 @@ function assembleRoles(rolesRoot) {
     }
     return fragment;
   };
-  return Object.entries(manifest.roles).map(([key, names]) => {
-    const parts = names.map(load);
+  return Object.entries(manifest.roles).map(([key, names2]) => {
+    const parts = names2.map(load);
     const prompt = parts.map((part) => part.text).join("\n");
     return { key, fragments: parts.map((part) => part.fragment), prompt, sha256: sha256Hex(Buffer.from(prompt, "utf8")) };
   });
@@ -27277,9 +27291,9 @@ function listChanges(repo, mode, base, target, paths, exclude) {
   return [...changes.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 }
 function changedNames(repo, mode, base, target, paths) {
-  const names = new Set(diffNameStatus(repo, base, target, paths).map((entry) => entry.path));
-  if (mode !== "last-commit") for (const path of untrackedEntries(repo, paths)) names.add(path);
-  return [...names].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+  const names2 = new Set(diffNameStatus(repo, base, target, paths).map((entry) => entry.path));
+  if (mode !== "last-commit") for (const path of untrackedEntries(repo, paths)) names2.add(path);
+  return [...names2].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
 function observe2(repo, base, changes) {
   const atBase = treeEntries(repo, base, changes.filter((change) => !change.untracked).map((change) => change.path));
@@ -27740,15 +27754,15 @@ var init_files = __esm({
 
 // src/config/command.ts
 function showLines(resolved, scope) {
-  const names = settingsOfRuntime(resolved.runtime);
-  const width = Math.max(...names.map((name) => name.length));
+  const names2 = settingsOfRuntime(resolved.runtime);
+  const width = Math.max(...names2.map((name) => name.length));
   const repository = resolved.repository;
   return [
     // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections).
     `Scope: ${scope.mode}, the change from ${scope.base} to ${scope.target ?? "the working tree"}${scope.empty === null ? "" : `; ${scope.empty}`}`,
     `Runtime: ${resolved.runtime}`,
     "Settings:",
-    ...names.map((name) => {
+    ...names2.map((name) => {
       const { value, layer } = resolved.values[name];
       return `  ${name.padEnd(width)}  ${value === null ? "(none)" : tomlValue(value)}  from ${layerWords[layer]}`;
     }),
@@ -27760,9 +27774,9 @@ function showLines(resolved, scope) {
   ];
 }
 function explainLines(name) {
-  const names = name === void 0 ? settingNames : settingNames.filter((candidate) => candidate === name);
-  if (names.length === 0) return null;
-  return names.flatMap((setting, index2) => {
+  const names2 = name === void 0 ? settingNames : settingNames.filter((candidate) => candidate === name);
+  if (names2.length === 0) return null;
+  return names2.flatMap((setting, index2) => {
     const declaration2 = settings[setting];
     return [
       ...index2 === 0 ? [] : [""],
@@ -27899,7 +27913,7 @@ function packageManager(root) {
   return { manager: "npm", namedBy: "the default, since no lock file or packageManager field names a manager" };
 }
 function taskRunnerHint(root, kind) {
-  const first = (names) => names.find((name) => root.files[name] !== void 0);
+  const first = (names2) => names2.find((name) => root.files[name] !== void 0);
   const taskfile = first(taskfileNames);
   if (taskfile !== void 0 && taskfileHas(root.files[taskfile], kind)) return { command: `task ${kind}`, rule: "taskfile", reading: `the task \`${kind}\` of ${taskfile}` };
   const makefile = first(makefileNames);
@@ -28015,9 +28029,9 @@ function dedicatedFlagValues(flags) {
   return values;
 }
 function policyFlagsOf(layer, runtime) {
-  const names = isConfiguredRuntime(runtime) ? runtimeSettingNames(runtime) : null;
-  const strong = names === null ? void 0 : layer.get(names.strong)?.value;
-  const fast = names === null ? void 0 : layer.get(names.fast)?.value;
+  const names2 = isConfiguredRuntime(runtime) ? runtimeSettingNames(runtime) : null;
+  const strong = names2 === null ? void 0 : layer.get(names2.strong)?.value;
+  const fast = names2 === null ? void 0 : layer.get(names2.fast)?.value;
   const concurrency = layer.get("run.concurrency")?.value;
   const budget = layer.get("budget.usd")?.value;
   const sandbox = runtime === "codex" ? layer.get("runtimes.codex.windows_sandbox")?.value : void 0;
@@ -28341,16 +28355,16 @@ function createMarker(dir, hash2, generation, marker) {
 `);
 }
 function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()) {
-  let names;
+  let names2;
   try {
-    names = readdirSync4(dir);
+    names2 = readdirSync4(dir);
   } catch (error62) {
     if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
     throw error62;
   }
   const time3 = now();
   const claims = [];
-  for (const name of names) {
+  for (const name of names2) {
     const match = markerNamePattern.exec(name);
     if (match === null) continue;
     const marker = readMarker(dir, match[1], Number(match[2]), caseInsensitive, time3);
@@ -29379,7 +29393,7 @@ function dueCheck(review2, phase) {
   const fix = review2.fix;
   const planned = fix?.checks.planned ?? null;
   if (fix === null || planned === null) return null;
-  if (phase === "checks" && !fix.revisions.some((revision) => revision.phase === "fixes" || revision.phase === "documentation")) return null;
+  if (phase === "checks" && !fix.revisions.some((revision) => fixPassEditingPhases.includes(revision.phase))) return null;
   if (phase === "repair-checks" && !fix.revisions.some((revision) => revision.phase === "repair")) return null;
   if (phase === "answer-checks") {
     const pass = currentPass(review2);
@@ -29425,9 +29439,14 @@ function surveyStep(review2, live2, attempt) {
   return { kind: "plan-checks", checks: resolveChecks(null, live2.checkSettings).checks, without };
 }
 function documentationStep(fix, attempt) {
-  if (budgetStoppedUnits(fix).some((unit) => unit.phase === "fixes")) return { kind: "finish-phase", phase: "documentation", attempt, outcome: "degraded", blocker: null };
-  if (fix.revisions.some((revision) => revision.phase === "fixes")) return { kind: "plan-documentation" };
-  return { kind: "finish-phase", phase: "documentation", attempt, outcome: "completed", blocker: null };
+  switch (documentationReadiness(fix).kind) {
+    case "budget":
+      return { kind: "finish-phase", phase: "documentation", attempt, outcome: "degraded", blocker: null };
+    case "no-fixes-revision":
+      return { kind: "finish-phase", phase: "documentation", attempt, outcome: "completed", blocker: null };
+    case "ready":
+      return { kind: "plan-documentation" };
+  }
 }
 function nextStep(review2, live2) {
   if (review2.blocker !== null) return { kind: "blocked", blocker: review2.blocker };
@@ -29834,7 +29853,7 @@ function normalizeTriageChange(change) {
     wideEffect: normalizeCondition(change.wideEffect)
   };
 }
-function checkFixerAnswer(output2, count2) {
+function checkFixerAnswer(output2, count2, blocks = true) {
   const seen = /* @__PURE__ */ new Set();
   for (const finding of output2.findings) {
     const what = `Finding [${String(finding.index)}]`;
@@ -29845,6 +29864,7 @@ function checkFixerAnswer(output2, count2) {
     if (subject !== void 0 && (/[\r\n]/.test(subject) || subject.trimEnd().endsWith("."))) {
       throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(subject)}`);
     }
+    if (finding.status === "blocked" && !blocks) throw new StructuralCheckError(`${what} is blocked, a status its task does not offer: nothing holds a file from this worker`);
     if (finding.requiredFiles.length > 0 && finding.status !== "blocked") throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
   }
   const missing = missingIndexes(seen, count2);
@@ -30349,7 +30369,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const phase = unit.phase;
   const output2 = receipt.output;
   const ids2 = unitIds(state, phase, unit.key);
-  checkFixerAnswer(output2, ids2.length);
+  checkFixerAnswer(output2, ids2.length, phase === "fixes" || phase === "answer");
   const owned = ownedFiles(state.review, phase, unit.key);
   const settle4 = settleOf(context, phase, unit.key);
   const resolved = resolveFixerAnswer(output2, { worktree, lookup: answerLookup(settle4, phase, unit.key, worktree), owned, claimed: claimedFiles(settle4.state, phase, unit.key), othersHeld: othersHeld(settle4.state, phase, unit.key) });
@@ -30566,6 +30586,56 @@ var init_lock = __esm({
     sqliteBusy = 5;
     sqliteNotADatabase = 26;
     endingSignals = process.platform === "win32" ? ["SIGINT", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"];
+  }
+});
+
+// src/review/markdown.ts
+function codeSpan(text3) {
+  let longest = 0;
+  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
+  const delimiter3 = "`".repeat(longest + 1);
+  const padded = text3.startsWith("`") || text3.endsWith("`") || text3.startsWith(" ") && text3.endsWith(" ") && text3.trim() !== "";
+  const pad = padded ? " " : "";
+  return `${delimiter3}${pad}${text3}${pad}${delimiter3}`;
+}
+function localPathWords(path, places) {
+  const inside = (root) => {
+    if (root === "") return null;
+    const windows = /^[A-Za-z]:|^\\\\/.test(root);
+    const trimmed = root.replace(/[\\/]+$/, "");
+    const prefix = path.slice(0, trimmed.length);
+    if (windows ? prefix.toLowerCase() !== trimmed.toLowerCase() : prefix !== trimmed) return null;
+    const separator = path.charAt(trimmed.length);
+    if (separator === "") return "";
+    return separator === "/" || windows && separator === "\\" ? path.slice(trimmed.length + 1) : null;
+  };
+  const inWorktree = inside(places.worktree);
+  if (inWorktree !== null) return inWorktree === "" ? "." : inWorktree.replaceAll("\\", "/");
+  const inHome = inside(places.home);
+  if (inHome !== null) return inHome === "" ? "~" : `~/${inHome.replaceAll("\\", "/")}`;
+  return path;
+}
+function paragraphText(text3) {
+  const line = inlineText(text3).trimStart();
+  if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
+  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
+}
+var tableCell, inlineText, counted2, listed, capitalized, findingAnchor, findingLink, sentenceText;
+var init_markdown = __esm({
+  "src/review/markdown.ts"() {
+    "use strict";
+    tableCell = (text3) => text3.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
+    inlineText = (text3) => text3.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
+    counted2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
+    listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+    capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
+    findingAnchor = (id) => `finding-${id.toLowerCase()}`;
+    findingLink = (id) => `[${id}](#${findingAnchor(id)})`;
+    sentenceText = (text3) => {
+      const inline = inlineText(text3).trimEnd();
+      if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+      return `${inline.replace(/[:,;]$/, "")}.`;
+    };
   }
 });
 
@@ -30902,8 +30972,8 @@ function namedDocuments(run2, revision) {
   return revision.change.findings.map((id) => {
     const item = items.get(id);
     if (item === void 0) return id;
-    if (item.file === null) return "documentation that the search found";
-    return `documentation of ${item.path ?? item.file}`;
+    if (!isDocumentItem(item)) return "documentation that the search found";
+    return `documentation of ${inlineText(item.path ?? item.file)}`;
   }).join(", ");
 }
 function namedFindings(run2, revision) {
@@ -31103,12 +31173,14 @@ var messageOf, subjectOf, TreeBuilder, headOf, unstagedLine, commitCount;
 var init_commit = __esm({
   "src/review/commit.ts"() {
     "use strict";
+    init_events();
     init_fix_state();
     init_fix_events();
     init_paths();
     init_git_sync();
     init_errors6();
     init_lock();
+    init_markdown();
     init_runs();
     init_state();
     init_content();
@@ -31172,19 +31244,19 @@ function recordedNames(configuration) {
 function ignoredRecordOf(ignored) {
   return ignored.slice(0, maxRecordedIgnored).map((entry) => ({ ...entry, name: entry.name === "" ? '""' : entry.name.slice(0, maxIgnoredNameLength) }));
 }
-function sourcesRecordOf(resolved, names) {
+function sourcesRecordOf(resolved, names2) {
   return {
     files: resolved.files.map((file2) => ({ ...file2 })),
     repository: { ...resolved.repository },
-    notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository, value: entry.value, layer: entry.layer })),
+    notFollowed: resolved.notFollowed.filter((entry) => names2.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository, value: entry.value, layer: entry.layer })),
     ignored: ignoredRecordOf(resolved.ignored)
   };
 }
 function settingsRecordOf(resolved, configuration) {
   const checks = configuration.fix ? { "checks.build": resolvedValue(resolved, "checks.build"), "checks.typecheck": resolvedValue(resolved, "checks.typecheck"), "checks.lint": resolvedValue(resolved, "checks.lint"), "checks.test": resolvedValue(resolved, "checks.test") } : {};
-  const names = recordedNames(configuration);
+  const names2 = recordedNames(configuration);
   return {
-    ...sourcesRecordOf(resolved, names),
+    ...sourcesRecordOf(resolved, names2),
     values: {
       "review.base": resolvedValue(resolved, "review.base"),
       "scope.default": resolvedValue(resolved, "scope.default") ?? defaultScope,
@@ -31192,7 +31264,7 @@ function settingsRecordOf(resolved, configuration) {
       "tools.path": [...resolvedValue(resolved, "tools.path") ?? []],
       ...checks
     },
-    layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer]))
+    layers: Object.fromEntries(names2.map((name) => [name, resolved.values[name].layer]))
   };
 }
 function fixSettingsRecordOf(resolved) {
@@ -32208,8 +32280,8 @@ function policyOverridesOf(resolved) {
 }
 function executableOf(resolved) {
   if (!isConfiguredRuntime(resolved.runtime)) return { executable: null, args: [] };
-  const names = runtimeSettingNames(resolved.runtime);
-  return { executable: resolved.values[names.executable].value, args: resolved.values[names.args].value ?? [] };
+  const names2 = runtimeSettingNames(resolved.runtime);
+  return { executable: resolved.values[names2.executable].value, args: resolved.values[names2.args].value ?? [] };
 }
 function checkSettingsFrom(settled3) {
   const commands = {};
@@ -32289,11 +32361,11 @@ function unappliedLines(runId, configuration, now, flags, resolveExecutable2) {
     return current.sha256 === file2.sha256 ? [] : [`run ${runId}: ${layerWords[file2.layer]} ${file2.path} changed since the run recorded it; the run keeps what it recorded`];
   });
   const newFiles = now.files.filter((file2) => !recordedFiles.some((recorded) => recorded.layer === file2.layer && recorded.path === file2.path)).map((file2) => `run ${runId}: ${layerWords[file2.layer]} ${file2.path} is new since the run recorded its settings; it does not apply`);
-  const names = [.../* @__PURE__ */ new Set([...configuration.settings === null ? [] : recordedNames(configuration), ...configuration.fixSettings === null ? [] : fixSideNames])];
+  const names2 = [.../* @__PURE__ */ new Set([...configuration.settings === null ? [] : recordedNames(configuration), ...configuration.fixSettings === null ? [] : fixSideNames])];
   const runtime = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime) : null;
   const executable = runtime?.executable ?? null;
   const ownLine = [...runtime === null ? [] : [runtime.strong, runtime.fast], "runtimes.codex.windows_sandbox", "run.concurrency", "budget.usd", ...checkSettingNames];
-  const settingLines = names.flatMap((name) => {
+  const settingLines = names2.flatMap((name) => {
     const current = now.values[name];
     const flag = flags.get(name);
     if (flag !== void 0 && ownLine.includes(name)) return [];
@@ -32538,28 +32610,42 @@ function planPathOf(worktree) {
     return isClaimablePath(path) ? path : null;
   };
 }
+function lineKeyOf(plan, file2) {
+  const spelled = normalizeFileName(file2.trim());
+  return documentKey({ path: (plan?.items ?? []).some((item) => item.path === spelled) ? spelled : null, file: file2 });
+}
 function stepNotRunCause(review2) {
   const fix = review2.fix;
   if (fix === null) return null;
-  if (!review2.documentationStep) return "an engine before the documentation step configured this run";
+  if (!review2.documentationStep) return "old-engine";
   if (fix.documentation === null) {
-    if (budgetStoppedUnits(fix).some((unit) => unit.phase === "fixes")) return "the run budget was reached first";
-    if (!fix.revisions.some((revision) => revision.phase === "fixes")) return "the fixes changed no file";
-    return "it has not run yet";
+    switch (documentationReadiness(fix).kind) {
+      case "budget":
+        return "budget";
+      case "no-fixes-revision":
+        return "no-edits";
+      case "ready":
+        return "not-run";
+    }
   }
   if (fix.answers.documentation[documentationUnitKey] !== void 0) return null;
   const settled3 = fix.notAttempted.documentation[documentationUnitKey];
-  if (settled3 === void 0) return "it has not answered yet";
-  return settled3.cause === "budget" ? "the run budget was reached first" : "its worker failed twice";
+  if (settled3 === void 0) return "not-answered";
+  return settled3.cause === "budget" ? "budget" : "failed";
 }
-function fixPassTimeOf(review2) {
-  const reopened2 = review2.fix.reopenings.at(-1)?.at ?? null;
-  return reopened2 === null ? 0 : review2.answerPasses.filter((pass) => pass.at < reopened2).length;
+function fixPassTimesOf(fix) {
+  const after = (gaveBack) => fix.reopenings.findLast(gaveBack)?.answerPassesBefore ?? 0;
+  const gave = (reopening, phases2) => reopening.units.some((unit) => phases2.includes(unit.phase));
+  return {
+    fixes: after((reopening) => gave(reopening, ["fixes"])),
+    documentation: after((reopening) => gave(reopening, ["fixes", "documentation"])),
+    repair: after((reopening) => !reopening.repairAnswered)
+  };
 }
 function unheldDriftLines(review2) {
   const fix = review2.fix;
   if (fix === null) return [];
-  const fixPassTime = fixPassTimeOf({ ...review2, fix });
+  const times = fixPassTimesOf(fix);
   const held = /* @__PURE__ */ new Map();
   for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
   const lines = [];
@@ -32570,8 +32656,8 @@ function unheldDriftLines(review2) {
       else lines.push({ phase, key, file: line.file, what: line.what, time: time3 });
     }
   };
-  for (const batch of allBatches(fix)) unheld("fixes", batch.key, fixPassTime);
-  unheld("repair", repairUnitKey, fixPassTime);
+  for (const batch of allBatches(fix)) unheld("fixes", batch.key, times.fixes);
+  unheld("repair", repairUnitKey, times.repair);
   review2.answerPasses.forEach((_, index2) => unheld("answer", passKey(index2 + 1), index2 + 1));
   return lines;
 }
@@ -32580,48 +32666,49 @@ function leftByStep(fix) {
   if (fix.documentation === null || answer3 === void 0) return [];
   const items = fix.documentation.items.flatMap((item) => {
     const answered2 = answer3.findings.find((finding) => finding.id === item.id);
-    if (item.file === null || answered2 === void 0 || answered2.status !== "deferred" && answered2.status !== "blocked") return [];
-    return [{ file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: "left", text: `The documentation step left it: ${sentence(answered2.note)}` } }];
+    if (!isDocumentItem(item) || answered2 === void 0 || answered2.status !== "deferred" && answered2.status !== "blocked") return [];
+    return [{ key: documentKey({ path: item.path, file: item.file }), file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: "left", text: `The documentation step left it: ${sentence(answered2.note)}` } }];
   });
-  const found = answer3.drift.map((line) => ({ file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: "found", text: "The documentation step found it out of date at its end." } }));
+  const plan = fix.documentation;
+  const found = answer3.drift.map((line) => ({ key: lineKeyOf(plan, line.file), file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: "found", text: "The documentation step found it out of date at its end." } }));
   return [...items, ...found];
 }
 function leftDocumentsOf(review2) {
   const fix = review2.fix;
   if (fix === null) return [];
-  const fixPassTime = fixPassTimeOf({ ...review2, fix });
+  const times = fixPassTimesOf(fix);
   const entries = /* @__PURE__ */ new Map();
-  const add = (file2, facts, reason, time3) => {
-    const key = documentKey(file2);
+  const add = (key, file2, facts, reason, time3) => {
     const entry = entries.get(key) ?? { file: file2, facts: [], reasons: [], time: 0 };
     for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
     if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
     entry.time = Math.max(entry.time, time3);
     entries.set(key, entry);
   };
-  const notRun = { kind: "not-run", text: `The documentation step did not run: ${stepNotRunCause(review2) ?? "it has not answered yet"}.` };
+  const cause = stepNotRunCause(review2);
+  const notRun = cause === null ? null : { kind: "not-run", text: stepNotRunSentence(cause) };
   const plan = fix.documentation;
   if (plan !== null) {
-    if (fix.answers.documentation[documentationUnitKey] === void 0) {
-      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, fixPassTime);
+    if (notRun !== null) {
+      for (const item of plan.items.filter(isDocumentItem)) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
     } else {
-      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, fixPassTime);
+      for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
     }
   }
   for (const line of unheldDriftLines(review2)) {
     const by = reporterOf[line.phase];
-    add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: "after", text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: "after", text: `${capitalized(by)} reported it after the documentation step.` }, line.time);
   }
   const endedBy = (key, time3) => review2.answerPasses.some((_, index2) => {
     const n = index2 + 1;
     const answer3 = fix.answers.answer[passKey(n)];
     if (n <= time3 || answer3 === void 0) return false;
-    const revised = unitRevisions(fix, "answer", passKey(n)).some((revision) => revision.files.some((file2) => documentKey(file2.path) === key));
-    return revised && !answer3.drift.some((line) => documentKey(line.file) === key);
+    const revised = unitRevisions(fix, "answer", passKey(n)).some((revision) => revision.files.some((file2) => names(key, file2.path)));
+    return revised && !answer3.drift.some((line) => names(key, line.file));
   });
   return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file: file2, facts, reasons }]) => ({ file: file2, facts, reasons }));
 }
-var leftReasonKinds, reporterOf, documentKey, sentence;
+var leftReasonKinds, reporterOf, names, stepNotRunWords, stepNotRunSentence, sentence;
 var init_documents = __esm({
   "src/review/documents.ts"() {
     "use strict";
@@ -32631,6 +32718,7 @@ var init_documents = __esm({
     init_errors6();
     init_fix_answer();
     init_locations();
+    init_markdown();
     init_vocabulary();
     leftReasonKinds = ["left", "found", "not-run", "after"];
     reporterOf = {
@@ -32639,57 +32727,17 @@ var init_documents = __esm({
       repair: "the repair",
       answer: "the fixer of an answer pass"
     };
-    documentKey = (path) => normalizeFileName(path.trim()).toLowerCase();
-    sentence = (note) => `${note.trim().replace(/[.]+$/, "")}.`;
-  }
-});
-
-// src/review/markdown.ts
-function codeSpan(text3) {
-  let longest = 0;
-  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
-  const delimiter3 = "`".repeat(longest + 1);
-  const padded = text3.startsWith("`") || text3.endsWith("`") || text3.startsWith(" ") && text3.endsWith(" ") && text3.trim() !== "";
-  const pad = padded ? " " : "";
-  return `${delimiter3}${pad}${text3}${pad}${delimiter3}`;
-}
-function localPathWords(path, places) {
-  const inside = (root) => {
-    if (root === "") return null;
-    const windows = /^[A-Za-z]:|^\\\\/.test(root);
-    const trimmed = root.replace(/[\\/]+$/, "");
-    const prefix = path.slice(0, trimmed.length);
-    if (windows ? prefix.toLowerCase() !== trimmed.toLowerCase() : prefix !== trimmed) return null;
-    const separator = path.charAt(trimmed.length);
-    if (separator === "") return "";
-    return separator === "/" || windows && separator === "\\" ? path.slice(trimmed.length + 1) : null;
-  };
-  const inWorktree = inside(places.worktree);
-  if (inWorktree !== null) return inWorktree === "" ? "." : inWorktree.replaceAll("\\", "/");
-  const inHome = inside(places.home);
-  if (inHome !== null) return inHome === "" ? "~" : `~/${inHome.replaceAll("\\", "/")}`;
-  return path;
-}
-function paragraphText(text3) {
-  const line = inlineText(text3).trimStart();
-  if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
-  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
-}
-var tableCell, inlineText, counted2, listed, findingAnchor, findingLink, sentenceText;
-var init_markdown = __esm({
-  "src/review/markdown.ts"() {
-    "use strict";
-    tableCell = (text3) => text3.replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ");
-    inlineText = (text3) => text3.replaceAll(/[ \t]*[\r\n]+[ \t]*/g, " ");
-    counted2 = (n, one, many) => `${String(n)} ${n === 1 ? one : many}`;
-    listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
-    findingAnchor = (id) => `finding-${id.toLowerCase()}`;
-    findingLink = (id) => `[${id}](#${findingAnchor(id)})`;
-    sentenceText = (text3) => {
-      const inline = inlineText(text3).trimEnd();
-      if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
-      return `${inline.replace(/[:,;]$/, "")}.`;
+    names = (key, file2) => key === documentKey({ path: normalizeFileName(file2.trim()), file: file2 }) || key === documentKey({ path: null, file: file2 });
+    stepNotRunWords = {
+      "old-engine": "an engine before the documentation step configured this run",
+      budget: "the run budget was reached first",
+      "no-edits": "the fixes changed no file",
+      "not-run": "it has not run yet",
+      "not-answered": "it has not answered yet",
+      failed: "its worker failed twice"
     };
+    stepNotRunSentence = (cause) => `The documentation step did not run: ${stepNotRunWords[cause]}.`;
+    sentence = (note) => `${note.trim().replace(/[.]+$/, "")}.`;
   }
 });
 
@@ -33065,6 +33113,17 @@ function earlierWork(unit, unfinished) {
   if (unfinished.length === 0) return warning;
   return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
+function editingTail(input2, unit, answerSuffix = "") {
+  return [
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
+    snapshotBlock(input2.snapshotCommand, unit),
+    "",
+    ...input2.mayHoldWork ? [earlierWork(unit, input2.unfinished), ""] : [],
+    `${answerFields(unit)}${answerSuffix}`,
+    "",
+    scratchRule
+  ];
+}
 function candidateLines(head2, candidate) {
   return [
     head2,
@@ -33111,6 +33170,25 @@ function answerLine(answered2) {
       return "the author accepted the departure.";
   }
 }
+function documentationDecidedLine({ decision, answer: answer3, owed }) {
+  const unapplied = ", which no fix of the run has applied yet, so the tree does not hold it yet";
+  switch (decision.decision) {
+    case "fix": {
+      const { departure } = decision;
+      const departs2 = departure === null ? "" : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
+      const rejected = owed ? unapplied : ", so the rule stands as its source states it";
+      const word2 = answer3?.kind === "accept" ? "; the author accepted the departure" : answer3?.kind === "reject" ? `; the author rejected the departure${rejected}` : "";
+      return `decided: fix: ${decision.fix.approach}${departs2}${word2}`;
+    }
+    case "ask": {
+      const { ask } = decision;
+      if (answer3?.kind === "option") return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer3.option + 1)}, "${ask.options[answer3.option]?.option ?? "an option the decision does not offer"}"${owed ? unapplied : ""}`;
+      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
+    }
+    case "leave":
+      return "decided: leave";
+  }
+}
 function unitLines(input2) {
   switch (input2.kind) {
     case "answer-pass":
@@ -33125,7 +33203,7 @@ function unitLines(input2) {
           ...input2.leftDocuments.length === 0 ? [] : [
             "",
             "Documents this run left out of date, which an answer you apply may settle:",
-            input2.leftDocuments.map((document) => `- ${document.file}${document.facts.length === 0 ? "" : `: ${document.facts.join("; ")}`}`).join("\n"),
+            input2.leftDocuments.map((document) => `- ${inlineText(document.file)}${document.facts.length === 0 ? "" : `: ${document.facts.map(inlineText).join("; ")}`}`).join("\n"),
             "",
             "Bring such a document in line when an answer you apply settles what it must say, and name it under that answer's finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`."
           ]
@@ -33184,13 +33262,7 @@ function fixerTask(input2) {
     "",
     checksBlock(input2.checks, input2.baselineFailures),
     "",
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, "finding"),
-    "",
-    ...input2.mayHoldWork ? [earlierWork("finding", input2.unfinished), ""] : [],
-    answerFields("finding"),
-    "",
-    scratchRule
+    ...editingTail(input2, "finding")
   ].join("\n");
 }
 function outputTail(name, tail, path) {
@@ -33206,6 +33278,8 @@ function repairCheckEnd(check2) {
 }
 function repairTask(input2) {
   const count2 = input2.checks.length;
+  const step = input2.documentation.length > 0;
+  const edits = step ? "the edits of the fixers and the documentation step" : "the fixers' edits";
   const checks = input2.checks.map((check2, index2) => [
     `[${String(index2)}] ${check2.kind}: ${check2.command}`,
     `    ${repairCheckEnd(check2)}`,
@@ -33218,11 +33292,11 @@ function repairTask(input2) {
     ]
   ].join("\n"));
   return [
-    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit.`,
+    `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
     "",
     ...checks,
     "",
-    "Files you own: every file the fixers changed.",
+    `Files you own: every file the fixers${step ? " and the documentation step" : ""} changed.`,
     fileList(input2.owned),
     "",
     "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
@@ -33230,27 +33304,23 @@ function repairTask(input2) {
     "What each fixer did:",
     input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer3) => `- ${answer3.batch} ${answer3.id} ${answer3.status}: ${answer3.note}`).join("\n"),
     "",
+    ...step ? ["What the documentation step did:", input2.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join("\n"), ""] : [],
     checksBlock(input2.allChecks),
     "",
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, "check"),
-    "",
-    ...input2.mayHoldWork ? [earlierWork("check", input2.unfinished), ""] : [],
-    `${answerFields("check")} The message in an applied check's \`edits\` describes what the repair changed.`,
-    "",
-    scratchRule
+    ...editingTail(input2, "check", " The message in an applied check's `edits` describes what the repair changed.")
   ].join("\n");
 }
 function documentLines(index2, document) {
-  const where = document.path === null ? `${document.file}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit` : document.path === document.file ? document.path : `${document.file}, the repository path ${document.path}`;
+  const file2 = inlineText(document.file);
+  const where = document.path === null ? `${file2}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit` : document.path === document.file ? inlineText(document.path) : `${file2}, the repository path ${inlineText(document.path)}`;
   return [
     `[${String(index2)}] ${document.id}: ${where}`,
-    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? "" : ` (as ${line.file})`}: ${line.what}`)
+    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? "" : ` (as ${inlineText(line.file)})`}: ${inlineText(line.what)}`)
   ].join("\n");
 }
 function fixLines(fix) {
   const edits = fix.files.length === 0 ? "" : `; edited ${fix.files.join(", ")}${fix.subject === null ? "" : `, committed as "${fix.subject}"`}`;
-  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...fix.decided === null ? [] : [`    ${fix.decided}`]].join("\n");
+  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...fix.decided === null ? [] : [`    ${documentationDecidedLine(fix.decided)}`]].join("\n");
 }
 function documentationTask(input2) {
   const count2 = input2.documents.length + 1;
@@ -33276,17 +33346,11 @@ function documentationTask(input2) {
     input2.exclude.length === 0 ? "The review left no path out by `scope.exclude`." : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:
 ${input2.exclude.map((pattern) => `- ${pattern}`).join("\n")}`,
     "",
-    "An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document you found out of date at your end and did not bring in line.",
+    "An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift.",
     "",
     checksBlock(input2.checks),
     "",
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, "item"),
-    "",
-    ...input2.mayHoldWork ? [earlierWork("item", input2.unfinished), ""] : [],
-    answerFields("item"),
-    "",
-    scratchRule
+    ...editingTail(input2, "item")
   ].join("\n");
 }
 function deciderTask(findings) {
@@ -33561,38 +33625,19 @@ function repairTaskOf(review2, editing, evidence) {
   });
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+  const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
+  return repairTask({ checks, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
 }
-function decidedWords(review2, id) {
+function documentationDecided(review2, id) {
   const decision = review2.decisions?.find((candidate) => candidate.id === id) ?? null;
   if (decision === null) return null;
   const standing = standingAnswer(review2, id);
-  const answer3 = standing?.answer ?? null;
-  const owed = standing?.appliedBy === null;
-  const unapplied = ", which no fix of the run has applied yet, so the tree does not hold it yet";
-  switch (decision.decision) {
-    case "fix": {
-      const { departure } = decision;
-      const departs2 = departure === null ? "" : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
-      const rejected = owed ? unapplied : ", so the rule stands as its source states it";
-      const word2 = answer3?.kind === "accept" ? "; the author accepted the departure" : answer3?.kind === "reject" ? `; the author rejected the departure${rejected}` : "";
-      return `decided: fix: ${decision.fix.approach}${departs2}${word2}`;
-    }
-    case "ask": {
-      const { ask } = decision;
-      if (answer3?.kind === "option") return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer3.option + 1)}, "${ask.options[answer3.option]?.option ?? "an option the decision does not offer"}"${owed ? unapplied : ""}`;
-      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
-    }
-    case "leave":
-      return "decided: leave";
-  }
+  return { decision, answer: standing?.answer ?? null, owed: standing !== null && standing.appliedBy === null };
 }
 function documentationTaskOf(review2, editing, evidence, options2) {
   const fix = review2.fix;
   const plan = fix?.documentation ?? null;
   if (fix === null || plan === null) throw new Error("The documentation step runs only once it is planned");
-  const revisions = fix.revisions.filter((revision) => revision.phase === "fixes");
-  if (options2.patches.length !== revisions.length) throw new Error(`The documentation step is given ${String(options2.patches.length)} patches for the ${String(revisions.length)} revisions of the fixes`);
   const fixes = allBatches(fix).flatMap((batch) => (fix.answers.fixes[batch.key]?.findings ?? []).map((finding) => ({
     batch: batch.key,
     id: finding.id,
@@ -33600,13 +33645,13 @@ function documentationTaskOf(review2, editing, evidence, options2) {
     note: finding.note,
     files: finding.files,
     subject: finding.message?.subject ?? null,
-    decided: decidedWords(review2, finding.id)
+    decided: documentationDecided(review2, finding.id)
   })));
   const owned = ownedFiles(review2, "documentation", documentationUnitKey);
   return documentationTask({
-    documents: plan.items.flatMap((item) => item.file === null ? [] : [{ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) }]),
+    documents: plan.items.filter(isDocumentItem).map((item) => ({ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) })),
     fixes,
-    patches: revisions.map((revision, index2) => ({ path: evidence.pathOf(options2.patches[index2]), subject: revisionMessageOf(fix, revision).subject })),
+    patches: options2.patches.map((patch) => ({ path: evidence.pathOf(patch.reference), subject: patch.subject })),
     owned,
     exclude: options2.exclude,
     checks: fix.checks.planned?.checks ?? [],
@@ -34203,7 +34248,7 @@ function stopLimitations(review2, evidencePath) {
   return lines;
 }
 function answerLines(fix) {
-  const answers = allFixerAnswers(fix);
+  const answers = allFixerAnswers(fix).filter((answer3) => answer3.phase !== "documentation");
   const drift = answers.some((answer3) => answer3.drift.length > 0);
   const tests = answers.flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer3.key})`));
   return [
@@ -34218,10 +34263,11 @@ function documentationSection(review2, fix) {
   const answer3 = fix.answers.documentation[documentationUnitKey];
   const cause = stepNotRunCause(review2);
   const notAttempted = isNotAttempted(fix, "documentation", documentationUnitKey);
-  const items = (plan?.items ?? []).flatMap((item, index2) => {
+  const planned = plan?.items ?? [];
+  const items = planned.flatMap((item, index2) => {
     const finding = answer3?.findings.find((candidate) => candidate.id === item.id);
     const outcome = finding !== void 0 ? statusWords[finding.status] : notAttempted ? "not attempted" : "not answered";
-    const document = item.file === null ? [] : [`Document: ${codeSpan(item.file)}, ${item.path === null ? "which the engine refused as a path of the repository" : `the repository path ${codeSpan(item.path)}`}`];
+    const document = isDocumentItem(item) ? [`Document: ${codeSpan(item.file)}, ${item.path === null ? "which the engine refused as a path of the repository" : `the repository path ${codeSpan(item.path)}`}`] : [];
     const answered2 = finding === void 0 ? notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, "documentation", documentationUnitKey))}`] : [] : [
       `Note: ${inlineText(finding.note)}`,
       ...finding.message === null ? [] : [`Commit message: ${inlineText(finding.message.subject)}`],
@@ -34236,11 +34282,11 @@ function documentationSection(review2, fix) {
   const lines = [
     "## Documentation",
     "",
-    cause === null ? `The documentation step answered for ${counted2((plan?.items.length ?? 1) - 1, "document", "documents")} the fixers named, and for its own search.` : `The documentation step did not run: ${cause}.`,
+    cause === null ? `The documentation step answered for ${counted2(planned.filter(isDocumentItem).length, "document", "documents")} the fixers named, and for its own search.` : stepNotRunSentence(cause),
     "",
     ...items,
     ...found.length === 0 ? [] : ["Documents the documentation step found out of date at its end, which it did not bring in line:", "", ...found, ""],
-    ...untaken.length === 0 ? [] : [plan === null ? "Documentation the fixers say their edits made stale, which no step of this run took:" : "Documentation the repair or an answer pass says its edits made stale, after the documentation step:", "", ...untaken, ""]
+    ...untaken.length === 0 ? [] : [plan === null ? "Documentation the workers of this run say their edits made stale, which no step of this run took:" : "Documentation the repair or an answer pass says its edits made stale, after the documentation step:", "", ...untaken, ""]
   ];
   return lines.filter((line, index2) => line !== "" || lines[index2 - 1] !== "").filter((line, index2, all) => line !== "" || index2 < all.length - 1);
 }
@@ -34431,7 +34477,8 @@ function fixLimitations(review2) {
   const strays = strayedInRun(review2, fix.revisions);
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(", ")}.`);
   for (const answer3 of allFixerAnswers(fix)) {
-    for (const finding of answer3.findings) {
+    const validated = answer3.phase === "documentation" ? [] : answer3.findings;
+    for (const finding of validated) {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer3.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
     }
     const failures = answer3.suite.failures.trim() === "" ? "" : `: ${inlineText(answer3.suite.failures)}`;
@@ -34441,10 +34488,11 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, capitalized, phaseTitles, revisionOwners, runSeconds;
+var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
+    init_events();
     init_answer_state();
     init_fix_state();
     init_kill_marks();
@@ -34465,7 +34513,6 @@ var init_fix_report = __esm({
     allFixerAnswers = (fix) => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
     reporterWords = (line) => line.phase === "repair" ? "the repair" : line.phase === "answer" ? `answer pass ${String(line.time)}` : line.key;
     laterPass = (revision) => revision.phase === "answer" || revision.phase === "answer-checks" ? "an answer pass" : "the reopened fix pass";
-    capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
     phaseTitles = { "baseline-checks": "Before the fixes", checks: "After the fixes", "repair-checks": "After the repair", "answer-checks": "After answers" };
     revisionOwners = { fixes: "the fixes", documentation: "the documentation step", repair: "the repair", answer: "an answer pass" };
     runSeconds = (run2) => `${((Date.parse(run2.endedAt) - Date.parse(run2.startedAt)) / 1e3).toFixed(1)} s`;
@@ -34597,7 +34644,7 @@ function fixGaps(context, fix) {
   }
   if (fix.openSeries !== null) gaps.push({ kind: "stop", text: "A stop cut `deep-review commit` short; the next command completes the commits or drops them." });
   const cause = stepNotRunCause(context.review);
-  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: "documentation", text: `The documentation step did not run: ${cause}.${context.documents.length === 0 ? "" : " The documents that the fixers named are in Documents left out of date."}` });
+  if (context.review.documentationStep && cause !== null && cause !== "no-edits") gaps.push({ kind: "documentation", text: `${stepNotRunSentence(cause)}${context.documents.length === 0 ? "" : " The documents left are in Documents left out of date."}` });
   return gaps;
 }
 function gapsOf(context) {
@@ -34659,10 +34706,10 @@ function changedOf(context) {
 }
 function documentationWords(review2, fix) {
   const cause = stepNotRunCause(review2);
+  if (cause !== null) return stepNotRunSentence(cause);
   const answer3 = fix.answers.documentation[documentationUnitKey];
-  if (cause !== null || answer3 === void 0) return `The documentation step did not run: ${cause ?? "it has not answered yet"}.`;
   const updated = new Set(answer3.findings.flatMap((finding) => finding.files)).size;
-  const leftFiles = new Set(leftByStep(fix).map((left) => documentKey(left.file))).size;
+  const leftFiles = new Set(leftByStep(fix).map((left) => left.key)).size;
   if (updated === 0 && leftFiles === 0) return "The documentation step found no document out of date.";
   if (updated === 0) return `The documentation step left ${counted2(leftFiles, "document", "documents")} out of date.`;
   return `The documentation step updated ${counted2(updated, "document", "documents")}${leftFiles === 0 ? "" : ` and left ${String(leftFiles)}`}.`;
@@ -34871,14 +34918,14 @@ function briefShortForm(brief) {
     `The change: ${change}`,
     openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? "none" : "none open; each is answered"}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? "no fix" : "no fix left to review"}` : `Against a written rule: ${counted2(openDepartures.length, "fix", "fixes")}: ${idWords(openDepartures)}`,
-    ...brief.changed.fixed ? [brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file))}`] : [],
+    ...brief.changed.fixed ? [brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`] : [],
     `Not covered: ${notCovered}`,
     `Look at: ${brief.look.length === 0 ? "nothing" : brief.look.map(lookWords).join(", ")}`,
     `Changed: ${changedWords(brief.changed)}`
   ];
   return lines.map((line) => cutAtWord(line, shortLineLimit));
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, fixesChangedNothing, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fateClause, howToAnswer, answeredWords, missingAccountWords, shortLineLimit, endsAbbreviation, lookWords;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -34915,7 +34962,6 @@ var init_brief = __esm({
       "not-started": "did not start"
     };
     unfinishedWords = (outcome) => outcome !== null && Object.hasOwn(unfinishedOutcomeWords, outcome) ? unfinishedOutcomeWords[outcome] : null;
-    fixesChangedNothing = "the fixes changed no file";
     judgedWords = (condition2) => `${condition2.what === null ? "" : `: ${condition2.what.trim().replace(/[.]+$/, "")}`}${condition2.files.length === 0 ? "" : ` (${condition2.files.join(", ")})`}`;
     shownIds = 8;
     fateWords = {
@@ -35519,7 +35565,7 @@ async function runReview(options2) {
   const revisionContext = () => ({ state, worktree: options2.worktree, evidence: checkpoint.evidence, match: content.match, claims });
   const storedPatches = (fix, revisions) => {
     const messaged = revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fix, revision) } }));
-    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options2.worktree), content.stored).map((patch, index2) => ({ reference: checkpoint.evidence.put(patch), subject: messaged[index2].change.message.subject }));
   };
   const fixPatches = (current) => {
     const fix = current.review.fix;
@@ -35727,7 +35773,7 @@ async function runReview(options2) {
         }
         case "plan-documentation": {
           const items = documentationItemsOf(state.review.fix, planPathOf(options2.worktree));
-          const documents = items.filter((item) => item.file !== null);
+          const documents = items.filter(isDocumentItem);
           log(`phase documentation: ${documents.length === 0 ? "no document the fixes named" : `${String(documents.length)} document${documents.length === 1 ? "" : "s"} the fixes named, ${documents.map((item) => item.path ?? `${item.file} (not a path of the repository)`).join(", ")}`}, and the search planned`);
           state = append(checkpoint, state, [{ kind: "documentation.planned", version: 1, payload: { items } }]);
           break;
@@ -35813,7 +35859,7 @@ async function runReview(options2) {
           break;
         case "write-report": {
           const fixState = state.review.fix;
-          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions);
+          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions).map((patch) => patch.reference);
           const statistics = statisticsOf(state, adapter);
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
           const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options2.rolesRoot), stoppedSpend);
@@ -36166,8 +36212,8 @@ async function resumePinned(run2, pinned, context, use, toolsPath) {
   await qualify2(context.adapter, pinned.executable, pinned.executableArgs, toolsPath, context, { runId, use });
 }
 function modelFlagsWords(runtime, source) {
-  const names = isConfiguredRuntime(runtime) ? runtimeSettingNames(runtime) : null;
-  const given = source === void 0 || names === null ? [] : [names.strong, names.fast].flatMap((name) => source.flags.get(name)?.flag ?? []);
+  const names2 = isConfiguredRuntime(runtime) ? runtimeSettingNames(runtime) : null;
+  const given = source === void 0 || names2 === null ? [] : [names2.strong, names2.fast].flatMap((name) => source.flags.get(name)?.flag ?? []);
   if (given.length === 0) return "--strong-model and --fast-model are";
   return `${given.join(" and ")} ${given.length === 1 ? "is" : "are"}`;
 }
