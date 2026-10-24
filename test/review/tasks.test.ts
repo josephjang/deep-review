@@ -819,10 +819,11 @@ describe('the documentation step\'s task', () => {
     assert.match(documentationTask(input({ exclude: [] })), /^The review left no path out by `scope\.exclude`\.$/m);
   });
 
-  it('answers each item applied, already applied or deferred, never blocked, and lists in drift what it leaves stale', () => {
+  it('answers each item applied, already applied or deferred, never blocked, and lists in drift what the run\'s edits left stale', () => {
     const task = documentationTask(input());
     assert.match(task, /An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit\. No item is `blocked`: nothing holds a file from you\./);
-    assert.match(task, /In `drift`, list each document you found out of date at your end and did not bring in line\./);
+    // The brief counts each drift line as left stale by the run (R7), so a fact stale before the run, which the step leaves, is none.
+    assert.match(task, /In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift\./);
     assert.match(task, /For each item, by index, return: `status` \(`applied`, `already-applied` or `deferred`\)/);
     assert.match(task, /a deferred item's saying the change is partial/);
     assert.match(task, /and `requiredFiles`, which stays empty\./);

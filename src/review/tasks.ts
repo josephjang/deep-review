@@ -991,7 +991,7 @@ export function documentationTask(input: DocumentationTaskInput): string {
       ? 'The review left no path out by `scope.exclude`.'
       : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:\n${input.exclude.map((pattern) => `- ${pattern}`).join('\n')}`,
     '',
-    'An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document you found out of date at your end and did not bring in line.',
+    'An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift.',
     '',
     checksBlock(input.checks),
     '',
