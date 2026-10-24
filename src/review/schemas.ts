@@ -257,14 +257,15 @@ export type FixerOutput = z.infer<typeof fixerOutputSchema>;
 
 /**
  * Refuse a fixer's answer whose findings do not name each index of the
- * task once, whose subject is not one line without a trailing period, or
- * that names required files on a finding that is not blocked. That a
- * message goes exactly with files is the shape of `edits`, which the
- * schema holds (R1, R2 of fixer edits; R11 of commit series integrity).
- * The checks that read the paths against the worktree come after these
- * (`fix-answer.ts`).
+ * task once, whose subject is not one line without a trailing period,
+ * that names required files on a finding that is not blocked, or that
+ * blocks a finding when its task offers no `blocked` (`blocks` false), as
+ * the repair's and the documentation step's do. That a message goes
+ * exactly with files is the shape of `edits`, which the schema holds (R1,
+ * R2 of fixer edits; R11 of commit series integrity). The checks that
+ * read the paths against the worktree come after these (`fix-answer.ts`).
  */
-export function checkFixerAnswer(output: FixerOutput, count: number): void {
+export function checkFixerAnswer(output: FixerOutput, count: number, blocks = true): void {
   const seen = new Set<number>();
   for (const finding of output.findings) {
     const what = `Finding [${String(finding.index)}]`;
@@ -275,6 +276,7 @@ export function checkFixerAnswer(output: FixerOutput, count: number): void {
     if (subject !== undefined && (/[\r\n]/.test(subject) || subject.trimEnd().endsWith('.'))) {
       throw new StructuralCheckError(`${what}'s commit subject must be one line with no trailing period: ${JSON.stringify(subject)}`);
     }
+    if (finding.status === 'blocked' && !blocks) throw new StructuralCheckError(`${what} is blocked, a status its task does not offer: nothing holds a file from this worker`);
     if (finding.requiredFiles.length > 0 && finding.status !== 'blocked') throw new StructuralCheckError(`${what} is ${finding.status} and names required files, which only a blocked finding does`);
   }
   const missing = missingIndexes(seen, count);

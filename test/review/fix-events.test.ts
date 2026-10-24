@@ -339,6 +339,13 @@ describe('the events of the documentation step', () => {
     assert.throws(() => fixAnswerEvents(unit, receipt(output), contextOf(documenting())), /names no finding for the owned or claimed file docs\/parse\.md/);
   });
 
+  it('refuses a blocked item, with or without required files, since its task offers no `blocked`', () => {
+    for (const requiredFiles of [[], ['CHANGES.md']]) {
+      const output = fixerAnswer([{ status: 'already-applied' }, { status: 'blocked', requiredFiles, note: 'needs a file' }, { status: 'already-applied' }]);
+      assert.throws(() => fixAnswerEvents(unit, receipt(output), contextOf(documenting())), /Finding \[1\] is blocked, a status its task does not offer/, String(requiredFiles));
+    }
+  });
+
   it('keeps what a failed attempt and a lost worker left in a named document by its resolved path, naming the step', () => {
     const state = documenting();
     write(repo, 'docs/parse.md', 'parse returns 0 on a null\n');
@@ -347,6 +354,46 @@ describe('the events of the documentation step', () => {
       assert.deepEqual(attempt.claims, [], end);
       assert.deepEqual(attempt.revisions.map((event) => [event.version, (event.payload as TreeRevised).phase, (event.payload as TreeRevised).files.map((file) => file.path)]), [[3, 'documentation', ['docs/parse.md']]], end);
       assert.match((attempt.revisions[0]!.payload as TreeRevised).change.message.body, /^An attempt of the documentation step ended without an answer/, end);
+    }
+  });
+});
+
+describe('the events of the repair', () => {
+  let directory: string;
+  let repo: string;
+  let evidence: EvidenceStore;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-repair-events-')));
+    repo = repositoryWith(join(directory, 'repo'), { 'src/a.ts': 'a, fixed\n', 'src/b.ts': 'b\n' });
+    evidence = new EvidenceStore(join(directory, 'evidence'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** A fix run whose c1-1 left src/a.ts as the tree holds it, whose test fails after the fixes, and whose repair worker is launched. */
+  const repairing = (): RunState => {
+    const history = baselined()
+      .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50)))
+      .add('tree.revised', fixRevision(worker(50), evidence.put('a, fixed\n')))
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+    const state = checksPhase(history, 'checks', { test: 'failed' }).start('repair').worker(60, 'fixer repair:repair').fold();
+    return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
+  };
+  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const unit = { phase: 'repair', key: 'repair', role: 'fixer' } as const;
+  const receipt = (output: unknown): WorkerReceipt => ({ workerId: worker(60), output }) as unknown as WorkerReceipt;
+
+  it('records a deferred check', () => {
+    const recorded = fixAnswerEvents(unit, receipt(fixerAnswer([{ status: 'deferred', note: 'every failure was there before' }])), contextOf(repairing())).find((event) => event.kind === 'fix.recorded')!;
+    assert.deepEqual((recorded.payload as FixRecorded).findings.map((entry) => [entry.id, entry.status]), [['test', 'deferred']]);
+  });
+
+  it('refuses a blocked check, with no required file or one in the repository it does not own, since its task offers no `blocked`', () => {
+    for (const requiredFiles of [[], ['src/b.ts']]) {
+      const output = fixerAnswer([{ status: 'blocked', requiredFiles, note: 'needs a file' }]);
+      assert.throws(() => fixAnswerEvents(unit, receipt(output), contextOf(repairing())), /Finding \[0\] is blocked, a status its task does not offer/, String(requiredFiles));
     }
   });
 });

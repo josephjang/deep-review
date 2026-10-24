@@ -178,7 +178,8 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * `tree.revised` per revision its snapshots give. Throws
  * `StructuralCheckError` for an answer that leaves out an index, reports
  * a path outside the repository, blocks a finding on a file its own
- * cluster owns or claimed, or leaves out an owned or claimed file whose
+ * cluster owns or claimed, blocks one at all in the repair or the
+ * documentation step, or leaves out an owned or claimed file whose
  * bytes changed. Its failure then records the claims the settle
  * reads from the round's directory but no late claim, which only an
  * answered unit makes, so a file it edited without claiming stays free;
@@ -189,7 +190,8 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const phase = unit.phase as EditingPhase;
   const output = receipt.output as FixerOutput;
   const ids = unitIds(state, phase, unit.key);
-  checkFixerAnswer(output, ids.length);
+  // Only a fixer's finding can be blocked: the repair and the documentation step are alone in the tree and may edit every file of the repository, so their tasks offer no `blocked` (`answerFields` in tasks.ts).
+  checkFixerAnswer(output, ids.length, phase === 'fixes' || phase === 'answer');
   const owned = ownedFiles(state.review!, phase, unit.key);
   const settle = settleOf(context, phase, unit.key);
   const resolved = resolveFixerAnswer(output, { worktree, lookup: answerLookup(settle, phase, unit.key, worktree), owned, claimed: claimedFiles(settle.state, phase, unit.key), othersHeld: othersHeld(settle.state, phase, unit.key) });

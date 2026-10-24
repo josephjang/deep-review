@@ -702,9 +702,9 @@ describe('the repair task', () => {
   });
 
   it('asks for no `blocked` answer, which the engine refuses from the repair, and for `deferred` with the reason when a check needs a file outside the repository', () => {
-    // A repair alone in the tree may edit every file of the repository, and the engine refuses a required file outside it (`resolveFixerAnswer`), so a blocked answer only fails the attempt, as the design of the documentation step found.
+    // A repair alone in the tree may edit every file of the repository, and the engine refuses a blocked answer from it (`checkFixerAnswer`), so the task says no check is blocked, over the fixer's role prompt it shares.
     const task = repairTask({ checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
-    assert.doesNotMatch(task, /blocked/);
+    assert.deepEqual(task.match(/[^.]*blocked[^.]*\./g)?.map((sentence) => sentence.trim()), ['No check is `blocked`: nothing holds a file from you.']);
     assert.match(task, /`deferred` with the reason when it cannot be made to pass here, as when it needs a file outside the repository/);
     assert.match(task, /`status` \(`applied`, `already-applied` or `deferred`\)/);
     assert.match(task, /`requiredFiles`, which stays empty/);

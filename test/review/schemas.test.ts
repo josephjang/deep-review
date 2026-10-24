@@ -302,6 +302,13 @@ describe('the fixer\'s output schema', () => {
   it('refuses required files on a finding that is not blocked', () => {
     assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'deferred', message: null, files: [], requiredFiles: ['src/b.ts'] })]), 1), /Finding \[0\] is deferred and names required files/);
   });
+
+  it('refuses a blocked finding, with or without required files, from a worker whose task offers no `blocked`, and accepts the other statuses there', () => {
+    for (const requiredFiles of [[], ['src/b.ts']]) {
+      assert.throws(() => checkFixerAnswer(parsed([finding(0, { status: 'blocked', message: null, files: [], requiredFiles })]), 1, false), /Finding \[0\] is blocked, a status its task does not offer/, String(requiredFiles));
+    }
+    for (const status of ['applied', 'already-applied', 'deferred']) assert.doesNotThrow(() => checkFixerAnswer(parsed([finding(0, { status })]), 1, false), status);
+  });
 });
 
 describe('the decider\'s output schema and its structural check (R3 of the decision step)', () => {

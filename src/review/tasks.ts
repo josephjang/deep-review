@@ -440,9 +440,10 @@ function snapshotBlock(command: string, unit: AnsweredUnit): string {
  * The answer's fields, as every task of a worker that edits describes
  * them. Only a fixer's finding can be `blocked`: the repair and the
  * documentation step are alone in the tree and may edit every file of the
- * repository, and the engine refuses a required file outside it
- * (`resolveFixerAnswer`), so a blocked answer from either only fails the
- * attempt.
+ * repository, and the engine refuses a `blocked` status in an answer of
+ * either (`checkFixerAnswer`), so a blocked answer from either only fails
+ * the attempt. Their tasks say so, since they share the fixer's role
+ * prompt, which offers `blocked`.
  */
 function answerFields(unit: AnsweredUnit): string {
   const blocks = unit === 'finding';
@@ -845,7 +846,7 @@ export function repairTask(input: RepairTaskInput): string {
         ]),
   ].join('\n'));
   return [
-    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit.`,
+    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
     '',
     ...checks,
     '',

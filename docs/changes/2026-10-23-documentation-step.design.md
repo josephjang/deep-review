@@ -161,9 +161,9 @@ The patterns of `scope.exclude` come from the scope of the run (`scope.request.e
 
 `taskFor('documentation')` builds the input from the fold and the plan. `answerFields`, `snapshotBlock` and `earlierWork` get the word `item` beside `finding` and `check`.
 
-The task asks for no `blocked` answer, because the engine refuses each one that the step can give. `resolveFixerAnswer` in `src/review/fix-answer.ts` refuses a path of `requiredFiles` outside the worktree, and one that the unit owns. Two such answers mark the step not attempted, and each item then counts as left, also an item that the worker brought in line.
+The task asks for no `blocked` answer, because the engine refuses each one. `checkFixerAnswer` in `src/review/schemas.ts` refuses the status `blocked` in an answer of the step or of the repair, with or without `requiredFiles`. The task says that no item is `blocked`, since the parts of its prompt that it shares with a fixer offer it. Two such answers mark the step not attempted, and each item then counts as left, also an item that the worker brought in line.
 
-`repairTask` asks today for `blocked` when a check needs a file outside the repository, named in `requiredFiles`. The engine refuses that answer in the same way, so a repair that follows its task fails, and after two failures it is not attempted. The task of the repair then asks for `deferred` with the reason, as the task of the step does.
+`repairTask` asks today for `blocked` when a check needs a file outside the repository, named in `requiredFiles`. The engine refuses that answer in the same way, so a repair that follows its task fails, and after two failures it is not attempted. The task of the repair then asks for `deferred` with the reason, and says that no check is `blocked`, as the task of the step does.
 
 ### The answer and its revisions (R5)
 
