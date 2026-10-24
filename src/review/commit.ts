@@ -27,7 +27,7 @@ import { gitFailureDetail, gitTimedOut, runGitSync } from '../runtime/git-sync.t
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import { inlineText } from './markdown.ts';
-import { readableRuns, runIdOf } from './runs.ts';
+import { latestFirst, readableRuns, runIdOf } from './runs.ts';
 import { rankedFindings } from './state.ts';
 import { gitContent } from './content.ts';
 import { compareExpected, expectedTree, worktreeReader, type ExpectedFile, type ExpectedMatch } from './tree.ts';
@@ -126,9 +126,7 @@ function requireCommittable(run: RunState): RunState {
  */
 function chooseRun(checkpoint: Checkpoint, runId: string | undefined, log: (line: string) => void): RunState {
   if (runId !== undefined) return requireCommittable(checkpoint.fold(runIdOf(checkpoint, runId)));
-  const found = readableRuns(checkpoint, log)
-    .filter((run) => whyNotCommittable(run) === null)
-    .reduce<RunState | undefined>((last, run) => (last === undefined || run.lastSequence > last.lastSequence ? run : last), undefined);
+  const found = latestFirst(readableRuns(checkpoint, log)).find((run) => whyNotCommittable(run) === null);
   if (found === undefined) throw new ReviewRefusedError('no completed fix run has changes left to commit; name one with --run <id>');
   return found;
 }

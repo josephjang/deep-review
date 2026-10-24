@@ -13,7 +13,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
 import { counted } from './markdown.ts';
-import { passedOverLine, shortRunId } from './runs.ts';
+import { latestFirst, passedOverLine, shortRunId } from './runs.ts';
 import { noReportWords } from './status.ts';
 
 /** A run `report` passed over: its id, and why it has no report, in the words of `noReportWords`. */
@@ -52,12 +52,12 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
       weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, words: noReportWords(listed) });
     }
   }
-  const latestFirst = weighed.sort((a, b) => b.lastSequence - a.lastSequence);
-  const index = latestFirst.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== undefined);
-  const newest = latestFirst[0];
+  const ordered = latestFirst(weighed);
+  const index = ordered.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== undefined);
+  const newest = ordered[0];
   return {
-    run: index === -1 ? null : latestFirst[index]!.state,
-    passedOver: index === -1 ? [] : latestFirst.slice(0, index).map((entry) => ({ run: entry.id, state: entry.words })),
+    run: index === -1 ? null : ordered[index]!.state,
+    passedOver: index === -1 ? [] : ordered.slice(0, index).map((entry) => ({ run: entry.id, state: entry.words })),
     newest: newest === undefined ? null : { id: newest.id, state: newest.words },
   };
 }
