@@ -40,6 +40,9 @@ function requireFix(state: RunState | undefined, event: DecodedEvent): { current
 
 const withFix = (current: RunState, review: ReviewState, fix: FixState, event: DecodedEvent, units: ReviewState['units'] = review.units): RunState => withReview(current, { ...review, fix, units }, event);
 
+/** The phases of `phases` the run was configured with, for a reducer that moves phases back to pending: a run an older engine configured keeps the documentation step skipped (R11 of the documentation step). */
+const configuredPhases = <P extends Phase>(review: Pick<ReviewState, 'documentationStep'>, phases: readonly P[]): P[] => phases.filter((phase) => phase !== 'documentation' || review.documentationStep);
+
 /** The checks of a version 1 plan, recorded at configuration by the manifest rules (R8 of the fix pass), on a run configured before the survey existed. */
 const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -521,7 +524,7 @@ function pinFix(state: RunState | undefined, payload: Omit<FixPinned, 'plannedCh
     units = review.units;
   }
   const phaseStates = { ...review.phases };
-  for (const phase of fixPhases) if (phase !== 'documentation' || review.documentationStep) phaseStates[phase] = { status: 'pending', attempt: 0 };
+  for (const phase of configuredPhases(review, fixPhases)) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings };
   return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
@@ -615,9 +618,9 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report };
   const phaseStates = { ...review.phases };
   const fixes = payload.units.some((unit) => unit.phase === 'fixes');
-  const documentation = review.documentationStep && (fixes || payload.units.some((unit) => unit.phase === 'documentation'));
+  const documentation = fixes || payload.units.some((unit) => unit.phase === 'documentation');
   const reopenedPhases: Phase[] = [...(fixes ? ['fixes' as const] : []), ...(documentation ? ['documentation' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
-  for (const phase of reopenedPhases) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
+  for (const phase of configuredPhases(review, reopenedPhases)) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   return withReview(current, { ...review, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
 };
 
