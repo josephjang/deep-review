@@ -11,11 +11,12 @@ deep-review must become.
 Node 26 or newer, npm and git. `.tool-versions` pins the Node major for mise
 and asdf. There is no PowerShell and no shell script anywhere in the
 toolchain; every build, check and gate is a Node script, so what runs on
-Windows is what runs on macOS and Linux.
+Windows is what runs on macOS and Linux. Keep it so: a new build step,
+check or tool is a Node script too.
 
 ```sh
 npm ci            # locked development dependencies
-npm run check     # lint, typecheck, test; what CI runs, but for the contract test
+npm run check     # lint, typecheck, test; CI runs it with verify and the contract test
 npm run test:contract   # the contract test of resumable runs; CI runs it as its own job
 npm run build     # refresh dist/ from skill/
 npm run verify    # prove dist/ is what skill/ produces, byte for byte
