@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { cutAtWord, shortLineLimit } from '../../src/review/brief.ts';
 import { askedModeOf, describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -207,6 +208,13 @@ describe('runListLines (R10 of the questions in the chat)', () => {
       `00000002 started 2026-10-02T00:00:00.000Z: abandoned (the wrong scope); ${scopeWords}; no current report`,
       `00000001 started 2026-10-01T00:00:00.000Z: complete; ${scopeWords}; report /w/.git/deep-review-checkpoint/reports/00000001.md`,
     ]);
+  });
+
+  it('cuts the reason of an abandon at a word at 200 characters, and keeps the scope and the report after it whole', () => {
+    const reason = `${'very '.repeat(100)}long`;
+    const [line] = runListLines([as(configured().add('run.abandoned', { reason }).fold(), 1)], '/w', copyOf);
+    assert.equal(line, `00000001 started 2026-10-01T00:00:00.000Z: abandoned (${cutAtWord(reason, shortLineLimit)}); ${scopeWords}; no current report`);
+    assert.ok(cutAtWord(reason, shortLineLimit).length <= shortLineLimit && cutAtWord(reason, shortLineLimit).endsWith('very...'));
   });
 
   it('says that a run has no scope yet, and names the worktree of a run of another one', () => {

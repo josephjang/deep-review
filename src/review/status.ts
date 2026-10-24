@@ -24,6 +24,7 @@ import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { baseNameOf, commitWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
+import { cutAtWord, shortLineLimit } from './brief.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
 import { counted, inlineText } from './markdown.ts';
@@ -211,10 +212,14 @@ function scopeWords(state: RunState, scope: ScopeState): string {
   return `${askedModeOf(state)}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${end}`;
 }
 
-/** The state of a run as the list of runs names it: an abandoned run with its reason, a blocked one with the code of its blocker. */
+/**
+ * The state of a run as the list of runs names it: an abandoned run with
+ * its reason, cut at a word at `shortLineLimit` since the reason of an
+ * abandon has no limit, and a blocked one with the code of its blocker.
+ */
 function stateWords(state: RunState): string {
   const status = reviewStatus(state);
-  if (status === 'abandoned') return `abandoned (${inlineText(state.abandonReason ?? '')})`;
+  if (status === 'abandoned') return `abandoned (${cutAtWord(inlineText(state.abandonReason ?? ''), shortLineLimit)})`;
   if (status === 'blocked') return `blocked (${state.review!.blocker!.code})`;
   return status;
 }
