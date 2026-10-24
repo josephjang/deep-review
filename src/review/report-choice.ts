@@ -14,6 +14,7 @@ import { sameDirectory } from '../paths.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
 import { counted } from './markdown.ts';
 import { latestFirst, passedOverLine, shortRunId } from './runs.ts';
+import { hasCurrentReport } from './state.ts';
 import { noReportWords } from './status.ts';
 
 /** A run `report` passed over: its id, and why it has no report, in the words of `noReportWords`. */
@@ -53,7 +54,7 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
     }
   }
   const ordered = latestFirst(weighed);
-  const index = ordered.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== undefined);
+  const index = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
   const newest = ordered[0];
   return {
     run: index === -1 ? null : ordered[index]!.state,
