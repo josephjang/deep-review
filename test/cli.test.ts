@@ -104,6 +104,9 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [['report', '--all'], /--all does not apply to report/],
       // R6 of the questions in the chat: report prints one form of its run.
       [['report', '--fixes', '--json'], /--json and --fixes do not go together; give one/],
+      [['report', '--brief', '--json'], /--json and --brief do not go together; give one/],
+      [['report', '--brief', '--fixes'], /--brief and --fixes do not go together; give one/],
+      [['report', '--fixes', '--finding', 'SCAN-1'], /--fixes and --finding do not go together; give one/],
       [['status', '--fixes'], /--fixes does not apply to status/],
       // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
       [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
@@ -283,6 +286,17 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(json.run, firstId);
     assert.equal(json.version, 3);
     assert.deepEqual(json.notShown, [], 'a run --run names passes no run over');
+
+    // --brief prints the brief as a chat shows it, from its title, and then the path of the copy (R7 of the questions in the chat).
+    const brief = await run(box, 'report', '--run', shortRunId(firstId), '--brief');
+    assert.equal(brief.status, 0, brief.stderr);
+    const briefLines = brief.stdout.trimEnd().split('\n');
+    assert.match(briefLines[0]!, /^# /);
+    assert.ok(briefLines.includes('## What the review did not cover'), brief.stdout);
+    assert.match(briefLines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+    assert.doesNotMatch(brief.stdout, /<details>|\]\(#finding-|end of this report/);
+    const newestBrief = await run(box, 'report', '--brief');
+    assert.ok(newestBrief.stdout.trimEnd().split('\n').at(-1)!.includes(shortRunId(secondId)), 'the run report takes with no --run');
 
     // --fixes prints a line for each fix, here the sentence of a run that only reviewed, and then the path of the copy (R6 of the questions in the chat).
     const fixes = await run(box, 'report', '--run', firstId, '--fixes');
