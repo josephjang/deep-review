@@ -96,7 +96,7 @@ git commit -m "feat(report): Show the newest run with a report and say why other
 
 Files:
 
-- `src/scope/git.ts`: a new `commitCount(repo, base, head, paths)`. It runs `git rev-list --count --first-parent <base>..<head>`, with `-- <paths>` when the scope has `--path`. For a base that is the empty tree, it runs `git rev-list --count --first-parent <head>`. It gives null when git fails.
+- `src/scope/git.ts`: a new `commitCount(repo, base, head, paths, exclude)`. It runs `git rev-list --count --first-parent <base>..<head>`, with `-- <paths>` when the scope has `--path`, and a `:(exclude,glob)` pathspec for each pattern of `scope.exclude`, so a commit that changes only paths left out does not count. For a base that is the empty tree, it runs `git rev-list --count --first-parent <head>`. It gives null when git fails.
 - A new module `src/scope/scope-line.ts`, the `Scope:` line that `config show` and `status` print. `ShownScope` moves there from `src/config/command.ts`, and it gets the mode as the person asked for it and the name of the base. It also gets the counts of commits, of files and of the paths that `scope.exclude` leaves out. Last, it gets the count of uncommitted files, or null.
 - In the same module, a new `scopeLine(scope)` builds the line, and `showLines` of `src/config/command.ts` uses it. The comment beside the line names this proposal beside R11 of the skill surface corrections.
 - `src/command.ts`, `config show`: it fills the new fields. The mode is `branch` when `--branch` or a `scope.default` of `branch` named the scope. The name of the base comes from the request. For `--branch`, it is the merge base with the `--base` or `review.base` ref. It is the ref of `--ref`, the revision of `--from`, `HEAD` for `worktree`, or the parent for `last-commit`.
@@ -107,7 +107,7 @@ Files:
 
 Tests:
 
-- `test/scope/git.test.ts`: `commitCount` of a range, and of a range with a merge that counts as one commit. Also of a range limited to a path, and from the empty tree. It gives null for a revision that does not exist.
+- `test/scope/git.test.ts`: `commitCount` of a range, and of a range with a merge that counts as one commit. Also of a range limited to a path, of a range with a commit that changes only a path that `scope.exclude` leaves out, which does not count, and from the empty tree. It gives null for a revision that does not exist.
 - `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. An uncommitted file outside `--path` is not counted. The two cases that pin the line of today change.
 - `test/review/status.test.ts`: the `Scope:` line of a captured scope. The JSON form gives the paths of the files and the excluded paths, and null for a run with no scope. A run that left out more than 2000 paths gives the 2000 it recorded, with the count of them all.
 - In the same file, `askedModeOf`: `branch` for the range that `--branch` records, and for the same range from `--from <base> --to HEAD --merge-base`. `range` for a range with another start, with another end, or with no merge base, and for a run with no recorded settings.
