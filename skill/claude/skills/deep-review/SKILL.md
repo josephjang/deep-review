@@ -37,12 +37,10 @@ Bash tool from then on.
    `--check <kind>=<command>` only for a check command the user names,
    and `--no-check <kind>` only for a check the user says to skip (kind
    `build`, `typecheck`, `lint` or `test`): each settles its kind over
-   the survey. Before you run it, tell the
-   user that the engine's workers will edit the working tree, that it
-   runs the check commands it chose from the repository, and that the
-   run commits nothing. Without such a request, do not pass `--fix`: the
-   review then edits nothing and runs no check.
-3. First show the user what the run will review. Run this from the
+   the survey. The message of step 3 tells the user what a fix run
+   does. Without such a request, do not pass `--fix`: the review then
+   edits nothing and runs no check.
+3. First find out what the run will review. Run this from the
    repository and wait for it to exit:
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" status
@@ -53,31 +51,36 @@ Bash tool from then on.
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" config show --runtime claude <scope flags> [--fix]
 
-   When it exits 0, write the user a message before your next tool call,
-   in this same reply: copy its `Scope:` line and the `budget.usd` line
-   under its `Settings:` into a code block, character for character, and
-   below it say whether the run fixes.
+   When `config show` exits with code 2, show stderr verbatim and stop,
+   as step 7 says for a refusal. When it exits 0, keep its `Scope:` line
+   and the `budget.usd` line under its `Settings:` for the message below.
    When `status` prints a `Run ` line instead, that run is active and the
-   review below resumes it: run no `config show`, and in that message
-   copy the `Run ` line and the `Settings:` line of `status` into a code
-   block, character for character, and say that the review continues
-   that run with the scope and the settings it recorded and ignores the
-   scope flags.
-   The user does not see the command's output, so this message is where
-   they see the scope. Then, in the same reply, start the review at once;
-   the message does not end your turn: do not ask the user to confirm,
-   and do not wait for an answer. A user who sees a wrong scope stops the
-   review before it has spent much; until its fixes phase the run has
-   edited nothing. When the user stops it because its scope is wrong,
-   close it with `abandon --reason <text>` before you run the corrected
-   request, so that the next review starts a new run rather than resume
-   this one. When `config show` exits with code 2, show stderr verbatim
-   and stop, as step 7 says for a refusal.
+   review below resumes it: run no `config show`, and keep the `Run `,
+   `Scope:` and `Settings:` lines of `status` for the message below.
 
-   Run the review from the repository as a background shell command with
-   the longest timeout you can, and wait for it to exit:
+   Then start the review at once, from the repository, as a background
+   shell command with the longest timeout you can: do not ask the user
+   to confirm, and do not wait for an answer.
 
    node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" review --runtime claude <scope flags> [--fix]
+
+   Once it runs, write the user a message as the last text of this turn.
+   The user does not see the commands' output, so this message is where
+   they see the scope: copy the lines you kept into a code block,
+   character for character, and below it say whether the run fixes. For
+   a fix run, also say that the engine's workers will edit the working
+   tree, that it runs the check commands it chose from the repository,
+   and that the run commits nothing. For an active run, say that the
+   review continues that run with the scope and the settings it recorded
+   and ignores the scope flags. Then end the turn: the review goes on,
+   and when it exits you go on with step 4.
+   A user who sees a wrong scope stops the review before it has spent
+   much; until its fixes phase the run has edited nothing. When the user
+   stops it because its scope is wrong, stop the background command
+   first, since `abandon` refuses a run whose engine still runs; then
+   close the run with `abandon --reason <text>` before you run the
+   corrected request, so that the next review starts a new run rather
+   than resume this one.
 
    A review takes many minutes, a fix run longer. Do not poll the
    ledger, read the checkpoint or inspect the workers while it runs; the
@@ -89,14 +92,25 @@ Bash tool from then on.
    and it reviews nothing again. A run that a usage limit blocked resumes
    with the same command after the reset that its blocker names.
 4. Exit code 0: stdout ends with the short form of the run's brief, one
-   line for each part, and its last line is the report's path. Show the
+   line for each part, with the lines of each open question and each fix
+   that goes against a written rule under their part, and its last line
+   is the report's path. Show the
    lines before the path to the user in a code block, as printed, then
    show the path and say the report is theirs to read: it starts with
-   the brief, and the evidence follows. Do not
+   the brief, and the evidence follows. Put them in the last message of
+   the turn, after any other command you run. Do not
    summarize, quote or interpret the findings beyond those lines. After
    a run with `--fix`, also say that the fixes are in the working tree,
    uncommitted, one patch per finding as the report's Changed files
    lists them, and offer to commit them.
+   When the user asks for more on one question, or on one fix that goes
+   against a written rule, run the `main.mjs` of step 3 with only
+   `report --finding <id>`, with the id that the brief shows. When the
+   user asks about a document left out of date, or for the whole result,
+   run it with only `report --brief`; when the user asks what the run
+   changed, with only `report --fixes`. Show the lines before the path as
+   printed, the Markdown of `--brief` and `--finding` as Markdown, and
+   then the path.
    When stderr has a line that says the run budget stopped the fix pass,
    show that line to the user as printed and offer to run the command it
    names.
@@ -106,8 +120,12 @@ Bash tool from then on.
 
    adding `--change-message <message>` when the scope was `--worktree`:
    the command commits the user's own change first, so ask the user for
-   that commit's message before you run it. Show the lines it prints, one
-   per commit. On exit code 2, show stderr verbatim and stop.
+   that commit's message before you run it. On exit code 2, show stderr
+   verbatim and stop. On exit code 0, run the `main.mjs` of step 3 with
+   only `report`, and in the last message of the turn show the lines that
+   `commit` printed, one per commit, and then what `report` printed, as
+   step 4 says: the short form that the review printed still says that
+   the fixes are not committed.
 6. The brief at the top of the report lists the questions the run asked
    and the fixes that go against a written rule, each with the
    `deep-review answer` command that answers it. When the user answers
@@ -151,8 +169,11 @@ Bash tool from then on.
 
 When the user asks what a finished run found, run the `main.mjs` of
 step 3 with only `report`, adding `--run <id>` when they name a run,
-and show what it prints as step 4 says. On exit code 2, show stderr
-verbatim.
+and show what it prints as step 4 says. `--run` takes the eight
+characters of a run id that the brief shows. When the user asks for a
+run and does not know which, run it with only `status --all`, show what
+it prints, and then run `report --run <id>` with the run the user
+chooses. On exit code 2, show stderr verbatim.
 
 When the user asks how deep-review is configured, or what a run would
 take now, run the `config show` command of step 3 with the same scope

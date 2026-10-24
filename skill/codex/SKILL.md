@@ -40,7 +40,7 @@ chained before or after it.
    build and test commands, or `--codex-windows-sandbox elevated`, which
    needs Codex's elevated setup; pass that flag only when the user names
    it.
-3. First show the user what the run will review. Run this from the
+3. First find out what the run will review. Run this from the
    repository and wait for it to exit. `engine/main.mjs` is in this
    skill's directory, the one that holds this SKILL.md:
 
@@ -58,10 +58,10 @@ chained before or after it.
    below it say whether the run fixes.
    When `status` prints a `Run ` line instead, that run is active and the
    review below resumes it: run no `config show`, and in that message
-   copy the `Run ` line and the `Settings:` line of `status` into a code
-   block, character for character, and say that the review continues
-   that run with the scope and the settings it recorded and ignores the
-   scope flags.
+   copy the `Run `, `Scope:` and `Settings:` lines of `status` into a
+   code block, character for character, and say that the review
+   continues that run with the scope and the settings it recorded and
+   ignores the scope flags.
    The user does not see the command's output, so this message is where
    they see the scope. Then, in the same reply, start the review at once;
    the message does not end your turn: do not ask the user to confirm,
@@ -88,22 +88,37 @@ chained before or after it.
    run the same command again: it continues from the last step its ledger
    holds and pays for no completed worker twice.
 4. Exit code 0: stdout ends with the short form of the run's brief, one
-   line for each part, and its last line is the report's path. Show the
+   line for each part, with the lines of each open question and each fix
+   that goes against a written rule under their part, and its last line
+   is the report's path. Show the
    lines before the path to the user in a code block, as printed, then
    show the path and say the report is theirs to read: it starts with
-   the brief, and the evidence follows. Do not
+   the brief, and the evidence follows. Put them in the last message of
+   the turn, after any other command you run. Do not
    summarize, quote or interpret the findings beyond those lines. After
    a run with `--fix`, also say that the fixes are in the working tree,
    uncommitted, one patch per finding as the report's Changed files
    lists them, and offer to commit them.
+   When the user asks for more on one question, or on one fix that goes
+   against a written rule, run the `main.mjs` of step 3 with only
+   `report --finding <id>`, with the id that the brief shows. When the
+   user asks about a document left out of date, or for the whole result,
+   run it with only `report --brief`; when the user asks what the run
+   changed, with only `report --fixes`. Show the lines before the path as
+   printed, the Markdown of `--brief` and `--finding` as Markdown, and
+   then the path.
 5. When the user accepts, run
 
    node "<this skill's directory>/engine/main.mjs" commit
 
    adding `--change-message <message>` when the scope was `--worktree`:
    the command commits the user's own change first, so ask the user for
-   that commit's message before you run it. Show the lines it prints, one
-   per commit. On exit code 2, show stderr verbatim and stop.
+   that commit's message before you run it. On exit code 2, show stderr
+   verbatim and stop. On exit code 0, run the `main.mjs` of step 3 with
+   only `report`, and in the last message of the turn show the lines that
+   `commit` printed, one per commit, and then what `report` printed, as
+   step 4 says: the short form that the review printed still says that
+   the fixes are not committed.
 6. The brief at the top of the report lists the questions the run asked
    and the fixes that go against a written rule, each with the
    `deep-review answer` command that answers it. When the user answers
@@ -147,8 +162,11 @@ chained before or after it.
 
 When the user asks what a finished run found, run the `main.mjs` of
 step 3 with only `report`, adding `--run <id>` when they name a run,
-and show what it prints as step 4 says. On exit code 2, show stderr
-verbatim.
+and show what it prints as step 4 says. `--run` takes the eight
+characters of a run id that the brief shows. When the user asks for a
+run and does not know which, run it with only `status --all`, show what
+it prints, and then run `report --run <id>` with the run the user
+chooses. On exit code 2, show stderr verbatim.
 
 When the user asks how deep-review is configured, or what a run would
 take now, run the `config show` command of step 3 with the same scope

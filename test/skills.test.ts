@@ -29,7 +29,7 @@ describe('the skill texts', () => {
       assert.ok(text.includes(`review --runtime ${runtime}`), 'the runtime flag');
       for (const flag of ['--worktree', '--last-commit', '--branch', '--base <rev>', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
       // The short form of the brief as printed, then the path (R13, R17 of the brief of a run).
-      assert.match(text, /Exit code 0: stdout ends with the short form of the run's brief, one\s+line for each part, and its last line is the report's path\. Show the\s+lines before the path to the user in a code block, as printed, then\s+show the path and say the report is theirs to read: it starts with\s+the brief, and the evidence follows\./);
+      assert.match(text, /Exit code 0: stdout ends with the short form of the run's brief, one\s+line for each part, with the lines of each open question and each fix\s+that goes against a written rule under their part, and its last line\s+is the report's path\. Show the\s+lines before the path to the user in a code block, as printed, then\s+show the path and say the report is theirs to read: it starts with\s+the brief, and the evidence follows\./);
       assert.match(text, /When the user asks what a finished run found, run the `main\.mjs` of\s+step 3 with only `report`, adding `--run <id>` when they name a run,\s+and show what it prints as step 4 says\./);
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
       // The blocker as printed and nothing more: the interactive smoke showed a model that retold a budget block wrongly.
@@ -51,11 +51,21 @@ describe('the skill texts', () => {
       assert.match(text, /The engine surveys\s+the\s+repository\s+for\s+its\s+checks\s+itself/);
       assert.match(text, /add\s+`--check <kind>=<command>`\s+only\s+for\s+a\s+check\s+command\s+the\s+user\s+names,\s+and\s+`--no-check <kind>`\s+only\s+for\s+a\s+check\s+the\s+user\s+says\s+to\s+skip/);
       assert.match(text, /each\s+settles\s+its\s+kind\s+over\s+the\s+survey/);
-      assert.match(text, /tell the\s+user that the engine's workers will edit the working tree, that it\s+runs the check commands it chose from the repository, and that the\s+run commits nothing/);
       assert.match(text, /Without such a request, do not pass `--fix`/);
-      // A finished read-only run of the unchanged change is continued, not reviewed again (R11 of fix pass continuation); the warning still comes before the command.
+      // A finished read-only run of the unchanged change is continued, not reviewed again (R11 of fix pass continuation).
       assert.match(text, /When a read-only run of the same\s+change has finished and the change is unchanged since, the same\s+command with `--fix` continues that run and reviews nothing again,\s+so the fixes are of the findings the user read\./);
-      assert.ok(text.indexOf('continues that run') < text.indexOf('Before you run it, tell the'), 'the continuation is said before the warning, which still precedes the command');
+      const review = text.indexOf(`review --runtime ${runtime}`);
+      if (runtime === 'codex') {
+        // The Codex skill tells the user before the command, in step 2, since Codex shows a message the model writes before a command (R13 of the questions in the chat).
+        assert.match(text, /tell the\s+user that the engine's workers will edit the working tree, that it\s+runs the check commands it chose from the repository, and that the\s+run commits nothing/);
+        assert.ok(text.indexOf('continues that run') < text.indexOf('Before you run it, tell the') && text.indexOf('Before you run it, tell the') < review, 'the continuation, then the warning, then the command');
+      } else {
+        // The Claude Code skill says it in the message of step 3, after the review starts, where the model writes text (PD10 of the questions in the chat).
+        const warning = text.search(/For\s+a fix run, also say that the engine's workers will edit the working\s+tree, that it runs the check commands it chose from the repository,\s+and that the run commits nothing\./);
+        assert.ok(warning > review, 'the warning comes in the message after the review starts');
+        assert.doesNotMatch(text, /Before you run it, tell the/);
+        assert.match(text, /The message of step 3 tells the user what a fix run\s+does\./);
+      }
       assert.match(text, /the fixes are in the working tree,\s+uncommitted, one\s+patch per finding/);
       assert.match(text, /offer\s+to commit them/);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
@@ -113,6 +123,25 @@ describe('the skill texts', () => {
       assert.match(text, /Write the repository's\s+`\.deep-review\/config\.toml` only as a change the user asks for, as any\s+other edit, never as a step of a review\./);
     });
 
+    // R10, R11, R14 of the questions in the chat: the engine prints what a person asks about a run, and the skill relays the result last.
+    it(`${name}: names the commands that give one finding, the brief and the fixes, runs report after commit, and finds a run by its start or from the list`, () => {
+      const text = read(path);
+      const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
+      assert.match(step4, /Put them in the last message of\s+the turn, after any other command you run\./);
+      assert.match(step4, /When the user asks for more on one question, or on one fix that goes\s+against a written rule, run the `main\.mjs` of step 3 with only\s+`report --finding <id>`, with the id that the brief shows\./);
+      assert.match(step4, /When the\s+user asks about a document left out of date, or for the whole result,\s+run it with only `report --brief`; when the user asks what the run\s+changed, with only `report --fixes`\./);
+      assert.match(step4, /Show the lines before the path as\s+printed, the Markdown of `--brief` and `--finding` as Markdown, and\s+then the path\./);
+      const step5 = text.slice(text.indexOf('5. When the user accepts'), text.indexOf('6. '));
+      assert.match(step5, /On exit code 2, show stderr\s+verbatim and stop\. On exit code 0, run the `main\.mjs` of step 3 with\s+only `report`, and in the last message of the turn show the lines that\s+`commit` printed, one per commit, and then what `report` printed, as\s+step 4 says: the short form that the review printed still says that\s+the fixes are not committed\./);
+      assert.match(text, /`--run` takes the eight\s+characters of a run id that the brief shows\. When the user asks for a\s+run and does not know which, run it with only `status --all`, show what\s+it prints, and then run `report --run <id>` with the run the user\s+chooses\./);
+      // The flags the skill names are flags of report and status, and the short form that report prints after a commit names the commits.
+      const usage = read('src/command.ts');
+      for (const flag of ['brief', 'fixes', 'finding', 'all']) assert.ok(usage.includes(`'${flag}'`), `--${flag} is a flag the engine takes`);
+      assert.ok(usage.includes('[--json | --brief | --fixes | --finding <id>]') && usage.includes('deep-review status  --all'), 'the usage names them');
+      assert.ok(read('src/review/runs.ts').includes('export const shortRunIdLength = 8;'), '--run takes the eight characters the brief shows');
+      assert.ok(read('src/review/brief.ts').includes('`, in ${counted(changed.commits.shas.length, \'commit\', \'commits\')}'), 'the line Changed names the commits once a run has them');
+    });
+
     // R2 and PD1 of the skill surface corrections: the user sees the scope, the budget and the fix choice before the run, and nothing waits for the user.
     it(`${name}: shows the scope, the budget and the fix choice with config show before the review, and does not wait`, () => {
       const text = read(path);
@@ -129,25 +158,42 @@ describe('the skill texts', () => {
       assert.ok(status !== null && status.index! < show.index!, 'status runs before config show');
       assert.equal(status[0].replace(/ status$/, ' review '), review[0].slice(0, review[0].indexOf(' review ') + ' review '.length));
       assert.match(step3, /When it prints no line that starts with `Run `, no run is active\./);
-      assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+copy the `Run ` line and the `Settings:` line of `status` into a code\s+block, character for character, and say that the review continues\s+that run with the scope and the settings it recorded and ignores the\s+scope flags\./);
-      // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
-      assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: copy its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` into a code block, character for character, and\s+below it say whether the run fixes\./);
       // A retelling stays right because the Scope: line names both ends of the change (R11, tested with config show), so the skill no longer explains them.
       assert.doesNotMatch(step3, /the commit after `from`/);
-      assert.match(step3, /The user does not see the command's output, so this message is where\s+they see the scope\./);
-      // A reply with the message alone ends the turn: the allowed-tools grant lapses in Claude Code, and `codex exec` ends the session, so no review runs.
-      assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);
       assert.doesNotMatch(step3, /next step is a message|not a tool\s+call/);
-      assert.match(step3, /A user who sees a wrong scope stops the\s+review/);
-      // A stopped run stays active, and the next review would resume it with the wrong scope.
-      assert.match(step3, /When the user stops it because its scope is wrong,\s+close it with `abandon --reason <text>` before you run the corrected\s+request, so that the next review starts a new run rather than resume\s+this one\./);
+      if (runtime === 'codex') {
+        // Codex shows a message the model writes before a command, and its review runs in the foreground of the turn, so its order stays (R13 of the questions in the chat).
+        assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and in that message\s+copy the `Run `, `Scope:` and `Settings:` lines of `status` into a\s+code block, character for character, and say that the review\s+continues that run with the scope and the settings it recorded and\s+ignores the scope flags\./);
+        // In the reply, not only as the command's output: the smoke on Claude Code showed a model that ran config show and told the user nothing of it.
+        assert.match(step3, /When it exits 0, write the user a message before your next tool call,\s+in this same reply: copy its `Scope:` line and the `budget\.usd` line\s+under its `Settings:` into a code block, character for character, and\s+below it say whether the run fixes\./);
+        assert.match(step3, /The user does not see the command's output, so this message is where\s+they see the scope\./);
+        // A reply with the message alone ends the turn: `codex exec` ends the session, so no review runs.
+        assert.match(step3, /Then, in the same reply, start the review at once;\s+the message does not end your turn: do not ask the user to confirm,\s+and do not wait for an answer\./);
+        assert.match(step3, /A user who sees a wrong scope stops the\s+review/);
+        // A stopped run stays active, and the next review would resume it with the wrong scope.
+        assert.match(step3, /When the user stops it because its scope is wrong,\s+close it with `abandon --reason <text>` before you run the corrected\s+request, so that the next review starts a new run rather than resume\s+this one\./);
+      } else {
+        // The message comes after the review starts, as the last text of the turn, where the model writes text and not its thinking (R13, PD10 of the questions in the chat).
+        assert.match(step3, /When it exits 0, keep its `Scope:` line\s+and the `budget\.usd` line under its `Settings:` for the message below\./);
+        assert.match(step3, /When `status` prints a `Run ` line instead, that run is active and the\s+review below resumes it: run no `config show`, and keep the `Run `,\s+`Scope:` and `Settings:` lines of `status` for the message below\./);
+        assert.match(step3, /Then start the review at once, from the repository, as a background\s+shell command with the longest timeout you can: do not ask the user\s+to confirm, and do not wait for an answer\./);
+        const message = step3.search(/Once it runs, write the user a message as the last text of this turn\./);
+        assert.ok(message > review.index!, 'the message comes after the review starts');
+        assert.match(step3, /The user does not see the commands' output, so this message is where\s+they see the scope: copy the lines you kept into a code block,\s+character for character, and below it say whether the run fixes\./);
+        assert.match(step3, /For an active run, say that the\s+review continues that run with the scope and the settings it recorded\s+and ignores the scope flags\. Then end the turn: the review goes on,\s+and when it exits you go on with step 4\./);
+        assert.doesNotMatch(step3, /before your next tool call|in the same reply/);
+        // abandon refuses a run whose engine holds its lock, so the background command stops first.
+        assert.match(step3, /When the user\s+stops it because its scope is wrong, stop the background command\s+first, since `abandon` refuses a run whose engine still runs; then\s+close the run with `abandon --reason <text>` before you run the\s+corrected request, so that the next review starts a new run rather\s+than resume this one\./);
+        assert.ok(read('src/review/lock.ts').includes('is running run'), 'abandon refuses a run another engine holds');
+      }
       // The lines the skill names are lines status prints, and the resume is the one the engine logs.
       const command = read('src/command.ts');
       assert.ok(command.includes('\'No active run.\\n\'') && command.includes('\'No run: this repository has no checkpoint yet.\\n\''), 'status prints no Run line when no run is active');
       assert.ok(read('src/review/status.ts').includes('`Run ${state.id}: ${status}'), 'status opens with a Run line');
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(review.configuration)'), 'status prints the Settings: line');
+      assert.ok(read('src/review/status.ts').includes('scopeLine(shown)') && read('src/scope/scope-line.ts').includes('return scope.empty === null ? `Scope: '), 'status prints a Scope: line for an active run (R12 of the questions in the chat)');
       assert.ok(read('src/review/controller.ts').includes('is active; its scope flags are ignored and the run continues'), 'a review resumes an active run and ignores its scope flags');
-      assert.match(step3, /When `config show` exits with code 2, show stderr verbatim\s+and stop, as step 7 says for a refusal\./);
+      assert.match(step3, /When `config show` exits with code 2, show stderr verbatim\s+and\s+stop,\s+as step 7 says for a refusal\./);
       // A command with anything chained to it is not the command the Claude Code approval names (R4).
       assert.match(text, /Run each command below as it is written, alone, with nothing\s+chained before or after it\./);
       assert.doesNotMatch(step3, /wait for (the user|a yes|confirmation)|ask the user whether/);
@@ -296,10 +342,12 @@ describe('the skill texts', () => {
       'If the PowerShell tool cannot check a command of this skill ("malformed\nsyntax that cannot be parsed"), run the commands of this skill with the\nBash tool from then on.\n',
       'argument-hint: "[worktree | last commit | branch | from <rev>] [fix] [path ...]"\n',
       '   user limited the review to. Pass `--budget-usd <usd>` only when the\n   user names a run budget; the default is 60 USD.\n',
-      '   review then edits nothing and runs no check.\n',
+      // The warning of a fix run goes into the message of step 3 (PD10 of the questions in the chat).
+      '   the survey. The message of step 3 tells the user what a fix run\n   does. Without such a request, do not pass `--fix`: the review then\n   edits nothing and runs no check.\n',
       // Step 3's first sentence ends here with `exit:`; the Codex skill goes on, on that line, with where engine/main.mjs is, so the shared text wraps apart only here.
       '   repository and wait for it to exit:\n',
-      '   Run the review from the repository as a background shell command with\n   the longest timeout you can, and wait for it to exit:\n',
+      // The review starts in the background first, and the message with the scope ends the turn (R13 of the questions in the chat).
+      '   When `config show` exits with code 2, show stderr verbatim and stop,\n   as step 7 says for a refusal. When it exits 0, keep its `Scope:` line\n   and the `budget.usd` line under its `Settings:` for the message below.\n   When `status` prints a `Run ` line instead, that run is active and the\n   review below resumes it: run no `config show`, and keep the `Run `,\n   `Scope:` and `Settings:` lines of `status` for the message below.\n\n   Then start the review at once, from the repository, as a background\n   shell command with the longest timeout you can: do not ask the user\n   to confirm, and do not wait for an answer.\n\n   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" review --runtime claude <scope flags> [--fix]\n\n   Once it runs, write the user a message as the last text of this turn.\n   The user does not see the commands\' output, so this message is where\n   they see the scope: copy the lines you kept into a code block,\n   character for character, and below it say whether the run fixes. For\n   a fix run, also say that the engine\'s workers will edit the working\n   tree, that it runs the check commands it chose from the repository,\n   and that the run commits nothing. For an active run, say that the\n   review continues that run with the scope and the settings it recorded\n   and ignores the scope flags. Then end the turn: the review goes on,\n   and when it exits you go on with step 4.\n   A user who sees a wrong scope stops the review before it has spent\n   much; until its fixes phase the run has edited nothing. When the user\n   stops it because its scope is wrong, stop the background command\n   first, since `abandon` refuses a run whose engine still runs; then\n   close the run with `abandon --reason <text>` before you run the\n   corrected request, so that the next review starts a new run rather\n   than resume this one.\n\n',
       // Codex reports no cost, so it has no run budget, and this engine knows no limit of Codex (R17 of resumable runs).
       '   A fix run that the run budget stopped continues the same way: run the\n   same command with `--budget-usd` above the spend that the engine names,\n   and it reviews nothing again. A run that a usage limit blocked resumes\n   with the same command after the reset that its blocker names.\n',
       '   When stderr has a line that says the run budget stopped the fix pass,\n   show that line to the user as printed and offer to run the command it\n   names.\n',
@@ -307,10 +355,10 @@ describe('the skill texts', () => {
     'skill/codex/SKILL.md': [
       'description: Deep review of one change by the deep-review engine, a Node program installed with this skill. It writes a Markdown report with the evidence for each finding and the engine\'s own decision on it, asks only the questions a person must answer, names the fixes that depart from a rule, and says what the run did not examine; when the user asks, its own workers also apply the fixes and it runs the project\'s checks, committing nothing. Use only when the user asks for $deep-review by name.\n',
       '   user limited the review to. `--budget-usd` does not apply to Codex,\n   which reports no cost; do not pass it.\n',
-      '   review then edits nothing and runs no check. With `--fix` on Windows,\n   also tell the user that the workers that edit run with no sandbox and\n   with network access unless the user names\n   `--codex-windows-sandbox unelevated`, under which they cannot run most\n   build and test commands, or `--codex-windows-sandbox elevated`, which\n   needs Codex\'s elevated setup; pass that flag only when the user names\n   it.\n',
+      // Codex shows a message the model writes before a command, so it tells the user before the review starts (R13 of the questions in the chat).
+      '   the survey. Before you run it, tell the\n   user that the engine\'s workers will edit the working tree, that it\n   runs the check commands it chose from the repository, and that the\n   run commits nothing. Without such a request, do not pass `--fix`: the\n   review then edits nothing and runs no check. With `--fix` on Windows,\n   also tell the user that the workers that edit run with no sandbox and\n   with network access unless the user names\n   `--codex-windows-sandbox unelevated`, under which they cannot run most\n   build and test commands, or `--codex-windows-sandbox elevated`, which\n   needs Codex\'s elevated setup; pass that flag only when the user names\n   it.\n',
       '   repository and wait for it to exit. `engine/main.mjs` is in this\n   skill\'s directory, the one that holds this SKILL.md:\n',
-      '   Run the review from the repository, with the longest timeout you can,\n   and wait for it to exit:\n',
-      '   When the command returns to you before it exits, poll it until it\n   exits, and do not end your turn while it runs: `codex exec` stops a\n   command that still runs when the turn ends.\n\n',
+      '   When it exits 0, write the user a message before your next tool call,\n   in this same reply: copy its `Scope:` line and the `budget.usd` line\n   under its `Settings:` into a code block, character for character, and\n   below it say whether the run fixes.\n   When `status` prints a `Run ` line instead, that run is active and the\n   review below resumes it: run no `config show`, and in that message\n   copy the `Run `, `Scope:` and `Settings:` lines of `status` into a\n   code block, character for character, and say that the review\n   continues that run with the scope and the settings it recorded and\n   ignores the scope flags.\n   The user does not see the command\'s output, so this message is where\n   they see the scope. Then, in the same reply, start the review at once;\n   the message does not end your turn: do not ask the user to confirm,\n   and do not wait for an answer. A user who sees a wrong scope stops the\n   review before it has spent much; until its fixes phase the run has\n   edited nothing. When the user stops it because its scope is wrong,\n   close it with `abandon --reason <text>` before you run the corrected\n   request, so that the next review starts a new run rather than resume\n   this one. When `config show` exits with code 2, show stderr verbatim\n   and stop, as step 7 says for a refusal.\n\n   Run the review from the repository, with the longest timeout you can,\n   and wait for it to exit:\n\n   node "<this skill\'s directory>/engine/main.mjs" review --runtime codex <scope flags> [--fix]\n\n   When the command returns to you before it exits, poll it until it\n   exits, and do not end your turn while it runs: `codex exec` stops a\n   command that still runs when the turn ends.\n\n',
     ],
   };
 
