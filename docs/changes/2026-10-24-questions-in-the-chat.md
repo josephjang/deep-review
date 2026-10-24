@@ -191,11 +191,11 @@ The run records `--branch` as a range, so `status` names the mode from what the 
 
 ### R13: The Claude Code skill shows the scope after it starts the review
 
-Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. The message holds the `Scope:` line, the `budget.usd` line and the fix choice, or the `Run` and `Settings:` lines of an active run. For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review. This message is the last text of the turn.
+Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review. This message is the last text of the turn.
 
 When the review exits, the skill goes on with step 4. When the user stops the review, the skill stops the background command first and then abandons the run, as today.
 
-The Codex skill keeps its order. Codex shows a message that the model writes before a command (U6), and its review runs in the foreground of the turn.
+The Codex skill keeps its order. Codex shows a message that the model writes before a command (U6), and its review runs in the foreground of the turn. Its message for an active run copies the `Scope:` line of `status` too.
 
 ### R14: A skill ends the turn with the result that it relays
 
