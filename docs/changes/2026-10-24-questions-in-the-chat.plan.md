@@ -206,7 +206,8 @@ Files:
 - `skill/claude/skills/deep-review/SKILL.md`, step 3: it runs `status`, then `config show` when no run is active, then the review as a background command. Then it writes the message with the lines that it copies, as the last text of the turn.
 - In the same file, the three facts that step 2 tells the user before a fix run move into that message of step 3, and step 2 no longer tells the model to say them before the command. The Codex skill keeps them in step 2.
 - In the same step, a user who stops the review gets the background command stopped first, and then `abandon`.
-- In the same file, step 4 puts the short form in the last message of the turn. The lines of a later command, such as `commit`, come before it.
+- In the same file, step 4 puts the short form in the last message of the turn.
+- In the same file, step 5 runs `report` after `commit`. The last message shows the lines of `commit`, and then the short form that `report` printed, which names the commits. `skill/codex/SKILL.md` gets the same sentences.
 - Step 4 also names `report --brief` for a question about a question or a fix that goes against a written rule. It names it for a document left out of date, or for what the run changed, too.
 - In the same file, the paragraph about a finished run names `status --all` for a user who does not know the run. It says that `--run` takes the eight characters that the brief shows.
 - `skill/codex/SKILL.md`: the same sentences for step 4 and for the paragraph about a finished run. Step 3 keeps its order.
@@ -215,7 +216,7 @@ Tests:
 
 - `test/skills.test.ts`: the new order of step 3 in the Claude Code skill, and the old order in the Codex skill.
 - In the same file, the case that pins the warning of a fix run: in the Claude Code skill, the three facts are in the message of step 3, after the review starts. In the Codex skill, they stay in step 2, before the command, as the case asks today.
-- In the same file: the sentences of step 4 and of the paragraph about a finished run, in both skills. The two texts stay one, except the lines of each runtime. The tests that pin the sentences of today change with them.
+- In the same file: the sentences of step 4, of step 5 with `report` after `commit`, and of the paragraph about a finished run, in both skills. The case checks that the words of `changedWords` name the commits once a run has them, so the short form that `report` prints after `commit` says so. The two texts stay one, except the lines of each runtime. The tests that pin the sentences of today change with them.
 
 ```sh
 npm run check

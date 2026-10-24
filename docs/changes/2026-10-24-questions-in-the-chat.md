@@ -179,7 +179,9 @@ The Codex skill keeps its order. Codex shows a message that the model writes bef
 
 ### R14: A skill ends the turn with the result that it relays
 
-Sometimes a turn of a skill runs another command after the review or an answer, such as `commit`. Then the last message of the turn holds the short form, as step 4 shows it. The lines that the later command printed come before it. A message in the middle of a turn can go into the `thinking` of the model, as U6 shows for the scope.
+Sometimes a turn of a skill runs another command after the review or an answer, such as `commit`. Then the last message of the turn holds the result. A message in the middle of a turn can go into the `thinking` of the model, as U6 shows for the scope.
+
+After `commit`, the skill runs `report`. The last message holds the lines that `commit` printed, and then the short form that `report` printed, as step 4 shows it. The short form that the review printed is out of date after a commit: its line `Changed:` says that the fixes are not committed.
 
 ### R15: The gate
 
