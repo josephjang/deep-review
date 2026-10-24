@@ -185,8 +185,18 @@ describe('Checkpoint', () => {
       assert.deepEqual(runs.map((run) => run.id), [readable, unreadable]);
       assert.equal(isUnreadable(runs[0]!), false);
       assert.deepEqual(runs[0], checkpoint.fold(readable));
-      assert.deepEqual(runs[1], { id: unreadable, unreadable: unknown });
+      assert.deepEqual(runs[1], { id: unreadable, unreadable: unknown, worktree: '/unreadable' }, 'the worktree of its creation event, which this engine declares');
       assert.equal(isUnreadable(runs[1]!), true);
+    });
+
+    it('is listed with no worktree when this engine does not declare its creation event', () => {
+      const checkpoint = reader();
+      // A creation event at a version a later build might write, put in as a row as that build's createRun would.
+      checkpoint.ledger.write((tx) => {
+        tx.createRun({ id: 'later', createdAt: '2026-09-26T00:00:00.000Z' });
+        tx.insertEvent({ runId: 'later', kind: 'run.created', version: 2, payload: '{"worktree":"/later"}', recordedAt: '2026-09-26T00:00:00.000Z', engine: '9.9.9-writer' });
+      });
+      assert.deepEqual(checkpoint.listRuns(), [{ id: 'later', unreadable: { sequence: 1, kind: 'run.created', version: 2, engine: '9.9.9-writer' }, worktree: null }]);
     });
 
     it('is named by runIds beside the runs this engine folds, in ledger order, with no fold (R11 of the questions in the chat)', () => {

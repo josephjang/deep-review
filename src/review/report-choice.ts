@@ -40,27 +40,14 @@ interface Weighed {
   readonly words: string;
 }
 
-/**
- * The worktree a run was created in, from its first event as the ledger
- * holds it, or null when that event is not one this engine reads: the
- * worktree of a run this engine cannot fold.
- */
-function createdWorktree(checkpoint: Checkpoint, runId: string): string | null {
-  const first = checkpoint.ledger.events(runId)[0];
-  if (first?.kind !== 'run.created' || first.version !== 1) return null;
-  const payload: unknown = JSON.parse(first.payload);
-  return typeof payload === 'object' && payload !== null && 'worktree' in payload && typeof payload.worktree === 'string' ? payload.worktree : null;
-}
-
 /** Choose the run `report` shows for `worktree`, logging a line for each run this engine cannot read, as every command that picks a run does. */
 export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (line: string) => void): ReportChoice {
   const weighed: Weighed[] = [];
   for (const listed of checkpoint.listRuns()) {
     if (isUnreadable(listed)) {
       log(passedOverLine(listed.id, listed.unreadable, checkpoint.engine));
-      const created = createdWorktree(checkpoint, listed.id);
       // A run whose worktree cannot be read may be this worktree's, so it is named rather than hidden.
-      if (created === null || sameDirectory(created, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, words: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
+      if (listed.worktree === null || sameDirectory(listed.worktree, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, words: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
     } else if (sameDirectory(listed.worktree, worktree)) {
       weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, words: noReportWords(listed) });
     }
