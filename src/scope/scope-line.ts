@@ -25,7 +25,7 @@ export interface ShownScope {
   readonly baseName: string;
   /** The commit the change ends at, a `last-commit` scope's, or null for a change that ends at the working tree. */
   readonly target: string | null;
-  /** The commits of the change on the first parent from its end back to its base, or null when git could not count them. */
+  /** The commits of the change on the first parent from its end back to its base, less those that change only paths `scope.exclude` leaves out, or null when git could not count them. */
   readonly commits: number | null;
   /** The changed files the run reviews. */
   readonly fileCount: number;

@@ -694,7 +694,7 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
     const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
     shown = {
       ...ends,
-      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths),
+      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths, listed.request.exclude),
       fileCount: files.length,
       excludedCount: listed.excluded.length,
       uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
@@ -862,8 +862,8 @@ function status(values: Values, io: CommandIo, root: string, worktree: string): 
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects (R12 of the questions in the chat).
-    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects, less those that change only paths scope.exclude left out (R12 of the questions in the chat).
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths, state.scope.request.exclude);
     const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
