@@ -412,9 +412,24 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.ok(changeLine(`${three} More.`).length > shortLineLimit);
     const five = sentence(500);
     const cut = changeLine(`${five} More.`);
-    assert.ok(cut.length <= changeLineLimit && cut.endsWith('...'), cut);
+    assert.ok(cut.startsWith('The change: ') && cut.endsWith('...'), cut);
     const kept = cut.slice('The change: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit, 'the limit counts the sentence');
     assert.ok(five.startsWith(kept) && five[kept.length] === ' ', 'cut at a word, with three periods');
+  });
+
+  it('counts the limit of the line of the change on the sentence alone, past the mark of the change before the fixes (R4, R5 of the questions in the chat)', () => {
+    const changeLine = (state: RunState, what: string): string => briefShortForm(briefOf(withAccount(state, given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
+    const whole = sentence(changeLineLimit - 10);
+    assert.equal(whole.length, changeLineLimit - 10);
+    assert.equal(changeLine(answerable(), `${whole} More.`), `The change: ${whole}`);
+    assert.equal(changeLine(decidedFixRun().fold(), `${whole} More.`), `The change before the fixes: ${whole}`);
+    const longer = sentence(changeLineLimit + 20);
+    const cut = changeLine(decidedFixRun().fold(), `${longer} More.`);
+    assert.ok(cut.startsWith('The change before the fixes: ') && cut.endsWith('...'), cut);
+    const kept = cut.slice('The change before the fixes: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit && longer.startsWith(kept) && longer[kept.length] === ' ', 'cut at a word');
   });
 
   it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {
