@@ -23,7 +23,7 @@ import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
-import { baseNameOf, commitWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
+import { baseNameOf, commitWords, endWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
@@ -206,10 +206,9 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
 /** The most runs `status --all` lists (R10 of the questions in the chat). */
 export const listedRuns = 20;
 
-/** The change a captured scope reviews, as the list of runs names it: the mode as the person asked for it (R12), the number of files, and both ends; a `last-commit` scope ends at its commit, any other at the working tree. */
+/** The change a captured scope reviews, as the list of runs names it: the mode as the person asked for it (R12), the number of files, its base's short commit, and its end as the `Scope:` line names it. */
 function scopeWords(state: RunState, scope: ScopeState): string {
-  const end = scope.mode === 'last-commit' ? commitWords(scope.head) : 'the working tree';
-  return `${askedModeOf(state)}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${end}`;
+  return `${askedModeOf(state)}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${endWords(shownScopeOf(state, scope, null))}`;
 }
 
 /**

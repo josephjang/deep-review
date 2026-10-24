@@ -56,7 +56,7 @@ export function baseNameOf(mode: AskedMode, request: Pick<ScopeRequest, 'ref' | 
 const baseWords = (scope: ShownScope): string => (isEmptyTree(scope.base) ? 'the empty tree' : `${scope.baseName} (${commitWords(scope.base)})`);
 
 /** Where the change ends: its commit, or the working tree, with how many of the reviewed files hold uncommitted changes when that is known. */
-function endWords(scope: ShownScope): string {
+export function endWords(scope: ShownScope): string {
   if (scope.target !== null) return commitWords(scope.target);
   if (scope.uncommitted === null) return 'the working tree';
   return scope.uncommitted === 0 ? 'the working tree, which has no uncommitted change' : `the working tree, where ${counted(scope.uncommitted, 'file holds', 'files hold')} uncommitted changes`;
