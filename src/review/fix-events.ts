@@ -27,7 +27,7 @@ import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, typ
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
-import { isClaimingPhase, type CheckKind, type EditingPhase } from './vocabulary.ts';
+import { isClaimingPhase, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What turning work into events needs: the fold it is recorded against,
@@ -346,9 +346,11 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
  * that the check then rewrote, is kept in this revision under the check's
  * subject and named nowhere apart (PD9; whether to name or leave out such
  * an edit is the author's open question). Without a manifest, the expected
- * files alone.
+ * files alone. Only a checks phase runs a check, and none names the
+ * documentation step, so the revision is always `tree.revised@2` (TD5 of
+ * the documentation step).
  */
-export function checkRevision(context: RevisionContext, phase: TreeRevised['phase'], kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
+export function checkRevision(context: RevisionContext, phase: CheckPhase, kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
   // A stray before the run edited anything is the user's uncommitted work, which no revision may commit (as strayedInRun in fix-report.ts reads them).
