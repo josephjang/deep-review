@@ -191,7 +191,7 @@ Each command that takes `--run` takes the whole id of a run, or its first 8 or m
 
 ### R12: The `Scope:` line gives facts that a person can check
 
-The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch` or for a `scope.default` of `branch`. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it counts the reviewed files that hold uncommitted changes, or it says that none do. It counts apart the paths that `scope.exclude` leaves out.
+The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch`, for a `scope.default` of `branch`, and for `--from <base> --to HEAD --merge-base` with the `review.base` in force as `<base>`, because it is the same change. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it counts the reviewed files that hold uncommitted changes, or it says that none do. It counts apart the paths that `scope.exclude` leaves out.
 
 The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A commit that changes only paths that `scope.exclude` leaves out does not count, because the run reviews nothing of it. A change that starts at the empty tree counts each commit up to its end. This is an invented example:
 
@@ -201,7 +201,7 @@ Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b
 
 The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. `status --json` gives the same two lists in `scope`, as the run recorded them. A run records at most the first 2000 paths that `scope.exclude` leaves out, so that list holds at most 2000, and `excludedCount` beside it counts them all. When git cannot count the commits, the line leaves the count out and does not fail.
 
-The run records `--branch` as a range, so `status` names the mode from what the run recorded. A range that starts at the merge base with the recorded `review.base` and ends at `HEAD` reads as `branch`. The same range given as `--from <base> --to HEAD --merge-base` reads as `branch` too, because it is the same change. A run that recorded no settings keeps the mode that it captured.
+The run records `--branch` as a range, so `status` names the mode from what the run recorded, by the rule of `config show`. A range that starts at the merge base with the recorded `review.base` and ends at `HEAD` reads as `branch`. The same range given as `--from <base> --to HEAD --merge-base` reads as `branch` too, before the run and after it. A run that recorded no settings keeps the mode that it captured.
 
 ### R13: The Claude Code skill shows the scope after it starts the review
 

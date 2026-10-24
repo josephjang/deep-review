@@ -64,7 +64,7 @@ import { defaultRuntimes } from './runtime/runtimes.ts';
 import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
 import { EmptyChangeError } from './scope/errors.ts';
 import { changedAgainstHead, commitCount, status as gitStatus } from './scope/git.ts';
-import { baseNameOf, type AskedMode, type ShownScope } from './scope/scope-line.ts';
+import { askedMode, baseNameOf, type ShownScope } from './scope/scope-line.ts';
 
 export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
@@ -683,8 +683,8 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
   const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; any other, the mode the capture chooses.
-  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : captured;
+  // The mode as the person asked for it (R12 of the questions in the chat), by the rule status applies to the run, with the review.base the run would record.
+  const mode = askedMode(captured, chosen.request, resolvedValue(resolved, 'review.base'));
   const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
   let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {

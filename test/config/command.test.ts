@@ -180,6 +180,9 @@ describe('deep-review config', () => {
       write(repo, 'src/side.ts', 'side changed\n');
       assert.equal(await scopeOf('--branch', '--path', 'src/b.ts'), `Scope: branch, 1 commit and 1 file, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree, where 1 file holds uncommitted changes`, 'the commits and the uncommitted files of the path alone');
       assert.equal(await scopeOf('--branch', '--base', 'HEAD~1'), `Scope: branch, 1 commit and 2 files, from the merge base with HEAD~1 (${short('HEAD~1')}) to the working tree, where 2 files hold uncommitted changes`);
+      // The same change named as a range from the merge base with review.base reads as branch, as status reads the run (R12 of the questions in the chat).
+      assert.equal(await scopeOf('--from', 'origin/main', '--to', 'HEAD', '--merge-base'), `Scope: branch, 2 commits and 2 files, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree, where 2 files hold uncommitted changes`);
+      assert.match(await scopeOf('--from', 'origin/main', '--to', 'HEAD'), /^Scope: range, /, 'a range not from the merge base keeps its mode');
     });
   });
 

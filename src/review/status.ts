@@ -23,7 +23,7 @@ import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
-import { baseNameOf, commitWords, endWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
+import { askedMode, baseNameOf, commitWords, endWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
@@ -72,20 +72,17 @@ export interface StatusFacts {
 
 /**
  * The mode of a run's scope as the person asked for it (R12 of the
- * questions in the chat), from what the run recorded: the capture records
- * `--branch` as a range, so a range that starts at the merge base with
- * the recorded `review.base` and ends at `HEAD` reads as `branch`, also
- * when `--from <base> --to HEAD --merge-base` named it, since it is the
- * same change. Any other scope, and that of a run that recorded no
- * settings, keeps the mode it captured.
+ * questions in the chat), by the rule `config show` applies too
+ * (`askedMode`), from what the run recorded: its scope and the
+ * `review.base` it recorded. That of a run that recorded no settings
+ * keeps the mode it captured.
  */
 export function askedModeOf(state: RunState): AskedMode {
   const scope = state.scope;
   if (scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const range = scope.request.range;
   const configuration = state.review?.configuration;
   const base = configuration === undefined ? undefined : recordedSetting(configuration, 'review.base')?.value;
-  return range !== undefined && range.to === 'HEAD' && range.mergeBase && typeof base === 'string' && range.from === base ? 'branch' : scope.mode;
+  return askedMode(scope.mode, scope.request, base);
 }
 
 /** The facts of the `Scope:` line of a run, from the scope it captured: no count of uncommitted files, which the run does not record. */

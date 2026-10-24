@@ -734,7 +734,9 @@ setting ignored; its brief names the paths left out as a gap.
 `deep-review config show` prints what a run would use, without starting
 one: the change, as `Scope: <mode>, <commits> and <files>, from <base>
 to <end>`, with the mode as the person asked for it (`branch` for
-`--branch`), the commits on the first parent and the files the run
+`--branch` and for the same range from `--from <base> --to HEAD
+--merge-base`, as `status` names it), the commits on the first parent
+and the files the run
 reviews, the paths `scope.exclude` leaves out counted apart, the base
 by its name and short commit, and the end a commit or the working
 tree, with how many reviewed files hold uncommitted changes; with

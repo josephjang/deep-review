@@ -13,8 +13,22 @@ import type { ScopeMode, ScopeRequest } from '../checkpoint/events.ts';
 import { counted } from '../review/markdown.ts';
 import { isEmptyTree } from './git.ts';
 
-/** The mode of a scope as a person asks for it: `branch` for `--branch` or a `scope.default` of `branch`, which the capture records as a range, else the mode the capture chose. */
+/** The mode of a scope as a person asks for it (`askedMode`): `branch` for `--branch` or a `scope.default` of `branch`, which the capture records as a range, and for the same range named by `--from`, else the mode the capture chose. */
 export type AskedMode = ScopeMode | 'branch';
+
+/**
+ * The mode of a scope as the person asked for it (R12 of the questions in
+ * the chat), one rule for `config show` before a run and `status` after:
+ * the capture records `--branch` as a range, so a range that starts at the
+ * merge base with `reviewBase`, the `review.base` in force, and ends at
+ * `HEAD` reads as `branch`, also when `--from <base> --to HEAD
+ * --merge-base` named it, since it is the same change. Any other scope,
+ * and one with no `review.base`, keeps the mode `captured`.
+ */
+export function askedMode(captured: ScopeMode, request: Pick<ScopeRequest, 'range'>, reviewBase: unknown): AskedMode {
+  const range = request.range;
+  return range !== undefined && range.to === 'HEAD' && range.mergeBase && typeof reviewBase === 'string' && range.from === reviewBase ? 'branch' : captured;
+}
 
 /** The facts of the `Scope:` line. */
 export interface ShownScope {
