@@ -5,6 +5,7 @@ import { cutAtWord, shortLineLimit } from '../../src/review/brief.ts';
 import { askedModeOf, describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
+import { maxExcludedNamed } from '../../src/scope/capture.ts';
 import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, settingsConfigured, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
@@ -288,6 +289,15 @@ describe('the scope of a run in status (R12 of the questions in the chat)', () =
     // With no count, the line leaves it out; a last-commit scope ends at its commit.
     const lastCommit: RunState = { ...state, scope: { ...state.scope!, mode: 'last-commit', request: { paths: [], exclude: [] } } };
     assert.equal(describeRun(lastCommit, claudeAdapter, evidencePath).lines[2], `Scope: last-commit, 1 file, from the parent of HEAD (${'1'.repeat(8)}) to ${'2'.repeat(8)}`);
+  });
+
+  it('gives in the JSON form the paths left out that the run recorded, at most 2000, with the count of them all', () => {
+    const state = ranged(null);
+    const paths = Array.from({ length: maxExcludedNamed }, (_, index) => `vendor/${String(index)}.js`);
+    const cut: RunState = { ...state, scope: { ...state.scope!, request: { ...state.scope!.request, exclude: ['vendor/**'] }, excluded: { paths, count: 3500 } } };
+    const scope = describeRun(cut, claudeAdapter, evidencePath).json.scope as { excluded: string[]; excludedCount: number };
+    assert.deepEqual(scope.excluded, paths);
+    assert.equal(scope.excludedCount, 3500);
   });
 
   it('names branch in the list of runs too', () => {

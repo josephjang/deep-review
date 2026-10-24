@@ -103,13 +103,13 @@ Files:
 - In the same command, the files and the paths left out come from `resolveScopeRequest`. For a change that ends at the working tree, the uncommitted files are the reviewed files that `changedAgainstHead` names. A changed file outside `--path` or under `scope.exclude` does not count. The `--json` output gets the same fields in `scope`, and also `files`, the path of each of `listed.changes`, and `excluded`, the paths of `listed.excluded`. An empty change keeps its reason, with two empty lists.
 - `src/review/status.ts`: `describeRun` gives a `Scope:` line from `state.scope` through `scopeLine`, with no count of uncommitted files. The caller in `src/command.ts` gives it the count of commits.
 - In the same file, a new `askedModeOf(state)` gives the mode that the line names. It is `branch` when `state.scope.request.range` ends at `HEAD`, takes the merge base, and starts at the value of `review.base` in `review.configuration.settings`. Else it is the captured mode, also for a run with no recorded settings. `runListLines` of step 4 names the mode with it from this step on, and its test of a `--branch` run changes with it.
-- In the same function, the JSON form gets `scope`: the facts of the line, `files` from `state.scope.files` and `excluded` from `state.scope.excluded.paths`. It is null for a run with no scope.
+- In the same function, the JSON form gets `scope`: the facts of the line, `files` from `state.scope.files` and `excluded` from `state.scope.excluded.paths`, which holds at most the first `maxExcludedNamed` (2000) paths, beside `excludedCount`, which counts them all. It is null for a run with no scope.
 
 Tests:
 
 - `test/scope/git.test.ts`: `commitCount` of a range, and of a range with a merge that counts as one commit. Also of a range limited to a path, and from the empty tree. It gives null for a revision that does not exist.
 - `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. An uncommitted file outside `--path` is not counted. The two cases that pin the line of today change.
-- `test/review/status.test.ts`: the `Scope:` line of a captured scope. The JSON form gives the paths of the files and the excluded paths, and null for a run with no scope.
+- `test/review/status.test.ts`: the `Scope:` line of a captured scope. The JSON form gives the paths of the files and the excluded paths, and null for a run with no scope. A run that left out more than 2000 paths gives the 2000 it recorded, with the count of them all.
 - In the same file, `askedModeOf`: `branch` for the range that `--branch` records, and for the same range from `--from <base> --to HEAD --merge-base`. `range` for a range with another start, with another end, or with no merge base, and for a run with no recorded settings.
 - `test/cli.test.ts`: `config show --branch` names `branch` and the merge base with the base ref. `config show --json` gives each reviewed path and each excluded path, and `status --run <id> --json` gives the paths that the run captured.
 
