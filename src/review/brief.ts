@@ -394,12 +394,9 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
   // A step that did not answer brought no document in line; one whose fixes changed no file had nothing to do, and a run an engine before the step configured never had one, though its brief counts its lines (R7, R8, R11 of the documentation step).
   const cause = stepNotRunCause(context.review);
-  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: 'documentation', text: `${stepNotRunSentence(cause)}${context.documents.length === 0 ? '' : ' The documents left are in Documents left out of date.'}` });
+  if (context.review.documentationStep && cause !== null && cause !== 'no-edits') gaps.push({ kind: 'documentation', text: `${stepNotRunSentence(cause)}${context.documents.length === 0 ? '' : ' The documents left are in Documents left out of date.'}` });
   return gaps;
 }
-
-/** Why the documentation step had nothing to do, as `stepNotRunCause` says it. */
-const fixesChangedNothing = 'the fixes changed no file';
 
 /** What the run did not cover (R10 of the brief of a run), in plain words, each gap with its kind. */
 function gapsOf(context: BriefContext): BriefGap[] {

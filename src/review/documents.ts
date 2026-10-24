@@ -85,35 +85,47 @@ function lineKeyOf(plan: FixState['documentation'], file: string): string {
 const names = (key: string, file: string): boolean => key === documentKey({ path: normalizeFileName(file.trim()), file }) || key === documentKey({ path: null, file });
 
 /**
- * Why the documentation step of a fix run did not answer, in plain words,
- * or null when it answered or the run has no fix pass: an engine before
+ * Why the documentation step of a fix run did not answer: an engine before
  * the step configured the run; the run budget stopped a unit of the fixes
- * or the step's own; its worker failed twice; the fixes changed no file,
- * so nothing of the run can have made a document stale; or it has not run
- * or answered yet, in a run still under way.
+ * or the step's own; the fixes changed no file, so nothing of the run can
+ * have made a document stale; it has not run or answered yet, in a run
+ * still under way; or its worker failed twice.
  */
-export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentationStep'>): string | null {
+export type StepNotRunCause = 'old-engine' | 'budget' | 'no-edits' | 'not-run' | 'not-answered' | 'failed';
+
+/** Each cause of `StepNotRunCause` in the plain words of the brief and the report. */
+const stepNotRunWords: Readonly<Record<StepNotRunCause, string>> = {
+  'old-engine': 'an engine before the documentation step configured this run',
+  budget: 'the run budget was reached first',
+  'no-edits': 'the fixes changed no file',
+  'not-run': 'it has not run yet',
+  'not-answered': 'it has not answered yet',
+  failed: 'its worker failed twice',
+};
+
+/** Why the documentation step of a fix run did not answer, as `StepNotRunCause` names it, or null when it answered or the run has no fix pass. */
+export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentationStep'>): StepNotRunCause | null {
   const fix = review.fix;
   if (fix === null) return null;
-  if (!review.documentationStep) return 'an engine before the documentation step configured this run';
+  if (!review.documentationStep) return 'old-engine';
   if (fix.documentation === null) {
     switch (documentationReadiness(fix).kind) {
       case 'budget':
-        return 'the run budget was reached first';
+        return 'budget';
       case 'no-fixes-revision':
-        return 'the fixes changed no file';
+        return 'no-edits';
       case 'ready':
-        return 'it has not run yet';
+        return 'not-run';
     }
   }
   if (fix.answers.documentation[documentationUnitKey] !== undefined) return null;
   const settled = fix.notAttempted.documentation[documentationUnitKey];
-  if (settled === undefined) return 'it has not answered yet';
-  return settled.cause === 'budget' ? 'the run budget was reached first' : 'its worker failed twice';
+  if (settled === undefined) return 'not-answered';
+  return settled.cause === 'budget' ? 'budget' : 'failed';
 }
 
 /** The sentence that says why the documentation step did not answer, for a cause `stepNotRunCause` gave; a step that answered has no cause, so no sentence. */
-export const stepNotRunSentence = (cause: string): string => `The documentation step did not run: ${cause}.`;
+export const stepNotRunSentence = (cause: StepNotRunCause): string => `The documentation step did not run: ${stepNotRunWords[cause]}.`;
 
 /** A sentence from a note of a worker, with one period at its end. */
 const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.`;

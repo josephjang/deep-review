@@ -532,6 +532,13 @@ describe('the documents a run left out of date in the brief', () => {
     assert.deepEqual(briefOf(failedTwice).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.']);
     assert.deepEqual(briefOf(documentedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a step that answered');
     assert.deepEqual(briefOf(decidedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a run an engine before the step configured');
+    // A step with no plan: one whose fixes changed no file had nothing to do, and one whose fixes did has not run yet.
+    const unplanned = documentedFixRun(stale, (history) => history.start('documentation').finish('documentation')).fold();
+    const fix = unplanned.review!.fix!;
+    const withRevisions = (revisions: typeof fix.revisions): RunState => ({ ...unplanned, review: { ...unplanned.review!, fix: { ...fix, documentation: null, revisions } } });
+    const unrevised = briefOf(withRevisions([]));
+    assert.deepEqual([unrevised.documents.length, unrevised.notCovered.filter((gap) => gap.kind === 'documentation')], [1, []], 'the fixes changed no file');
+    assert.deepEqual(briefOf(withRevisions(fix.revisions)).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: it has not run yet. The documents left are in Documents left out of date.']);
   });
 
   it('names no fixer in the step\'s gap when only the repair named a document', () => {
