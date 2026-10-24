@@ -6,8 +6,9 @@ import { delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
-import { briefJsonV2 } from '../src/review/brief-json.ts';
+import { briefJsonV3 } from '../src/review/brief-json.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
+import { shortRunId } from '../src/review/runs.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
 import { withoutVariables } from '../src/runtime/environment.ts';
@@ -97,6 +98,16 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint'), /--check takes <kind>=<command>, not "lint"/],
       [claudeFlags(box, '--last-commit', '--fix', '--check', 'lint= '), /--check lint= needs a command/],
       [['status', '--fix'], /--fix does not apply to status/],
+      // R10 of the questions in the chat: --all lists every run, for a person.
+      [['status', '--all', '--run', '00000000'], /--all lists every run; leave out --run/],
+      [['status', '--all', '--json'], /--all prints a list for a person and has no JSON form/],
+      [['report', '--all'], /--all does not apply to report/],
+      // R6 of the questions in the chat: report prints one form of its run.
+      [['report', '--fixes', '--json'], /--json and --fixes do not go together; give one/],
+      [['report', '--brief', '--json'], /--json and --brief do not go together; give one/],
+      [['report', '--brief', '--fixes'], /--brief and --fixes do not go together; give one/],
+      [['report', '--fixes', '--finding', 'SCAN-1'], /--fixes and --finding do not go together; give one/],
+      [['status', '--fixes'], /--fixes does not apply to status/],
       // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
       [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
       [['status', '--fresh'], /--fresh does not apply to status/],
@@ -188,6 +199,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const box = ReviewSandbox.forTest(t);
     assert.equal((await run(box, 'status')).stdout, 'No run: this repository has no checkpoint yet.\n');
     assert.equal((await run(box, 'status', '--json')).stdout, 'null\n');
+    assert.equal((await run(box, 'status', '--all')).stdout, 'No run: this repository has no checkpoint yet.\n', 'status --all says what status says (R10 of the questions in the chat)');
     const elsewhere = await node([cli, 'status', '--repo', box.repo], { cwd: box.directory, env: environment(box) });
     assert.equal(elsewhere.stdout, 'No run: this repository has no checkpoint yet.\n', elsewhere.stderr);
     const relative = await node([cli, 'status', '--repo', 'repo'], { cwd: box.directory, env: environment(box) });
@@ -198,9 +210,27 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const abandon = await run(box, 'abandon', '--reason', 'nothing');
     assert.equal(abandon.status, 1);
     assert.match(abandon.stderr, /no checkpoint, so there is no run to abandon/);
+    // A checkpoint that holds no run yet.
+    Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test' }).close();
+    const empty = await run(box, 'status', '--all');
+    assert.equal(empty.status, 0, empty.stderr);
+    assert.equal(empty.stdout, 'No active run.\n');
+    assert.equal((await run(box, 'report')).stderr, `refused: no run of worktree ${box.repo} has a report; deep-review status shows the run that is active\n`, 'a worktree with no run keeps the refusal it had');
+    // A worktree whose runs have no report: the refusal gives the state of the newest and names status --all (R8 of the questions in the chat).
+    const checkpoint = Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test' });
+    try {
+      const older = checkpoint.createRun({ worktree: box.repo });
+      checkpoint.append(older.id, older.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'wrong scope' } }]);
+      const newer = checkpoint.createRun({ worktree: box.repo });
+      const none = await run(box, 'report');
+      assert.equal(none.status, 2, none.stderr);
+      assert.equal(none.stderr, `refused: no run of worktree ${box.repo} has a report; the newest, run ${newer.id}, never started its review; deep-review status --all lists the runs\n`);
+    } finally {
+      checkpoint.close();
+    }
   });
 
-  it('shows the brief of the newest run of the worktree with report, or of the run --run names, as text and as JSON, and writes its copy (R16 of the brief of a run)', async (t) => {
+  it('shows the brief of the run of the worktree with a report that ended last, or of the run --run names, as text and as JSON, and writes its copy (R16 of the brief of a run; R8, R9 of the questions in the chat)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     box.script({});
     const none = await run(box, 'report');
@@ -214,7 +244,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(second.status, 0, second.stderr);
     const secondId = /run ([0-9a-f-]+): created/.exec(second.stderr)![1]!;
 
-    // The newest run by the time it started, its short form and the path of its copy last.
+    // The run that ended last, its short form and the path of its copy last.
     const newest = await run(box, 'report');
     assert.equal(newest.status, 0, newest.stderr);
     const lines = newest.stdout.trim().split('\n');
@@ -222,6 +252,16 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.match(lines[0]!, new RegExp(`\\(run ${secondId.slice(0, 8)}\\)$`));
     assert.match(lines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${secondId.slice(0, 8)}\\.md$`));
     assert.ok(existsSync(lines.at(-1)!));
+
+    // status --all lists both runs, newest first, each with the path of its copy (R10 of the questions in the chat).
+    const listed = await run(box, 'status', '--all');
+    assert.equal(listed.status, 0, listed.stderr);
+    const listLines = listed.stdout.trimEnd().split('\n');
+    assert.equal(listLines.length, 2, listed.stdout);
+    assert.ok(listLines[0]!.startsWith(`${shortRunId(secondId)} started `) && listLines[0]!.includes(': complete; worktree, ') && listLines[0]!.endsWith(`; report ${lines.at(-1)!}`), listLines[0]!);
+    assert.ok(listLines[1]!.startsWith(`${shortRunId(firstId)} started `) && listLines[1]!.includes(': complete; last-commit, '), listLines[1]!);
+    assert.match(listLines[1]!, new RegExp(`; report .*[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+
     rmSync(lines.at(-1)!);
     await run(box, 'report');
     assert.ok(existsSync(lines.at(-1)!), 'report writes the copy again');
@@ -239,27 +279,84 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       release();
     }
 
-    // --run names an older run; --json gives version 2 of the JSON form, the one it writes since the documentation step, with the local facts.
-    const named = await run(box, 'report', '--run', firstId, '--json');
+    // --run names an older run, by the first 8 characters of its id (R11 of the questions in the chat); --json gives version 3 of the JSON form, the one it writes since the questions in the chat, with the local facts.
+    const named = await run(box, 'report', '--run', shortRunId(firstId), '--json');
     assert.equal(named.status, 0, named.stderr);
-    const json = briefJsonV2.parse(JSON.parse(named.stdout));
+    const json = briefJsonV3.parse(JSON.parse(named.stdout));
     assert.equal(json.run, firstId);
-    assert.equal(json.version, 2);
+    assert.equal(json.version, 3);
+    assert.deepEqual(json.notShown, [], 'a run --run names passes no run over');
+
+    // --brief prints the brief as a chat shows it, from its title, and then the path of the copy (R7 of the questions in the chat).
+    const brief = await run(box, 'report', '--run', shortRunId(firstId), '--brief');
+    assert.equal(brief.status, 0, brief.stderr);
+    const briefLines = brief.stdout.trimEnd().split('\n');
+    assert.match(briefLines[0]!, /^# /);
+    assert.ok(briefLines.includes('## What the review did not cover'), brief.stdout);
+    assert.match(briefLines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+    assert.doesNotMatch(brief.stdout, /<details>|\]\(#finding-|end of this report/);
+    const newestBrief = await run(box, 'report', '--brief');
+    assert.ok(newestBrief.stdout.trimEnd().split('\n').at(-1)!.includes(shortRunId(secondId)), 'the run report takes with no --run');
+
+    // --fixes prints a line for each fix, here the sentence of a run that only reviewed, and then the path of the copy (R6 of the questions in the chat).
+    const fixes = await run(box, 'report', '--run', firstId, '--fixes');
+    assert.equal(fixes.status, 0, fixes.stderr);
+    const fixesLines = fixes.stdout.trimEnd().split('\n');
+    assert.equal(fixesLines.length, 2, fixes.stdout);
+    assert.match(fixesLines[0]!, /^This run only reviewed: it changed nothing\./);
+    assert.match(fixesLines[1]!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
     assert.deepEqual([json.headline.documents, json.documents], [0, []], 'a run that only reviews leaves no document out of date');
     assert.match(json.local.copy!, new RegExp(`${firstId.slice(0, 8)}\\.md$`));
     assert.match(json.local.record, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
     assert.equal(json.local.continueCommand, null);
     assert.equal(json.changeState, 'none', 'the fake triage gave no account');
 
-    // A run with no current report is refused, naming status.
+    // A later run with no current report: report --run refuses it with its state, naming status --run (R9 of the questions in the chat); report shows the run before it, and names the later one first (R8).
     const checkpoint = Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test' });
     try {
       const active = checkpoint.createRun({ worktree: box.repo });
       const refused = await run(box, 'report', '--run', active.id);
       assert.equal(refused.status, 2);
-      assert.match(refused.stderr, new RegExp(`refused: run ${active.id} has no current report: [^\\n]*deep-review status --run ${active.id} shows where it is`));
-      const newestNow = await run(box, 'report');
-      assert.equal(newestNow.status, 2, 'the newest run of the worktree is the one without a report');
+      assert.equal(refused.stderr, `refused: run ${active.id} has no current report, since it never started its review; deep-review status --run ${active.id} shows where it is\n`);
+      const past = await run(box, 'report');
+      assert.equal(past.status, 0, past.stderr);
+      const pastLines = past.stdout.trimEnd().split('\n');
+      assert.equal(pastLines[0], `Not shown: run ${shortRunId(active.id)}, a later run, never started its review.`);
+      assert.match(pastLines[1]!, new RegExp(`\\(run ${shortRunId(secondId)}\\)$`), 'the short form of the run before it follows');
+      assert.equal(pastLines.length, 9);
+      // With --json, stdout holds the JSON form alone, which names the later run in notShown.
+      const pastJson = await run(box, 'report', '--json');
+      assert.equal(pastJson.status, 0, pastJson.stderr);
+      const parsed = briefJsonV3.parse(JSON.parse(pastJson.stdout));
+      assert.equal(parsed.run, secondId);
+      assert.deepEqual(parsed.notShown, [{ run: active.id, state: 'never started its review' }]);
+
+      // Abandoned, the run gives the reason of its abandon, in the refusal and in the line.
+      checkpoint.append(active.id, active.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'wrong scope' } }]);
+      const abandoned = await run(box, 'report', '--run', shortRunId(active.id));
+      assert.equal(abandoned.status, 2);
+      assert.equal(abandoned.stderr, `refused: run ${active.id} has no current report, since it was abandoned: wrong scope; deep-review status --run ${active.id} shows where it is\n`);
+      assert.equal((await run(box, 'report')).stdout.split('\n')[0], `Not shown: run ${shortRunId(active.id)}, a later run, was abandoned: wrong scope.`);
+
+      // Three later runs, the latest one this engine cannot read: a line each, the latest first.
+      const created = checkpoint.createRun({ worktree: box.repo });
+      const unreadable = box.unreadableRun();
+      const crowded = await run(box, 'report');
+      assert.equal(crowded.status, 0, crowded.stderr);
+      const crowdedLines = crowded.stdout.trimEnd().split('\n');
+      assert.match(crowdedLines[0]!, new RegExp(`^Not shown: run ${shortRunId(unreadable)}, a later run, cannot be read by this engine \\([^)]+\\); an engine that declares its events can show it\\.$`));
+      assert.equal(crowdedLines[1], `Not shown: run ${shortRunId(created.id)}, a later run, never started its review.`);
+      assert.equal(crowdedLines[2], `Not shown: run ${shortRunId(active.id)}, a later run, was abandoned: wrong scope.`);
+      assert.match(crowdedLines[3]!, new RegExp(`\\(run ${shortRunId(secondId)}\\)$`));
+      // A fourth: three lines, then one that counts the fourth.
+      const fourth = checkpoint.createRun({ worktree: box.repo });
+      const counted = (await run(box, 'report')).stdout.trimEnd().split('\n');
+      assert.equal(counted[0], `Not shown: run ${shortRunId(fourth.id)}, a later run, never started its review.`);
+      assert.equal(counted[3], 'Not shown: 1 more later run; deep-review status --all lists them');
+      assert.match(counted[4]!, new RegExp(`\\(run ${shortRunId(secondId)}\\)$`));
+      // A run of another worktree is not this worktree's to name.
+      checkpoint.createRun({ worktree: box.home });
+      assert.deepEqual((await run(box, 'report')).stdout.trimEnd().split('\n').slice(0, 5), counted.slice(0, 5));
     } finally {
       checkpoint.close();
     }
@@ -273,7 +370,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(fallback.status, 0, fallback.stderr);
     assert.match(fallback.stdout.trim().split('\n').at(-1)!, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
     assert.match(fallback.stderr, new RegExp(`run ${firstId}: could not write the copy of the report to `));
-    const fallbackJson = briefJsonV2.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
+    const fallbackJson = briefJsonV3.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
     assert.equal(fallbackJson.local.copy, null);
   });
 
@@ -404,6 +501,13 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.deepEqual(settings.values['tools.path'], [join(box.repo, 'bin')]);
     assert.deepEqual(settings.files.map((file) => [file.layer, file.path]), [['operator', operatorFile], ['clone', join(commonDir, 'deep-review.toml')], ['invocation', invocation]]);
     assert.match(result.stderr, /settings from the operator's file /);
+    // status names the scope the run recorded as branch, counts its commits, and gives the paths it captured (R12 of the questions in the chat).
+    const status = await run(box, 'status', '--run', state.id);
+    assert.equal(status.status, 0, status.stderr);
+    const branchCommits = Number(git(box.repo, 'rev-list', '--count', '--first-parent', `${start}..HEAD`));
+    assert.ok(status.stdout.includes(`\nScope: branch, ${String(branchCommits)} commits and 4 files, from the merge base with origin/main (${start.slice(0, 8)}) to the working tree\n`), status.stdout);
+    const json = JSON.parse((await run(box, 'status', '--run', state.id, '--json')).stdout) as { scope: { mode: string; commits: number; files: string[]; excluded: string[] } };
+    assert.deepEqual([json.scope.mode, json.scope.commits, [...json.scope.files].sort(), json.scope.excluded], ['branch', branchCommits, ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/gone.ts'], []]);
   });
 
   it('refuses --branch in a clone with no origin/HEAD, naming the setting and the flag, and takes --base over it', async (t) => {
@@ -463,7 +567,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     } finally {
       starting();
     }
-    const abandoned = await run(box, 'abandon', '--reason', 'stuck');
+    // --run takes the first 8 characters of the id (R11 of the questions in the chat).
+    const abandoned = await run(box, 'abandon', '--reason', 'stuck', '--run', shortRunId(runId));
     assert.equal(abandoned.status, 0, abandoned.stderr);
     assert.equal(abandoned.stdout, `run ${runId} abandoned: stuck\n`);
     assert.equal(box.checkpoint.fold(runId).status, 'abandoned');
@@ -472,7 +577,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const fresh = await run(box, ...claudeFlags(box, '--last-commit'));
     assert.equal(fresh.status, 0, fresh.stderr);
     assert.equal(box.checkpoint.foldRuns().length, 2);
-    assert.match((await run(box, 'status', '--run', runId)).stdout, /: abandoned \(stuck\)\n/);
+    assert.match((await run(box, 'status', '--run', shortRunId(runId))).stdout, /: abandoned \(stuck\)\n/);
     // --fresh reaches the engine: the finished read-only run just written is not continued (R2 of fix pass continuation).
     box.script({ triage: { exit: 2 } });
     const declined = await run(box, ...claudeFlags(box, '--last-commit', '--fix', '--fresh'));
@@ -525,6 +630,25 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       assert.equal(refused.status, 2, `${args.join(' ')}: ${refused.stderr}`);
       assert.equal(refused.stderr, `refused: 2 runs are active (${first}, ${second}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\`\n`, args.join(' '));
     }
+  });
+
+  it('refuses a start of a run id that two runs share with exit 2, naming both, in each command that takes --run (R11 of the questions in the chat)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const shared = ['1a2b3c4d-0000-4000-8000-000000000001', '1a2b3c4d-1111-4000-8000-000000000002'];
+    const checkpoint = Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test', ids: () => shared[checkpoint.runIds().length]! });
+    try {
+      for (let index = 0; index < shared.length; index++) checkpoint.createRun({ worktree: box.repo });
+    } finally {
+      checkpoint.close();
+    }
+    for (const args of [['status', '--run', '1a2b3c4d'], ['report', '--run', '1a2b3c4d'], ['abandon', '--run', '1a2b3c4d', '--reason', 'which one'], ['commit', '--run', '1a2b3c4d'], ['answer', '--run', '1a2b3c4d', '--finding', 'SCAN-1', '--accept']]) {
+      const refused = await run(box, ...args);
+      assert.equal(refused.status, 2, `${args.join(' ')}: ${refused.stderr}`);
+      assert.equal(refused.stderr, `refused: --run 1a2b3c4d names 2 runs (${shared.join(', ')}); give more of the id\n`, args.join(' '));
+    }
+    const longer = await run(box, 'status', '--run', '1a2b3c4d-1');
+    assert.equal(longer.status, 0, longer.stderr);
+    assert.ok(longer.stdout.startsWith(`Run ${shared[1]!}`), longer.stdout);
   });
 
   it('resumes after the engine is killed mid-phase: the running workers are lost, the answered units are not run again', async (t) => {

@@ -11,6 +11,7 @@ import { gitContent } from '../../src/review/content.ts';
 import { spendBound } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { reportCopyPath } from '../../src/review/report-copy.ts';
+import { shortRunId } from '../../src/review/runs.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -132,7 +133,28 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(box.run().review!.answers.length, 3);
     assert.deepEqual(box.run().review!.report, finished.review!.report, 'the run stays complete');
 
-    const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought');
+    // --run takes the first 8 characters of the id that the brief shows (R11 of the questions in the chat).
+    // report --finding prints the block of one question or departure, and then the path of the copy (R7 of the questions in the chat).
+    const report = (...args: string[]): Promise<Finished> => node([cli, 'report', ...args], { cwd: box.repo, env: environment(box) });
+    const block = await report('--finding', question);
+    assert.equal(block.status, 0, block.stderr);
+    const blockLines = block.stdout.trimEnd().split('\n');
+    assert.equal(blockLines[0], '## Questions for you (1)');
+    assert.ok(blockLines.some((line) => line.startsWith(`### 1. `) && line.endsWith(`(${question})`)), block.stdout);
+    assert.equal(blockLines.at(-1), reportCopyPath(box.checkpoint.root, box.run()));
+    const departure = await report('--finding', departing, '--run', shortRunId(finished.id));
+    assert.equal(departure.status, 0, departure.stderr);
+    assert.ok(departure.stdout.startsWith('## Fixes that go against a written rule (1)\n'), departure.stdout);
+    const fixId = box.run().review!.decisions!.find((decision) => decision.decision === 'fix' && decision.departure === null)?.id;
+    for (const id of [...(fixId === undefined ? [] : [fixId]), 'SCAN-99']) {
+      const refusedBlock = await report('--finding', id);
+      assert.equal(refusedBlock.status, 1, `${id}: ${refusedBlock.stderr}`);
+      assert.match(refusedBlock.stderr, new RegExp(`no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`));
+    }
+    assert.match((await report('--finding', question, '--json')).stderr, /--json and --finding do not go together; give one/);
+    assert.match((await report('--finding', 'not an id')).stderr, /--finding takes a finding's id as the brief prints it/);
+
+    const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought', '--run', shortRunId(finished.id));
     assert.equal(given.status, 0, given.stderr);
     assert.equal(given.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe run only reviewed; run review --fix to apply the answer with the fixes\n`);
     const again = await run(box, '--finding', departing, '--accept');
@@ -154,8 +176,9 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2`);
     // The pass ends as review does: the short form of the brief, then the path of the copy of the new report (R13 of the brief of a run).
     assert.equal(lines.at(-1), reportCopyPath(box.checkpoint.root, finished), 'the copy\'s path is the last line');
-    assert.equal(lines.length, 10, 'the answer line, the eight lines of the short form of a fix run and the path');
-    assert.deepEqual(lines.slice(2, 9).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Documents left out of date', 'Not covered', 'Look at', 'Changed']);
+    assert.equal(lines.length, 11, 'the answer line, the eight lines of the short form of a fix run, the line of its open fix against a written rule and the path');
+    assert.deepEqual(lines.slice(2, 10).filter((line) => !line.startsWith('  ')).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Documents left out of date', 'Not covered', 'Look at', 'Changed']);
+    assert.match(lines[5]!, /^ {2}\S+ goes against a rule in /, 'the open departure, under its count (R2 of the questions in the chat)');
     assert.equal(lines[3], 'Questions: none open; each is answered', 'the pass applied the answer the person gave');
     assert.match(first.stderr, new RegExp(`run ${finished.id}: answer pass over ${question}\\n`));
     const passed = box.run();

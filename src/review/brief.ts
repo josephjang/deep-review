@@ -20,6 +20,7 @@ import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { shortRunId } from './runs.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
@@ -37,6 +38,14 @@ export type BriefChange =
       /** The triage's two judgments of principle 8, which `look` names when they hold. */
       readonly publicInterface: ChangeCondition;
       readonly wideEffect: ChangeCondition;
+      /**
+       * Whether a fixer or an answer pass applied a fix, so the account,
+       * written before any fix, describes the change before the fixes
+       * (R5 of the questions in the chat). A rewrite by a check or an
+       * edit of the documentation step changes no behavior the account
+       * describes, so it does not count.
+       */
+      readonly beforeEdits: boolean;
     }
   /** The triage gave no account. */
   | { readonly state: 'none' }
@@ -532,11 +541,11 @@ function coveredText(review: ReviewState): string {
     : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
 }
 
-/** The core of the change from the triage's whole account, or why the run has none. */
-function changeOf(account: TriageAccount): BriefChange {
+/** The core of the change from the triage's whole account, or why the run has none; `beforeEdits` says whether a fixer or an answer pass applied a fix since the account was written. */
+function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
   if (account.kind !== 'given') return { state: account.kind };
   const { reading } = account;
-  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect };
+  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
 }
 
 /** The brief of a run, from its fold alone (R1). The run must be configured for review and have its scope. */
@@ -550,18 +559,21 @@ export function briefOf(state: RunState): Brief {
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
   const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
+  const changed = changedOf(context);
+  // A fixer applied a fix, or an answer pass applied an answer, after the triage wrote its account (R5 of the questions in the chat).
+  const edited = changed.applied.length > 0 || review.answers.some((answer) => answer.appliedBy !== null && answer.appliedBy !== 'tree');
   return {
     run: state.id,
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
     headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review.fix !== null) },
-    change: changeOf(review.change),
+    change: changeOf(review.change, edited),
     questions,
     departures,
     documents: context.documents,
     notCovered,
     covered: notCovered.length === 0 ? coveredText(review) : null,
     look: lookOf(context, departures),
-    changed: changedOf(context),
+    changed,
   };
 }
 
@@ -586,6 +598,15 @@ export const fateWords: Readonly<Record<BriefFate, string>> = {
   'not-fixed': 'This run only reviewed, so no fixer applied it; `review --fix` applies it.',
 };
 
+/** What became of a fix of a fix run in the words a line of `report --fixes` names it with (R6 of the questions in the chat), beside `fateWords`. */
+export const fixFateWords: Readonly<Record<Exclude<BriefFate, 'not-fixed'>, string>> = {
+  applied: 'applied',
+  'already-in-tree': 'already in the tree',
+  deferred: 'put off by its fixer',
+  blocked: 'not applied by its fixer',
+  'not-attempted': 'not attempted',
+};
+
 /** What became of a decided fix as a clause that ends a sentence: its words of `fateWords` with a lower-case first letter and no period. */
 const fateClause = (fate: BriefFate): string => {
   const words = fateWords[fate];
@@ -594,6 +615,31 @@ const fateClause = (fate: BriefFate): string => {
 
 /** How a person runs a command the brief gives, said once, with no path (R8 of the brief of a run). */
 export const howToAnswer = 'To answer, ask your agent with the deep-review skill, or type the command at a terminal as the end of this report shows.';
+
+/** How a person answers in a chat, where no end of a report follows (R7 of the questions in the chat). */
+export const howToAnswerInChat = 'To answer, ask your agent with the deep-review skill.';
+
+/**
+ * Where the brief is read (R7 of the questions in the chat): in the
+ * report, a file, or in a chat, as `report --brief` and
+ * `report --finding` print it. In a chat an id is plain text, since no
+ * evidence follows to link to; the details the report folds under a
+ * `<details>` tag follow a bold label; and the person answers by asking
+ * the agent.
+ */
+export type BriefForm = 'report' | 'chat';
+
+/** What a form changes in the words of the brief. */
+interface FormWords {
+  readonly link: (id: string) => string;
+  readonly details: (summary: string, lines: readonly string[]) => string[];
+  readonly howToAnswer: string;
+}
+
+const formWords: Readonly<Record<BriefForm, FormWords>> = {
+  report: { link: findingLink, details: (summary, lines) => [`<details><summary>${summary}</summary>`, '', ...lines, '', '</details>'], howToAnswer },
+  chat: { link: (id) => id, details: (_summary, lines) => ['**Details.**', '', ...lines], howToAnswer: howToAnswerInChat },
+};
 
 /** An answer a person gave, as a line of the brief. */
 const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
@@ -604,7 +650,10 @@ export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>
   none: 'The triage of this run gave no account of the change.',
 };
 
-/** The part "The change": the core of the change, marked as the triage's unverified account, or why the run has none. */
+/** The sentence that ends the part "The change" of a run whose fixes or answers changed the code after the account was written (R5 of the questions in the chat). */
+export const beforeEditsSentence = 'The title and this account describe the change before the fixes and the answers of this run; What deep-review changed names the fixes.';
+
+/** The part "The change": the core of the change, marked as the triage's unverified account, and as the change before the fixes when a fix was applied, or why the run has none. */
 function changePart(change: BriefChange): string[] {
   const lines = ['## The change', ''];
   switch (change.state) {
@@ -617,13 +666,13 @@ function changePart(change: BriefChange): string[] {
         ? 'The change states no reason.'
         : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'the triage named no source' : `from ${sources(change.whyFrom)}`}).`;
       const restsOn = change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`;
-      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`];
+      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`, ...(change.beforeEdits ? ['', beforeEditsSentence] : [])];
     }
   }
 }
 
 /** One question as a block of the brief: its words, the option in place now and deep-review's choice, the options, the command, and the details one step below. */
-function questionBlock(question: BriefQuestion, position: number, fixed: boolean): string[] {
+function questionBlock(question: BriefQuestion, position: number, fixed: boolean, words: FormWords): string[] {
   const { answer } = question;
   // What stands: the answer a person gave, else the default, in place or, when it edits the code and no fixer applied it, only the default.
   const answered = answer?.option ?? null;
@@ -642,7 +691,7 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
     ...(option.number === question.choice ? ['deep-review\'s choice'] : []),
   ].join(', ');
   return [
-    `### ${String(position)}. ${inlineText(question.question)} (${findingLink(question.id)})`,
+    `### ${String(position)}. ${inlineText(question.question)} (${words.link(question.id)})`,
     '',
     standing,
     '',
@@ -651,13 +700,11 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
     ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
     ...(answer === null ? ['', `To take deep-review's choice: \`${question.command}\`. For another option, give its number.`] : []),
     '',
-    '<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>',
-    '',
-    ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
-    `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
-    `- Why it asks: ${inlineText(question.grounds)}`,
-    '',
-    '</details>',
+    ...words.details('The rule that each option makes, where deep-review looked, and why it asks', [
+      ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
+      `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
+      `- Why it asks: ${inlineText(question.grounds)}`,
+    ]),
   ];
 }
 
@@ -667,7 +714,7 @@ function questionBlock(question: BriefQuestion, position: number, fixed: boolean
  * instead, its fate, and the commands that review it. The approach the
  * fixer was given is in the evidence's Decisions, not here (R9).
  */
-function departureBlock(departure: BriefDeparture, position: number, fixed: boolean): string[] {
+function departureBlock(departure: BriefDeparture, position: number, fixed: boolean, words: FormWords): string[] {
   const { review } = departure;
   const reviewLine = review === null
     ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.`
@@ -677,7 +724,7 @@ function departureBlock(departure: BriefDeparture, position: number, fixed: bool
     ? fateWords[departure.fate]
     : `You chose to follow the rule instead; ${review.applied ? 'the tree holds the fix that follows it' : fixed ? 'no fixer has applied the fix that follows it yet' : '`review --fix` applies the fix that follows it'}.`;
   return [
-    `### ${String(position)}. ${findingLink(departure.id)}`,
+    `### ${String(position)}. ${words.link(departure.id)}`,
     '',
     `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
     '',
@@ -688,9 +735,9 @@ function departureBlock(departure: BriefDeparture, position: number, fixed: bool
 }
 
 /** The part "Where to look": each condition of principle 8 that holds, with its findings linked, or one line that none does. */
-function lookPart(brief: Brief): string[] {
+function lookPart(brief: Brief, words: FormWords): string[] {
   const lines = ['## Where to look', ''];
-  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, findingLink)}`}.`)];
+  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, words.link)}`}.`)];
   const judged = brief.change.state === 'given' ? ' The triage judged that the change alters no public interface and affects no file beyond its own.' : '';
   return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged}`];
 }
@@ -704,17 +751,21 @@ function checksWords(checks: readonly BriefCheck[]): string {
   return `The checks: ${checks.map((check) => `${check.kind} ${words(check)}`).join('; ')}.`;
 }
 
+/** What a run that only reviewed changed, as the one sentence of the part "What deep-review changed": nothing, what it decided to fix, which `review --fix` applies, and what it left, each id as `show` gives it. */
+export function readOnlyChangedSentence(changed: BriefChanged, show: (id: string) => string): string {
+  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, show)}.`;
+  const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
+  return `This run only reviewed: it changed nothing.${toFix}${left}`;
+}
+
 /** The paragraph "What deep-review changed" (R2 of the brief of a run). */
-function changedPart(changed: BriefChanged): string[] {
+function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
   const lines = ['## What deep-review changed', ''];
-  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, findingLink)}.`;
-  if (!changed.fixed) {
-    const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, findingLink)}.`;
-    return [...lines, `This run only reviewed: it changed nothing.${toFix}${left}`];
-  }
-  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, findingLink)})`]);
+  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, link)}.`;
+  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
+  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, link)})`]);
   const outcomes = [
-    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, findingLink)})`}`,
+    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, link)})`}`,
     ...part(changed.alreadyInTree, 'found already in the tree'),
     ...part(changed.deferred, 'its fixers put off'),
     ...part(changed.blocked, 'its fixers could not apply'),
@@ -748,31 +799,79 @@ function documentsPart(documents: readonly BriefDocument[]): string[] {
   ];
 }
 
+/** The heading of the part of the questions, and the sentence under it that says what a default is and how to answer. */
+const questionsHeading = (brief: Brief, words: FormWords): string[] => [
+  `## Questions for you (${String(brief.questions.length)})`,
+  '',
+  `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${words.howToAnswer}`,
+];
+
+/** The heading of the part of the fixes that go against a written rule, and the sentence under it when no part of questions said how to answer. */
+const departuresHeading = (brief: Brief, words: FormWords, alone: boolean): string[] => [
+  `## Fixes that go against a written rule (${String(brief.departures.length)})`,
+  ...(alone ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${words.howToAnswer}`] : []),
+];
+
 /**
  * The Markdown form of the brief (R8 to R12, R15 of the brief of a run):
  * the title, the headline, and the parts in the order of principle 5,
  * then what deep-review changed. It names no local path; it says once,
- * in the first part that gives a command, how a person runs one.
+ * in the first part that gives a command, how a person runs one. In the
+ * chat form, which `report --brief` prints, an id is plain text and the
+ * details follow a bold label (R7 of the questions in the chat).
  */
-export function briefMarkdown(brief: Brief): string[] {
+export function briefMarkdown(brief: Brief, form: BriefForm = 'report'): string[] {
+  const words = formWords[form];
   const questions = brief.questions.length === 0 ? [] : [
-    `## Questions for you (${String(brief.questions.length)})`,
-    '',
-    `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswer}`,
-    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed)]),
+    ...questionsHeading(brief, words),
+    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed, words)]),
   ];
   const departures = brief.departures.length === 0 ? [] : [
-    `## Fixes that go against a written rule (${String(brief.departures.length)})`,
-    ...(brief.questions.length === 0 ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${howToAnswer}`] : []),
-    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed)]),
+    ...departuresHeading(brief, words, brief.questions.length === 0),
+    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed, words)]),
   ];
   const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
-  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief), changedPart(brief.changed)].filter((part) => part.length > 0);
+  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief, words), changedPart(brief.changed, words)].filter((part) => part.length > 0);
   return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
 }
 
-/** The most characters of a line of the short form; the path that ends it has no limit, since a path cannot be cut (R13 of the brief of a run). */
+/**
+ * The block of one finding of the brief, under the heading of its part
+ * and the sentence that says how to answer (R7 of the questions in the
+ * chat): a question, open or answered, or a fix that goes against a
+ * written rule, numbered as the brief numbers it; null for an id that
+ * names neither, a fix that goes against no rule among them. The chat
+ * form by default, which `report --finding` prints.
+ */
+export function briefBlock(brief: Brief, id: string, form: BriefForm = 'chat'): string[] | null {
+  const words = formWords[form];
+  const question = brief.questions.findIndex((entry) => entry.id === id);
+  if (question !== -1) return [...questionsHeading(brief, words), '', ...questionBlock(brief.questions[question]!, question + 1, brief.changed.fixed, words)];
+  const departure = brief.departures.findIndex((entry) => entry.id === id);
+  if (departure !== -1) return [...departuresHeading(brief, words, true), '', ...departureBlock(brief.departures[departure]!, departure + 1, brief.changed.fixed, words)];
+  return null;
+}
+
+/**
+ * The most characters of a line of the short form; the path that ends it
+ * has no limit, since a path cannot be cut (R13 of the brief of a run).
+ * Nor do the lines of an open question, its options and an open
+ * departure, which give the words of the decider whole: its schema holds
+ * each text to 400 characters (PD12 of the questions in the chat).
+ */
 export const shortLineLimit = 200;
+
+/**
+ * The most characters of the first sentence of the account that the line
+ * of the change gives whole; only a longer one is cut at a word (R4 of the
+ * questions in the chat). The triage is asked for one of at most
+ * `accountLimits.firstSentence`, which a model does not keep exactly.
+ */
+export const changeLineLimit = 400;
+
+/** The most open questions, and the most open departures, the short form names with their words; it counts the others (PD2 of the questions in the chat). */
+export const shownQuestions = 3;
+export const shownDepartures = 3;
 
 /**
  * Whether the period that ends `before` ends an abbreviation, not a
@@ -785,7 +884,7 @@ const endsAbbreviation = (before: string, after: string): boolean =>
   || (/(?:^|[^\p{L}\p{N}])No\.$/u.test(before) && /^\s+\p{N}/u.test(after));
 
 /** The first sentence of a text, or the whole text when it has no sentence end; a line or paragraph separator counts as a space, as a line break does. */
-function firstSentence(text: string): string {
+export function firstSentence(text: string): string {
   const inline = inlineText(text).replaceAll(/[ \t]*[\u2028\u2029]+[ \t]*/g, ' ');
   for (const end of inline.matchAll(/[.!?](?=\s|$)/g)) {
     const stop = end.index + 1;
@@ -794,11 +893,11 @@ function firstSentence(text: string): string {
   return inline;
 }
 
-/** A condition of principle 8 in a few words, for the short form. */
+/** A condition of principle 8 in a few words, for the short form; a departure in the words of the line `Against a written rule:`, so one thing has one name (R3 of the questions in the chat). */
 const lookWords = (entry: BriefLook): string => {
   switch (entry.condition) {
     case 'departure':
-      return counted(entry.findings.length, 'departure', 'departures');
+      return counted(entry.findings.length, 'fix that goes against a written rule', 'fixes that go against a written rule');
     case 'plausible':
       return `${counted(entry.findings.length, 'fix', 'fixes')} on a PLAUSIBLE verdict`;
     case 'public-interface':
@@ -818,15 +917,54 @@ function changedWords(changed: BriefChanged): string {
   return `${fixes}${rest}${where}`;
 }
 
+/** An option of a question as a line of the short form names it: its number and its words, whole. */
+const optionWords = (question: BriefQuestion, number: number): string => `option ${String(number)}, ${inlineText(question.options[number - 1]?.option ?? '')}`;
+
+/**
+ * The lines of one open question in the short form (R1 of the questions
+ * in the chat): the question, then the option in place now and
+ * deep-review's choice, one line for the two when they are one option.
+ * A default that edits the code and that no fixer applied is named as the
+ * default, which the tree does not hold. Each line starts with the id of
+ * the finding and gives the words of the decider whole.
+ */
+function questionLines(question: BriefQuestion): string[] {
+  const id = `  ${question.id}`;
+  const standing = question.defaultApplied ? 'in place now' : 'the default, which the tree does not hold';
+  const both = question.defaultApplied ? 'in place now and deep-review\'s choice' : 'the default and deep-review\'s choice, which the tree does not hold';
+  return [
+    `${id}: ${inlineText(question.question)}`,
+    ...(question.default === question.choice
+      ? [`${id} ${both}: ${optionWords(question, question.default)}`]
+      : [`${id} ${standing}: ${optionWords(question, question.default)}`, `${id} deep-review's choice: ${optionWords(question, question.choice)}`]),
+  ];
+}
+
+/** The line of one open departure in the short form (R2 of the questions in the chat): where the rule is written, then the rule, whole; a fix no fixer applied, or one of a run that only reviewed, would go against it. */
+function departureLine(departure: BriefDeparture): string {
+  const goes = departure.fate === 'applied' || departure.fate === 'already-in-tree' ? 'goes against' : 'would go against';
+  return `  ${departure.id} ${goes} a rule in ${inlineText(departure.source)}: "${inlineText(departure.rule)}"`;
+}
+
+/** The line that counts the open findings a list of the short form does not name with their words, and names their ids, or none. */
+const moreLine = (ids: readonly string[], one: string, many: string): string[] => (ids.length === 0 ? [] : [`  ${counted(ids.length, one, many)}: ${idWords(ids)}`]);
+
 /**
  * The short form of the brief (R13, PD12 of the brief of a run): seven
- * lines of at most `shortLineLimit` characters, whatever the number of
- * findings, and an eighth for a fix run, the documents it left out of date
- * (R7 of the documentation step), each naming its subject in its first
- * words so it keeps its sense when a model rewords it; a list shows at
- * most `shownIds` ids and counts the rest, and a line with nothing to say
- * says so. The caller prints the path of the report after them, the last
- * line.
+ * lines, whatever the number of findings, and an eighth for a fix run, the
+ * documents it left out of date (R7 of the documentation step), each
+ * naming its subject in its first words so it keeps its sense when a model
+ * rewords it; a list shows at most `shownIds` ids and counts the rest, and
+ * a line with nothing to say says so. Under the line `Questions:` come
+ * the lines of each open question, at most `shownQuestions`, and under
+ * `Against a written rule:` the line of each open departure, at most
+ * `shownDepartures`, each list with one more line that counts the others
+ * (R1, R2 of the questions in the chat): at most 22 lines in all. A line
+ * has at most `shortLineLimit` characters, but the lines of a question, an
+ * option and a departure, which give the words of the decider whole, and
+ * the line of the change, which gives the first sentence of the account
+ * whole up to `changeLineLimit` (R4). The caller prints the path of the
+ * report after them, the last line.
  */
 export function briefShortForm(brief: Brief): string[] {
   const open = brief.questions.filter((question) => question.answer === null);
@@ -834,19 +972,25 @@ export function briefShortForm(brief: Brief): string[] {
   // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run); one question reads as one.
   const inPlace = open.every((question) => question.defaultApplied);
   const defaults = open.length === 1 ? (inPlace ? 'with its default in place' : 'with a default') : inPlace ? 'each with a default in place' : 'each with a default';
-  const openDepartures = brief.departures.filter((departure) => departure.review === null).map((departure) => departure.id);
+  const openDepartures = brief.departures.filter((departure) => departure.review === null);
   const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
   const gaps = brief.notCovered;
   const notCovered = gaps.length === 0 ? 'nothing' : gaps.length === 1 ? inlineText(gaps[0]!.text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0]!.text)}`;
-  const lines = [
-    `${inlineText(brief.title)} (run ${brief.run.slice(0, 8)})`,
-    `The change: ${change}`,
-    openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
-    openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
-    ...(brief.changed.fixed ? [brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`] : []),
-    `Not covered: ${notCovered}`,
-    `Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`,
-    `Changed: ${changedWords(brief.changed)}`,
+  // The lines that give the words of the decider whole are not cut; every other line is.
+  const cut = (line: string): string => cutAtWord(line, shortLineLimit);
+  return [
+    cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
+    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat).
+    cutAtWord(`${brief.change.state === 'given' && brief.change.beforeEdits ? 'The change before the fixes' : 'The change'}: ${change}`, changeLineLimit),
+    cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
+    ...open.slice(0, shownQuestions).flatMap(questionLines),
+    ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),
+    cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}`),
+    ...openDepartures.slice(0, shownDepartures).map(departureLine),
+    ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), 'more fix', 'more fixes').map(cut),
+    ...(brief.changed.fixed ? [cut(brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`)] : []),
+    cut(`Not covered: ${notCovered}`),
+    cut(`Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`),
+    cut(`Changed: ${changedWords(brief.changed)}`),
   ];
-  return lines.map((line) => cutAtWord(line, shortLineLimit));
 }

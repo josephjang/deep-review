@@ -9,6 +9,7 @@
 import { stringify } from 'smol-toml';
 import type { PolicyFile } from '../review/policy.ts';
 import { configSchemaVersion, parseConfig } from './files.ts';
+import { scopeLine, type ShownScope } from '../scope/scope-line.ts';
 import type { ResolvedSettings } from './resolve.ts';
 import { fileWords, isConfiguredRuntime, layerSettings, layerWords, settingNames, settings, type FileLayer, type Owner, type SettingName } from './settings.ts';
 
@@ -28,18 +29,10 @@ const runtimeOf = (name: SettingName): string | null => (name.startsWith('runtim
 /** The settings of a run of `runtime`: every setting but another runtime's. */
 const settingsOfRuntime = (runtime: string): SettingName[] => settingNames.filter((name) => runtimeOf(name) === null || runtimeOf(name) === runtime);
 
-/** What `config show` prints about the change a run would review. */
-export interface ShownScope {
-  readonly mode: string;
-  readonly base: string;
-  /** The commit the change ends at, a `last-commit` scope's, or null for a change that ends at the working tree. */
-  readonly target: string | null;
-  /** Why the change has nothing to review, or null when it has a path left. */
-  readonly empty: string | null;
-}
 
 /**
- * `config show` as text (R14): the scope a run would review and its base,
+ * `config show` as text (R14): the scope a run would review, with its
+ * counts and its base (R12 of the questions in the chat),
  * each setting of the runtime with its value and origin, the files read,
  * the state of the repository's file, the repository values not followed
  * and the settings ignored.
@@ -49,8 +42,8 @@ export function showLines(resolved: ResolvedSettings, scope: ShownScope): string
   const width = Math.max(...names.map((name) => name.length));
   const repository = resolved.repository;
   return [
-    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections).
-    `Scope: ${scope.mode}, the change from ${scope.base} to ${scope.target ?? 'the working tree'}${scope.empty === null ? '' : `; ${scope.empty}`}`,
+    // Both ends, so a retelling cannot take the start for the commit reviewed (R11 of the skill surface corrections), and the counts and the base a person can check (R12 of the questions in the chat).
+    scopeLine(scope),
     `Runtime: ${resolved.runtime}`,
     'Settings:',
     ...names.map((name) => {

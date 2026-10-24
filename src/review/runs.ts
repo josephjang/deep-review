@@ -8,6 +8,13 @@
 import { isUnreadable, type Checkpoint } from '../checkpoint/checkpoint.ts';
 import { unreadableRunReason, type UnknownEvent } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { ReviewRefusedError } from './errors.ts';
+
+/** How many characters of a run id the brief, the name of a copy and the list of runs show, and the fewest `--run` takes (R11 of the questions in the chat). */
+export const shortRunIdLength = 8;
+
+/** The start of a run id that the brief, the name of a copy and the list of runs show. */
+export const shortRunId = (runId: string): string => runId.slice(0, shortRunIdLength);
 
 /** Every run this engine can read, in ledger order, logging one line for each run it passes over. */
 export function readableRuns(checkpoint: Checkpoint, log: (line: string) => void): RunState[] {
@@ -22,4 +29,22 @@ export function readableRuns(checkpoint: Checkpoint, log: (line: string) => void
 /** The line a command prints for a run it passes over because the engine `reader` cannot read it. */
 export function passedOverLine(runId: string, unknown: UnknownEvent, reader: string): string {
   return `run ${runId}: passed over: ${unreadableRunReason(unknown, reader)}`;
+}
+
+/**
+ * The id of the run that `--run` names (R11 of the questions in the
+ * chat): `given` when the ledger holds that id, else the one run whose id
+ * starts with `given` when it has at least `shortRunIdLength` characters.
+ * A start that two or more runs share is refused with their ids. A start
+ * that names none, or a shorter one, is given back as it is, so that the
+ * fold refuses it as an unknown id, as it refused every id before. An
+ * unreadable run is named by its start too, and the fold then refuses it
+ * by name.
+ */
+export function runIdOf(checkpoint: Checkpoint, given: string): string {
+  const ids = checkpoint.runIds();
+  if (ids.includes(given) || given.length < shortRunIdLength) return given;
+  const named = ids.filter((id) => id.startsWith(given));
+  if (named.length > 1) throw new ReviewRefusedError(`--run ${given} names ${String(named.length)} runs (${named.join(', ')}); give more of the id`);
+  return named[0] ?? given;
 }

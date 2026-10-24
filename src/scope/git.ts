@@ -54,6 +54,12 @@ export function firstParent(repo: string, commit: string): string | null {
   return parent ?? null;
 }
 
+/** The id of the empty tree in each object format of git, SHA-1 and SHA-256, which the format fixes. */
+const emptyTreeIds: ReadonlySet<string> = new Set(['4b825dc642cb6eb9a060e54bf8d69288fbee4904', '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321']);
+
+/** Whether an id is the empty tree, the base of a root commit, in either object format: what names a recorded base with no git command. */
+export const isEmptyTree = (id: string): boolean => emptyTreeIds.has(id);
+
 /** The id of the empty tree in this repository's object format, the base of a root commit. */
 export function emptyTree(repo: string): string {
   return gitText(repo, ['hash-object', '-t', 'tree', '--stdin'], { okExitCodes: [] }).trim();
@@ -84,6 +90,25 @@ export function commitMessages(repo: string, base: string, head: string): Commit
   // Each commit prints its id, a NUL, its message, a NUL and a newline, which starts the next id.
   for (let index = 0; index + 1 < fields.length; index += 2) messages.push({ commit: fields[index]!.trim(), message: fields[index + 1]!.trimEnd() });
   return messages;
+}
+
+/**
+ * How many commits a change holds (R12 of the questions in the chat): the
+ * commits on the first parent from `head` back to `base`, so a merge
+ * counts as one, and with `paths` only those that change one of them;
+ * every commit up to `head` when `base` is the empty tree, the base of a
+ * root commit. Null when git cannot count them, so that a line that names
+ * the count leaves it out rather than fail.
+ */
+export function commitCount(repo: string, base: string, head: string, paths: readonly string[] = []): number | null {
+  const range = isEmptyTree(base) ? [head] : [`${base}..${head}`];
+  try {
+    const text = gitText(repo, ['rev-list', '--count', '--first-parent', ...range, '--', ...paths.map(literal)]).trim();
+    const count = Number(text);
+    return /^[0-9]+$/.test(text) && Number.isSafeInteger(count) ? count : null;
+  } catch {
+    return null;
+  }
 }
 
 export function mergeBase(repo: string, a: string, b: string): string {

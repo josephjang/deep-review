@@ -22,7 +22,7 @@ import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import type { PolicyFlags } from './policy.ts';
-import { readableRuns } from './runs.ts';
+import { readableRuns, runIdOf } from './runs.ts';
 import { budgetBlocker } from './steps.ts';
 import { rankedFindings, reviewStatus } from './state.ts';
 import type { ExpectedMatch } from './tree.ts';
@@ -118,8 +118,8 @@ function requireAdmitted(run: RunState, finding: string, answer: Answer): Record
  * can read, the others passed over with a line on `log`.
  */
 export function chooseAnswerRun(checkpoint: Checkpoint, runId: string | undefined, worktree: string, log: (line: string) => void): RunState {
-  // An id the checkpoint does not hold throws UnknownRunError, which the command reports as a usage mistake, as `commit` and `status` do.
-  if (runId !== undefined) return checkpoint.fold(runId);
+  // An id, or the start of one (R11 of the questions in the chat), that the checkpoint does not hold throws UnknownRunError, which the command reports as a usage mistake, as `commit` and `status` do.
+  if (runId !== undefined) return checkpoint.fold(runIdOf(checkpoint, runId));
   const found = readableRuns(checkpoint, log)
     .filter((run) => whyNotAnswerable(run, worktree) === null)
     .reduce<RunState | undefined>((last, run) => (last === undefined || run.lastSequence > last.lastSequence ? run : last), undefined);

@@ -28,7 +28,7 @@ import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
 import { locateCheckpoint } from './checkpoint/locate.ts';
 import { engineIdentity, engineRolesRoot } from './engine.ts';
-import { explainLines, initText, showLines, validateBytes, type ShownScope } from './config/command.ts';
+import { explainLines, initText, showLines, validateBytes } from './config/command.ts';
 import { checkFlagsOf, dedicatedFlagValues, policyFlagsOf } from './config/flags.ts';
 import { SettingFlagError } from './config/errors.ts';
 import { cloneConfigPath, operatorConfigPath, readConfigBytes, repositoryConfigFile } from './config/files.ts';
@@ -50,18 +50,21 @@ import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
-import { briefOf, briefShortForm } from './review/brief.ts';
+import { briefBlock, briefMarkdown, briefOf, briefShortForm } from './review/brief.ts';
 import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
-import { readableRuns } from './review/runs.ts';
-import { describeRun, type StatusContinuation } from './review/status.ts';
-import { canonicalPath, isInside, sameDirectory } from './paths.ts';
+import { readableRuns, runIdOf } from './review/runs.ts';
+import { fixLines } from './review/fix-lines.ts';
+import { chooseReportRun, notShownLines, type ReportChoice } from './review/report-choice.ts';
+import { describeRun, noReportWords, runListLines, type StatusContinuation } from './review/status.ts';
+import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
 import { resolveScopeRequest, scopeEnds, type NamedScope } from './scope/capture.ts';
 import { EmptyChangeError } from './scope/errors.ts';
-import { status as gitStatus } from './scope/git.ts';
+import { changedAgainstHead, commitCount, status as gitStatus } from './scope/git.ts';
+import { baseNameOf, type AskedMode, type ShownScope } from './scope/scope-line.ts';
 
 export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
@@ -76,7 +79,8 @@ export const usage = `usage:
   deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
-  deep-review report  [--run <id>] [--json] [--repo <dir>]   (the brief of a finished run; writes its copy again)
+  deep-review status  --all [--repo <dir>]   (the runs of the checkpoint, newest first)
+  deep-review report  [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, or a line for each fix; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
@@ -111,6 +115,7 @@ const options = {
   roles: { type: 'string' },
   run: { type: 'string' },
   json: { type: 'boolean' },
+  all: { type: 'boolean' },
   reason: { type: 'string' },
   fix: { type: 'boolean' },
   fresh: { type: 'boolean' },
@@ -124,6 +129,8 @@ const options = {
   reject: { type: 'boolean' },
   note: { type: 'string' },
   'record-only': { type: 'boolean' },
+  fixes: { type: 'boolean' },
+  brief: { type: 'boolean' },
   into: { type: 'string' },
   unit: { type: 'string' },
   in: { type: 'string' },
@@ -157,13 +164,13 @@ const sourceEntry = fileURLToPath(new URL('./cli.ts', import.meta.url));
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
   review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
-  status: ['run', 'json', 'repo', 'help'],
+  status: ['run', 'json', 'all', 'repo', 'help'],
   // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
   config: [],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
-  report: ['run', 'json', 'repo', 'help'],
+  report: ['run', 'json', 'brief', 'fixes', 'finding', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
   hook: ['help'],
@@ -207,6 +214,9 @@ export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSet
 /** How many scope modes the flags name. */
 const scopeModeFlagCount = (values: Values): number => [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
 
+/** Whether the scope is `--branch`, given or named by `scope.default` with no mode among the flags: the range from `review.base` to HEAD from their merge base. */
+const branchNamed = (values: Values, scope: ScopeSettings): boolean => values.branch === true || (scopeModeFlagCount(values) === 0 && scope.scopeDefault.value === 'branch');
+
 /**
  * The scope the flags name, or `scope.default` with no mode among them,
  * as `scopeRequestOf` gives it but before its check of the tree: what a
@@ -220,7 +230,7 @@ export function namedScopeOf(values: Values, scope: ScopeSettings): NamedScope {
   if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>');
   if (values['merge-base'] === true && values.from === undefined) throw new UsageError('--merge-base applies to --from and --to only');
   const chosen = modes === 1 ? null : scope.scopeDefault.value;
-  const branch = values.branch === true || chosen === 'branch';
+  const branch = branchNamed(values, scope);
   if (values.base !== undefined && !branch) throw new UsageError('--base applies to --branch only, or to a scope.default of branch');
   if (values['last-commit'] === true || chosen === 'last-commit') return { mode: 'last-commit', request: { paths } };
   if (values.worktree === true || chosen === 'worktree') return { mode: 'worktree', request: { paths } };
@@ -350,7 +360,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
     case 'review':
       return review(values, io, location.root, location.worktree, location.commonDir);
     case 'status':
-      return status(values, io, location.root);
+      return status(values, io, location.root, location.worktree);
     case 'commit':
       return commit(values, io, location.root, location.worktree);
     case 'answer':
@@ -672,14 +682,29 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
   const { base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  let shown: ShownScope = { mode: chosen.mode, base, target, empty: null };
+  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; with no mode named, the one the capture would choose.
+  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : chosen.mode !== 'auto' ? chosen.mode : target === null ? 'worktree' : 'last-commit';
+  const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
+  let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {
     const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, 'scope.exclude') ?? []);
-    resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
-    shown = { ...shown, mode: listed.mode };
+    const files = listed.changes.map((change) => change.path);
+    resolved = withChangedPaths(resolved, [...files, ...listed.excluded]);
+    // A change that ends at the working tree counts the reviewed files that hold uncommitted changes; a file outside --path or left out by scope.exclude is no reviewed file.
+    const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
+    shown = {
+      ...ends,
+      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths),
+      fileCount: files.length,
+      excludedCount: listed.excluded.length,
+      uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
+      empty: null,
+      files,
+      excluded: listed.excluded,
+    };
   } catch (error) {
     if (!(error instanceof EmptyChangeError)) throw error;
-    shown = { ...shown, empty: error.message };
+    shown = { ...ends, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: error.message, files: [], excluded: [] };
   }
   io.stdout(values.json === true ? `${JSON.stringify({ ...resolved, scope: shown }, null, 2)}\n` : `${showLines(resolved, shown).join('\n')}\n`);
   return 0;
@@ -788,28 +813,47 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
 }
 
 /**
- * The run a command names with --run, or else the active run, null when
- * there is none; an id the checkpoint does not hold is a usage error. A
- * run this engine cannot read is passed over with a line on stderr when
- * the active run is looked for, and refused when it is named.
+ * The run a command names with --run, by its id or the start of it (R11 of
+ * the questions in the chat), or else the active run, null when there is
+ * none; an id the checkpoint does not hold is a usage error, and a start
+ * that names two runs a refusal. A run this engine cannot read is passed
+ * over with a line on stderr when the active run is looked for, and
+ * refused when it is named.
  */
 function resolveRun(checkpoint: Checkpoint, run: string | undefined, io: CommandIo): RunState | null {
   if (run === undefined) return findActiveRun(checkpoint, (line) => io.stderr(`${line}\n`));
   try {
-    return checkpoint.fold(run);
+    return checkpoint.fold(runIdOf(checkpoint, run));
   } catch (error) {
     if (error instanceof UnknownRunError) throw new UsageError(error.message);
     throw error;
   }
 }
 
-function status(values: Values, io: CommandIo, root: string): number {
+/**
+ * `deep-review status`: the run `--run` names, or the active run, as text
+ * or as JSON; or with `--all` the list of the runs of the checkpoint (R10
+ * of the questions in the chat), which goes with neither `--run` nor
+ * `--json`.
+ */
+function status(values: Values, io: CommandIo, root: string, worktree: string): number {
+  if (values.all === true && values.run !== undefined) throw new UsageError('--all lists every run; leave out --run, or leave out --all to show one run');
+  if (values.all === true && values.json === true) throw new UsageError('--all prints a list for a person and has no JSON form; deep-review report --run <id> --json gives one run');
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
     io.stdout(values.json === true ? 'null\n' : 'No run: this repository has no checkpoint yet.\n');
     return 0;
   }
   try {
+    if (values.all === true) {
+      const runs = readableRuns(checkpoint, (line) => io.stderr(`${line}\n`));
+      const copyOf = (state: RunState): string | null => {
+        const copy = reportCopyPath(checkpoint.root, state);
+        return existsSync(copy) ? copy : null;
+      };
+      io.stdout(runs.length === 0 ? 'No active run.\n' : `${runListLines(runs, worktree, copyOf).join('\n')}\n`);
+      return 0;
+    }
     const state = resolveRun(checkpoint, values.run, io);
     if (state === null) {
       io.stdout(values.json === true ? 'null\n' : 'No active run.\n');
@@ -818,7 +862,9 @@ function status(values: Values, io: CommandIo, root: string): number {
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), context, existsSync(copy) ? copy : null);
+    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects (R12 of the questions in the chat).
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
   } finally {
@@ -837,25 +883,46 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
   }
 }
 
+/** What `report` prints of its run: the short form of the brief, the JSON form, the whole brief, a line for each fix, or the block of one finding (R6, R7 of the questions in the chat). */
+type ReportForm = 'short' | 'json' | 'brief' | 'fixes' | 'finding';
+
+/** The form the flags of `report` ask for, at most one of them; `--finding` takes a finding's id. */
+function reportFormOf(values: Values): ReportForm {
+  const given = ([['json', values.json === true], ['brief', values.brief === true], ['fixes', values.fixes === true], ['finding', values.finding !== undefined]] as const).filter(([, on]) => on).map(([form]) => form);
+  if (given.length > 1) throw new UsageError(`--${given[0]!} and --${given[1]!} do not go together; give one`);
+  if (values.finding !== undefined && !candidateIdSchema.safeParse(values.finding).success) throw new UsageError(`--finding takes a finding's id as the brief prints it, such as RIPPLE-2, not ${JSON.stringify(values.finding)}`);
+  return given[0] ?? 'short';
+}
+
 /**
  * `deep-review report` (R16, PD11 of the brief of a run): the brief of a
- * run, the one `--run` names or else the newest run of this worktree by
- * the time it started. It writes the copy of the report again under the
- * run's lock, or not while another engine holds it, then prints the short
- * form and the path of the copy, or else of the record, last, or with
- * `--json` version 2 of the JSON form. A worktree with no run, and a run with no current
- * report, are refused with exit 2, naming `status`: such a run is not done,
- * or works again in an answer pass, a continuation or a reopened fix pass.
+ * run, the one `--run` names or else the run of this worktree with a
+ * current report whose last event is the latest (R8 of the questions in
+ * the chat). It writes the copy of the report again under the run's lock,
+ * or not while another engine holds it, then prints a `Not shown:` line
+ * for each later run of the worktree it passed over, the short form, and
+ * the path of the copy, or else of the record, last; with `--fixes`, a
+ * line for each fix (R6) in place of the short form, with `--brief` the
+ * brief as a chat shows it, and with `--finding <id>` its block of one
+ * question or fix that goes against a written rule (R7); or with `--json`
+ * version 3 of the JSON form, which names those runs in `notShown`. A
+ * worktree with no run is refused with exit 2, naming `status`; one whose
+ * runs have no report with the state of the newest, naming `status --all`;
+ * and a run `--run` names with no current report with its state (R9),
+ * naming `status --run`.
  */
 function report(values: Values, io: CommandIo, root: string, worktree: string): number {
+  const form = reportFormOf(values);
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a report; deep-review status says so too');
   try {
     const log = (line: string): void => io.stderr(`${line}\n`);
-    const found = values.run !== undefined
-      ? resolveRun(checkpoint, values.run, io)!
-      : readableRuns(checkpoint, log).filter((run) => sameDirectory(run.worktree, worktree)).reduce<RunState | null>((newest, run) => (newest === null || run.createdAt > newest.createdAt ? run : newest), null);
-    if (found === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+    const choice: ReportChoice = values.run !== undefined ? { run: resolveRun(checkpoint, values.run, io)!, passedOver: [], newest: null } : chooseReportRun(checkpoint, worktree, log);
+    const found = choice.run;
+    if (found === null) {
+      if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+    }
     // Under the run's lock, as every other writer of the copy, so this fold cannot write over the copy of a command that appended since (R14 of the brief of a run).
     // An engine that holds it writes the copy itself; this command then writes none and names the record, since a copy never fails a command (TD6).
     const release = runLockForCopy(checkpoint.root, found.id, log);
@@ -863,20 +930,35 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const state = checkpoint.fold(found.id);
       const review = state.review;
       if (review === null || review.report === null) {
-        throw new ReviewRefusedError(`run ${state.id} has no current report: its review is not done, or an answer pass, a continuation or a reopened fix pass runs; deep-review status --run ${state.id} shows where it is`);
+        throw new ReviewRefusedError(`run ${state.id} has no current report, since it ${noReportWords(state)}; deep-review status --run ${state.id} shows where it is`);
       }
       // One context for the copy and the JSON form, so the engine's own roles are read at most once.
       const context = copyContextOf(io, state);
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record = checkpoint.evidence.pathOf(review.report.report);
       const brief = briefOf(state);
-      if (values.json === true) {
-        // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
-        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
-        io.stdout(`${JSON.stringify(briefJson(brief, local), null, 2)}\n`);
+      if (form === 'fixes') {
+        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines(state), copy ?? record].join('\n')}\n`);
         return 0;
       }
-      io.stdout(`${[...briefShortForm(brief), copy ?? record].join('\n')}\n`);
+      if (form === 'brief') {
+        io.stdout(`${[...notShownLines(choice.passedOver), ...briefMarkdown(brief, 'chat'), copy ?? record].join('\n')}\n`);
+        return 0;
+      }
+      if (form === 'finding') {
+        const id = values.finding!;
+        const block = briefBlock(brief, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        io.stdout(`${[...notShownLines(choice.passedOver), ...block, copy ?? record].join('\n')}\n`);
+        return 0;
+      }
+      if (form === 'json') {
+        // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
+        const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
+        io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}\n`);
+        return 0;
+      }
+      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record].join('\n')}\n`);
       return 0;
     } finally {
       release?.();

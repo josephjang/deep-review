@@ -53,6 +53,7 @@ describe('Checkpoint', () => {
     assert.equal(existsSync(join(root, ledgerFileName)), true);
     assert.equal(checkpoint.evidence.root, join(resolve(root), evidenceDirectoryName));
     assert.deepEqual(checkpoint.listRuns(), []);
+    assert.deepEqual(checkpoint.runIds(), [], 'an empty ledger names no run');
   });
 
   it('creates a run with its creation event, stamped by the injected clock, id and engine', () => {
@@ -186,6 +187,11 @@ describe('Checkpoint', () => {
       assert.deepEqual(runs[0], checkpoint.fold(readable));
       assert.deepEqual(runs[1], { id: unreadable, unreadable: unknown });
       assert.equal(isUnreadable(runs[1]!), true);
+    });
+
+    it('is named by runIds beside the runs this engine folds, in ledger order, with no fold (R11 of the questions in the chat)', () => {
+      const { readable, unreadable } = written();
+      assert.deepEqual(reader().runIds(), [readable, unreadable]);
     });
 
     it('is refused by fold, foldRuns and append, naming the event, the writing engine and this one, and nothing is written', () => {
