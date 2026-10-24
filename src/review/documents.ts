@@ -7,7 +7,7 @@
  */
 import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, driftLineKey, unitRevisions, type FixState } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
@@ -99,10 +99,30 @@ export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentation
 /** A sentence from a note of a worker, with one period at its end. */
 const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.`;
 
-/** When the lines of the fix pass came, as an answer pass numbers its time: before every answer pass, 0, but for a pass recorded before the run's last reopening, whose fix pass ran again after it. */
-function fixPassTimeOf(review: Pick<ReviewState, 'answerPasses'> & { readonly fix: Pick<FixState, 'reopenings'> }): number {
-  const reopened = review.fix.reopenings.at(-1)?.at ?? null;
-  return reopened === null ? 0 : review.answerPasses.filter((pass) => pass.at < reopened).length;
+/** When the lines of each editing unit of the fix pass came, as an answer pass numbers its time (PD10). */
+interface FixPassTimes {
+  readonly fixes: number;
+  readonly documentation: number;
+  readonly repair: number;
+}
+
+/**
+ * The times of the fix pass, by the ledger's order: the answer passes the
+ * run held at the last reopening that a unit answered after, 0 for none.
+ * The lines of the fixes and the plan's items come after the last
+ * reopening that gave back a unit of the fixes, the step's answer after
+ * the last that gave back one of the fixes or the step's own, and the
+ * repair's after the last before it answered, since it answers once. A
+ * reopening of other units does not date them again.
+ */
+function fixPassTimesOf(fix: Pick<FixState, 'reopenings'>): FixPassTimes {
+  const after = (gaveBack: (reopening: ReopeningState) => boolean): number => fix.reopenings.findLast(gaveBack)?.answerPassesBefore ?? 0;
+  const gave = (reopening: ReopeningState, phases: readonly EditingPhase[]): boolean => reopening.units.some((unit) => phases.includes(unit.phase));
+  return {
+    fixes: after((reopening) => gave(reopening, ['fixes'])),
+    documentation: after((reopening) => gave(reopening, ['fixes', 'documentation'])),
+    repair: after((reopening) => !reopening.repairAnswered),
+  };
 }
 
 /** A `drift` line of an answer of the run that no item of the documentation step holds, with the unit that reported it and when, as an answer pass numbers its time. */
@@ -111,7 +131,7 @@ export interface UnheldLine {
   readonly key: string;
   readonly file: string;
   readonly what: string;
-  /** 0 for a line of the fix pass, but one an answer pass came before when a reopening followed it; n for a line of the answer pass n. */
+  /** For a line of the fix pass, the answer passes the run held at the last reopening its unit answered after, 0 for none; n for a line of the answer pass n. */
   readonly time: number;
 }
 
@@ -126,7 +146,7 @@ export interface UnheldLine {
 export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses'>): UnheldLine[] {
   const fix = review.fix;
   if (fix === null) return [];
-  const fixPassTime = fixPassTimeOf({ ...review, fix });
+  const times = fixPassTimesOf(fix);
   // How many times the plan holds each line of the fixes.
   const held = new Map<string, number>();
   for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
@@ -138,8 +158,8 @@ export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses
       else lines.push({ phase, key, file: line.file, what: line.what, time });
     }
   };
-  for (const batch of allBatches(fix)) unheld('fixes', batch.key, fixPassTime);
-  unheld('repair', repairUnitKey, fixPassTime);
+  for (const batch of allBatches(fix)) unheld('fixes', batch.key, times.fixes);
+  unheld('repair', repairUnitKey, times.repair);
   review.answerPasses.forEach((_, index) => unheld('answer', passKey(index + 1), index + 1));
   return lines;
 }
@@ -193,7 +213,7 @@ export function leftByStep(fix: Pick<FixState, 'documentation' | 'answers'>): St
 export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentationStep' | 'answerPasses'>): LeftDocument[] {
   const fix = review.fix;
   if (fix === null) return [];
-  const fixPassTime = fixPassTimeOf({ ...review, fix });
+  const times = fixPassTimesOf(fix);
   const entries = new Map<string, { file: string; facts: LeftFact[]; reasons: LeftReason[]; time: number }>();
   const add = (file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
     const key = documentKey(file);
@@ -207,9 +227,9 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   const plan = fix.documentation;
   if (plan !== null) {
     if (fix.answers.documentation[documentationUnitKey] === undefined) {
-      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, fixPassTime);
+      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
     } else {
-      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, fixPassTime);
+      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, times.documentation);
     }
   }
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.

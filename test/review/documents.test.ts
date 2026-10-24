@@ -77,12 +77,20 @@ describe('leftDocumentsOf', () => {
     const patches = history.review().fix!.revisions.length;
     return history.start('repair-checks').finish('repair-checks').start('report').add('report.written', { report: reference('9', 4096), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String(index + 1))) }, 4).finish('report');
   };
-  /** An answer pass `n` on a complete run, its fixer applying RIPPLE-1's answer in src/a.ts and reporting `drift`, to the pass's report. */
-  const pass = (history: History, n: number, drift: readonly Line[] = []): History => {
+  /** The rest of the fix pass to its report with the checks failing and the run budget stopping the repair. */
+  const toStoppedRepair = (history: History): History => {
+    checksPhase(history, 'checks', { test: 'failed' });
+    history.start('repair').add('unit.unattempted', { phase: 'repair', key: 'repair', cause: 'budget', reason: 'spent' }).add('worktree.checked', endCheck('repair'), 2).finish('repair', 'degraded');
+    const patches = history.review().fix!.revisions.length;
+    return history.start('repair-checks').finish('repair-checks').start('report').add('report.written', { report: reference('9', 4096), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String(index + 1))) }, 4).finish('report');
+  };
+  /** An answer pass `n` on a complete run, its fixer applying RIPPLE-1's answer in `file` and reporting `drift`, to the pass's report. */
+  const pass = (history: History, n: number, drift: readonly Line[] = [], file = 'src/a.ts'): History => {
     const workerId = worker(70 + n);
     history.add('answer.recorded', answer('RIPPLE-1', n % 2 === 1 ? 'reject' : 'accept')).add('answer.pass', { ids: ['RIPPLE-1'] });
     history.start('answer', n).worker(70 + n, `fixer answer:pass-${String(n)}`).add('fix.recorded', { ...passAnswer(workerId, n, [['RIPPLE-1', 'applied']]), drift }, 2);
-    history.add('tree.revised', passRevision(workerId, n, 'RIPPLE-1'), 2).add('worktree.checked', endCheck('answer', n), 5).finish('answer', 'completed', n);
+    const revision = passRevision(workerId, n, 'RIPPLE-1');
+    history.add('tree.revised', { ...revision, files: (revision.files as Record<string, unknown>[]).map((revised) => ({ ...revised, path: file })) }, 2).add('worktree.checked', endCheck('answer', n), 5).finish('answer', 'completed', n);
     history.start('answer-checks', n);
     for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun('answer-checks', kind, 'passed', n), 2);
     const patches = history.review().fix!.revisions.length;
@@ -153,6 +161,31 @@ describe('leftDocumentsOf', () => {
     assert.deepEqual(left(pass(again, 2)), [], 'a later pass that brings it in line ends it');
     const repaired = toReport(base(), [line('README.md', 'parse throws')]);
     assert.deepEqual(summary(repaired).map(([file]) => file), ['src/a.ts', 'README.md'], 'a revision of the repair ends none');
+  });
+
+  it('dates a line by the last reopening that gave back its unit, so a reopening of the repair alone does not count again what an answer pass brought in line (PD10)', () => {
+    // The step leaves README.md, the run budget stops the repair, and answer pass 1 brings README.md in line.
+    const stopped = toStoppedRepair(answered(planned(throughFixes([line('README.md', 'parse throws')])), [item('doc-1', 'deferred', 'the text needs the author'), item('search', 'already-applied')]));
+    assert.deepEqual(summary(stopped).map(([file]) => file), ['README.md']);
+    const passed = pass(stopped, 1, [], 'README.md');
+    assert.deepEqual(left(passed), [], 'the pass revised README.md and reported nothing of it');
+    const reopened = passed.clone().add('fix.reopened', { units: [{ phase: 'repair', key: 'repair' }] });
+    assert.deepEqual(reopened.review().fix!.reopenings.map((reopening) => [reopening.answerPassesBefore, reopening.repairAnswered]), [[1, false]]);
+    assert.deepEqual(left(reopened), [], 'the reopening gave back the repair alone, so the step\'s answer still came before the pass');
+  });
+
+  it('dates the repair\'s lines after the reopening it answered after, by the ledger and not the clock', () => {
+    const stopped = toStoppedRepair(answered(planned(throughFixes([])), [item('search', 'already-applied')]));
+    const reopened = pass(stopped, 1, [], 'README.md').add('fix.reopened', { units: [{ phase: 'repair', key: 'repair' }] }).start('checks', 2);
+    for (const kind of ['build', 'lint', 'test']) reopened.add('check.ran', checkRun('checks', kind, kind === 'test' ? 'failed' : 'passed', 2));
+    reopened.finish('checks', 'completed', 2).start('repair', 2).worker(60, 'fixer repair:repair')
+      .add('fix.recorded', { ...fixAnswer(worker(60)), phase: 'repair', key: 'repair', findings: [{ id: 'test', status: 'applied', file: 'src/a.ts', line: 4, note: 'fixed the test', message: { subject: 'fix: Repair the test', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] }], drift: [line('README.md', 'parse throws')] });
+    const expected = [['README.md', ['parse throws (the repair)'], ['after: The repair reported it after the documentation step.']]];
+    assert.deepEqual(summary(reopened), expected, 'answer pass 1 came before the repair\'s line, so its revision ends nothing');
+    // A clock stepped back records the reopening before the pass; the ledger's order still stands.
+    const review = reopened.review();
+    const stepped = { ...review, fix: { ...review.fix!, reopenings: review.fix!.reopenings.map((reopening) => ({ ...reopening, at: '2000-01-01T00:00:00.000Z' })) } };
+    assert.deepEqual(leftDocumentsOf(stepped).map((entry) => entry.file), ['README.md']);
   });
 
   it('counts nothing in a run that only reviews', () => {

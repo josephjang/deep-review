@@ -22,7 +22,7 @@
  * attempted or with no revision of the fixes, and a plan that leaves out
  * a `drift` line of the fixes or lists one no answer of the fixes holds.
  */
-import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, type Phase } from '../review/vocabulary.ts';
+import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
@@ -595,7 +595,8 @@ const commitsDropped: Reducer<CommitsDropped> = (state, payload, event) => {
  * the documentation step, which only version 2 can list, or the repair,
  * once, and only those. Each listed unit is no longer not attempted, so it
  * can launch again, and its failures stay. The report is kept beside the
- * reopening and cleared; `checks`, `repair`, `repair-checks` and `report`
+ * reopening and cleared, and the reopening keeps how many answer passes
+ * the run holds and whether the repair answered; `checks`, `repair`, `repair-checks` and `report`
  * are pending at their attempts, and `fixes` too when a batch of it is
  * listed. In a run with the documentation step, `documentation` is pending
  * at its attempt when `fixes` is, so the step plans after the units the
@@ -615,7 +616,7 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   if (listed.length !== stopped.length || !stopped.every((unit) => listed.includes(unit))) throw invalid(event, `reopens [${listed.join(', ')}], not each unit the run budget left not attempted [${stopped.join(', ')}]`);
   const notAttempted = { ...fix.notAttempted };
   for (const unit of payload.units) notAttempted[unit.phase] = Object.fromEntries(Object.entries(notAttempted[unit.phase]).filter(([key]) => key !== unit.key));
-  const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report };
+  const reopening: ReopeningState = { at: event.recordedAt, units: payload.units, reportBefore: report, answerPassesBefore: review.answerPasses.length, repairAnswered: fix.answers.repair[repairUnitKey] !== undefined };
   const phaseStates = { ...review.phases };
   const fixes = payload.units.some((unit) => unit.phase === 'fixes');
   const documentation = fixes || payload.units.some((unit) => unit.phase === 'documentation');

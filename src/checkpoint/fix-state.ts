@@ -104,12 +104,16 @@ export interface RestorationState extends TreeRestored {
 /**
  * A reopening of a fix pass the run budget stopped (R11 of resumable
  * runs): when it was recorded, the units it reopened, and the report it
- * replaces.
+ * replaces; and, so a reader orders it against the answer passes and the
+ * repair by the ledger rather than the clock, how many answer passes the
+ * run held then and whether the repair, which answers once, had answered.
  */
 export interface ReopeningState {
   readonly at: string;
   readonly units: FixReopened['units'];
   readonly reportBefore: ReportWritten;
+  readonly answerPassesBefore: number;
+  readonly repairAnswered: boolean;
 }
 
 export interface FixState {

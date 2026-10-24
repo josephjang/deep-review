@@ -220,6 +220,8 @@ Each entry of the list is `{ file, facts: [{ what, by }], reasons: [{ kind, text
 
 An entry ends when a later answer pass revised its file, and the answer of that pass did not report the file in `drift` (PD10). A later pass is one that opened after each line of the entry, so its task listed the entry. A revision of the repair does not end an entry, because the task of the repair does not list it.
 
+The order comes from the ledger, not from the clock. `fixReopened` keeps on each reopening how many answer passes the run held and whether the repair had answered. A line of the fixes or an item of the plan comes after the last reopening that gave back a unit of the fixes. The answer of the step comes after the last one that gave back a unit of the fixes or the unit of the step. A line of the repair comes after the last one before the repair answered. A reopening of the repair alone therefore does not count again a document that an answer pass brought in line.
+
 `answerTaskOf` in `src/review/phases.ts` gives `fixerTask` the list of `leftDocumentsOf` when the pass opens: each file with its facts. The task asks the fixer to bring a document in line when an answer that it applies settles what the document must say. The fixer names it under the finding of that answer, and it leaves the other documents. When it changes such a file and leaves a fact stale, it reports the fact in `drift`.
 
 Each reason has its plain words:

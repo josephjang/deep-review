@@ -22723,7 +22723,9 @@
                   "budgetApplied": true
                 },
                 "patches": []
-              }
+              },
+              "answerPassesBefore": 0,
+              "repairAnswered": false
             }
           ]
         },
