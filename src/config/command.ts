@@ -31,7 +31,8 @@ const settingsOfRuntime = (runtime: string): SettingName[] => settingNames.filte
 
 
 /**
- * `config show` as text (R14): the scope a run would review and its base,
+ * `config show` as text (R14): the scope a run would review, with its
+ * counts and its base (R12 of the questions in the chat),
  * each setting of the runtime with its value and origin, the files read,
  * the state of the repository's file, the repository values not followed
  * and the settings ignored.

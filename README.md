@@ -223,9 +223,25 @@ commits, engine, runtime, models and settings, the one section that
 names a local path. The command prints the short form of the brief,
 seven lines that each name their subject first, and in a fix run an
 eighth that counts the documents it left out of date, then the copy's
-path as the last line of stdout, and exits 0. `deep-review report` shows the
-brief of a finished run again, or as JSON with `--json`. See
-`docs/changes/2026-10-20-run-brief.requirements.md` and its design.
+path as the last line of stdout, and exits 0. Under its line, each open
+question gets its words, the option in place now and deep-review's
+choice, and each fix that goes against a written rule gets where the
+rule is written and the rule, the words of the decider whole, for at
+most three of each; the short form has at most 22 lines. The line of
+the change gives the first sentence of the triage's account whole, and
+in a run whose fixes or answers changed the code it reads
+`The change before the fixes:`, since the account was written before
+them. `deep-review report` shows the brief of the run of this worktree
+with a report whose last event is the latest, after a `Not shown:`
+line for each later run it passed over that says why that run has no
+report; `--run` names another run by its id or its first eight
+characters. With `--json` it prints the JSON form, version 3, which
+names those runs in `notShown`; with `--brief`, the whole brief as a
+chat shows it; with `--finding <id>`, the block of one question or one
+fix that goes against a written rule; and with `--fixes`, a line for
+each fix with the subject of its commit message. See
+`docs/changes/2026-10-20-run-brief.requirements.md` and its design, and
+`docs/changes/2026-10-24-questions-in-the-chat.md`.
 A finding's location is matched to a file of the
 repository: one the change touches, or an unchanged file such as a
 caller, marked outside the change; a location that names no such file
@@ -247,8 +263,14 @@ they are not recorded, so every invocation must give them again: a
 resume that leaves one out drops it. The log names the kinds it can
 tell were dropped, those a flag settled when the survey answered, and
 the survey is asked again for them. `deep-review
-status` prints the fold of the active run, as text or `--json`;
+status` prints the fold of the active run, as text or `--json`, with
+the `Scope:` line of the scope it captured; `status --run <id>` prints
+another run, and `status --all` lists the runs of the checkpoint,
+newest first, each with the first eight characters of its id, its
+state, its scope and the copy of its current report.
 `deep-review abandon --reason <text>` closes an active or blocked run.
+Each command that takes `--run` takes the whole id or its first eight
+or more characters.
 The engine ships as one esbuild bundle, `engine/main.mjs`, in both
 artifacts, with a sidecar holding its version and hash and a copy of
 `roles/`; every event the installed engine writes carries
@@ -707,9 +729,14 @@ report name the files a run read and, beside its `Settings:` line, each
 path left out, each repository value a higher layer replaced and each
 setting ignored; its brief names the paths left out as a gap.
 `deep-review config show` prints what a run would use, without starting
-one: the change, as `Scope: <mode>, the change from <base> to <end>`
-with the end a commit or the working tree, and each value with its
-origin; `config validate` checks a file as
+one: the change, as `Scope: <mode>, <commits> and <files>, from <base>
+to <end>`, with the mode as the person asked for it (`branch` for
+`--branch`), the commits on the first parent and the files the run
+reviews, the paths `scope.exclude` leaves out counted apart, the base
+by its name and short commit, and the end a commit or the working
+tree, with how many reviewed files hold uncommitted changes; with
+`--json`, also the path of each reviewed file and each path left out;
+and each value with its origin; `config validate` checks a file as
 its layer reads it, the repository's of the working tree by default;
 and `config init --repository`, `--operator` or `--clone` writes a new
 file with every setting commented at its default.
@@ -877,17 +904,27 @@ what can follow it: a scope in words, `fix`, and paths. It runs the
 bundled engine with `--runtime claude` on the scope the user named, or
 with none named on the one `scope.default` names (the dirty worktree,
 else the last commit), waits for it, and shows the report's path.
-Before the run it runs `status`. With no active run, it runs
-`config show` with the same flags and shows the `Scope:` line, the
-`budget.usd` line and whether the run fixes; with one, which the
-review resumes with the scope and settings it recorded whatever the
-scope flags say, it shows that run's `Run` and `Settings:` lines and
-says so. It then starts the run without waiting for a reply; a user who
-sees a wrong scope stops it, and the skill abandons the stopped run
-before the corrected request, so that request starts a new run. Asked to fix the findings, it passes `--fix`, says
-first that the engine's workers will edit the working tree and that it
-runs the check commands it chose from the repository, and afterwards
-offers to commit the edits with `deep-review commit`. Asked for a
+Before the run it runs `status`, and with no active run `config show`
+with the same flags. It then starts the run as a background command,
+without waiting for a reply, and only then writes its message, as the
+last text of the turn: the `Scope:` line, the `budget.usd` line and
+whether the run fixes, or for an active run, which the review resumes
+with the scope and settings it recorded whatever the scope flags say,
+that run's `Run`, `Scope:` and `Settings:` lines. A message in the
+middle of a turn can land in the model's thinking, which a host may
+hide. A user who sees a wrong scope stops the run; the skill stops the
+background command, then abandons the stopped run before the corrected
+request, so that request starts a new run. Asked to fix the findings,
+it passes `--fix`, says in that message that the engine's workers will
+edit the working tree, that it runs the check commands it chose from
+the repository and that the run commits nothing, and afterwards offers
+to commit the edits with `deep-review commit`, after which it shows
+the short form again with `deep-review report`. It ends each turn
+with the result it relays. Asked for more on one question, or on one
+fix that goes against a written rule, it runs `report --finding <id>`;
+for the whole result or a document left out of date, `report --brief`;
+and for what the run changed, `report --fixes`. Asked for a run the
+user cannot name, it runs `status --all`. Asked for a
 configuration file, it writes it with `config init --repository`,
 `--operator` or `--clone`. Asked why a run reviewed what it did, it
 answers from that run's record, `status` for the active run and, for a
@@ -914,7 +951,7 @@ PowerShell tool off, so that Claude Code uses Git Bash, which needs Git
 for Windows: add `"env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" }` to
 `~/.claude/settings.json`. To keep PowerShell instead, install
 PowerShell 7 from the MSI or the zip and put its folder before
-`%LOCALAPPDATA%MicrosoftWindowsApps` on PATH. The plugin's
+`%LOCALAPPDATA%\Microsoft\WindowsApps` on PATH. The plugin's
 SessionStart hook (`deep-review hook session-start`) says the same once
 at the start of a new session on such a machine, and nothing anywhere
 else; the skill runs its commands with the Bash tool once the
@@ -934,6 +971,8 @@ dist/codex/**   ->   ~/.agents/skills/deep-review/
 
 The skill is then `$deep-review`. It runs the bundled engine beside its
 `SKILL.md` with `--runtime codex`, after the same `status` and
-`config show` step;
+`config show`, but it writes its message with the scope before the
+review, in the foreground of the turn, since Codex shows a message the
+model writes before a command;
 Codex reports no cost, so a Codex run has no budget and its report says
 so. Codex has no counterpart of the argument hint or of `allowed-tools`.
