@@ -179,6 +179,9 @@ export interface WorktreeCheckState extends Omit<WorktreeCheckV7, 'files'> {
   readonly files: readonly { readonly path: string; readonly outcome: WorktreeCheckV7['files'][number]['outcome']; readonly expected?: FrozenFile | null }[];
 }
 
+/** What sets a written report aside, so the run works again: an `answer.pass`, a `fix.pinned` that continues the run into the fix pass, or a `fix.reopened`. */
+export type ReportSetAside = 'answer-pass' | 'continuation' | 'reopened-fix-pass';
+
 /**
  * The review's state. Beside the facts listed here it holds the answers a
  * person recorded and the answer passes, every one in ledger order and
@@ -219,6 +222,12 @@ export interface ReviewState extends AnswerState {
    */
   readonly decisions: readonly RecordedDecision[] | null;
   readonly report: ReportWritten | null;
+  /**
+   * What set the last report aside, so the run works again: an answer
+   * pass, the continuation into the fix pass or a reopened fix pass; null
+   * while `report` is current, and for a run that has written none yet.
+   */
+  readonly reportSetAsideBy: ReportSetAside | null;
   /**
    * The read-only report of a run continued into the fix pass, with when
    * the continuation was recorded and how many worktree checks the run held
@@ -361,6 +370,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     ranking: null,
     decisions: null,
     report: null,
+    reportSetAsideBy: null,
     continuedFrom: null,
     fix: payload.fix ? emptyFixState() : null,
     survey: surveyed ? emptySurveyState() : null,
@@ -691,7 +701,7 @@ const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {
   // One patch per revision, in ledger order (R13 of the fix pass); a run without the fix pass has neither.
   const revisions = review.fix?.revisions.length ?? 0;
   if (payload.patches.length !== revisions) throw invalid(event, `writes ${String(payload.patches.length)} patches for ${String(revisions)} revisions`);
-  return withReview(current, { ...review, report: payload }, event);
+  return withReview(current, { ...review, report: payload, reportSetAsideBy: null }, event);
 };
 
 /** Version 1 of the report, written before the fix pass existed: no patch. */
