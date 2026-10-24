@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FixRecorded, TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, documentationItemsOf, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { cutShortBefore, cutShortChecks, documentationItemsOf, documentationReadiness, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -237,5 +237,26 @@ describe('the items of the documentation step', () => {
     const review = { fix, answerPasses: [], ranking: null, candidates: {} };
     assert.deepEqual(ownedFiles(review, 'repair', 'repair'), ['docs/testing.md', 'src/a.ts'], 'not the answer pass\'s README.md');
     assert.deepEqual(ownedFiles(review, 'documentation', 'documentation'), ['CHANGES.md', 'src/a.ts'], 'a refused path gives no file; its own revision is no file of the fixes');
+  });
+});
+
+describe('whether the documentation step can be planned', () => {
+  const fixes = revision('fixes', { kind: 'fix', key: 'c1-1', workerId: worker });
+  /** A fix state with `revisions` whose units in `stopped` the run budget or two failures left not attempted. */
+  const settled = (revisions: readonly TreeRevised[], stopped: Partial<FixState['notAttempted']>): FixState => ({ ...fixOf(revisions), notAttempted: { ...emptyFixState().notAttempted, ...stopped } });
+
+  it('is ready once the fixes revised the tree and the run budget stopped none of their batches', () => {
+    assert.deepEqual(documentationReadiness(fixOf([fixes])), { kind: 'ready' });
+    assert.deepEqual(documentationReadiness(settled([fixes], { fixes: { 'c2-1': { cause: 'failures', reason: '2 attempts did not complete' } } })), { kind: 'ready' }, 'a batch that failed twice is no budget stop');
+    assert.deepEqual(documentationReadiness(settled([fixes], { repair: { repair: { cause: 'budget', reason: 'spent' } } })), { kind: 'ready' }, 'a stop of another phase is not the fixes\'');
+  });
+
+  it('waits for the batches of the fixes the run budget stopped, with their keys, before it reads the revisions', () => {
+    assert.deepEqual(documentationReadiness(settled([], { fixes: { 'c1-1': { cause: 'budget', reason: 'spent' }, 'c2-1': { cause: 'budget', reason: 'spent' } } })), { kind: 'budget', keys: ['c1-1', 'c2-1'] });
+  });
+
+  it('has nothing to do when only another phase revised the tree, or nothing did', () => {
+    assert.deepEqual(documentationReadiness(emptyFixState()), { kind: 'no-fixes-revision' });
+    assert.deepEqual(documentationReadiness(fixOf([revision('repair', { kind: 'fix', key: 'repair', workerId: worker })])), { kind: 'no-fixes-revision' });
   });
 });

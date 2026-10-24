@@ -843,6 +843,24 @@ export function budgetStoppedUnits(fix: Pick<FixState, 'notAttempted'>): FixReop
   return budgetDegradingPhases.flatMap((phase) => Object.entries(fix.notAttempted[phase]).filter(([, settled]) => settled.cause === 'budget').map(([key]) => ({ phase, key })));
 }
 
+/** Whether the documentation step can be planned, or why not: the keys of the batches of the fixes the run budget left not attempted, or no revision of the fixes. */
+export type DocumentationReadiness = { readonly kind: 'ready' } | { readonly kind: 'budget'; readonly keys: readonly string[] } | { readonly kind: 'no-fixes-revision' };
+
+/**
+ * Whether the documentation step can be planned (R1, TD12 of the
+ * documentation step), which the planner, the fold of the plan and the
+ * brief's reason all read: not while the run budget leaves a unit of the
+ * fixes not attempted, since a reopened fix pass launches that unit first
+ * and the step plans after it; not when the fixes revised nothing, since
+ * nothing of the run can have made a document stale; else ready.
+ */
+export function documentationReadiness(fix: Pick<FixState, 'notAttempted' | 'revisions'>): DocumentationReadiness {
+  const keys = budgetStoppedUnits(fix).filter((unit) => unit.phase === 'fixes').map((unit) => unit.key);
+  if (keys.length > 0) return { kind: 'budget', keys };
+  if (!fix.revisions.some((revision) => revision.phase === 'fixes')) return { kind: 'no-fixes-revision' };
+  return { kind: 'ready' };
+}
+
 /** A `drift` line as the plan of the documentation step and an answer of the fixes both name it: the batch, the file as written and the stale fact. */
 export const driftLineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
 

@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { budgetStoppedUnits, claimsOfRound, cutShortBefore, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -588,9 +588,14 @@ function surveyStep(review: ReviewState, live: Live, attempt: number): Step | nu
  * nothing, since nothing of the run can have made a document stale.
  */
 function documentationStep(fix: FixState, attempt: number): Step {
-  if (budgetStoppedUnits(fix).some((unit) => unit.phase === 'fixes')) return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'degraded', blocker: null };
-  if (fix.revisions.some((revision) => revision.phase === 'fixes')) return { kind: 'plan-documentation' };
-  return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'completed', blocker: null };
+  switch (documentationReadiness(fix).kind) {
+    case 'budget':
+      return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'degraded', blocker: null };
+    case 'no-fixes-revision':
+      return { kind: 'finish-phase', phase: 'documentation', attempt, outcome: 'completed', blocker: null };
+    case 'ready':
+      return { kind: 'plan-documentation' };
+  }
 }
 
 /**

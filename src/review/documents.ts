@@ -7,7 +7,7 @@
  */
 import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, documentKey, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
+import { allBatches, documentationReadiness, documentKey, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
@@ -97,9 +97,14 @@ export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentation
   if (fix === null) return null;
   if (!review.documentationStep) return 'an engine before the documentation step configured this run';
   if (fix.documentation === null) {
-    if (budgetStoppedUnits(fix).some((unit) => unit.phase === 'fixes')) return 'the run budget was reached first';
-    if (!fix.revisions.some((revision) => revision.phase === 'fixes')) return 'the fixes changed no file';
-    return 'it has not run yet';
+    switch (documentationReadiness(fix).kind) {
+      case 'budget':
+        return 'the run budget was reached first';
+      case 'no-fixes-revision':
+        return 'the fixes changed no file';
+      case 'ready':
+        return 'it has not run yet';
+    }
   }
   if (fix.answers.documentation[documentationUnitKey] !== undefined) return null;
   const settled = fix.notAttempted.documentation[documentationUnitKey];

@@ -25,7 +25,7 @@
 import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
 import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
+import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, documentationReadiness, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -455,9 +455,9 @@ const documentationPlanned: Reducer<DocumentationPlanned> = (state, payload, eve
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, 'documentation');
   if (fix.documentation !== null) throw invalid(event, 'plans its documentation step twice');
-  const stopped = budgetStoppedUnits(fix).filter((unit) => unit.phase === 'fixes').map((unit) => unit.key);
-  if (stopped.length > 0) throw invalid(event, `plans its documentation step while the run budget leaves ${stopped.join(', ')} of the fixes not attempted`);
-  if (!fix.revisions.some((revision) => revision.phase === 'fixes')) throw invalid(event, 'plans its documentation step for fixes that revised nothing');
+  const readiness = documentationReadiness(fix);
+  if (readiness.kind === 'budget') throw invalid(event, `plans its documentation step while the run budget leaves ${readiness.keys.join(', ')} of the fixes not attempted`);
+  if (readiness.kind === 'no-fixes-revision') throw invalid(event, 'plans its documentation step for fixes that revised nothing');
   // How many times each line of the answers of the fixes is not listed yet.
   const unlisted = new Map<string, number>();
   for (const [key, answer] of Object.entries(fix.answers.fixes)) {
