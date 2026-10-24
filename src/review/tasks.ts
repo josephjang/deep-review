@@ -706,7 +706,7 @@ function unitLines(input: FixerTaskInput): { readonly head: string; readonly rou
             : [
                 '',
                 'Documents this run left out of date, which an answer you apply may settle:',
-                input.leftDocuments.map((document) => `- ${document.file}${document.facts.length === 0 ? '' : `: ${document.facts.join('; ')}`}`).join('\n'),
+                input.leftDocuments.map((document) => `- ${inlineText(document.file)}${document.facts.length === 0 ? '' : `: ${document.facts.map(inlineText).join('; ')}`}`).join('\n'),
                 '',
                 'Bring such a document in line when an answer you apply settles what it must say, and name it under that answer\'s finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`.',
               ]),
@@ -917,14 +917,15 @@ export interface DocumentationTaskInput {
   readonly unelevatedSandbox: boolean;
 }
 
-/** A document of the step's task: its index and id, its path as the fixers wrote it and as the repository holds it, then each of its lines with the batch that reported it. */
+/** A document of the step's task: its index and id, its path as the fixers wrote it and as the repository holds it, then each of its lines with the batch that reported it, the text a fixer wrote kept within its line. */
 function documentLines(index: number, document: DocumentationTaskDocument): string {
+  const file = inlineText(document.file);
   const where = document.path === null
-    ? `${document.file}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit`
-    : document.path === document.file ? document.path : `${document.file}, the repository path ${document.path}`;
+    ? `${file}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit`
+    : document.path === document.file ? inlineText(document.path) : `${file}, the repository path ${inlineText(document.path)}`;
   return [
     `[${String(index)}] ${document.id}: ${where}`,
-    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? '' : ` (as ${line.file})`}: ${line.what}`),
+    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? '' : ` (as ${inlineText(line.file)})`}: ${inlineText(line.what)}`),
   ].join('\n');
 }
 
