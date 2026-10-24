@@ -192,10 +192,11 @@ diagram is welcome where it clarifies a flow; render it and look at it
 before posting. Leave out what a reader of the pull request cannot see:
 local paths, private plans and notes, machine details.
 
-`main` must keep the commit hashes that proposals cite in their
-Verification sections, and the only merge GitHub offers here, rebase and
-merge, rewrites every hash. A pull request whose branch sits on `main` is
-merged instead by fast-forwarding `main` to the exact head CI tested:
+The history of `main` is linear: no merge commits. It must also keep the
+commit hashes that proposals cite in their Verification sections. The
+repository allows only rebase and merge, which keeps the history linear
+but rewrites every hash, so a pull request whose branch sits on `main`
+is merged instead by fast-forwarding `main` to the exact head CI tested:
 check `git merge-base --is-ancestor origin/main <head>`, then
 `git push origin <head>:refs/heads/main`, and GitHub marks the pull
 request merged. Ask the author before pushing to `main`.
