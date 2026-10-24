@@ -937,28 +937,23 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record = checkpoint.evidence.pathOf(review.report.report);
       const brief = briefOf(state);
-      if (form === 'fixes') {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines(state), copy ?? record].join('\n')}\n`);
-        return 0;
-      }
-      if (form === 'brief') {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...briefMarkdown(brief, 'chat'), copy ?? record].join('\n')}\n`);
-        return 0;
-      }
-      if (form === 'finding') {
-        const id = values.finding!;
-        const block = briefBlock(brief, id);
-        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
-        io.stdout(`${[...notShownLines(choice.passedOver), ...block, copy ?? record].join('\n')}\n`);
-        return 0;
-      }
       if (form === 'json') {
         // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
         const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
         io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}\n`);
         return 0;
       }
-      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record].join('\n')}\n`);
+      let body: readonly string[];
+      if (form === 'fixes') body = fixLines(state);
+      else if (form === 'brief') body = briefMarkdown(brief, 'chat');
+      else if (form === 'finding') {
+        const id = values.finding!;
+        const block = briefBlock(brief, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        body = block;
+      } else body = briefShortForm(brief);
+      // Each text form is told of the later runs it passed over and ends with the path, so no form can drop the warning (R8 of the questions in the chat).
+      io.stdout(`${[...notShownLines(choice.passedOver), ...body, copy ?? record].join('\n')}\n`);
       return 0;
     } finally {
       release?.();
