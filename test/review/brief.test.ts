@@ -526,9 +526,18 @@ describe('the documents a run left out of date in the brief', () => {
 
   it('gives the step that did not answer a gap of its own, and none to one with nothing to do or a run before the step', () => {
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
-    assert.deepEqual(briefOf(failedTwice).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents that the fixers named are in Documents left out of date.']);
+    assert.deepEqual(briefOf(failedTwice).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.']);
     assert.deepEqual(briefOf(documentedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a step that answered');
     assert.deepEqual(briefOf(decidedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a run an engine before the step configured');
+  });
+
+  it('names no fixer in the step\'s gap when only the repair named a document', () => {
+    const searchOnly = documentedFixRun([], (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
+    const fix = searchOnly.review!.fix!;
+    const repaired = { ...searchOnly, review: { ...searchOnly.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair: { drift: [line('docs/api.md', 'the check name changed')] } } } } } } as unknown as RunState;
+    const brief = briefOf(repaired);
+    assert.deepEqual(brief.documents.map((document) => document.file), ['docs/api.md']);
+    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.']);
   });
 
   it('counts the drift lines of a run an engine before the step configured, and says nothing of the step it never had (R11)', () => {

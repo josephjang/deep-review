@@ -255,7 +255,7 @@ The paragraph "What deep-review changed" of a fix run gets one sentence on the s
 "What the review did not cover" gets a gap of the new kind `documentation` when the step did not answer, as in this example:
 
 ```text
-The documentation step did not run: its worker failed twice. The documents that the fixers named are in Documents left out of date.
+The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.
 ```
 
 The gap of the run budget names the step among the work that the budget stopped.
