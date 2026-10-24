@@ -371,7 +371,7 @@ function tailOf(evidence: Pick<EvidenceStore, 'read' | 'pathOf'>, reference: Art
   return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
 }
 
-/** The repair worker's task: the checks failing after the fixes with their output, and their output before for one that failed then too (R24), everything the fixes changed, and what each fixer did. */
+/** The repair worker's task: the checks failing after the fixes and the documentation step with their output, and their output before for one that failed then too (R24), everything the fixes and the step changed (R9 of the documentation step), and what each fixer and the step did. */
 function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'read' | 'pathOf'>): string {
   const fix = review.fix;
   if (fix === null) throw new Error('The repair runs only in a run with the fix pass');
@@ -385,7 +385,8 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   });
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
-  return repairTask({ checks, owned, answers, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
+  const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
+  return repairTask({ checks, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
 /**

@@ -18,7 +18,7 @@ import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { answer, askDecision, baselined, decidedFixRun, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, baselined, decidedFixRun, documentationAnswer, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -497,5 +497,17 @@ describe('the documentation step\'s task', () => {
     assert.throws(() => task(review), /runs only once it is planned/);
     assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence }), /needs them/);
     assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence, documentation: { patches: [], exclude: [] } }), /is given 0 patches for the 1 revisions of the fixes/);
+  });
+
+  it('gives the repair the step\'s files as the step\'s, beside the fixers\', and what the step did (R9)', () => {
+    const history = planned().worker(55, 'documentation documentation:documentation')
+      .add('fix.recorded', documentationAnswer(worker(55), [['doc-1', 'applied'], ['search', 'already-applied']], { findings: [{ id: 'doc-1', status: 'applied', file: 'docs/parse.md', line: null, note: 'docs/parse.md says parse guards the null', message: { subject: 'docs: Say parse guards the null', body: 'Why.' }, files: ['docs/parse.md'], corrections: [], validation: [], requiredFiles: [] }, { id: 'search', status: 'already-applied', file: '.', line: null, note: 'nothing else is stale', message: null, files: [], corrections: [], validation: [], requiredFiles: [] }] }), 3)
+      .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(55) }, change: { findings: ['doc-1'], message: { subject: 'docs: Say parse guards the null', body: 'Why.' } }, files: [{ path: 'docs/parse.md', status: 'modified', before: { blob: reference }, beforeSymlink: false, symlink: false, after: { blob: patch } }] }, 3)
+      .add('worktree.checked', endCheck('documentation'), 7).finish('documentation');
+    const repairing = checksPhase(history, 'checks', { test: 'failed' }).start('repair');
+    const text = taskFor(unit('repair', 'repair', 'fixer'), repairing.review(), { editing, evidence });
+    assert.match(text, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the edits of the fixers and the documentation step\./);
+    assert.match(text, /^Files you own: every file the fixers and the documentation step changed\.\n- docs\/parse\.md\n- src\/a\.ts\n/m);
+    assert.match(text, /^What the documentation step did:\n- doc-1 applied: docs\/parse\.md says parse guards the null\n- search already-applied: nothing else is stale$/m);
   });
 });

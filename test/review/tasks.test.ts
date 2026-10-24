@@ -655,6 +655,7 @@ describe('the repair task', () => {
       checks: [failing, { ...failing, kind: 'lint', command: 'npm run lint', outcome: 'timeout', exitCode: null }],
       owned: ['src/a.ts', 'test/a.test.ts'],
       answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
+      documentation: [],
       allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: true,
@@ -672,6 +673,25 @@ describe('the repair task', () => {
     assert.match(task, /The message in an applied check's `edits` describes what the repair changed\./);
     assert.match(task, /An earlier attempt left edits for test, recorded as that attempt's work; for each of these you report `already-applied` with `edits` naming the files that hold its edits and the `message` its commit will carry, as for an applied check\./);
     assert.match(task, /the `edits` for it, null when you made no edit for it and no earlier attempt left any, otherwise the `files` you edited or created for it, or that hold an earlier attempt's edits for it, and their `message`/);
+    assert.doesNotMatch(task, /documentation step/, 'a run whose step did not answer names the fixers alone');
+  });
+
+  it('names the documentation step\'s edits beside the fixers\' and lists what it did, item by item, once it answered (R9 of the documentation step)', () => {
+    const task = repairTask({
+      checks: [failing],
+      owned: ['README.md', 'src/a.ts'],
+      answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
+      documentation: [{ id: 'doc-1', status: 'applied', note: 'README.md says parse returns null' }, { id: 'search', status: 'already-applied', note: 'nothing else is stale' }],
+      allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
+      snapshotCommand: 'snap',
+      mayHoldWork: false,
+      unfinished: [],
+      unelevatedSandbox: false,
+    });
+    assert.match(task, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the edits of the fixers and the documentation step\. Make each pass again without undoing an applied fix: read its output, find what the edits of the fixers and the documentation step broke, and fix that\./);
+    assert.doesNotMatch(task, /the fixers' edits/);
+    assert.match(task, /Files you own: every file the fixers and the documentation step changed\.\n- README\.md\n- src\/a\.ts/);
+    assert.match(task, /What each fixer did:\n- c1-1 RIPPLE-1 applied: guarded the null\n\nWhat the documentation step did:\n- doc-1 applied: README\.md says parse returns null\n- search already-applied: nothing else is stale\n\n/);
   });
 
   it('says how a check cut twice ended: no result from its guard, a signal or an exit code with a kill mark (R8 of resumable runs)', () => {
@@ -679,6 +699,7 @@ describe('the repair task', () => {
       checks: [{ ...failing, exitCode: null }, { ...failing, kind: 'lint', exitCode: null, signal: 'SIGTERM' }, { ...failing, kind: 'build', exitCode: 143 }],
       owned: ['src/a.ts'],
       answers: [],
+      documentation: [],
       allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
       snapshotCommand: 'snap',
       mayHoldWork: false,
@@ -697,6 +718,7 @@ describe('the repair task', () => {
       checks: [{ ...failing, baseline: before }],
       owned: ['src/a.ts'],
       answers: [],
+      documentation: [],
       allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
       snapshotCommand: `node "/e/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/s"`,
       mayHoldWork: false,
@@ -709,7 +731,7 @@ describe('the repair task', () => {
 
   it('asks for no `blocked` answer, which the engine refuses from the repair, and for `deferred` with the reason when a check needs a file outside the repository', () => {
     // A repair alone in the tree may edit every file of the repository, and the engine refuses a blocked answer from it (`checkFixerAnswer`), so the task says no check is blocked, over the fixer's role prompt it shares.
-    const task = repairTask({ checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    const task = repairTask({ checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
     assert.deepEqual(task.match(/[^.]*blocked[^.]*\./g)?.map((sentence) => sentence.trim()), ['No check is `blocked`: nothing holds a file from you.']);
     assert.match(task, /`deferred` with the reason when it cannot be made to pass here, as when it needs a file outside the repository/);
     assert.match(task, /`status` \(`applied`, `already-applied` or `deferred`\)/);
@@ -717,7 +739,7 @@ describe('the repair task', () => {
   });
 
   it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
-    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
+    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
     const plain = repairTask({ ...repair, unelevatedSandbox: false });
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));

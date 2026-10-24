@@ -822,10 +822,12 @@ export interface RepairTaskCheck {
 
 export interface RepairTaskInput {
   readonly checks: readonly RepairTaskCheck[];
-  /** Every file the fixers changed, which the repair owns. */
+  /** Every file the fixers and the documentation step changed, which the repair owns (R9 of the documentation step). */
   readonly owned: readonly string[];
   /** What each fixer did, one line per finding, under the batch that answered it. */
   readonly answers: readonly { readonly batch: string; readonly id: string; readonly status: string; readonly note: string }[];
+  /** What the documentation step did, one line per item; none when it did not answer, and the task then names the fixers alone. */
+  readonly documentation: readonly { readonly id: string; readonly status: string; readonly note: string }[];
   readonly allChecks: readonly PlannedCheck[];
   readonly snapshotCommand: string;
   readonly mayHoldWork: boolean;
@@ -851,9 +853,11 @@ function repairCheckEnd(check: RepairTaskCheck): string {
   return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check.exitCode)}`;
 }
 
-/** The repair worker's task (R11, R24 of the fix pass): every check failing after the fixes with its output, and its output before them when it failed then too, the files it owns, what each fixer did, and the same answer as a fixer's with the checks as its findings. */
+/** The repair worker's task (R11, R24 of the fix pass): every check failing after the fixes and the documentation step with its output, and its output before them when it failed then too, the files it owns, what each fixer and the step did, and the same answer as a fixer's with the checks as its findings. */
 export function repairTask(input: RepairTaskInput): string {
   const count = input.checks.length;
+  const step = input.documentation.length > 0;
+  const edits = step ? 'the edits of the fixers and the documentation step' : 'the fixers\' edits';
   const checks = input.checks.map((check, index) => [
     `[${String(index)}] ${check.kind}: ${check.command}`,
     `    ${repairCheckEnd(check)}`,
@@ -868,11 +872,11 @@ export function repairTask(input: RepairTaskInput): string {
         ]),
   ].join('\n'));
   return [
-    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after the fixers' edits. Make each pass again without undoing an applied fix: read its output, find what the fixers' edits broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
+    `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
     '',
     ...checks,
     '',
-    'Files you own: every file the fixers changed.',
+    `Files you own: every file the fixers${step ? ' and the documentation step' : ''} changed.`,
     fileList(input.owned),
     '',
     'You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.',
@@ -880,6 +884,7 @@ export function repairTask(input: RepairTaskInput): string {
     'What each fixer did:',
     input.answers.length === 0 ? '(nothing recorded)' : input.answers.map((answer) => `- ${answer.batch} ${answer.id} ${answer.status}: ${answer.note}`).join('\n'),
     '',
+    ...(step ? ['What the documentation step did:', input.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join('\n'), ''] : []),
     checksBlock(input.allChecks),
     '',
     ...editingTail(input, 'check', ' The message in an applied check\'s `edits` describes what the repair changed.'),
