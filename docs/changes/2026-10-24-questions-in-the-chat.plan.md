@@ -35,7 +35,7 @@ Files:
 - In the same function, a start that names two or more runs is a `ReviewRefusedError` that names them. A start that names none, or a start of fewer than 8 characters, goes on to `checkpoint.fold`. Its `UnknownRunError` gets the same report as today in each command.
 - `src/command.ts`: `resolveRun` takes the id from `runIdOf` before `checkpoint.fold`. This covers `status`, `report` and `abandon`.
 - `src/review/answer.ts`: `chooseAnswerRun` takes a given id through `runIdOf`.
-- `src/review/commit.ts`: `chooseRun` takes a given id through `runIdOf`.
+- `src/review/commit.ts`: `chooseRun` takes a given id through `runIdOf`. Its comment cites R6 of fix pass continuation for the order by the last event. That rule is R9, so the comment names R9.
 
 Tests:
 
@@ -54,7 +54,7 @@ Files:
 
 - `src/review/status.ts`: a new `noReportWords(state)`, the state of a run with no current report in its own terms. An abandoned run gives `state.abandonReason` and the phase that `currentPhase` names. A blocked run gives the code of its blocker. A run in progress gives its phase.
 - In the same function, a run that works again names the open answer pass, the continuation or the reopened fix pass. The fold has `review.answerPasses` and `review.continuedFrom` for this. A run with no review says that its review is not configured.
-- `src/command.ts`: `report` with no `--run` takes the newest run of the worktree, by `createdAt`, with a current report. Before the short form, it prints one `Not shown:` line for each newer run of the worktree, with `noReportWords`.
+- `src/command.ts`: `report` with no `--run` takes the run of the worktree with a current report and the highest `lastSequence`, as `chooseRun` and `chooseAnswerRun` do. Before the short form, it prints one `Not shown:` line for each run of the worktree with a higher `lastSequence`, with `noReportWords`.
 - In the same command, a worktree with no run that has a report gets a refusal. The refusal gives the state of the newest run and names `status --all`. A refusal of `report --run <id>` uses `noReportWords`, and it still names `status --run <id>`. The comment of `report` says so.
 
 Tests:
@@ -62,6 +62,7 @@ Tests:
 - `test/review/status.test.ts`: `noReportWords` for each state. The cases are an abandoned run in the triage with its reason, a blocked run with its code, and a run in progress. They also include an open answer pass, a continuation and a reopened fix pass.
 - `test/cli.test.ts`, the case "shows the brief of the newest run of the worktree with report". A new run with no report no longer makes `report` refuse. `report` shows the second run, and its first line names the new run.
 - In the same case, an abandoned newest run gives `abandoned` with its reason and its phase. `report --run <abandoned>` refuses with the same words. A worktree whose runs have no report refuses and names `status --all`.
+- `test/cli.test.ts`, a continued run: a read-only run, then a later run with a report, then the first run continued into the fix pass to its report. `report` shows the continued run and prints no `Not shown:` line. This case fails on an order by `createdAt`.
 
 ```sh
 npm run check

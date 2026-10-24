@@ -135,10 +135,12 @@ Both skills get one sentence. The skill runs `report --brief` when the user asks
 
 ### R8: `report` takes the newest run with a report
 
-`report` with no `--run` takes the newest run of the worktree, by the time that it started, that has a current report. `answer` and `commit` also pass over the runs that they cannot act on. Before the short form, stdout gives one line for each newer run of the worktree that `report` passed over. The line gives the state of that run as R9 says it. This is an invented example of the line:
+`report` with no `--run` takes the run of the worktree that has a current report and whose last event is the latest in the ledger. `answer` and `commit` take their run in the same order, and they also pass over the runs that they cannot act on. R9 of fix pass continuation gives the reason: a read-only run that `review --fix` continues ends after runs that started later. This revises R16 of the brief of a run, whose design took the newest run by the time that it started.
+
+Before the short form, stdout gives one line for each run of the worktree that `report` passed over and whose last event is later. The line gives the state of that run as R9 says it. This is an invented example of the line:
 
 ```text
-Not shown: run 171fd810, which started later, was abandoned in the phase triage: wrong scope.
+Not shown: run 171fd810, a later run, was abandoned in the phase triage: wrong scope.
 ```
 
 With no run that has a report, `report` refuses with exit code 2. The refusal gives the state of the newest run and names `status --all`.
