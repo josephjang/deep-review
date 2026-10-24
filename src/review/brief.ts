@@ -980,8 +980,8 @@ export function briefShortForm(brief: Brief): string[] {
   const cut = (line: string): string => cutAtWord(line, shortLineLimit);
   return [
     cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
-    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat).
-    cutAtWord(`${brief.change.state === 'given' && brief.change.beforeEdits ? 'The change before the fixes' : 'The change'}: ${change}`, changeLineLimit),
+    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat); the limit counts the sentence, not the mark (R4).
+    `${brief.change.state === 'given' && brief.change.beforeEdits ? 'The change before the fixes' : 'The change'}: ${cutAtWord(change, changeLineLimit)}`,
     cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
     ...open.slice(0, shownQuestions).flatMap(questionLines),
     ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),
