@@ -373,4 +373,62 @@ A program that reads the JSON form gets version 3 and must take it. No program i
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The proposal and the work are the 28 commits from `cd493a6` to `75e7cd4`, written on `3c4e3ec`: the proposal and the working plan, 14 amendments of the proposal from an independent review before any code, 11 commits of the work, and the build of `dist/`. Three parts went elsewhere than planned. The lines of `report --fixes` are made in a module of their own, `src/review/fix-lines.ts`, because the module of the fix report would have imported the brief and closed a cycle. The function that describes a run takes the facts from outside the ledger (its continuation, its report copy and its commits) as one object. `src/scope/git.ts` gained a test for the empty tree, which the count of commits needs. The README's line on the PATH of a Windows install had lost its backslashes on `main`, and the work put them back.
+
+At the head of the work, `npm run check` passed (2846 tests passed, 0 failed, 24 skipped), and `npm run test:contract` (51 of 51) and `npm run verify` passed. CI passed on the three systems.
+
+### Changes of the proposal during the work
+
+Before the code, the independent review of the proposal changed it in 14 commits, from `faa0964` to `ecab479`. The author decided four of its findings: the short form gives the words of the decider whole (PD12), the fixes stay in the evidence and `report --fixes` prints a line for each (PD3), `report --finding <id>` prints the block of one question or departure (PD1, R7), and a gate run that asks no question gets one more run on the author's word (PD13).
+
+The gate changed it again, each time in the commit of the fix or the answer that needed it:
+
+- R6: the lines of `report --fixes` name each fate in short words of their own, which are not the sentences of the brief, and a fix run that gave no finding to a fixer says so.
+- R10: the reason of an abandon is cut at a word at 200 characters, `status --all --every` lists every run and the count line names it, and a last line counts the runs this engine cannot read.
+- R12: a commit that changes only paths that `scope.exclude` leaves out does not count; `--from <base> --to HEAD --merge-base` with the base in force reads as `branch` in `config show` too; `status --json` names at most 2000 paths left out, the most that a run records, with a count of them all. The last is the fix that goes against R12 as first written, and the author accepted it.
+- R13 and PD10: a fix run that continues a read-only run that finished gets the warning after the start too. The proposal no longer says that the run has edited nothing when the person reads it; that holds for a run that reviews.
+- R5: version 3 of the JSON form marks an account of the change that predates the fixes and the answers, as the text forms do.
+
+### The gate (R15)
+
+The engine of the gate was a copy of `dist/claude` and of `dist/codex` at the head of the work. The run on this pull request and the sessions on pallets/click #3878 went at the same time. The hosts were Claude Code 2.1.310 with Opus 5.5 and Codex 0.160.0 with GPT-6-Astra, on Windows.
+
+**This pull request on Claude Code.** Run `9a279203`, with `--branch --fix` and the settings of the repository. It took 61 minutes and 33.40 USD. The decision step decided 28 findings: 16 to fix, 4 to leave and 8 questions, and one of its fixes goes against a written rule. Fixers applied 19 fixes, 7 of them in a second round, and none timed out. The documentation step brought the proposal and the plan in line with the fixes. Each check passed before and after the fixes. `deep-review commit` made 25 commits. Typecheck and lint passed at each of them alone, and an audit of a copy of the ledger found no commit that holds a path its cluster did not own or claim: 0 of 25, with 32 claims and none late or lost.
+
+**The hosts on pallets/click #3878.** Two fresh clones at the head `f8c5a8e` and the base `2247b35`, with a test identity. In each host an interactive session, in the person's language, asked for a fix run of the branch, asked what the two questions change, asked for a commit, started a review of the last commit (a wrong scope, since HEAD was then a fix commit of deep-review), stopped it, and then in a new session asked for the last result and the list of runs without naming the skill. Claude Code ran in auto mode with an allow rule for the engine command only, so no permission prompt came up; Codex ran with full access. On Claude Code, run `75f7258f` took 18 minutes and 8.00 USD, applied 6 fixes, asked 2 questions and made 1 fix against a written rule; `commit` made 8 commits. On Codex, run `17ba0da1` took 34 minutes, applied 7 fixes and asked 2 questions; `commit` made 7 commits. Both runs asked questions, so PD13's second run was not needed.
+
+The measures of R15:
+
+- The message with the scope. At each of the two starts on Claude Code it is a text block of the transcript and the last text of the turn, written after the review started in the background. For the fix run it has the words of step 2. Before this change, it was a text block at none of four starts.
+- The `Scope:` line. At each of the four starts it names the mode, the counts and the base, and they match what git gives for the clone: `branch, 1 commit and 4 files, from the merge base with origin/main (2247b35e)` for each fix run, and 1 commit with 1 file on Claude Code and with 2 files on Codex for the last commit.
+- The questions. In both hosts the message of the result gives each question and its options in the words of the decider. Asked what the questions change, each host ran `report --finding` once for each question and read no report file.
+- The last message of each turn with a result. Each line of the short form that the engine printed is in it as printed: 15 of 15 lines in each of three turns on Claude Code, and 14 of 14 in each of three turns on Codex. After `commit`, each host ran `report` and gave the lines of `commit` and then the short form, whose `Changed:` line now counts the commits.
+- The stop. On Claude Code the skill stopped the background review and `abandon` closed the run with no refusal. On Codex, Esc left the engine running, so the first `abandon` was refused with `lock-held`; the model ended the engine and a second `abandon` closed the run.
+- The way back. After the abandoned run, `report` alone shows the last report and names the abandoned run in a `Not shown:` line. In the new session Codex ran `status --all` and `report` at once, in 48 seconds. Claude Code first looked for the skill for 70 seconds, since the plugin's skill is offered to the model only when the person names it, and then ran `status --all` and `report`: 1 minute 32 seconds, against 1 minute 6 seconds and 2 permission prompts before this change.
+
+### The answers of the author
+
+The author answered each of the 8 questions with deep-review's choice and accepted the fix that goes against R12:
+
+- A way to list every run, past the 20 newest: `status --all --every`.
+- The warning of a fix run that continues a finished review: after the start, as for any fix run, with the skill and the proposal corrected.
+- Four commit subjects of this branch over 72 characters: reworded before the merge.
+- `report --fixes` of a fix run with no fix: a sentence that says so, already in place.
+- `--from <base> --to HEAD --merge-base` before the run: `branch`, by one rule with `status`.
+- `status --all` with only runs this engine cannot read: a line that counts them.
+- The mark on an account that predates the fixes: in version 3 of the JSON form too.
+- Two wordings of the fate of a fix: both kept, with the proposal corrected, already in place.
+
+One answer pass applied the five answers that owed an edit, and `deep-review commit` made 6 more commits. After the pass the `test` check failed once: a test on Windows waits 15 seconds for a process it starts to write its pid, and under the load of the machine it waited longer. The pass changed nothing that the test runs, and the test passed alone and in the full suite after it. The four subjects were reworded by hand, by a rebase that changed only the messages, so each commit keeps its tree, and the branch was pushed again. The run's ledger names the commits by their hashes from before the rebase.
+
+The commits of the gate are the 31 from `f8a30c5` to `6801468`, in pull request #75, which merged into this branch by a fast-forward. Typecheck and lint passed at each of them alone. At `6801468`, `npm run check` passed (2884 tests: 2860 passed, 0 failed, 24 skipped), and `npm run test:contract` (51 of 51) and `npm run verify` passed. CI passed there on the three systems: the check took 156 seconds on Linux, 346 on macOS and 478 on Windows.
+
+### What the gate showed
+
+- The Codex skill says nothing of ending the engine before `abandon`, which R13 says for the Claude Code skill only, so a stop on Codex meets `lock-held` first.
+- A person who asks Claude Code for a result without naming the skill waits while the model looks for it, because the plugin's skill is not offered to the model. On that machine the model also read the files of an older prompt skill and the transcript of the earlier session.
+- A fixer and the answer pass each edited `dist/claude/skills/deep-review/SKILL.md` by hand with the same lines as its source. `dist/` matched the build at each head, but `AGENTS.md` says that `dist/` is never edited by hand.
+- After the answer pass, the report said that the `test` check "failed after them", the fixes, and that no check failed after the fixes, while the failure came after the answers; the short form has no line for a failed check. The brief takes the last check of the newest tree as the outcome after the fixes, a rule older than this change.
+- Four subjects of this work were over the limit of `AGENTS.md`, which the review of the run found and the work did not.
