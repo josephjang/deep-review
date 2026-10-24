@@ -6,16 +6,55 @@
  * after runs that started later (R9 of fix pass continuation). Each run
  * of the worktree whose last event is later has no report, and the choice
  * names it with why, so that an older result is never taken for the
- * current one. A later run this engine cannot read is named too.
+ * current one. A later run this engine cannot read is named too. The
+ * words of why a run has no report are also those `report` refuses a run
+ * that `--run` names with (R9).
  */
 import { isUnreadable, type Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
-import { counted } from './markdown.ts';
+import { counted, inlineText } from './markdown.ts';
 import { latestFirst, passedOverLine, shortRunId } from './runs.ts';
 import { hasCurrentReport } from './state.ts';
-import { noReportWords } from './status.ts';
+
+/**
+ * The reason of an abandon on one line with no period of its own at the
+ * end, since the words that follow it end the sentence; a reason made only
+ * of periods, such as `...`, keeps them, so the colon before it is never
+ * left with nothing after it.
+ */
+function abandonWords(reason: string): string {
+  const inline = inlineText(reason).trim();
+  return inline.replace(/[\s.]+$/, '') || inline;
+}
+
+/**
+ * Why a run has no current report, in its own terms (R9 of the questions
+ * in the chat), as words that follow "it" or "a later run,": an abandoned
+ * run with the reason of its abandon, a blocked one with the code of its
+ * blocker, one whose review never started, one that works again in an
+ * answer pass, a continuation or a reopened fix pass, the one the fold
+ * records as having set its last report aside, or one in progress. No
+ * words name a phase, a term of the engine (R12 of the brief of a run);
+ * `status --run <id>` gives it.
+ */
+export function noReportWords(state: RunState): string {
+  const review = state.review;
+  if (state.status === 'abandoned') return `was abandoned: ${abandonWords(state.abandonReason ?? '')}`;
+  if (review === null) return 'never started its review';
+  if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
+  switch (review.reportSetAsideBy) {
+    case 'answer-pass':
+      return 'works again in an answer pass';
+    case 'continuation':
+      return 'works again, continued into the fix pass';
+    case 'reopened-fix-pass':
+      return 'works again in a reopened fix pass';
+    case null:
+      return 'is in progress';
+  }
+}
 
 /** A run `report` passed over: its id, and why it has no report, in the words of `noReportWords`. */
 export interface PassedOver {
