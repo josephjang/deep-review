@@ -248,3 +248,14 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
   const more = newest.length - shown.length;
   return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --all --every lists every run`];
 }
+
+/**
+ * The line of `status --all` that counts the `count` runs of the
+ * checkpoint this engine cannot read (R10 of the questions in the chat),
+ * which it lists after the runs it can read, so that a checkpoint that
+ * holds only such runs is never said to hold none.
+ */
+export function unreadableRunsLine(count: number): string {
+  const them = count === 1 ? 'it' : 'them';
+  return `${counted(count, 'run is', 'runs are')} not listed, since this deep-review cannot read ${them}; a newer deep-review lists ${them}`;
+}

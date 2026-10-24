@@ -57,7 +57,7 @@ import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyCon
 import { readableRuns, runIdOf } from './review/runs.ts';
 import { fixLines } from './review/fix-lines.ts';
 import { chooseReportRun, noReportWords, notShownLines, type ReportChoice } from './review/report-choice.ts';
-import { describeRun, listedRuns, runListLines, type StatusContinuation } from './review/status.ts';
+import { describeRun, listedRuns, runListLines, unreadableRunsLine, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -848,12 +848,18 @@ function status(values: Values, io: CommandIo, root: string, worktree: string): 
   }
   try {
     if (values.all === true) {
-      const runs = readableRuns(checkpoint, (line) => io.stderr(`${line}\n`));
+      // readableRuns logs one line for each run it passes over, so the lines count the runs this engine cannot read.
+      let unreadable = 0;
+      const runs = readableRuns(checkpoint, (line) => {
+        unreadable += 1;
+        io.stderr(`${line}\n`);
+      });
       const copyOf = (state: RunState): string | null => {
         const copy = reportCopyPath(checkpoint.root, state);
         return existsSync(copy) ? copy : null;
       };
-      io.stdout(runs.length === 0 ? 'No active run.\n' : `${runListLines(runs, worktree, copyOf, values.every === true).join('\n')}\n`);
+      const lines = [...runListLines(runs, worktree, copyOf, values.every === true), ...(unreadable === 0 ? [] : [unreadableRunsLine(unreadable)])];
+      io.stdout(lines.length === 0 ? 'No active run.\n' : `${lines.join('\n')}\n`);
       return 0;
     }
     const state = resolveRun(checkpoint, values.run, io);

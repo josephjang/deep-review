@@ -179,7 +179,7 @@ These words name no phase, because a phase is a term of the engine (R12 of the b
 
 ### R10: `status --all` lists the runs
 
-`deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others, which names `status --all --every`. That command lists every run, so the id of an older run can be found too. With no checkpoint, or with no run, it prints the line that `status` prints today.
+`deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others, which names `status --all --every`. That command lists every run, so the id of an older run can be found too. With no checkpoint, or with no run, it prints the line that `status` prints today. A last line counts the runs that this engine cannot read and says that a newer deep-review lists them, so a checkpoint that holds only such runs is never said to hold no run.
 
 A line gives the first 8 characters of the id of the run (R11) and the time that it started. It gives its state, with the reason of an abandon, cut at a word at 200 characters, because that reason has no limit. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`, and `--every` goes only with `--all`.
 

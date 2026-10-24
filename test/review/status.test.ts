@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { cutAtWord, shortLineLimit } from '../../src/review/brief.ts';
-import { askedModeOf, describeRun, listedRuns, runListLines } from '../../src/review/status.ts';
+import { askedModeOf, describeRun, listedRuns, runListLines, unreadableRunsLine } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { maxExcludedNamed } from '../../src/scope/capture.ts';
@@ -261,6 +261,11 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     assert.deepEqual(lines.map((line) => line.slice(0, 8)), runListLines(runs, '/w', copyOf).slice(0, 20).map((line) => line.slice(0, 8)).concat(['00000002', '00000001']));
     assert.ok(lines.every((line) => / started /.test(line)), 'no count line');
     assert.deepEqual(runListLines([], '/w', copyOf, true), []);
+  });
+
+  it('counts the runs this engine cannot read', () => {
+    assert.equal(unreadableRunsLine(1), '1 run is not listed, since this deep-review cannot read it; a newer deep-review lists it');
+    assert.equal(unreadableRunsLine(3), '3 runs are not listed, since this deep-review cannot read them; a newer deep-review lists them');
   });
 
   it('keeps the reverse of the ledger order for runs that started at the same moment', () => {

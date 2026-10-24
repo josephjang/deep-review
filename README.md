@@ -270,7 +270,8 @@ recorded them, with `excludedCount` counting them all; `status --run
 <id>` prints another run, and `status --all` lists the 20 newest runs
 of the checkpoint, newest first, each with the first eight characters
 of its id, its state, its scope and the copy of its current report,
-and counts the others; `status --all --every` lists every run.
+and counts the others; `status --all --every` lists every run. Both
+count the runs this engine cannot read, which a newer one lists.
 `deep-review abandon --reason <text>` closes an active or blocked run.
 Each command that takes `--run` takes the whole id or its first eight
 or more characters.

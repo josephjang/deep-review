@@ -617,6 +617,11 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const abandon = await run(box, 'abandon', '--reason', 'which one');
     assert.equal(abandon.status, 1, abandon.stderr);
     assert.ok(abandon.stderr.startsWith(passedOver) && abandon.stderr.includes('\nno active run to abandon\n'), abandon.stderr);
+    // status --all never says there is no run when the checkpoint holds one; it counts the runs it cannot read (R10 of the questions in the chat).
+    const listed = await run(box, 'status', '--all');
+    assert.equal(listed.status, 0, listed.stderr);
+    assert.equal(listed.stdout, '1 run is not listed, since this deep-review cannot read it; a newer deep-review lists it\n');
+    assert.ok(listed.stderr.startsWith(passedOver), listed.stderr);
     for (const args of [['status', '--run', unreadable], ['abandon', '--run', unreadable, '--reason', 'from the older engine'], ['commit', '--run', unreadable]]) {
       const named = await run(box, ...args);
       assert.equal(named.status, 1, `${args.join(' ')}: ${named.stderr}`);
@@ -628,6 +633,11 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.ok(review.stderr.startsWith(passedOver), review.stderr);
     assert.equal(box.checkpoint.ledger.lastSequence(unreadable), 2, 'nothing was appended to the run passed over');
     assert.deepEqual(box.checkpoint.listRuns().map((listed) => isUnreadable(listed)), [true, false], 'the review ran a run of its own');
+    // The run it can read is listed, and the count of those it cannot read comes last.
+    const both = (await run(box, 'status', '--all')).stdout.trimEnd().split('\n');
+    assert.equal(both.length, 2, both.join('\n'));
+    assert.match(both[0]!, / started .*: complete; last-commit, /);
+    assert.equal(both[1], '1 run is not listed, since this deep-review cannot read it; a newer deep-review lists it');
   });
 
   it('exits 2 on a refusal that has no blocker code, as on one that has', async (t) => {
