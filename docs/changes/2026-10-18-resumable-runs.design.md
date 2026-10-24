@@ -596,7 +596,7 @@ Run `16ed26e1` reviewed 84 files of the change with `--branch --fix`. Three stop
 - The command of Claude Code that stops a background command ended only the shells of that command. The engine and its fixers continued, so this stop leaves no mark.
 - A hard kill of the engine alone stopped it while four fixers ran. Two seconds later, none of the 41 processes of its tree was alive. The same command recorded the four fixers as lost. It kept the edits of three of them in revisions of their unfinished attempts, and it launched the four batches again.
 
-The plan put the hard kill in a second run, but it was made in the first run. No second run was made.
+The gate was planned with the hard kill in a second run, but it was made in the first run. No second run was made.
 
 Run `16ed26e1` then wrote its report. It had 40 findings: the fixers applied 24, and 6 were already applied. The reported spend was 57.22 USD. The budget check counted 89.22 USD, because it counts four timeouts at their caps. `deep-review commit` made 38 commits.
 

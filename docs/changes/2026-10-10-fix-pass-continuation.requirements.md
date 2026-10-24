@@ -17,7 +17,7 @@ read the report, then fix" costs a second full review; after the change
 it costs the fix pass alone. A run started with `--fix` is unchanged,
 and so is a read-only run that nobody continues.
 
-This is the first item of the plan reoriented on 2026-10-10 around the
+This is the first element of the work reoriented on 2026-10-10 around the
 review as the one gate an agent-written change passes through: the
 person's step between reading and fixing should cost nothing but the
 fixing.
@@ -92,8 +92,8 @@ the checks.
 - **No second review.** No finder, verifier, deduplication, sweep,
   merge-rank or decider runs in a continuation; the findings and
   decisions are the first pass's. A person who disagrees with a
-  decision has no way to say so here; that is the `answer` command of
-  the plan's second item.
+  decision has no way to say so here; that is the `answer` command,
+  the element after this one (`2026-10-11-answers.requirements.md`).
 - **No continuation of a changed change.** When a file of the scope
   differs from what the run froze, or `HEAD` moved, or the scope flags
   name another change, a new run is created and the log says which
@@ -293,7 +293,7 @@ the checks.
   read-only run take `--fix` at any point before the fix phases was
   rejected: the survey would have to be asked again mid-run for the
   checks, the person's intent mid-run is unclear (they have not read a
-  report), and the case the plan names is reading first. The log tells
+  report), and the case this element is for is reading first. The log tells
   such a person what to do instead (R10). Revisit if runs are started
   read-only by habit and switched before they finish.
 - **PD5: The checks are asked of the surveyor, once, with the
@@ -333,8 +333,7 @@ the checks.
   reviews again under the new ones.
 - **PD9: The gate runs on Claude Code only.** Codex is a judging
   runtime in this repository and no fix run has used it since the
-  decision step (its Non-Goals); the plan's tenth item is the cycle on
-  Codex.
+  decision step (its Non-Goals); the cycle on Codex is later work.
 - **PD10: The continuation writes a full second report.** A fix-only
   addendum to the first report was rejected: the report is the one
   document a reader opens, the fix sections refer to the findings by
@@ -352,8 +351,8 @@ the checks.
   name, and a rules change between reading and fixing is a new run's
   concern, as it is for a resumed run (PD11 of the repository survey).
 - Risk: the decisions bind the fixers though the person has read the
-  report and may disagree with one. Accepted: the plan's second item
-  gives the person the `answer`; until then, a person who disagrees
+  report and may disagree with one. Accepted: the element after this
+  one gives the person the `answer`; until then, a person who disagrees
   edits the decision's rule or fixes by hand, as they would after a
   fresh fix run.
 - Risk: two finished read-only runs reviewed the same unchanged change,

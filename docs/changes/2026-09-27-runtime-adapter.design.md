@@ -711,9 +711,9 @@ against the commits of this element up to the smoke script.
   four-launcher test every time; keeping the process files when the
   launch append is refused fails its test.
 - First smoke, with `codex-cli` 0.147.0 and read-only workers only:
-  `npm run smoke -- --claude C:\Users\josep\.local\bin\claude.exe
-  --codex C:\Users\josep\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe
-  --codex-model gpt-5.5`, effort `low`, repository kept at
+  `npm run smoke -- --claude <path of claude.exe>
+  --codex <path of codex.exe> --codex-model gpt-5.5`, on Windows with
+  both CLIs installed per user, effort `low`, repository kept at
   `%TEMP%\deep-review-smoke-ewBRl6`.
 
   | Runtime | Step | Outcome | Session | Seconds | Shell write | Cost |

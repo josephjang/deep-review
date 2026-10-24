@@ -706,8 +706,8 @@ report with no hand on it, and on the amended engine the Codex surveyor
 met each criterion it failed before.**
 
 Every run used the shipped bundle of this worktree's `dist/`, on the
-author's Windows 11 machine with Node 26.10.0, from a fresh clone under
-`C:\Users\josep\projects\gate\survey-2026-10-04`, with no `--check`
+author's Windows 11 machine with Node 26.10.0, from a fresh clone of
+each repository outside this one, with no `--check`
 flag and a `PATH` that holds `uv` and no `python`, `tox`, `pre-commit`,
 `mypy`, `pyright` or `ruff`. click #3818 was reviewed as its one commit,
 `fc518e4`, with `--last-commit`; eslint #21247 as the range from its

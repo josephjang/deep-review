@@ -13,7 +13,7 @@ this change.
 ## Problem
 
 The Node-driven deep review exists only as `deep-review-node`, one of five
-skills in `~/projects/agent-skills`. Its engine is 7.5 thousand lines of
+skills in the author's `agent-skills` repository. Its engine is 7.5 thousand lines of
 TypeScript at version 0.3.5 with 92 test files, and it has never produced a
 review report without manual intervention: five pilot runs on the Tarkov
 repository each ended in a blocker, and the last was finished by hand from
@@ -81,13 +81,14 @@ install.
 - R5: `CLAUDE.md` states: conventional commits in English with no attribution
   footer; reader-facing text avoids characters people do not type by hand;
   `dist/` is build output and never edited; a behavior change carries a
-  proposal under `docs/changes/`; `provisional-plan.md` is never committed.
+  proposal under `docs/changes/`; the author's provisional plan is never
+  committed.
 - R6: `README.md` describes the layout, the install steps for both runtimes
   and what each check proves.
 - R7: The repository exists at `github.com/josephjang/deep-review`, private,
   and CI is green on the commit that completes the skeleton.
-- R8: `provisional-plan.md` is excluded from git locally and absent from the
-  first commit.
+- R8: The author's provisional plan, kept beside the sources at first, is
+  excluded from git locally and absent from the first commit.
 
 ## Decisions
 

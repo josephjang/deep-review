@@ -1021,7 +1021,7 @@ Windows reads it as one. The test, not the engine, was at fault, and
   were made.
 - A ledger written before this change folds with `claims` and
   `lostClaims` empty and its second round as recorded; nothing is
-  migrated. The measurement corpus under `projects\gate\replay` holds no
+  migrated. The verifier rubric's replay corpus holds no
   `files.claimed` or `claims.lost` and folds as before, which the golden
   test and the corpus check in Verification show.
 - The claims directory is under the system's temporary directory, as

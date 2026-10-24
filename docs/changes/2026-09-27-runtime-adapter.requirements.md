@@ -50,7 +50,7 @@ and its follow-ups, or a design flaw the fixes for those defects exposed.
   adapter. Codex had no budget cap and no denial evidence, and nothing
   said so.
 
-This is the third element of the plan: the last piece of infrastructure
+This is the third element of the rewrite: the last piece of infrastructure
 before role prompts and the first end-to-end review. What it records is
 what every later phase will read to know what a worker was given, what it
 returned and what it cost.
@@ -203,7 +203,7 @@ returned and what it cost.
   rejected: they would always skip in CI, where there is no
   authentication, and a test that always skips looks like coverage. The
   fakes exercise every decode path on three platforms; the smoke script is
-  the real-run gate the plan requires and its result is written into the
+  the real-run gate each element requires and its result is written into the
   design's Verification.
 
 ## Risks

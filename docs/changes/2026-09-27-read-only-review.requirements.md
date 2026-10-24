@@ -18,7 +18,7 @@ budget of its own. The engine ships as one bundle inside both skill
 artifacts, and the element is accepted by a real run on a change from a
 well-known open-source repository, on each runtime.
 
-This is the fifth element of the plan and the first end-to-end milestone.
+This is the fifth element of the rewrite and the first end-to-end milestone.
 It joins the four that exist (the checkpoint ledger and evidence store,
 scope capture, the runtime adapter and the role prompts) into a review,
 and it is the first element whose acceptance gate is a real run, not the
