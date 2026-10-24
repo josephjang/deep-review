@@ -112,7 +112,7 @@ const answerPass: Reducer<AnswerPassed> = (state, payload, event) => {
   const phaseStates = { ...review.phases };
   for (const phase of [...answerPhases, 'report'] as const satisfies readonly Phase[]) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const pass: AnswerPass = { ids: payload.ids, at: event.recordedAt, reportBefore: review.report, openedAt: { answer: review.phases.answer.attempt, checks: review.phases['answer-checks'].attempt } };
-  return withReview(current, { ...review, phases: phaseStates, report: null, answerPasses: [...review.answerPasses, pass] }, event);
+  return withReview(current, { ...review, phases: phaseStates, report: null, reportSetAsideBy: 'answer-pass', answerPasses: [...review.answerPasses, pass] }, event);
 };
 
 /** The answers' reducers, registered by `fold.ts` beside the review's and the fix pass's. */

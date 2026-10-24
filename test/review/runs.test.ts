@@ -7,7 +7,7 @@ import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { UnknownRunError, UnreadableRunError } from '../../src/checkpoint/errors.ts';
 import { runModel } from '../../src/checkpoint/fold.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
-import { runIdOf, shortRunId, shortRunIdLength } from '../../src/review/runs.ts';
+import { latestFirst, runIdOf, shortRunId, shortRunIdLength } from '../../src/review/runs.ts';
 import { testModel } from '../helpers/model.ts';
 
 describe('runIdOf (R11 of the questions in the chat)', () => {
@@ -82,5 +82,14 @@ describe('runIdOf (R11 of the questions in the chat)', () => {
     const reader = open(runModel, '1.0.0-reader');
     assert.equal(runIdOf(reader, shortRunId(unreadable.id)), unreadable.id);
     assert.throws(() => reader.fold(runIdOf(reader, shortRunId(unreadable.id))), (error) => error instanceof UnreadableRunError && error.runId === unreadable.id);
+  });
+});
+
+describe('latestFirst', () => {
+  it('orders runs by their last event, the latest first, whatever order they were created in, and leaves the list given as it was', () => {
+    const runs = [{ id: 'first created', lastSequence: 9 }, { id: 'second', lastSequence: 4 }, { id: 'third', lastSequence: 12 }];
+    assert.deepEqual(latestFirst(runs).map((run) => run.id), ['third', 'first created', 'second']);
+    assert.deepEqual(runs.map((run) => run.id), ['first created', 'second', 'third']);
+    assert.deepEqual(latestFirst([]), []);
   });
 });

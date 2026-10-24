@@ -527,7 +527,7 @@ function pinFix(state: RunState | undefined, payload: Omit<FixPinned, 'plannedCh
   for (const phase of configuredPhases(review, fixPhases)) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings };
-  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
+  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: 'continuation', continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
 }
 
 /** A version 1 pin, recorded before the settings existed: its flags' checks read as settings of the flag layer, and it records no fix side. */
@@ -622,7 +622,7 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   const documentation = fixes || payload.units.some((unit) => unit.phase === 'documentation');
   const reopenedPhases: Phase[] = [...(fixes ? ['fixes' as const] : []), ...(documentation ? ['documentation' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
   for (const phase of configuredPhases(review, reopenedPhases)) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
-  return withReview(current, { ...review, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
+  return withReview(current, { ...review, phases: phaseStates, report: null, reportSetAsideBy: 'reopened-fix-pass', fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
 };
 
 /** The fix pass's reducers, registered by `fold.ts` beside the review's. */

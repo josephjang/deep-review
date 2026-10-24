@@ -104,10 +104,10 @@ function fateOf(review: ReviewState, fix: FixState, id: string, passes: 'read' |
   return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
 
-/** The answer that gave a ranked finding of a fix run its last outcome, a fix pass's or an answer pass's, or null with why no fixer attempted it. */
-export function lastFixAnswer(review: ReviewState, fix: FixState, id: string): { readonly answer: FixedFinding | null; readonly reason: string | null } {
-  const { answer, reason } = fateOf(review, fix, id);
-  return { answer, reason };
+/** A ranked finding's last outcome in a fix run, with the answer that gave it, a fix pass's or an answer pass's, or null with why no fixer attempted it. */
+export function lastFixAnswer(review: ReviewState, fix: FixState, id: string): { readonly outcome: FindingOutcome; readonly answer: FixedFinding | null; readonly reason: string | null } {
+  const { outcome, answer, reason } = fateOf(review, fix, id);
+  return { outcome, answer, reason };
 }
 
 /** What became of one ranked finding in a fix run, in the two halves the brief of a run reads apart (R2, R9 of the brief of a run). */

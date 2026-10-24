@@ -45,6 +45,22 @@ describe('fixLines (R6 of the questions in the chat)', () => {
     assert.deepEqual(fixLines(decidedFixRun(decisions).fold()), ['RIPPLE-1, applied: fix: Guard the null'], 'SWEEP-1 was left');
   });
 
+  it('says of a fix run that gave no finding to a fixer that it applied no fix, with what it left', () => {
+    const state = decidedFixRun(decisions).fold();
+    const review = state.review!;
+    const fix = review.fix!;
+    const leave = review.decisions!.find((decision) => decision.id === 'SWEEP-1')!;
+    const allLeft: RunState = {
+      ...state,
+      review: {
+        ...review,
+        decisions: review.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...leave, id: 'RIPPLE-1' } : decision)),
+        fix: { ...fix, plan: { ...fix.plan!, routes: fix.plan!.routes.map((route) => ({ ...route, route: 'held' as const })), clusters: [], batches: [] }, answers: { ...fix.answers, fixes: {} } },
+      },
+    };
+    assert.deepEqual(fixLines(allLeft), ['This run gave no finding to a fixer, so it applied no fix. It left 2 findings: RIPPLE-1 and SWEEP-1.']);
+  });
+
   it('says of a run that only reviewed that it changed nothing, with the fixes it decided', () => {
     assert.deepEqual(fixLines(readOnlyReported(answerableDecisions()).fold()), ['This run only reviewed: it changed nothing. It decided to fix 1 finding, which `review --fix` applies: RIPPLE-1.']);
   });

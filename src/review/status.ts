@@ -23,7 +23,8 @@ import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
-import { baseNameOf, commitWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
+import { baseNameOf, commitWords, endWords, scopeLine, type AskedMode, type ShownScope } from '../scope/scope-line.ts';
+import { cutAtWord, shortLineLimit } from './brief.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
 import { counted, inlineText } from './markdown.ts';
@@ -32,7 +33,7 @@ import { shortRunId } from './runs.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
-import { budgetStoppedRun, currentPhase, reviewStatus } from './state.ts';
+import { budgetStoppedRun, currentPhase, hasCurrentReport, reviewStatus } from './state.ts';
 import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
 /**
@@ -205,16 +206,19 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
 /** The most runs `status --all` lists (R10 of the questions in the chat). */
 export const listedRuns = 20;
 
-/** The change a captured scope reviews, as the list of runs names it: the mode as the person asked for it (R12), the number of files, and both ends; a `last-commit` scope ends at its commit, any other at the working tree. */
+/** The change a captured scope reviews, as the list of runs names it: the mode as the person asked for it (R12), the number of files, its base's short commit, and its end as the `Scope:` line names it. */
 function scopeWords(state: RunState, scope: ScopeState): string {
-  const end = scope.mode === 'last-commit' ? commitWords(scope.head) : 'the working tree';
-  return `${askedModeOf(state)}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${end}`;
+  return `${askedModeOf(state)}, ${counted(scope.files.length, 'file', 'files')}, from ${commitWords(scope.base)} to ${endWords(shownScopeOf(state, scope, null))}`;
 }
 
-/** The state of a run as the list of runs names it: an abandoned run with its reason, a blocked one with the code of its blocker. */
+/**
+ * The state of a run as the list of runs names it: an abandoned run with
+ * its reason, cut at a word at `shortLineLimit` since the reason of an
+ * abandon has no limit, and a blocked one with the code of its blocker.
+ */
 function stateWords(state: RunState): string {
   const status = reviewStatus(state);
-  if (status === 'abandoned') return `abandoned (${inlineText(state.abandonReason ?? '')})`;
+  if (status === 'abandoned') return `abandoned (${cutAtWord(inlineText(state.abandonReason ?? ''), shortLineLimit)})`;
   if (status === 'blocked') return `blocked (${state.review!.blocker!.code})`;
   return status;
 }
@@ -238,35 +242,11 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
     const id = shortRunId(state.id);
     const scope = state.scope === null ? 'no scope captured yet' : scopeWords(state, state.scope);
     const elsewhere = sameDirectory(state.worktree, worktree) ? '' : `; worktree ${state.worktree}`;
-    const current = state.review?.report !== null && state.review?.report !== undefined;
+    const current = hasCurrentReport(state);
     const copy = current ? copyOf(state) : null;
     const report = !current ? 'no current report' : copy === null ? `a current report with no copy; deep-review report --run ${id} writes one` : `report ${copy}`;
     return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report}`;
   });
   const more = newest.length - shown.length;
   return more === 0 ? lines : [...lines, `${counted(more, 'older run is', 'older runs are')} not shown; deep-review status --run <id> shows one`];
-}
-
-/**
- * Why a run has no current report, in its own terms (R9 of the questions
- * in the chat), as words that follow "it" or "a later run,": an abandoned
- * run with the reason of its abandon, a blocked one with the code of its
- * blocker, one whose review never started, one that works again in an
- * answer pass, a continuation or a reopened fix pass, the one of them it
- * opened last, or one in progress. No words name a phase, a term of the
- * engine (R12 of the brief of a run); `status --run <id>` gives it.
- */
-export function noReportWords(state: RunState): string {
-  const review = state.review;
-  if (state.status === 'abandoned') return `was abandoned: ${inlineText(state.abandonReason ?? '').replace(/[\s.]+$/, '')}`;
-  if (review === null) return 'never started its review';
-  if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
-  // What made a finished run work again sets its report aside when it opens, so the one opened last is the one that runs.
-  const again = [
-    { at: review.answerPasses.at(-1)?.at ?? null, words: 'works again in an answer pass' },
-    { at: review.continuedFrom?.at ?? null, words: 'works again, continued into the fix pass' },
-    { at: review.fix?.reopenings.at(-1)?.at ?? null, words: 'works again in a reopened fix pass' },
-  ].filter((entry): entry is { at: string; words: string } => entry.at !== null);
-  const last = again.reduce<{ at: string; words: string } | null>((latest, entry) => (latest === null || entry.at >= latest.at ? entry : latest), null);
-  return last?.words ?? 'is in progress';
 }

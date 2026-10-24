@@ -610,6 +610,8 @@ describe('the continuation into the fix pass', () => {
     assert.deepEqual(review.phases.decision, before.phases.decision, 'the read-only phases stay as they finished');
     assert.deepEqual(review.fix, emptyFixState());
     assert.equal(review.report, null);
+    assert.equal(before.reportSetAsideBy, null, 'a current report is set aside by nothing');
+    assert.equal(review.reportSetAsideBy, 'continuation');
     assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt, checkCount: before.checks.length });
     assert.ok(before.checks.length > 0, 'the read-only phases checked the worktree');
     assert.deepEqual(review.ranking, before.ranking);
@@ -664,6 +666,7 @@ describe('the continuation into the fix pass', () => {
     assert.deepEqual(review.phases.report, { status: 'completed', attempt: 2 });
     assert.deepEqual(review.report?.patches, [reference('1')]);
     assert.deepEqual(review.continuedFrom?.report.report, reference('e', 2048), 'the read-only report stays beside the second');
+    assert.equal(review.reportSetAsideBy, null, 'the second report is current');
     assert.equal(reviewStatus(run), 'complete');
   });
 
@@ -866,6 +869,7 @@ describe('the records of resumable runs', () => {
     const review = reopened.review();
     assert.deepEqual(review.fix!.notAttempted.fixes, {});
     assert.equal(review.report, null);
+    assert.equal(review.reportSetAsideBy, 'reopened-fix-pass');
     assert.deepEqual(review.fix!.reopenings.map((reopening) => [reopening.units, reopening.reportBefore]), [[[{ phase: 'fixes', key: 'c1-1' }], before.report]]);
     for (const phase of ['fixes', 'checks', 'repair', 'repair-checks', 'report'] as const) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: before.phases[phase].attempt }, phase);
     assert.equal(review.phases['merge-rank'].status, 'completed', 'no read-only phase opens again');

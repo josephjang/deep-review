@@ -116,6 +116,18 @@ describe('commitCount (R12 of the questions in the chat)', () => {
     assert.equal(commitCount(repo, base, head, ['a[1].txt']), 1, 'the file named a[1].txt, not a1.txt, which the glob would match too');
   });
 
+  it('leaves out a commit that changes only paths a pattern of scope.exclude leaves out', () => {
+    const base = commit('a.txt', 'base');
+    commit('a.txt', 'one');
+    commit('dist/out.js', 'rebuilt');
+    write(repo, 'a.txt', 'both\n');
+    write(repo, 'dist/out.js', 'both\n');
+    const head = commitAll(repo, 'both');
+    assert.equal(commitCount(repo, base, head), 3);
+    assert.equal(commitCount(repo, base, head, [], ['dist/**']), 2, 'one and both, not the commit that rebuilds dist/ alone');
+    assert.equal(commitCount(repo, base, head, ['dist/out.js'], ['dist/**']), 0, 'a path the patterns leave out is not reviewed');
+  });
+
   it('counts every commit up to the head from the empty tree', () => {
     commit('a.txt', 'root');
     const head = commit('a.txt', 'second');

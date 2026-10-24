@@ -320,6 +320,15 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
     });
 
+    it('names what a run that only reviewed left in the words a fix run names it with, each id as the form gives it', () => {
+      const brief = briefOf(readOnlyReported().fold());
+      const last = (form: 'report' | 'chat'): string => briefMarkdown(brief, form).at(-1)!;
+      assert.match(last('report'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: \[SWEEP-1\]\(#finding-sweep-1\)\.$/);
+      assert.match(last('chat'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: SWEEP-1\.$/);
+      assert.ok(briefMarkdown(briefOf(answerable())).at(-1)!.startsWith('This run only reviewed: it changed nothing.'));
+      assert.doesNotMatch(briefMarkdown(briefOf(answerable())).at(-1)!, /It left/, 'a run that left nothing says nothing of it');
+    });
+
     it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
       const applied = briefOf(decidedFixRun().fold()).changed;
       assert.deepEqual([applied.fixed, applied.applied, applied.deferred, applied.patches, applied.commits], [true, ['RIPPLE-1'], [], 1, null]);
@@ -412,9 +421,24 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     assert.ok(changeLine(`${three} More.`).length > shortLineLimit);
     const five = sentence(500);
     const cut = changeLine(`${five} More.`);
-    assert.ok(cut.length <= changeLineLimit && cut.endsWith('...'), cut);
+    assert.ok(cut.startsWith('The change: ') && cut.endsWith('...'), cut);
     const kept = cut.slice('The change: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit, 'the limit counts the sentence');
     assert.ok(five.startsWith(kept) && five[kept.length] === ' ', 'cut at a word, with three periods');
+  });
+
+  it('counts the limit of the line of the change on the sentence alone, past the mark of the change before the fixes (R4, R5 of the questions in the chat)', () => {
+    const changeLine = (state: RunState, what: string): string => briefShortForm(briefOf(withAccount(state, given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
+    const whole = sentence(changeLineLimit - 10);
+    assert.equal(whole.length, changeLineLimit - 10);
+    assert.equal(changeLine(answerable(), `${whole} More.`), `The change: ${whole}`);
+    assert.equal(changeLine(decidedFixRun().fold(), `${whole} More.`), `The change before the fixes: ${whole}`);
+    const longer = sentence(changeLineLimit + 20);
+    const cut = changeLine(decidedFixRun().fold(), `${longer} More.`);
+    assert.ok(cut.startsWith('The change before the fixes: ') && cut.endsWith('...'), cut);
+    const kept = cut.slice('The change before the fixes: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit && longer.startsWith(kept) && longer[kept.length] === ' ', 'cut at a word');
   });
 
   it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {

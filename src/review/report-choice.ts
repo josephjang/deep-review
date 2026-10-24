@@ -6,15 +6,55 @@
  * after runs that started later (R9 of fix pass continuation). Each run
  * of the worktree whose last event is later has no report, and the choice
  * names it with why, so that an older result is never taken for the
- * current one. A later run this engine cannot read is named too.
+ * current one. A later run this engine cannot read is named too. The
+ * words of why a run has no report are also those `report` refuses a run
+ * that `--run` names with (R9).
  */
 import { isUnreadable, type Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { sameDirectory } from '../paths.ts';
 import { cutAtWord, shortLineLimit } from './brief.ts';
-import { counted } from './markdown.ts';
-import { passedOverLine, shortRunId } from './runs.ts';
-import { noReportWords } from './status.ts';
+import { counted, inlineText } from './markdown.ts';
+import { latestFirst, passedOverLine, shortRunId } from './runs.ts';
+import { hasCurrentReport } from './state.ts';
+
+/**
+ * The reason of an abandon on one line with no period of its own at the
+ * end, since the words that follow it end the sentence; a reason made only
+ * of periods, such as `...`, keeps them, so the colon before it is never
+ * left with nothing after it.
+ */
+function abandonWords(reason: string): string {
+  const inline = inlineText(reason).trim();
+  return inline.replace(/[\s.]+$/, '') || inline;
+}
+
+/**
+ * Why a run has no current report, in its own terms (R9 of the questions
+ * in the chat), as words that follow "it" or "a later run,": an abandoned
+ * run with the reason of its abandon, a blocked one with the code of its
+ * blocker, one whose review never started, one that works again in an
+ * answer pass, a continuation or a reopened fix pass, the one the fold
+ * records as having set its last report aside, or one in progress. No
+ * words name a phase, a term of the engine (R12 of the brief of a run);
+ * `status --run <id>` gives it.
+ */
+export function noReportWords(state: RunState): string {
+  const review = state.review;
+  if (state.status === 'abandoned') return `was abandoned: ${abandonWords(state.abandonReason ?? '')}`;
+  if (review === null) return 'never started its review';
+  if (review.blocker !== null) return `is blocked (${review.blocker.code})`;
+  switch (review.reportSetAsideBy) {
+    case 'answer-pass':
+      return 'works again in an answer pass';
+    case 'continuation':
+      return 'works again, continued into the fix pass';
+    case 'reopened-fix-pass':
+      return 'works again in a reopened fix pass';
+    case null:
+      return 'is in progress';
+  }
+}
 
 /** A run `report` passed over: its id, and why it has no report, in the words of `noReportWords`. */
 export interface PassedOver {
@@ -26,30 +66,18 @@ export interface PassedOver {
 export interface ReportChoice {
   readonly run: RunState | null;
   readonly passedOver: readonly PassedOver[];
-  readonly newest: { readonly id: string; readonly state: string } | null;
+  readonly newest: PassedOver | null;
 }
 
 /** The most `Not shown:` lines `report` prints before a line that counts the others. */
 export const shownPassedOver = 3;
 
-/** A run as the choice weighs it: its id, its last sequence, and its state, or null for a run this engine cannot read with why. */
+/** A run as the choice weighs it: its id, its last sequence, its state, or null for a run this engine cannot read, and why it has no report, in the words a `Not shown:` line gives. */
 interface Weighed {
   readonly id: string;
   readonly lastSequence: number;
   readonly state: RunState | null;
-  readonly unreadable: string | null;
-}
-
-/**
- * The worktree a run was created in, from its first event as the ledger
- * holds it, or null when that event is not one this engine reads: the
- * worktree of a run this engine cannot fold.
- */
-function createdWorktree(checkpoint: Checkpoint, runId: string): string | null {
-  const first = checkpoint.ledger.events(runId)[0];
-  if (first?.kind !== 'run.created' || first.version !== 1) return null;
-  const payload: unknown = JSON.parse(first.payload);
-  return typeof payload === 'object' && payload !== null && 'worktree' in payload && typeof payload.worktree === 'string' ? payload.worktree : null;
+  readonly words: string;
 }
 
 /** Choose the run `report` shows for `worktree`, logging a line for each run this engine cannot read, as every command that picks a run does. */
@@ -58,21 +86,20 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
   for (const listed of checkpoint.listRuns()) {
     if (isUnreadable(listed)) {
       log(passedOverLine(listed.id, listed.unreadable, checkpoint.engine));
-      const created = createdWorktree(checkpoint, listed.id);
       // A run whose worktree cannot be read may be this worktree's, so it is named rather than hidden.
-      if (created === null || sameDirectory(created, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, unreadable: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
+      if (listed.worktree === null || sameDirectory(listed.worktree, worktree)) weighed.push({ id: listed.id, lastSequence: checkpoint.ledger.lastSequence(listed.id), state: null, words: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
     } else if (sameDirectory(listed.worktree, worktree)) {
-      weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, unreadable: null });
+      weighed.push({ id: listed.id, lastSequence: listed.lastSequence, state: listed, words: noReportWords(listed) });
     }
   }
-  const latestFirst = weighed.sort((a, b) => b.lastSequence - a.lastSequence);
-  const wordsOf = (entry: Weighed): string => entry.unreadable ?? noReportWords(entry.state!);
-  const index = latestFirst.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== undefined);
-  const newest = latestFirst[0];
+  const ordered = latestFirst(weighed);
+  const index = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
+  const newest = ordered[0];
+  const passed = (entry: Weighed): PassedOver => ({ run: entry.id, state: entry.words });
   return {
-    run: index === -1 ? null : latestFirst[index]!.state,
-    passedOver: index === -1 ? [] : latestFirst.slice(0, index).map((entry) => ({ run: entry.id, state: wordsOf(entry) })),
-    newest: newest === undefined ? null : { id: newest.id, state: wordsOf(newest) },
+    run: index === -1 ? null : ordered[index]!.state,
+    passedOver: index === -1 ? [] : ordered.slice(0, index).map(passed),
+    newest: newest === undefined ? null : passed(newest),
   };
 }
 

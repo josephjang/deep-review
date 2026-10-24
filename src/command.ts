@@ -56,8 +56,8 @@ import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
 import { readableRuns, runIdOf } from './review/runs.ts';
 import { fixLines } from './review/fix-lines.ts';
-import { chooseReportRun, notShownLines, type ReportChoice } from './review/report-choice.ts';
-import { describeRun, noReportWords, runListLines, type StatusContinuation } from './review/status.ts';
+import { chooseReportRun, noReportWords, notShownLines, type ReportChoice } from './review/report-choice.ts';
+import { describeRun, runListLines, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
 import { defaultRuntimes } from './runtime/runtimes.ts';
@@ -680,10 +680,10 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
-  const { base, target } = scopeEnds(location.worktree, chosen.request);
+  const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; with no mode named, the one the capture would choose.
-  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : chosen.mode !== 'auto' ? chosen.mode : target === null ? 'worktree' : 'last-commit';
+  // The mode as the person asked for it (R12 of the questions in the chat): `branch` names the range the capture records; any other, the mode the capture chooses.
+  const mode: AskedMode = branchNamed(values, source.scopeSettings()) ? 'branch' : captured;
   const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
   let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {
@@ -694,7 +694,7 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
     const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
     shown = {
       ...ends,
-      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths),
+      commits: commitCount(location.worktree, base, target ?? listed.guard.head, listed.request.paths, listed.request.exclude),
       fileCount: files.length,
       excludedCount: listed.excluded.length,
       uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
@@ -862,8 +862,8 @@ function status(values: Values, io: CommandIo, root: string, worktree: string): 
     // A fix pass the run budget stopped is continued with this engine, which the line names (R15 of resumable runs).
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects (R12 of the questions in the chat).
-    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    // The commits of the run's change as git counts them now, in this worktree, which shares the run's objects, less those that change only paths scope.exclude left out (R12 of the questions in the chat).
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths, state.scope.request.exclude);
     const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}\n` : `${described.lines.join('\n')}\n`);
     return 0;
@@ -921,7 +921,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
     const found = choice.run;
     if (found === null) {
       if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
-      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.run}, ${choice.newest.state}; deep-review status --all lists the runs`);
     }
     // Under the run's lock, as every other writer of the copy, so this fold cannot write over the copy of a command that appended since (R14 of the brief of a run).
     // An engine that holds it writes the copy itself; this command then writes none and names the record, since a copy never fails a command (TD6).
@@ -937,28 +937,23 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record = checkpoint.evidence.pathOf(review.report.report);
       const brief = briefOf(state);
-      if (form === 'fixes') {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines(state), copy ?? record].join('\n')}\n`);
-        return 0;
-      }
-      if (form === 'brief') {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...briefMarkdown(brief, 'chat'), copy ?? record].join('\n')}\n`);
-        return 0;
-      }
-      if (form === 'finding') {
-        const id = values.finding!;
-        const block = briefBlock(brief, id);
-        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
-        io.stdout(`${[...notShownLines(choice.passedOver), ...block, copy ?? record].join('\n')}\n`);
-        return 0;
-      }
       if (form === 'json') {
         // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
         const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
         io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}\n`);
         return 0;
       }
-      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record].join('\n')}\n`);
+      let body: readonly string[];
+      if (form === 'fixes') body = fixLines(state);
+      else if (form === 'brief') body = briefMarkdown(brief, 'chat');
+      else if (form === 'finding') {
+        const id = values.finding!;
+        const block = briefBlock(brief, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        body = block;
+      } else body = briefShortForm(brief);
+      // Each text form is told of the later runs it passed over and ends with the path, so no form can drop the warning (R8 of the questions in the chat).
+      io.stdout(`${[...notShownLines(choice.passedOver), ...body, copy ?? record].join('\n')}\n`);
       return 0;
     } finally {
       release?.();

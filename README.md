@@ -264,10 +264,12 @@ resume that leaves one out drops it. The log names the kinds it can
 tell were dropped, those a flag settled when the survey answered, and
 the survey is asked again for them. `deep-review
 status` prints the fold of the active run, as text or `--json`, with
-the `Scope:` line of the scope it captured; `status --run <id>` prints
-another run, and `status --all` lists the runs of the checkpoint,
-newest first, each with the first eight characters of its id, its
-state, its scope and the copy of its current report.
+the `Scope:` line of the scope it captured, and with `--json` the paths
+it reviews and at most the first 2000 paths it left out, as the run
+recorded them, with `excludedCount` counting them all; `status --run
+<id>` prints another run, and `status --all` lists the runs of the
+checkpoint, newest first, each with the first eight characters of its
+id, its state, its scope and the copy of its current report.
 `deep-review abandon --reason <text>` closes an active or blocked run.
 Each command that takes `--run` takes the whole id or its first eight
 or more characters.
@@ -917,7 +919,9 @@ background command, then abandons the stopped run before the corrected
 request, so that request starts a new run. Asked to fix the findings,
 it passes `--fix`, says in that message that the engine's workers will
 edit the working tree, that it runs the check commands it chose from
-the repository and that the run commits nothing, and afterwards offers
+the repository and that the run commits nothing, saying it before the
+command instead when `--fix` continues a finished read-only run, which
+starts its fixes at once, and afterwards offers
 to commit the edits with `deep-review commit`, after which it shows
 the short form again with `deep-review report`. It ends each turn
 with the result it relays. Asked for more on one question, or on one

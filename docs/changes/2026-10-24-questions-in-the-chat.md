@@ -134,9 +134,9 @@ A run that applied no fix and no answer keeps the words of today. A rewrite by a
 
 `deep-review report --fixes` prints one line for each fix of the run, in rank order, as the part Fixes of the evidence gives them. The fixes are the ones that the part "What deep-review changed" counts: applied, found already in the tree, put off, not applied and not attempted.
 
-A line gives the id and what became of the fix, in the words of the brief. Then it gives the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
+A line gives the id and what became of the fix, in short words of its own: applied, already in the tree, put off by its fixer, not applied by its fixer, or not attempted. These are not the sentences of the brief, such as "Its fixer put it off." Then it gives the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
 
-It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
+It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. A fix run that gave no finding to a fixer prints `This run gave no finding to a fixer, so it applied no fix.`, and then the findings that it left. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
 
 ```text
 RIPPLE-1, applied: Guard the cache against a missing entry
@@ -181,7 +181,7 @@ These words name no phase, because a phase is a term of the engine (R12 of the b
 
 `deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others. With no checkpoint, or with no run, it prints the line that `status` prints today.
 
-A line gives the first 8 characters of the id of the run (R11) and the time that it started. It gives its state, with the reason of an abandon. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`.
+A line gives the first 8 characters of the id of the run (R11) and the time that it started. It gives its state, with the reason of an abandon, cut at a word at 200 characters, because that reason has no limit. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`.
 
 Both skills get one sentence. When the user asks for a run and does not know which, the skill runs `status --all` and shows what it prints. Then it runs `report --run` with the run that the user chooses.
 
@@ -193,13 +193,13 @@ Each command that takes `--run` takes the whole id of a run, or its first 8 or m
 
 The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch` or for a `scope.default` of `branch`. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it counts the reviewed files that hold uncommitted changes, or it says that none do. It counts apart the paths that `scope.exclude` leaves out.
 
-The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A change that starts at the empty tree counts each commit up to its end. This is an invented example:
+The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A commit that changes only paths that `scope.exclude` leaves out does not count, because the run reviews nothing of it. A change that starts at the empty tree counts each commit up to its end. This is an invented example:
 
 ```text
 Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b35) to the working tree, which has no uncommitted change
 ```
 
-The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. `status --json` gives the same two lists in `scope`. When git cannot count the commits, the line leaves the count out and does not fail.
+The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. `status --json` gives the same two lists in `scope`, as the run recorded them. A run records at most the first 2000 paths that `scope.exclude` leaves out, so that list holds at most 2000, and `excludedCount` beside it counts them all. When git cannot count the commits, the line leaves the count out and does not fail.
 
 The run records `--branch` as a range, so `status` names the mode from what the run recorded. A range that starts at the merge base with the recorded `review.base` and ends at `HEAD` reads as `branch`. The same range given as `--from <base> --to HEAD --merge-base` reads as `branch` too, because it is the same change. A run that recorded no settings keeps the mode that it captured.
 
@@ -207,7 +207,7 @@ The run records `--branch` as a range, so `status` names the mode from what the 
 
 Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. This message is the last text of the turn.
 
-The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review.
+The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review, except for a fix run that continues a read-only run that finished. Such a run starts its fixes at once, so step 2 says them before the command, as it did before this change.
 
 When the review exits, the skill goes on with step 4. This needs nothing new of Claude Code. Today too, step 3 runs the review as a background command, and the turn ends while it runs. The host calls the model again when the command exits.
 
@@ -289,7 +289,7 @@ Step 3 told the model to write the message before its next tool call, in the sam
 
 In the work on the skill surface, four runs in print mode had three different words in step 3. In none of them did the model write such a message before the review. In two interactive sessions, it wrote one in its own words. So the place of the message in the middle of a turn does not hold. This proposal moves the message to where the model writes text: the end of the turn, after the review starts.
 
-The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way.
+The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way. A fix run that continues a read-only run that finished is not such a run: it reviews nothing again, and it starts with the checks and then the fixes. So for that run the skill still says the words of step 2 before the command, although the model can write them in its `thinking`.
 
 The cost is that the run starts a few seconds before the person sees its scope. The run edits nothing and runs no check before the decision, and the triage, the finders and the verification come first. A person who stops it in its first minutes loses the survey, when the run has one, and the start of its triage. The proposal rejects a hook that prints the scope, because it works only on Claude Code and gives the same text a second place.
 

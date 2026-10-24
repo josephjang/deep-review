@@ -324,6 +324,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       assert.equal(pastLines[0], `Not shown: run ${shortRunId(active.id)}, a later run, never started its review.`);
       assert.match(pastLines[1]!, new RegExp(`\\(run ${shortRunId(secondId)}\\)$`), 'the short form of the run before it follows');
       assert.equal(pastLines.length, 9);
+      // Every text form names the later run first and the path last.
+      for (const flag of ['--fixes', '--brief']) {
+        const formLines = (await run(box, 'report', flag)).stdout.trimEnd().split('\n');
+        assert.equal(formLines[0], pastLines[0], flag);
+        assert.equal(formLines.at(-1), pastLines.at(-1), flag);
+      }
       // With --json, stdout holds the JSON form alone, which names the later run in notShown.
       const pastJson = await run(box, 'report', '--json');
       assert.equal(pastJson.status, 0, pastJson.stderr);

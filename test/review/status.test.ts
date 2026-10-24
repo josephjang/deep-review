@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { askedModeOf, describeRun, listedRuns, noReportWords, runListLines } from '../../src/review/status.ts';
+import { cutAtWord, shortLineLimit } from '../../src/review/brief.ts';
+import { askedModeOf, describeRun, listedRuns, runListLines } from '../../src/review/status.ts';
 import { blockerActions } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
+import { maxExcludedNamed } from '../../src/scope/capture.ts';
 import { answer, askDecision, decidedFixRun, passToReport, configured, continuedRun, continuedToReport, decidedOf, decisions, History, launch, mergeRanked, readOnlyReported, reference, reported, scope, settingsConfigured, triaged, worker } from '../helpers/review-history.ts';
 
 /** An evidence path that names the reference, so a test sees which one was asked for. */
@@ -209,6 +211,13 @@ describe('runListLines (R10 of the questions in the chat)', () => {
     ]);
   });
 
+  it('cuts the reason of an abandon at a word at 200 characters, and keeps the scope and the report after it whole', () => {
+    const reason = `${'very '.repeat(100)}long`;
+    const [line] = runListLines([as(configured().add('run.abandoned', { reason }).fold(), 1)], '/w', copyOf);
+    assert.equal(line, `00000001 started 2026-10-01T00:00:00.000Z: abandoned (${cutAtWord(reason, shortLineLimit)}); ${scopeWords}; no current report`);
+    assert.ok(cutAtWord(reason, shortLineLimit).length <= shortLineLimit && cutAtWord(reason, shortLineLimit).endsWith('very...'));
+  });
+
   it('says that a run has no scope yet, and names the worktree of a run of another one', () => {
     const runs = [as(new History().add('run.created', { worktree: '/other' }).fold(), 1, '/other'), as(reported().fold(), 2, '/other')];
     assert.deepEqual(runListLines(runs, '/w', copyOf), [
@@ -282,51 +291,17 @@ describe('the scope of a run in status (R12 of the questions in the chat)', () =
     assert.equal(describeRun(lastCommit, claudeAdapter, evidencePath).lines[2], `Scope: last-commit, 1 file, from the parent of HEAD (${'1'.repeat(8)}) to ${'2'.repeat(8)}`);
   });
 
+  it('gives in the JSON form the paths left out that the run recorded, at most 2000, with the count of them all', () => {
+    const state = ranged(null);
+    const paths = Array.from({ length: maxExcludedNamed }, (_, index) => `vendor/${String(index)}.js`);
+    const cut: RunState = { ...state, scope: { ...state.scope!, request: { ...state.scope!.request, exclude: ['vendor/**'] }, excluded: { paths, count: 3500 } } };
+    const scope = describeRun(cut, claudeAdapter, evidencePath).json.scope as { excluded: string[]; excludedCount: number };
+    assert.deepEqual(scope.excluded, paths);
+    assert.equal(scope.excludedCount, 3500);
+  });
+
   it('names branch in the list of runs too', () => {
     const state = { ...ranged({ from: 'origin/main', to: 'HEAD', mergeBase: true }), id: '00000001-0000-4000-8000-000000000000', createdAt: '2026-10-01T00:00:00.000Z' };
     assert.deepEqual(runListLines([state], '/w', () => null), [`00000001 started 2026-10-01T00:00:00.000Z: active; branch, 1 file, from ${'1'.repeat(8)} to the working tree; no current report`]);
-  });
-});
-
-describe('noReportWords (R9 of the questions in the chat)', () => {
-  const blocker = { code: 'budget', detail: 'd', action: blockerActions.budget };
-
-  it('gives the reason of an abandon, with no period of its own at the end, also between two phases', () => {
-    assert.equal(noReportWords(configured().add('run.abandoned', { reason: 'wrong scope.' }).fold()), 'was abandoned: wrong scope');
-    assert.equal(noReportWords(triaged().add('run.abandoned', { reason: 'the wrong\nbranch' }).fold()), 'was abandoned: the wrong branch');
-    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).add('run.abandoned', { reason: 'r' }).fold()), 'was abandoned: r', 'an abandon comes before a review that never started');
-  });
-
-  it('gives the code of the blocker of a blocked run, and says that a run with no blocker is in progress', () => {
-    assert.equal(noReportWords(triaged().start('finders').finish('finders', 'blocked', 1, blocker).fold()), 'is blocked (budget)');
-    assert.equal(noReportWords(configured().fold()), 'is in progress');
-    assert.equal(noReportWords(triaged().start('finders').fold()), 'is in progress');
-  });
-
-  it('says that a run whose review never started never started it', () => {
-    assert.equal(noReportWords(new History().add('run.created', { worktree: '/w' }).fold()), 'never started its review');
-  });
-
-  it('names the answer pass, the continuation or the reopened fix pass that a run works again in', () => {
-    const passing = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }).fold();
-    assert.equal(passing.review!.report, null);
-    assert.equal(noReportWords(passing), 'works again in an answer pass');
-    const continued = continuedRun().fold();
-    assert.equal(continued.review!.report, null);
-    assert.equal(noReportWords(continued), 'works again, continued into the fix pass');
-    // A reopening as the fold holds it, on a run whose report it set aside.
-    const fixedRun = decidedFixRun().fold();
-    const reopening = { at: '2026-09-27T01:00:00.000Z', units: [], reportBefore: fixedRun.review!.report!, answerPassesBefore: 0, repairAnswered: false };
-    const reopened: RunState = { ...fixedRun, review: { ...fixedRun.review!, report: null, fix: { ...fixedRun.review!.fix!, reopenings: [reopening] } } };
-    assert.equal(noReportWords(reopened), 'works again in a reopened fix pass');
-    assert.equal(noReportWords({ ...reopened, review: { ...reopened.review!, blocker: { ...blocker, code: 'budget' as const, phase: 'fixes' as const } } }), 'is blocked (budget)', 'a blocker comes first');
-  });
-
-  it('names the one that opened last when a run worked again before', () => {
-    const continued = continuedToReport().fold();
-    const pass = { ids: ['SWEEP-1'], at: '2026-09-28T00:00:00.000Z', reportBefore: continued.review!.report!, openedAt: { answer: 0, checks: 0 } };
-    const passing: RunState = { ...continued, review: { ...continued.review!, report: null, answerPasses: [pass] } };
-    assert.ok(continued.review!.continuedFrom!.at < pass.at);
-    assert.equal(noReportWords(passing), 'works again in an answer pass');
   });
 });
