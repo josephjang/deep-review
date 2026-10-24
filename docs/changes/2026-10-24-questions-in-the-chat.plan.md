@@ -55,11 +55,11 @@ Files:
 
 - `src/command.ts`: `options` and `allowed.status` get `all`. `status --all` refuses `--run` and `--json` with a usage error. The usage gets two lines: `deep-review status [--run <id>] [--json] [--repo <dir>]` and `deep-review status --all [--repo <dir>]`. With no checkpoint, or with no run, `status --all` prints the line that `status` prints today.
 - `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others.
-- In the same function, each line gives the first 8 characters of the id, `createdAt`, and the state with the reason of an abandon. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the current report, or `no current report`. A run with no scope says so.
+- In the same function, each line gives the first 8 characters of the id, `createdAt`, and the state with the reason of an abandon, cut at a word at `shortLineLimit`, so the rest of the line stays whole. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the current report, or `no current report`. A run with no scope says so.
 
 Tests:
 
-- `test/review/status.test.ts`: a line for each state, a run with no scope, a run of another worktree, and 21 runs. Also a copy that does not exist, and a run that works again, whose copy holds an older report.
+- `test/review/status.test.ts`: a line for each state, a reason of an abandon past 200 characters, a run with no scope, a run of another worktree, and 21 runs. Also a copy that does not exist, and a run that works again, whose copy holds an older report.
 - `test/cli.test.ts`: `status --all` with two runs, newest first, and with a checkpoint that has no run. `--all --run` and `--all --json` are refused.
 
 ```sh
@@ -179,13 +179,13 @@ git commit -m "feat(brief): Say when the core describes the change before the fi
 Files:
 
 - `src/review/fix-report.ts`: a new `fixLines(state)`. It gives a line for each fix that `briefOf(state).changed` counts, in rank order. A line has the id, the words of its fate, and the subject of the commit message of the answer that gave its last outcome.
-- In the same function, a line with no message has the first sentence of the note of that answer. With no answer, it has the reason that no fixer attempted the fix. Each line goes through `cutAtWord` at `shortLineLimit`. A run that only reviewed gets the sentence of `changedPart`.
+- In the same function, a line with no message has the first sentence of the note of that answer. With no answer, it has the reason that no fixer attempted the fix. Each line goes through `cutAtWord` at `shortLineLimit`. A run that only reviewed gets the sentence of `changedPart`. A fix run that gave no finding to a fixer gets one sentence that says it applied no fix, with the findings it left.
 - `src/review/brief.ts`: a new `fixFateWords`, the words of each fate as a line of `report --fixes` names it, beside `fateWords`.
 - `src/command.ts`: `options` and `allowed.report` get `fixes`. `report --fixes` refuses `--json` and `--brief` with a usage error. It prints the lines of R8, then `fixLines(state)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The comment of `report` names `--fixes`, and the usage line becomes `deep-review report [--run <id>] [--json | --fixes] [--repo <dir>]`.
 
 Tests:
 
-- `test/review/fix-report.test.ts`: `fixLines` for a fix of the fix pass with its subject, and for a fix that an answer pass applied. Also for a fix whose answer has no message. Also for each other fate, a line past 200 characters, and a run that only reviewed.
+- `test/review/fix-report.test.ts`: `fixLines` for a fix of the fix pass with its subject, and for a fix that an answer pass applied. Also for a fix whose answer has no message. Also for each other fate, a line past 200 characters, a fix run that gave no finding to a fixer, and a run that only reviewed.
 - `test/cli.test.ts`: `report --fixes` prints the lines and then the path. `--fixes --json` and `--fixes --brief` are refused.
 
 ```sh
