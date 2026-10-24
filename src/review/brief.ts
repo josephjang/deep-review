@@ -598,6 +598,15 @@ export const fateWords: Readonly<Record<BriefFate, string>> = {
   'not-fixed': 'This run only reviewed, so no fixer applied it; `review --fix` applies it.',
 };
 
+/** What became of a fix of a fix run in the words a line of `report --fixes` names it with (R6 of the questions in the chat), beside `fateWords`. */
+export const fixFateWords: Readonly<Record<Exclude<BriefFate, 'not-fixed'>, string>> = {
+  applied: 'applied',
+  'already-in-tree': 'already in the tree',
+  deferred: 'put off by its fixer',
+  blocked: 'not applied by its fixer',
+  'not-attempted': 'not attempted',
+};
+
 /** What became of a decided fix as a clause that ends a sentence: its words of `fateWords` with a lower-case first letter and no period. */
 const fateClause = (fate: BriefFate): string => {
   const words = fateWords[fate];
@@ -719,14 +728,18 @@ function checksWords(checks: readonly BriefCheck[]): string {
   return `The checks: ${checks.map((check) => `${check.kind} ${words(check)}`).join('; ')}.`;
 }
 
+/** What a run that only reviewed changed, as the one sentence of the part "What deep-review changed": nothing, what it decided to fix, which `review --fix` applies, and what it left, each id as `show` gives it. */
+export function readOnlyChangedSentence(changed: BriefChanged, show: (id: string) => string): string {
+  const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, show)}.`;
+  const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
+  return `This run only reviewed: it changed nothing.${toFix}${left}`;
+}
+
 /** The paragraph "What deep-review changed" (R2 of the brief of a run). */
 function changedPart(changed: BriefChanged): string[] {
   const lines = ['## What deep-review changed', ''];
   const left = changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, findingLink)}.`;
-  if (!changed.fixed) {
-    const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, findingLink)}.`;
-    return [...lines, `This run only reviewed: it changed nothing.${toFix}${left}`];
-  }
+  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, findingLink)];
   const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, findingLink)})`]);
   const outcomes = [
     `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, findingLink)})`}`,
@@ -818,7 +831,7 @@ const endsAbbreviation = (before: string, after: string): boolean =>
   || (/(?:^|[^\p{L}\p{N}])No\.$/u.test(before) && /^\s+\p{N}/u.test(after));
 
 /** The first sentence of a text, or the whole text when it has no sentence end; a line or paragraph separator counts as a space, as a line break does. */
-function firstSentence(text: string): string {
+export function firstSentence(text: string): string {
   const inline = inlineText(text).replaceAll(/[ \t]*[\u2028\u2029]+[ \t]*/g, ' ');
   for (const end of inline.matchAll(/[.!?](?=\s|$)/g)) {
     const stop = end.index + 1;

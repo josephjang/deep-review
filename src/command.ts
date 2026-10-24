@@ -55,6 +55,7 @@ import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
 import { readableRuns, runIdOf } from './review/runs.ts';
+import { fixLines } from './review/fix-lines.ts';
 import { chooseReportRun, notShownLines, type ReportChoice } from './review/report-choice.ts';
 import { describeRun, noReportWords, runListLines, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside } from './paths.ts';
@@ -79,7 +80,7 @@ export const usage = `usage:
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review status  --all [--repo <dir>]   (the runs of the checkpoint, newest first)
-  deep-review report  [--run <id>] [--json] [--repo <dir>]   (the brief of a finished run; writes its copy again)
+  deep-review report  [--run <id>] [--json | --fixes] [--repo <dir>]   (the brief of a finished run, or a line for each fix; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
@@ -128,6 +129,7 @@ const options = {
   reject: { type: 'boolean' },
   note: { type: 'string' },
   'record-only': { type: 'boolean' },
+  fixes: { type: 'boolean' },
   into: { type: 'string' },
   unit: { type: 'string' },
   in: { type: 'string' },
@@ -167,7 +169,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
-  report: ['run', 'json', 'repo', 'help'],
+  report: ['run', 'json', 'fixes', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
   hook: ['help'],
@@ -880,6 +882,16 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
   }
 }
 
+/** What `report` prints of its run: the short form of the brief, the JSON form, or a line for each fix (R6 of the questions in the chat). */
+type ReportForm = 'short' | 'json' | 'fixes';
+
+/** The form the flags of `report` ask for, at most one of them. */
+function reportFormOf(values: Values): ReportForm {
+  const given = ([['json', values.json === true], ['fixes', values.fixes === true]] as const).filter(([, on]) => on).map(([form]) => form);
+  if (given.length > 1) throw new UsageError(`--${given[0]!} and --${given[1]!} do not go together; give one`);
+  return given[0] ?? 'short';
+}
+
 /**
  * `deep-review report` (R16, PD11 of the brief of a run): the brief of a
  * run, the one `--run` names or else the run of this worktree with a
@@ -887,7 +899,8 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
  * the chat). It writes the copy of the report again under the run's lock,
  * or not while another engine holds it, then prints a `Not shown:` line
  * for each later run of the worktree it passed over, the short form, and
- * the path of the copy, or else of the record, last; or with `--json`
+ * the path of the copy, or else of the record, last; with `--fixes`, a
+ * line for each fix (R6) in place of the short form; or with `--json`
  * version 3 of the JSON form, which names those runs in `notShown`. A
  * worktree with no run is refused with exit 2, naming `status`; one whose
  * runs have no report with the state of the newest, naming `status --all`;
@@ -895,6 +908,7 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
  * naming `status --run`.
  */
 function report(values: Values, io: CommandIo, root: string, worktree: string): number {
+  const form = reportFormOf(values);
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a report; deep-review status says so too');
   try {
@@ -919,7 +933,11 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record = checkpoint.evidence.pathOf(review.report.report);
       const brief = briefOf(state);
-      if (values.json === true) {
+      if (form === 'fixes') {
+        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines(state), copy ?? record].join('\n')}\n`);
+        return 0;
+      }
+      if (form === 'json') {
         // The command that continues a fix pass the run budget stopped, by the rule the copy's facts name it with; only it reads the engine's own roles.
         const local = { copy, record, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
         io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}\n`);

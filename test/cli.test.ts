@@ -102,6 +102,9 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [['status', '--all', '--run', '00000000'], /--all lists every run; leave out --run/],
       [['status', '--all', '--json'], /--all prints a list for a person and has no JSON form/],
       [['report', '--all'], /--all does not apply to report/],
+      // R6 of the questions in the chat: report prints one form of its run.
+      [['report', '--fixes', '--json'], /--json and --fixes do not go together; give one/],
+      [['status', '--fixes'], /--fixes does not apply to status/],
       // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
       [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
       [['status', '--fresh'], /--fresh does not apply to status/],
@@ -280,6 +283,14 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(json.run, firstId);
     assert.equal(json.version, 3);
     assert.deepEqual(json.notShown, [], 'a run --run names passes no run over');
+
+    // --fixes prints a line for each fix, here the sentence of a run that only reviewed, and then the path of the copy (R6 of the questions in the chat).
+    const fixes = await run(box, 'report', '--run', firstId, '--fixes');
+    assert.equal(fixes.status, 0, fixes.stderr);
+    const fixesLines = fixes.stdout.trimEnd().split('\n');
+    assert.equal(fixesLines.length, 2, fixes.stdout);
+    assert.match(fixesLines[0]!, /^This run only reviewed: it changed nothing\./);
+    assert.match(fixesLines[1]!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
     assert.deepEqual([json.headline.documents, json.documents], [0, []], 'a run that only reviews leaves no document out of date');
     assert.match(json.local.copy!, new RegExp(`${firstId.slice(0, 8)}\\.md$`));
     assert.match(json.local.record, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
