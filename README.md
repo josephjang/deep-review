@@ -264,10 +264,12 @@ resume that leaves one out drops it. The log names the kinds it can
 tell were dropped, those a flag settled when the survey answered, and
 the survey is asked again for them. `deep-review
 status` prints the fold of the active run, as text or `--json`, with
-the `Scope:` line of the scope it captured; `status --run <id>` prints
-another run, and `status --all` lists the runs of the checkpoint,
-newest first, each with the first eight characters of its id, its
-state, its scope and the copy of its current report.
+the `Scope:` line of the scope it captured, and with `--json` the paths
+it reviews and at most the first 2000 paths it left out, as the run
+recorded them, with `excludedCount` counting them all; `status --run
+<id>` prints another run, and `status --all` lists the runs of the
+checkpoint, newest first, each with the first eight characters of its
+id, its state, its scope and the copy of its current report.
 `deep-review abandon --reason <text>` closes an active or blocked run.
 Each command that takes `--run` takes the whole id or its first eight
 or more characters.
