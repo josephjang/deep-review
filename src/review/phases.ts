@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { allBatches, appliedOptionOf, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -51,7 +51,7 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskDecided, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
@@ -391,37 +391,17 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
 
 /**
  * What was decided for a finding a fixer of the fixes answered, as the
- * documentation step reads it (R4 of the documentation step): a fix with
- * its approach and the rule it departs from, which it amends, and the
- * author's word on that departure; an ask with its question, and the
- * author's answer or the option in place while it is open. An answer no
- * fix has applied yet says so, since the tree does not hold it. Null for a
- * finding with no decision, in a run configured before the decision step.
+ * documentation step is told it (R4 of the documentation step): the
+ * recorded decision, the author's standing answer, and whether that answer
+ * still owes an edit. Null for a finding with no decision, in a run
+ * configured before the decision step.
  */
-function decidedWords(review: ReviewState, id: string): string | null {
+function documentationDecided(review: ReviewState, id: string): DocumentationTaskDecided | null {
   const decision = review.decisions?.find((candidate) => candidate.id === id) ?? null;
   if (decision === null) return null;
   const standing = standingAnswer(review, id);
-  const answer = standing?.answer ?? null;
   // An answer that still owes an edit, which a later answer pass applies: the tree does not hold it yet, and the step documents the tree (R4 of the documentation step).
-  const owed = standing?.appliedBy === null;
-  const unapplied = ', which no fix of the run has applied yet, so the tree does not hold it yet';
-  switch (decision.decision) {
-    case 'fix': {
-      const { departure } = decision;
-      const departs = departure === null ? '' : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
-      const rejected = owed ? unapplied : ', so the rule stands as its source states it';
-      const word = answer?.kind === 'accept' ? '; the author accepted the departure' : answer?.kind === 'reject' ? `; the author rejected the departure${rejected}` : '';
-      return `decided: fix: ${decision.fix.approach}${departs}${word}`;
-    }
-    case 'ask': {
-      const { ask } = decision;
-      if (answer?.kind === 'option') return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer.option + 1)}, "${ask.options[answer.option]?.option ?? 'an option the decision does not offer'}"${owed ? unapplied : ''}`;
-      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
-    }
-    case 'leave':
-      return 'decided: leave';
-  }
+  return { decision, answer: standing?.answer ?? null, owed: standing !== null && standing.appliedBy === null };
 }
 
 /**
@@ -437,7 +417,7 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
   const plan = fix?.documentation ?? null;
   if (fix === null || plan === null) throw new Error('The documentation step runs only once it is planned');
   const fixes = allBatches(fix).flatMap((batch) => (fix.answers.fixes[batch.key]?.findings ?? []).map((finding): DocumentationTaskFix => ({
-    batch: batch.key, id: finding.id, status: finding.status, note: finding.note, files: finding.files, subject: finding.message?.subject ?? null, decided: decidedWords(review, finding.id),
+    batch: batch.key, id: finding.id, status: finding.status, note: finding.note, files: finding.files, subject: finding.message?.subject ?? null, decided: documentationDecided(review, finding.id),
   })));
   const owned = ownedFiles(review, 'documentation', documentationUnitKey);
   return documentationTask({

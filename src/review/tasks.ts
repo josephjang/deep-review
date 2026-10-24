@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
+import type { Answer, Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
@@ -705,6 +705,34 @@ function answerLine(answered: AnsweredFinding): string {
   }
 }
 
+/**
+ * What the documentation step is told was decided for a finding (R4 of
+ * the documentation step), shorter than a fixer's `decidedLines`: a fix
+ * with its approach and the rule it departs from, which it amends, and the
+ * author's word on that departure; an ask with its question, and the
+ * author's answer or the option in place while it is open; or a leave. An
+ * answer no fix has applied yet says so, since the tree does not hold it.
+ */
+function documentationDecidedLine({ decision, answer, owed }: DocumentationTaskDecided): string {
+  const unapplied = ', which no fix of the run has applied yet, so the tree does not hold it yet';
+  switch (decision.decision) {
+    case 'fix': {
+      const { departure } = decision;
+      const departs = departure === null ? '' : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
+      const rejected = owed ? unapplied : ', so the rule stands as its source states it';
+      const word = answer?.kind === 'accept' ? '; the author accepted the departure' : answer?.kind === 'reject' ? `; the author rejected the departure${rejected}` : '';
+      return `decided: fix: ${decision.fix.approach}${departs}${word}`;
+    }
+    case 'ask': {
+      const { ask } = decision;
+      if (answer?.kind === 'option') return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer.option + 1)}, "${ask.options[answer.option]?.option ?? 'an option the decision does not offer'}"${owed ? unapplied : ''}`;
+      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
+    }
+    case 'leave':
+      return 'decided: leave';
+  }
+}
+
 /** What a fixer's task says of the findings the author answered: make the tree hold the answer, which takes the place of the default, and say in the message which question was answered and how (R4, R7 of answers). It says nothing about stating a rule (PD3). */
 const answeredRule = 'A finding marked "answered by the author", or whose departure the author rejected or accepted, carries the author\'s answer, given after the run\'s report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding\'s files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message\'s `body`, say which question was answered and how.';
 
@@ -913,8 +941,17 @@ export interface DocumentationTaskFix {
   readonly files: readonly string[];
   /** The subject of the commit its edits carry, or null for none. */
   readonly subject: string | null;
-  /** What was decided for it, and for an ask the option in place or the person's answer, in the task's words; null in a run configured before the decision step. */
-  readonly decided: string | null;
+  /** What was decided for it, with the person's answer; null in a run configured before the decision step. */
+  readonly decided: DocumentationTaskDecided | null;
+}
+
+/** What was decided for a finding the fixes answered, as the documentation step is told it (R4 of the documentation step). */
+export interface DocumentationTaskDecided {
+  readonly decision: RecordedDecision;
+  /** The person's standing answer, or null for none. */
+  readonly answer: Answer | null;
+  /** Whether that answer still owes an edit, which a later answer pass makes, so the tree does not hold it yet. */
+  readonly owed: boolean;
 }
 
 /** The documentation step's task input (R2 to R5, PD11 of the documentation step). */
@@ -953,7 +990,7 @@ function documentLines(index: number, document: DocumentationTaskDocument): stri
 /** What the fixes did, finding by finding, as the step reads it: the status and note, the files and the subject of the commit, and what was decided. */
 function fixLines(fix: DocumentationTaskFix): string {
   const edits = fix.files.length === 0 ? '' : `; edited ${fix.files.join(', ')}${fix.subject === null ? '' : `, committed as "${fix.subject}"`}`;
-  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...(fix.decided === null ? [] : [`    ${fix.decided}`])].join('\n');
+  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...(fix.decided === null ? [] : [`    ${documentationDecidedLine(fix.decided)}`])].join('\n');
 }
 
 /**

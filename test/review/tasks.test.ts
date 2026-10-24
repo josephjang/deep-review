@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import type { RecordedDecision } from '../../src/checkpoint/events.ts';
+import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskDecided, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import type { CommitMessage } from '../../src/scope/git.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
@@ -749,13 +750,17 @@ describe('the repair task', () => {
 // R2 to R5, PD7 and PD11 of the documentation step.
 describe('the documentation step\'s task', () => {
   const checks = [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }];
+  const keepAsk: RecordedDecision = {
+    id: 'SCAN-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+    ask: { question: 'Keep the bytes?', options: [{ option: 'drop them', cost: 'c', rule: 'r', edits: true }, { option: 'keep them', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 1, searched: ['docs'] },
+  };
   const input = (change: Partial<DocumentationTaskInput> = {}): DocumentationTaskInput => ({
     documents: [
       { id: 'doc-1', file: './docs/testing.md', path: 'docs/testing.md', drift: [{ batch: 'c1-1', file: './docs/testing.md', what: 'the echo removes the bytes' }, { batch: 'c2-1', file: 'docs/testing.md', what: 'test_shout prints HI' }] },
       { id: 'doc-2', file: '../outside.md', path: null, drift: [{ batch: 'c1-1', file: '../outside.md', what: 'the bytes are kept' }] },
     ],
     fixes: [
-      { batch: 'c1-1', id: 'SCAN-1', status: 'applied', note: 'kept the bytes', files: ['src/a.ts'], subject: 'fix(a): Keep the bytes', decided: 'decided: ask the author "Keep the bytes?", still open; the option in place: "keep them"' },
+      { batch: 'c1-1', id: 'SCAN-1', status: 'applied', note: 'kept the bytes', files: ['src/a.ts'], subject: 'fix(a): Keep the bytes', decided: { decision: keepAsk, answer: null, owed: false } },
       { batch: 'c2-1', id: 'SCAN-2', status: 'deferred', note: 'needs a choice', files: [], subject: null, decided: null },
     ],
     patches: [{ path: '/store/artifacts/1111', subject: 'fix(a): Keep the bytes' }],
@@ -804,6 +809,22 @@ describe('the documentation step\'s task', () => {
     assert.match(task, /^What the fixers did, finding by finding:\n- c1-1 SCAN-1 applied: kept the bytes; edited src\/a\.ts, committed as "fix\(a\): Keep the bytes"\n {4}decided: ask the author "Keep the bytes\?", still open; the option in place: "keep them"\n- c2-1 SCAN-2 deferred: needs a choice$/m);
     assert.match(task, /which holds the edits of this run apart from the change under review:\n- \/store\/artifacts\/1111 \(fix\(a\): Keep the bytes\)$/m);
     assert.match(documentationTask(input({ fixes: [], patches: [] })), /finding by finding:\n\(nothing recorded\)[\s\S]*change under review:\n\(none\)/);
+  });
+
+  it('words each decision from its parts: an ask open or answered, a fix with its departure and the author\'s word on it, a leave, and an answer still owed (R4)', () => {
+    const decided = (decision: DocumentationTaskDecided): string => documentationTask(input({ fixes: [{ batch: 'c1-1', id: 'SCAN-1', status: 'applied', note: 'n', files: [], subject: null, decided: decision }] })).split('\n').find((line) => line.startsWith('    decided: '))!;
+    const owedTail = ', which no fix of the run has applied yet, so the tree does not hold it yet';
+    assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: false }), '    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"');
+    assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: true }), `    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"${owedTail}`);
+    const fix: RecordedDecision = { id: 'SCAN-1', decision: 'fix', grounds: 'g', fix: { approach: 'guard once', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse throws', source: 'docs/parse.md', reason: 'r' } };
+    const departs = '    decided: fix: guard once, departing from the rule "parse throws" (docs/parse.md), which the fix amends';
+    assert.equal(decided({ decision: fix, answer: null, owed: false }), departs);
+    assert.equal(decided({ decision: { ...fix, departure: null }, answer: null, owed: false }), '    decided: fix: guard once');
+    assert.equal(decided({ decision: fix, answer: { kind: 'accept' }, owed: false }), `${departs}; the author accepted the departure`);
+    assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: false }), `${departs}; the author rejected the departure, so the rule stands as its source states it`);
+    assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: true }), `${departs}; the author rejected the departure${owedTail}`);
+    const leave: RecordedDecision = { id: 'SCAN-1', decision: 'leave', grounds: 'g', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-2' }, ask: null, departure: null };
+    assert.equal(decided({ decision: leave, answer: null, owed: false }), '    decided: leave');
   });
 
   it('owns the files of the fixes and the documents, and leaves every other file free', () => {
