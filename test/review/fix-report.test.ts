@@ -505,6 +505,29 @@ describe('the Documentation section of the report', () => {
     ].join('\n'));
   });
 
+  it('gives the step\'s validation once, under Documentation, and credits none of its drift or tests to the fixers', () => {
+    // The fixers name no document, so only the step's search answers, with its validation, its own drift and a test.
+    const searched = (history: History): History => {
+      history.start('documentation');
+      history.add('documentation.planned', { items: documentationItems(history) }).worker(55, 'documentation documentation:documentation');
+      const message = { subject: 'docs(a): Say parse returns 0', body: 'Why.' };
+      const findings = [{ id: 'search', status: 'applied', file: 'docs/a.md', line: null, note: 'said parse returns 0 for a null', message, files: ['docs/a.md'], corrections: [], validation: [{ method: 'static', source: 'docs/a.md', evidence: 'parse in src/a.ts returns 0 for a null' }], requiredFiles: [] }];
+      return history.add('fix.recorded', documentationAnswer(worker(55), [], { findings, drift: [line('CHANGES.md', 'the bytes are always translated')], tests: [{ file: 'test/doc.test.ts', covers: 'the example in docs/a.md' }] }), 3)
+        .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(55) }, change: { findings: ['search'], message }, files: [{ path: 'docs/a.md', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('b') } }] }, 3)
+        .add('worktree.checked', endCheck('documentation'), 7).finish('documentation');
+    };
+    const state = documentedFixRun([], searched).fold();
+    const report = renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches: state.review!.fix!.revisions.map((_, index) => reference(String(index + 1))), continueCommand: null } });
+    assert.equal(report.split('parse in src/a.ts returns 0 for a null').length - 1, 1, 'the validation line appears once');
+    assert.match(section(state), /^Validation: static, docs\/a\.md: parse in src\/a\.ts returns 0 for a null$/m);
+    assert.match(section(state), /^- CHANGES\.md: the bytes are always translated$/m);
+    assert.doesNotMatch(report, /Validation of search/);
+    assert.match(report, /^- The documentation step ran its own suite: not-run\.$/m);
+    const fixes = report.slice(report.indexOf('\n## Fixes\n'), report.indexOf('\n## Documentation\n'));
+    assert.doesNotMatch(fixes, /The documentation the fixers say their edits made stale/);
+    assert.doesNotMatch(fixes, /test\/doc\.test\.ts/);
+  });
+
   it('says why the step did not run, and gives an item not attempted its reason', () => {
     const failed = documentedFixRun([line('docs/a.md', 'parse throws on a null')], (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
     const text = section(failed);

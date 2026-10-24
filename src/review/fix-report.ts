@@ -227,7 +227,8 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
  * step).
  */
 function answerLines(fix: FixState): string[] {
-  const answers = allFixerAnswers(fix);
+  // The documentation step's own drift and tests are not a fixer's: the section Documentation reports its answer.
+  const answers = allFixerAnswers(fix).filter((answer) => answer.phase !== 'documentation');
   const drift = answers.some((answer) => answer.drift.length > 0);
   const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
   return [
@@ -565,7 +566,9 @@ export function fixLimitations(review: ReviewState): string[] {
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   // A check not available is a gap of the brief, and the Checks table says why, with what the operator dropped and the tool this machine lacked (R15 of the repository survey; R10 of the brief of a run).
   for (const answer of allFixerAnswers(fix)) {
-    for (const finding of answer.findings) {
+    // The documentation step's validation is under Documentation, with the item it validates (R10 of the documentation step).
+    const validated = answer.phase === 'documentation' ? [] : answer.findings;
+    for (const finding of validated) {
       for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
     }
     const failures = answer.suite.failures.trim() === '' ? '' : `: ${inlineText(answer.suite.failures)}`;
