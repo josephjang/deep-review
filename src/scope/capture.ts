@@ -129,17 +129,18 @@ export function scopeBase(repo: string, input: ScopeRequest): string {
 }
 
 /**
- * Both ends of a request's change, as the capture would choose them
- * against `HEAD` and the tree as they are now, listing no path: the commit
- * it starts from, and the commit a `last-commit` scope ends at, or null
- * for a change that ends at the working tree. `config show` names both, so
- * a line that is said again in other words cannot take the start for the
- * commit reviewed (R11 of the skill surface corrections).
+ * The mode and both ends of a request's change, as the capture would
+ * choose them against `HEAD` and the tree as they are now, listing no
+ * path: the mode it records, the commit it starts from, and the commit a
+ * `last-commit` scope ends at, or null for a change that ends at the
+ * working tree. `config show` names all three, even for an empty change,
+ * so a line that is said again in other words cannot take the start for
+ * the commit reviewed (R11 of the skill surface corrections), nor name a
+ * mode other than the one a run records (R12 of the questions in the chat).
  */
-export function scopeEnds(repo: string, input: ScopeRequest): { readonly base: string; readonly target: string | null } {
+export function scopeEnds(repo: string, input: ScopeRequest): { readonly mode: ScopeMode; readonly base: string; readonly target: string | null } {
   validateRequest(input);
-  const { base, target } = chooseMode(repo, normalizeRequest(input), gitApi.head(repo));
-  return { base, target };
+  return chooseMode(repo, normalizeRequest(input), gitApi.head(repo));
 }
 
 /** What a capture is held to beside its request (R4, R10 of the configuration). */
