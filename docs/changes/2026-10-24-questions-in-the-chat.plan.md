@@ -1,0 +1,260 @@
+# Implementation plan: the questions in the chat, the way back and the scope
+
+This is the plan of the work for the [proposal](2026-10-24-questions-in-the-chat.md). It stays in the pull request while the work continues, and the commit that records the verification deletes it. It is not a part of the proposal, and it records no decision. The proposal records the decisions.
+
+Each step names each file that it changes and the commands that prove it. The steps run in order, and the checks of a step pass before the next step starts. `npm run check` passes at each commit. No step changes how the engine stops, resumes, launches a child or appends to the ledger. Thus `npm run test:contract` runs once, at the head before the gate.
+
+`npm run verify` passes at each head that is pushed, as `AGENTS.md` says, and CI runs it too. Thus each batch of commits that goes to origin ends with `npm run build`, and with a `chore(dist)` commit when `dist/` changed.
+
+The proposal can change during the work. If the code needs a different design, a commit of its own amends the proposal before the code commit. A commit that changes what a skill says is apart from each commit of the engine.
+
+Each test of a step fails on the code before the step and passes after it. A test that pins an old line changes in the same commit as the line, and the commit message says so.
+
+## 0. The branch, the proposal and this plan
+
+- The branch is `feat/questions-in-the-chat`, from `main` at `3c4e3ec`. It holds the proposal, this plan and the implementation. Its name is set before the first push, because a rename of a pushed branch closes its pull request.
+
+```sh
+git add docs/changes/2026-10-24-questions-in-the-chat.md
+git commit -m "docs(changes): Propose the questions in the chat, the way back and the scope"
+git add docs/changes/2026-10-24-questions-in-the-chat.plan.md
+git commit -m "chore(changes): Add the working plan for the questions in the chat"
+```
+
+## 1. The draft pull request
+
+- `npm run check` and `npm run verify` at the head.
+- Push the branch, and open a draft pull request with the proposal and this plan, so the author reviews the proposal before the code. The body has the three sections Motivation, Modifications and Result, and it says that the implementation follows in the same pull request.
+- CI runs on Linux, macOS and Windows from then on.
+
+## 2. A run named by the start of its id (R11)
+
+Files:
+
+- `src/review/runs.ts`: a new `runIdOf(checkpoint, given)`. It gives `given` when the ledger holds that id. Else, when `given` has 8 or more characters, it gives the one run whose id starts with `given`. It reads the ids from `checkpoint.listRuns()`, with the unreadable runs.
+- In the same function, a start that names two or more runs is a `ReviewRefusedError` that names them. A start that names none, or a start of fewer than 8 characters, goes on to `checkpoint.fold`. Its `UnknownRunError` gets the same report as today in each command.
+- `src/command.ts`: `resolveRun` takes the id from `runIdOf` before `checkpoint.fold`. This covers `status`, `report` and `abandon`.
+- `src/review/answer.ts`: `chooseAnswerRun` takes a given id through `runIdOf`.
+- `src/review/commit.ts`: `chooseRun` takes a given id through `runIdOf`.
+
+Tests:
+
+- `test/review/runs.test.ts`, new. It takes a whole id and a start of 8 characters. It refuses a start of 7 characters as an unknown id, and a start that two runs share with both ids. It names an unreadable run by its start.
+- `test/cli.test.ts`: `status --run`, `report --run` and `abandon --run` with the first 8 characters of an id.
+- `test/review/answer.test.ts` and `test/review/commit.test.ts`: `--run` by the start of an id.
+
+```sh
+npm run check
+git commit -m "feat(cli): Take a run by the first eight characters of its id"
+```
+
+## 3. The state of a run with no report, and the run that `report` takes (R8, R9)
+
+Files:
+
+- `src/review/status.ts`: a new `noReportWords(state)`, the state of a run with no current report in its own terms. An abandoned run gives `state.abandonReason` and the phase that `currentPhase` names. A blocked run gives the code of its blocker. A run in progress gives its phase.
+- In the same function, a run that works again names the open answer pass, the continuation or the reopened fix pass. The fold has `review.answerPasses` and `review.continuedFrom` for this. A run with no review says that its review is not configured.
+- `src/command.ts`: `report` with no `--run` takes the newest run of the worktree, by `createdAt`, with a current report. Before the short form, it prints one `Not shown:` line for each newer run of the worktree, with `noReportWords`.
+- In the same command, a worktree with no run that has a report gets a refusal. The refusal gives the state of the newest run and names `status --all`. A refusal of `report --run <id>` uses `noReportWords`, and it still names `status --run <id>`. The comment of `report` says so.
+
+Tests:
+
+- `test/review/status.test.ts`: `noReportWords` for each state. The cases are an abandoned run in the triage with its reason, a blocked run with its code, and a run in progress. They also include an open answer pass, a continuation and a reopened fix pass.
+- `test/cli.test.ts`, the case "shows the brief of the newest run of the worktree with report". A new run with no report no longer makes `report` refuse. `report` shows the second run, and its first line names the new run.
+- In the same case, an abandoned newest run gives `abandoned` with its reason and its phase. `report --run <abandoned>` refuses with the same words. A worktree whose runs have no report refuses and names `status --all`.
+
+```sh
+npm run check
+git commit -m "feat(report): Show the newest run with a report and say why others have none"
+```
+
+## 4. The list of runs (R10)
+
+Files:
+
+- `src/command.ts`: `options` and `allowed.status` get `all`. `status --all` refuses `--run` and `--json` with a usage error. The usage line becomes `deep-review status [--run <id> | --all] [--json] [--repo <dir>]`.
+- `src/review/status.ts`: a new `runListLines(runs, worktree, copyOf)`. It gives the runs newest first by `createdAt`, at most 20, and then a line that counts the others.
+- In the same function, each line gives the whole id, `createdAt`, and the state with the reason of an abandon. It gives the mode of the scope, with its number of files and both ends. It names the worktree when it is not this one. Last, it gives the path of the copy of the report, or `no report`. A run with no scope says so.
+
+Tests:
+
+- `test/review/status.test.ts`: a line for each state, a run with no scope, a run of another worktree, 21 runs, and a copy that does not exist.
+- `test/cli.test.ts`: `status --all` with two runs, newest first. `--all --run` and `--all --json` are refused.
+
+```sh
+npm run check
+git commit -m "feat(status): List the runs of the checkpoint with --all"
+```
+
+## 5. The `Scope:` line (R12)
+
+Files:
+
+- `src/scope/git.ts`: a new `commitCount(repo, base, head)`. It runs `git rev-list --count <base>..<head>`, and it gives null when git fails.
+- `src/config/command.ts`: `ShownScope` gets the mode as the person asked for it and the name of the base. It also gets the counts of commits, of files and of the paths that `scope.exclude` leaves out. Last, it gets the count of uncommitted files, or null.
+- In the same file, a new `scopeLine(scope)` builds the line, and `showLines` uses it. The comment beside the line names this proposal beside R11 of the skill surface corrections.
+- `src/command.ts`, `config show`: it fills the new fields. The mode is `branch` when `--branch` or a `scope.default` of `branch` named the scope. The name of the base comes from the request. For `--branch`, it is the merge base with the `--base` or `review.base` ref. It is the ref of `--ref`, the revision of `--from`, `HEAD` for `worktree`, or the parent for `last-commit`.
+- In the same command, the files and the paths left out come from `resolveScopeRequest`. The uncommitted files come from `changedAgainstHead`, for a change that ends at the working tree. The `--json` output gets the same fields in `scope`. An empty change keeps its reason.
+- `src/review/status.ts`: `describeRun` gives a `Scope:` line from `state.scope` through `scopeLine`, with no count of uncommitted files. The caller in `src/command.ts` gives it the count of commits.
+
+Tests:
+
+- `test/scope/git.test.ts`: `commitCount` of a range, and null for a revision that does not exist.
+- `test/config/command.test.ts`: the line of `last-commit`, `worktree`, `--branch`, `--ref` and `--from --to`. Also the line with paths that `scope.exclude` leaves out, with uncommitted files and with none, and with no count of commits. The two cases that pin the line of today change.
+- `test/review/status.test.ts`: the `Scope:` line of a captured scope.
+- `test/cli.test.ts`: `config show --branch` names `branch` and the merge base with the base ref.
+
+```sh
+npm run check
+git commit -m "feat(config): Give the Scope line the counts and the base a person can check"
+```
+
+## 6. The questions, the rules and one name in the short form (R1, R2, R3)
+
+Files:
+
+- `src/review/brief.ts`, `briefShortForm`: the line `Questions:` keeps its count and its words about the default, with no ids. After it come two lines for each open question, for at most `shownQuestions` (3). One more line counts the others with `idWords`.
+- In the same function, the line `Against a written rule:` keeps its count, with no ids. After it comes one line for each open departure, for at most `shownDepartures` (3), with the rule and its source. One more line counts the others.
+- Each new line starts with two spaces and the id of the finding. `lookWords` names a departure as a fix that goes against a written rule. The comments of `briefShortForm` and `shortLineLimit` give the new maximum of 19 lines.
+
+Tests:
+
+- `test/review/brief.test.ts`, the cases under `briefShortForm (R13 of the brief of a run)`: the two lines of a question. The default in place and the choice as one option, and as two options.
+- In the same file: a default that no fixer applied, in a run that only reviewed. Four questions, with the line of the count. The line of a departure, and the line of the count.
+- In the same file: the words of `Look at:`. A run with many of each gives at most 19 lines and the path. Each line has at most 200 characters, but the line of the change. The case of the accepted departure keeps `Look at: nothing`.
+- Each other test that pins a line of the short form or its count of lines, from `grep -rn "briefShortForm\|lines.length\|Questions: \|Against a written rule: " test/`.
+
+```sh
+npm run check
+git commit -m "feat(brief): Name each open question and each rule in the short form"
+```
+
+## 7. The line of the change (R4)
+
+Files:
+
+- `src/review/brief.ts`: a new `changeLineLimit` (400). The line of the change gives the first sentence whole up to that limit, and only that line has that limit.
+- `src/review/tasks.ts`: `accountLimits` gets `firstSentence` (160). The line of `what` in the task of the triage asks for one first sentence of at most that many characters. That sentence says alone what the change does.
+
+Tests:
+
+- `test/review/brief.test.ts`: a first sentence of 300 characters stays whole, and one of 500 is cut at a word with three periods.
+- `test/review/tasks.test.ts`: the sentence of the task, with the limit.
+
+```sh
+npm run check
+git commit -m "feat(brief): Keep the first sentence of the change whole"
+```
+
+## 8. The mark on the core of the change (R5)
+
+Files:
+
+- `src/review/brief.ts`: `changePart` takes the brief, and it ends with the sentence of R5 when `changed.patches` is more than 0. `briefShortForm` starts the line with `The change before the fixes:` in the same case.
+
+Tests:
+
+- `test/review/brief.test.ts`: a fix run with a patch gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today. An answer pass that makes the first patch gives both.
+- `test/review/report.test.ts` and `test/review/report-copy.test.ts`, where they pin the part "The change".
+
+```sh
+npm run check
+git commit -m "feat(brief): Say when the core describes the change before the fixes"
+```
+
+## 9. A line for each fix, and version 3 of the JSON form (R6)
+
+Files:
+
+- `src/review/fix-report.ts`: `findingOutcomes` also gives `subject`. For an applied finding, it is the subject of the message of the answer that gave the last outcome, else the note of that answer. For any other outcome, it is null.
+- `src/review/brief.ts`: `BriefChanged` gets `appliedLines`, the id and the subject of each applied fix, in the order of `applied`. `changedPart` lists them after its paragraph, one line each, with `findingLink`.
+- `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3` and `changed.appliedLines`. `briefJson` writes version 3, and the comment of the module says that the engine writes version 3 after this change.
+- `src/command.ts`: the comment of `report` names version 3.
+
+Tests:
+
+- `test/review/fix-report.test.ts`: `subject` of a fix of the fix pass, of a fix that an answer pass applied, and of a fix whose answer has no message.
+- `test/review/brief.test.ts`: the lines of the part "What deep-review changed", and none in a run that only reviewed.
+- `test/review/brief-json.test.ts`: version 3 parses with `appliedLines`, and versions 1 and 2 still parse their outputs.
+- `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`.
+
+```sh
+npm run check
+git commit -m "feat(brief): List each applied fix with the subject of its commit"
+```
+
+## 10. `report --brief` (R7)
+
+Files:
+
+- `src/command.ts`: `options` and `allowed.report` get `brief`. `report --brief` refuses `--json` with a usage error. It prints the lines of R8, then `briefMarkdown(brief)`, then the path of the copy. When the engine cannot write the copy, the last line is the path of the record. The usage line becomes `deep-review report [--run <id>] [--json | --brief] [--repo <dir>]`.
+
+Tests:
+
+- `test/cli.test.ts`: `report --brief` prints the Markdown brief, whose first line is the heading of the title and whose last line is the path of the copy. `report --run <id> --brief` takes the named run. `--brief --json` is refused.
+
+```sh
+npm run check
+git commit -m "feat(report): Print the brief in Markdown with --brief"
+```
+
+## 11. The skills (R7, R10, R11, R13, R14)
+
+Files:
+
+- `skill/claude/skills/deep-review/SKILL.md`, step 3: it runs `status`, then `config show` when no run is active, then the review as a background command. Then it writes the message with the lines that it copies, as the last text of the turn.
+- In the same step, a user who stops the review gets the background command stopped first, and then `abandon`.
+- In the same file, step 4 puts the short form in the last message of the turn. The lines of a later command, such as `commit`, come before it.
+- Step 4 also names `report --brief` for a question about a question or a fix that goes against a written rule. It names it for a document left out of date, or for what the run changed, too.
+- In the same file, the paragraph about a finished run names `status --all` for a user who does not know the run. It says that `--run` takes the eight characters that the brief shows.
+- `skill/codex/SKILL.md`: the same sentences for step 4 and for the paragraph about a finished run. Step 3 keeps its order.
+
+Tests:
+
+- `test/skills.test.ts`: the new order of step 3 in the Claude Code skill, and the old order in the Codex skill.
+- In the same file: the sentences of step 4 and of the paragraph about a finished run, in both skills. The two texts stay one, except the lines of each runtime. The tests that pin the sentences of today change with them.
+
+```sh
+npm run check
+git commit -m "feat(skill): Show the scope after the review starts and name the new commands"
+```
+
+## 12. The README, the usage and the comments
+
+Files:
+
+- `README.md`: the paragraph about the short form. It gets the questions, the rules, the mark on the core, `report --brief` and the run that `report` takes.
+- In the same file, the paragraph about `config show` gets the new `Scope:` line. The paragraph about the skill gets the order of step 3, `status --all` and `--run` by its start.
+- Each comment that describes the old behavior, from `grep -rn "newest run of the worktree\|seven lines\|an eighth\|has no current report" src/ README.md`.
+
+```sh
+npm run check
+git commit -m "docs(readme): Describe the questions in the short form, the list of runs and the Scope line"
+```
+
+## 13. The self-review and the build
+
+- Read the whole diff against each requirement of the proposal, and as a reviewer reads it: each changed function whole, each caller of a changed signature, each removed line and the rule that it kept.
+- `npm run check` and `npm run test:contract` at the head.
+- `npm run build` and `npm run verify`, then `git commit -m "chore(dist): Rebuild the engine with the questions in the chat"`.
+- Push, and wait for CI on the six jobs.
+
+## 14. The gate (R15), on the author's word
+
+- Copy `dist/claude` and `dist/codex` of the head out of the worktree. Then the run on this pull request does not change the engine that it uses.
+- deep-review on this pull request on Claude Code, with the command of the skill and the settings of the repository.
+- Then `deep-review commit`, and typecheck and lint at each commit alone. Then `npm run check` and `npm run verify` at the head, the audit of the ledger, and a stacked pull request with the commits of the gate.
+- pallets/click #3878 in fresh clones at the head `f8c5a8e` and the base `2247b35`, with a test identity. The Claude Code plugin and the Codex skill take the engine of the head for the sessions, and they go back to `main` after them.
+- An interactive session of each host. It has a start with `--branch --fix`, the result, and a question about the open question. Then it has a start with a wrong scope that the user stops and abandons. A new session then asks for the last result and for the runs.
+- The record gives the four measures of R15. The first is the message with the scope as a text block of the transcript at each start of Claude Code. The second is the questions learned from the chat with no read of the report.
+- The third measure is the last report after an abandoned run, with one command. The fourth is the number of lines of each short form.
+
+## 15. The verification, and this plan out
+
+- The section Verification of the proposal records the implementation, the gate and the answers of the author. It also records each change of the proposal during the work.
+- This plan is deleted in the same commit: `git commit -m "docs(changes): Record the verification of the questions in the chat"`.
+
+## 16. The pull request ready
+
+- The body of the pull request describes the finished work, and the pull request is marked ready.
+- The merge goes to `main` by a fast-forward, on the author's word. Then the Claude Code plugin and the Codex skill take `main`.
