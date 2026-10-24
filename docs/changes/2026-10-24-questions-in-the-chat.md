@@ -44,6 +44,8 @@ The skills show the scope before the run, so that a person who sees a wrong scop
 
 Step 3 tells the model to write a message before its next tool call, in the same reply. On Claude Code, Opus 5.5 put this message in its `thinking` each of the four times that a run started (U6). The terminal showed the `thinking`, so the person saw the words. A host that hides the `thinking` shows nothing. The same model wrote the last message of each turn as text.
 
+Step 2 has the same fault. Before a fix run, it tells the model to say that the workers edit the working tree, that the engine runs the check commands that it chose, and that the run commits nothing. In the session that asked for the review, the fixes and a commit in one message, these words were only in the `thinking`, beside the scope.
+
 The line itself is hard to judge. In one run, it was `Scope: range, the change from 2247b35ea1c4... to the working tree`. The person asked for the branch, and the line says `range`. It does not say that the base is the merge base with `origin/main`, or that the change has 1 commit and 4 files.
 
 ## Goals
@@ -169,7 +171,7 @@ The `--json` output gives these facts in `scope`. It also gives the path of each
 
 ### R13: The Claude Code skill shows the scope after it starts the review
 
-Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. The message holds the `Scope:` line, the `budget.usd` line and the fix choice, or the `Run` and `Settings:` lines of an active run. This message is the last text of the turn.
+Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. The message holds the `Scope:` line, the `budget.usd` line and the fix choice, or the `Run` and `Settings:` lines of an active run. For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review. This message is the last text of the turn.
 
 When the review exits, the skill goes on with step 4. When the user stops the review, the skill stops the background command first and then abandons the run, as today.
 
@@ -234,6 +236,8 @@ From this line, the person judges if the run reviews what the person asked for. 
 ### PD10: The Claude Code skill starts the review first and shows the scope after
 
 Step 3 told the model to write the message before its next tool call, in the same reply. In each of four starts, Opus 5.5 wrote the message in its `thinking`. The same model wrote the last message of each turn as text. In the work on the skill surface, three different words in step 3 did not make the model write the message before the review. So this proposal moves the message to where the model writes text: the end of the turn, after the review starts.
+
+The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way.
 
 The cost is that the run starts a few seconds before the person sees its scope. Until its fixes phase, the run edits nothing, as step 3 of the skills says. A person who stops it then loses only the start of its triage. The proposal rejects a hook that prints the scope, because it works only on Claude Code and gives the same text a second place.
 
