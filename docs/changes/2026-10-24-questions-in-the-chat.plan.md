@@ -171,15 +171,15 @@ Files:
 
 - `src/review/fix-report.ts`: `findingOutcomes` also gives `subject`. For an applied finding, it is the subject of the message of the answer that gave the last outcome, else the note of that answer. For any other outcome, it is null.
 - `src/review/brief.ts`: `BriefChanged` gets `appliedLines`, the id and the subject of each applied fix, in the order of `applied`. `changedPart` lists them after its paragraph, one line each, with `findingLink`.
-- `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3` and `changed.appliedLines`. `briefJson` writes version 3, and the comment of the module says that the engine writes version 3 after this change.
-- `src/command.ts`: the comment of `report` names version 3.
+- `src/review/brief-json.ts`: `briefJsonV3` is version 2 with `version: 3`, `changed.appliedLines` and `notShown`, a list of the runs that `report` passed over, each with `run` and `state`. `briefJson` takes that list beside the local facts and writes version 3, and the comment of the module says that the engine writes version 3 after this change.
+- `src/command.ts`: `report --json` gives `briefJson` the runs that the choice of step 3 passed over, with `noReportWords`, and prints no `Not shown:` line. The comment of `report` names version 3.
 
 Tests:
 
 - `test/review/fix-report.test.ts`: `subject` of a fix of the fix pass, of a fix that an answer pass applied, and of a fix whose answer has no message.
 - `test/review/brief.test.ts`: the lines of the part "What deep-review changed", and none in a run that only reviewed.
-- `test/review/brief-json.test.ts`: version 3 parses with `appliedLines`, and versions 1 and 2 still parse their outputs.
-- `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`.
+- `test/review/brief-json.test.ts`: version 3 parses with `appliedLines` and `notShown`, and versions 1 and 2 still parse their outputs.
+- `test/cli.test.ts`: `report --json` gives version 3, with `briefJsonV3`. With a later run that has no report, stdout parses as JSON whole, and `notShown` names that run with its state. `report --run <id> --json` gives an empty list.
 
 ```sh
 npm run check

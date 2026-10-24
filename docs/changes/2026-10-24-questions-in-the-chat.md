@@ -128,7 +128,7 @@ In a run whose fixes changed a file, the line of the change starts with `The cha
 
 ### R6: The brief gives one line for each fix
 
-The part "What deep-review changed" keeps its paragraph. Then it lists each fix that a fixer applied, one line each, in the order of the brief. A line gives the id with its link and the subject of the commit message that the fixer gave. A fix with no message gets the note of its fixer. The brief value holds the subject. The JSON form of the brief gets it as version 3, which is version 2 with the subject of each applied fix.
+The part "What deep-review changed" keeps its paragraph. Then it lists each fix that a fixer applied, one line each, in the order of the brief. A line gives the id with its link and the subject of the commit message that the fixer gave. A fix with no message gets the note of its fixer. The brief value holds the subject. The JSON form of the brief gets it as version 3, which is version 2 with the subject of each applied fix and the runs that `report` passed over (R8).
 
 ### R7: `report --brief` prints the brief
 
@@ -147,6 +147,8 @@ Not shown: run 171fd810, a later run, was abandoned in the phase triage: wrong s
 ```
 
 With no run that has a report, `report` refuses with exit code 2. The refusal gives the state of the newest run and names `status --all`.
+
+With `--json`, stdout holds the JSON form alone. Version 3 of the JSON form lists the same runs in `notShown`, each with its id and its state as R9 says it. So a program also learns that a later run exists. With `--run`, the list is empty.
 
 ### R9: A run with no report says why
 
@@ -226,7 +228,7 @@ After the fixes and the answers, the account of the triage can say the opposite 
 
 ### PD6: `report` passes over a run with no report, and says so
 
-`answer` and `commit` with no `--run` pass over the runs that they cannot act on. `report` took the newest run in any state, so an abandoned run blocked the way to the report before it. The proposal rejects two other ways. A refusal, as today, leaves the person with no report. A silent choice of an older run hides a newer run in progress, and the person can take an old result for the current one. So `report` takes the newest run with a report, and its first lines name each newer run that it passed over.
+`answer` and `commit` with no `--run` pass over the runs that they cannot act on. `report` took the newest run in any state, so an abandoned run blocked the way to the report before it. The proposal rejects two other ways. A refusal, as today, leaves the person with no report. A silent choice of an older run hides a newer run in progress, and the person can take an old result for the current one. So `report` takes the newest run with a report, and its first lines name each newer run that it passed over. The JSON form names them in a field of its own, since a line before the JSON breaks it, and a program can take an old result for the current one too.
 
 ### PD7: The list is a flag of `status`
 
