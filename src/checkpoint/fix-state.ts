@@ -847,13 +847,25 @@ export function budgetStoppedUnits(fix: Pick<FixState, 'notAttempted'>): FixReop
 export const driftLineKey = (key: string, line: { readonly file: string; readonly what: string }): string => JSON.stringify([key, line.file, line.what]);
 
 /**
+ * The identity of a document (TD8 of the documentation step), which the
+ * plan of the documentation step and the list of documents left both key
+ * it by: a repository path exactly, so two paths the worktree resolved
+ * apart are two documents whatever their case; a path nothing resolved,
+ * trimmed and folded as an unlocated candidate's is (`normalizeFileName`,
+ * then lower case). The two kinds never share a key, so a refused path
+ * never joins a document of the repository.
+ */
+export const documentKey = (document: { readonly path: string | null; readonly file: string }): string =>
+  document.path === null ? `folded:${normalizeFileName(document.file.trim()).toLowerCase()}` : `path:${document.path}`;
+
+/**
  * The items of the documentation step (R2, TD8 of the documentation
  * step): the `drift` lines of the answers of the fixes, read batch by
  * batch in the order of `allBatches` and each answer's lines in their
  * order, grouped by the repository path `resolve` reads each line's file
  * as, the way a reported path is read; a line whose path `resolve`
- * refuses, null, groups with the lines of the same path folded as an
- * unlocated candidate's is (`normalizeFileName`, then lower case). Each
+ * refuses, null, groups with the lines of the same path trimmed and
+ * folded, as `documentKey` keys a document. Each
  * item keeps the path its first line wrote and the resolved one, the
  * items are numbered `doc-1` upward in the order of their first lines,
  * and the item `search` comes last. A run whose fixes reported no line has
@@ -866,8 +878,7 @@ export function documentationItemsOf(fix: FixState, resolve: (file: string) => s
   for (const batch of allBatches(fix)) {
     for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
       const path = resolve(line.file);
-      // A resolved path and a folded one never share a key, so a refused path never joins a document of the repository.
-      const group = path === null ? `folded:${normalizeFileName(line.file).toLowerCase()}` : `path:${path}`;
+      const group = documentKey({ path, file: line.file });
       const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
       entry.drift.push({ key: batch.key, file: line.file, what: line.what });
       groups.set(group, entry);

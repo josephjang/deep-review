@@ -7,7 +7,7 @@
  */
 import { passKey } from '../checkpoint/answer-state.ts';
 import { isClaimablePath } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
+import { allBatches, budgetStoppedUnits, documentKey, driftLineKey, unitRevisions, type FixState, type ReopeningState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { StructuralCheckError } from './errors.ts';
 import { resolveReportedPath } from './fix-answer.ts';
@@ -70,8 +70,19 @@ const reporterOf: Readonly<Record<EditingPhase, string>> = {
   answer: 'the fixer of an answer pass',
 };
 
-/** A path as two entries of the list compare it, so two spellings of one document are one entry: as an unlocated candidate's is folded (`normalizeFileName`, then lower case). */
-export const documentKey = (path: string): string => normalizeFileName(path.trim()).toLowerCase();
+/**
+ * The key of a `drift` line no item of the plan holds, by the identity the
+ * plan gives a document (`documentKey`, TD8): the repository path of an
+ * item of the plan when the line spells it, normalized and trimmed, else
+ * the line's folded spelling, which groups it with the other lines of it.
+ */
+function lineKeyOf(plan: FixState['documentation'], file: string): string {
+  const spelled = normalizeFileName(file.trim());
+  return documentKey({ path: (plan?.items ?? []).some((item) => item.path === spelled) ? spelled : null, file });
+}
+
+/** Whether a path a worker gave names the document of `key`: its repository path exactly, or the folded spelling of a document the plan resolved to none (TD8). */
+const names = (key: string, file: string): boolean => key === documentKey({ path: normalizeFileName(file.trim()), file }) || key === documentKey({ path: null, file });
 
 /**
  * Why the documentation step of a fix run did not answer, in plain words,
@@ -164,8 +175,9 @@ export function unheldDriftLines(review: Pick<ReviewState, 'fix' | 'answerPasses
   return lines;
 }
 
-/** A document the documentation step's answer left, as the step gives it: its file, its facts and why. */
+/** A document the documentation step's answer left, as the step gives it: its identity (`documentKey`), its file, its facts and why. */
 export interface StepLeft {
+  readonly key: string;
   readonly file: string;
   readonly facts: readonly LeftFact[];
   readonly reason: LeftReason;
@@ -187,16 +199,18 @@ export function leftByStep(fix: Pick<FixState, 'documentation' | 'answers'>): St
   const items = fix.documentation.items.flatMap((item): StepLeft[] => {
     const answered = answer.findings.find((finding) => finding.id === item.id);
     if (item.file === null || answered === undefined || (answered.status !== 'deferred' && answered.status !== 'blocked')) return [];
-    return [{ file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` } }];
+    return [{ key: documentKey({ path: item.path, file: item.file }), file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: 'left', text: `The documentation step left it: ${sentence(answered.note)}` } }];
   });
-  const found = answer.drift.map((line): StepLeft => ({ file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: 'found', text: 'The documentation step found it out of date at its end.' } }));
+  const plan = fix.documentation;
+  const found = answer.drift.map((line): StepLeft => ({ key: lineKeyOf(plan, line.file), file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: 'found', text: 'The documentation step found it out of date at its end.' } }));
   return [...items, ...found];
 }
 
 /**
  * The documents a fix run left out of date (R7, PD10, TD6 of the
  * documentation step), computed from the fold alone, grouped by the
- * folded path, in the order they were first reported. They come from three
+ * identity the plan gives a document (`documentKey`, TD8), a line no item
+ * holds by `lineKeyOf`, in the order they were first reported. They come from three
  * sources. A plan the step answered gives each document it left, deferred
  * or blocked, with its lines and the note of its answer, and each line of
  * the step's own `drift`, which it found out of date at its end, the
@@ -215,8 +229,7 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   if (fix === null) return [];
   const times = fixPassTimesOf(fix);
   const entries = new Map<string, { file: string; facts: LeftFact[]; reasons: LeftReason[]; time: number }>();
-  const add = (file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
-    const key = documentKey(file);
+  const add = (key: string, file: string, facts: readonly LeftFact[], reason: LeftReason, time: number): void => {
     const entry = entries.get(key) ?? { file, facts: [], reasons: [], time: 0 };
     for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
     if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
@@ -227,23 +240,23 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   const plan = fix.documentation;
   if (plan !== null) {
     if (fix.answers.documentation[documentationUnitKey] === undefined) {
-      for (const item of plan.items) if (item.file !== null) add(item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
+      for (const item of plan.items) if (item.file !== null) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
     } else {
-      for (const left of leftByStep(fix)) add(left.file, left.facts, left.reason, times.documentation);
+      for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
     }
   }
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
   for (const line of unheldDriftLines(review)) {
     const by = reporterOf[line.phase];
-    add(line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
   }
-  // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10).
+  // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10); a document of the repository only by its own path.
   const endedBy = (key: string, time: number): boolean => review.answerPasses.some((_, index) => {
     const n = index + 1;
     const answer = fix.answers.answer[passKey(n)];
     if (n <= time || answer === undefined) return false;
-    const revised = unitRevisions(fix, 'answer', passKey(n)).some((revision) => revision.files.some((file) => documentKey(file.path) === key));
-    return revised && !answer.drift.some((line) => documentKey(line.file) === key);
+    const revised = unitRevisions(fix, 'answer', passKey(n)).some((revision) => revision.files.some((file) => names(key, file.path)));
+    return revised && !answer.drift.some((line) => names(key, line.file));
   });
   return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file, facts, reasons }]) => ({ file, facts, reasons }));
 }

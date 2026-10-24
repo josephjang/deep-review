@@ -515,9 +515,12 @@ describe('the documents a run left out of date in the brief', () => {
     const searched = documentedFixRun(stale, documentationStepAnswering([], { findings: [finding('doc-1', 'applied', 'docs/a.md'), finding('search', 'deferred', 'README.md')], drift: [line('CHANGES.md', 'always translated')] })).fold();
     assert.equal(changed(searched), 'The documentation step updated 2 documents and left 1.');
     assert.deepEqual(briefOf(searched).documents.map((document) => document.file), ['CHANGES.md']);
-    // A document it deferred and listed in its drift again in another spelling is one document, as the part counts it.
-    const respelled = documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./Docs/A.md', 'parse throws on a null')] })).fold();
+    // A document it deferred and listed in its drift again in another spelling of its repository path is one document, as the part counts it.
+    const respelled = documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./docs/a.md', 'parse throws on a null')] })).fold();
     assert.deepEqual([changed(respelled), briefOf(respelled).documents.length], ['The documentation step left 1 document out of date.', 1]);
+    // A spelling in another case is another document, as the plan keys a repository path exactly (TD8): the ledger does not say whether the worktree folds case.
+    const recased = documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./Docs/A.md', 'parse throws on a null')] })).fold();
+    assert.deepEqual([changed(recased), briefOf(recased).documents.length], ['The documentation step left 2 documents out of date.', 2]);
     assert.equal(changed(documentedFixRun().fold()), 'The documentation step found no document out of date.');
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
     assert.equal(changed(failedTwice), 'The documentation step did not run: its worker failed twice.');

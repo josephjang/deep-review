@@ -163,6 +163,20 @@ describe('leftDocumentsOf', () => {
     assert.deepEqual(summary(repaired).map(([file]) => file), ['src/a.ts', 'README.md'], 'a revision of the repair ends none');
   });
 
+  it('keeps two repository paths that differ only in case two documents, as the plan does, and a revision of one ends only that one (TD8)', () => {
+    const both = answered(planned(throughFixes([line('docs/Guide.md', 'the guide says parse throws'), line('docs/guide.md', 'the example prints 4')])), [item('doc-1', 'deferred', 'the guide needs the author'), item('doc-2', 'deferred', 'the example needs the author'), item('search', 'already-applied')]);
+    assert.deepEqual(both.review().fix!.documentation!.items.map((planned) => planned.path), ['docs/Guide.md', 'docs/guide.md', null]);
+    const complete = toReport(both);
+    assert.deepEqual(summary(complete).map(([file, facts]) => [file, facts.length]), [['docs/Guide.md', 1], ['docs/guide.md', 1]]);
+    assert.deepEqual(left(pass(complete, 1, [], 'docs/guide.md')).map((entry) => entry.file), ['docs/Guide.md'], 'the pass revised docs/guide.md alone');
+  });
+
+  it('makes refused paths that differ only by the spaces around them one item and one document (TD8)', () => {
+    const history = planned(throughFixes([line('../a.md', 'parse throws on a null'), line(' ../a.md ', 'the example prints 4')]));
+    assert.deepEqual(history.review().fix!.documentation!.items.map((planned) => [planned.id, planned.path, planned.drift.length]), [['doc-1', null, 2], ['search', null, 0]]);
+    assert.deepEqual(summary(toReport(answered(history, [item('doc-1', 'deferred', 'a path outside the worktree'), item('search', 'already-applied')]))).map(([file, facts]) => [file, facts.length]), [['../a.md', 2]]);
+  });
+
   it('dates a line by the last reopening that gave back its unit, so a reopening of the repair alone does not count again what an answer pass brought in line (PD10)', () => {
     // The step leaves README.md, the run budget stops the repair, and answer pass 1 brings README.md in line.
     const stopped = toStoppedRepair(answered(planned(throughFixes([line('README.md', 'parse throws')])), [item('doc-1', 'deferred', 'the text needs the author'), item('search', 'already-applied')]));
