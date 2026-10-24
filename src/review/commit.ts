@@ -27,7 +27,7 @@ import { gitFailureDetail, gitTimedOut, runGitSync } from '../runtime/git-sync.t
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
 import { inlineText } from './markdown.ts';
-import { readableRuns } from './runs.ts';
+import { readableRuns, runIdOf } from './runs.ts';
 import { rankedFindings } from './state.ts';
 import { gitContent } from './content.ts';
 import { compareExpected, expectedTree, worktreeReader, type ExpectedFile, type ExpectedMatch } from './tree.ts';
@@ -116,15 +116,16 @@ function requireCommittable(run: RunState): RunState {
 }
 
 /**
- * The run to commit: the one named, which must be committable and which
- * `fold` refuses when this engine cannot read it, or the committable run of
- * the repository that finished last, its last event the highest in the
+ * The run to commit: the one named by its id or the start of it (R11 of
+ * the questions in the chat), which must be committable and which `fold`
+ * refuses when this engine cannot read it, or the committable run of the
+ * repository that finished last, its last event the highest in the
  * ledger, among those this engine can read, the others passed over with a
  * line on `log`. Not the newest created: a read-only run continued into the
- * fix pass finishes after runs created later (R6 of fix pass continuation).
+ * fix pass finishes after runs created later (R9 of fix pass continuation).
  */
 function chooseRun(checkpoint: Checkpoint, runId: string | undefined, log: (line: string) => void): RunState {
-  if (runId !== undefined) return requireCommittable(checkpoint.fold(runId));
+  if (runId !== undefined) return requireCommittable(checkpoint.fold(runIdOf(checkpoint, runId)));
   const found = readableRuns(checkpoint, log)
     .filter((run) => whyNotCommittable(run) === null)
     .reduce<RunState | undefined>((last, run) => (last === undefined || run.lastSequence > last.lastSequence ? run : last), undefined);

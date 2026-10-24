@@ -8,6 +8,7 @@ import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
 import { briefJsonV2 } from '../src/review/brief-json.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
+import { shortRunId } from '../src/review/runs.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
 import { caseInsensitiveFileSystem, claimsDirectoryFor, readClaims } from '../src/review/claims.ts';
 import { withoutVariables } from '../src/runtime/environment.ts';
@@ -239,8 +240,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       release();
     }
 
-    // --run names an older run; --json gives version 2 of the JSON form, the one it writes since the documentation step, with the local facts.
-    const named = await run(box, 'report', '--run', firstId, '--json');
+    // --run names an older run, by the first 8 characters of its id (R11 of the questions in the chat); --json gives version 2 of the JSON form, the one it writes since the documentation step, with the local facts.
+    const named = await run(box, 'report', '--run', shortRunId(firstId), '--json');
     assert.equal(named.status, 0, named.stderr);
     const json = briefJsonV2.parse(JSON.parse(named.stdout));
     assert.equal(json.run, firstId);
@@ -463,7 +464,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     } finally {
       starting();
     }
-    const abandoned = await run(box, 'abandon', '--reason', 'stuck');
+    // --run takes the first 8 characters of the id (R11 of the questions in the chat).
+    const abandoned = await run(box, 'abandon', '--reason', 'stuck', '--run', shortRunId(runId));
     assert.equal(abandoned.status, 0, abandoned.stderr);
     assert.equal(abandoned.stdout, `run ${runId} abandoned: stuck\n`);
     assert.equal(box.checkpoint.fold(runId).status, 'abandoned');
@@ -472,7 +474,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const fresh = await run(box, ...claudeFlags(box, '--last-commit'));
     assert.equal(fresh.status, 0, fresh.stderr);
     assert.equal(box.checkpoint.foldRuns().length, 2);
-    assert.match((await run(box, 'status', '--run', runId)).stdout, /: abandoned \(stuck\)\n/);
+    assert.match((await run(box, 'status', '--run', shortRunId(runId))).stdout, /: abandoned \(stuck\)\n/);
     // --fresh reaches the engine: the finished read-only run just written is not continued (R2 of fix pass continuation).
     box.script({ triage: { exit: 2 } });
     const declined = await run(box, ...claudeFlags(box, '--last-commit', '--fix', '--fresh'));
@@ -525,6 +527,25 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       assert.equal(refused.status, 2, `${args.join(' ')}: ${refused.stderr}`);
       assert.equal(refused.stderr, `refused: 2 runs are active (${first}, ${second}); abandon all but one with \`deep-review abandon --run <id> --reason <text>\`\n`, args.join(' '));
     }
+  });
+
+  it('refuses a start of a run id that two runs share with exit 2, naming both, in each command that takes --run (R11 of the questions in the chat)', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const shared = ['1a2b3c4d-0000-4000-8000-000000000001', '1a2b3c4d-1111-4000-8000-000000000002'];
+    const checkpoint = Checkpoint.open(locateCheckpoint(box.repo).root, { engine: '0.0.0-test', ids: () => shared[checkpoint.runIds().length]! });
+    try {
+      for (let index = 0; index < shared.length; index++) checkpoint.createRun({ worktree: box.repo });
+    } finally {
+      checkpoint.close();
+    }
+    for (const args of [['status', '--run', '1a2b3c4d'], ['report', '--run', '1a2b3c4d'], ['abandon', '--run', '1a2b3c4d', '--reason', 'which one'], ['commit', '--run', '1a2b3c4d'], ['answer', '--run', '1a2b3c4d', '--finding', 'SCAN-1', '--accept']]) {
+      const refused = await run(box, ...args);
+      assert.equal(refused.status, 2, `${args.join(' ')}: ${refused.stderr}`);
+      assert.equal(refused.stderr, `refused: --run 1a2b3c4d names 2 runs (${shared.join(', ')}); give more of the id\n`, args.join(' '));
+    }
+    const longer = await run(box, 'status', '--run', '1a2b3c4d-1');
+    assert.equal(longer.status, 0, longer.stderr);
+    assert.ok(longer.stdout.startsWith(`Run ${shared[1]!}`), longer.stdout);
   });
 
   it('resumes after the engine is killed mid-phase: the running workers are lost, the answered units are not run again', async (t) => {

@@ -122,6 +122,11 @@ export class Checkpoint {
     });
   }
 
+  /** The id of every run of the ledger, in ledger order, unreadable runs too, with no fold: what a lookup of a run by the start of its id reads. */
+  runIds(): string[] {
+    return this.ledger.listRuns().map((run) => run.id);
+  }
+
   /** Every run's state, in ledger order, refusing the first run this engine cannot read with `UnreadableRunError`; for callers that need every run, where `listRuns` is for a command that picks one. */
   foldRuns(): RunState[] {
     return this.ledger.listRuns().map((run) => this.fold(run.id));

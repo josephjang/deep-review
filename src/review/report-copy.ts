@@ -17,6 +17,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { continueCommand } from './continue-command.ts';
 import { renderReport, type ReportInput } from './report.ts';
+import { shortRunId } from './runs.ts';
 import { budgetSpendOf, statisticsOf } from './spend.ts';
 import { budgetStoppedRun } from './state.ts';
 
@@ -29,7 +30,7 @@ export const reportsDirectoryName = 'reports';
  * one place that knows the rule, so a later change can move the copy.
  */
 export function reportCopyPath(checkpointRoot: string, state: Pick<RunState, 'id' | 'createdAt'>): string {
-  return join(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${state.id.slice(0, 8)}.md`);
+  return join(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${shortRunId(state.id)}.md`);
 }
 
 /**

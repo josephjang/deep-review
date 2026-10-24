@@ -54,7 +54,7 @@ import { briefOf, briefShortForm } from './review/brief.ts';
 import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
-import { readableRuns } from './review/runs.ts';
+import { readableRuns, runIdOf } from './review/runs.ts';
 import { describeRun, type StatusContinuation } from './review/status.ts';
 import { canonicalPath, isInside, sameDirectory } from './paths.ts';
 import { isWindowsSandbox, windowsSandboxes } from './runtime/codex.ts';
@@ -788,15 +788,17 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
 }
 
 /**
- * The run a command names with --run, or else the active run, null when
- * there is none; an id the checkpoint does not hold is a usage error. A
- * run this engine cannot read is passed over with a line on stderr when
- * the active run is looked for, and refused when it is named.
+ * The run a command names with --run, by its id or the start of it (R11 of
+ * the questions in the chat), or else the active run, null when there is
+ * none; an id the checkpoint does not hold is a usage error, and a start
+ * that names two runs a refusal. A run this engine cannot read is passed
+ * over with a line on stderr when the active run is looked for, and
+ * refused when it is named.
  */
 function resolveRun(checkpoint: Checkpoint, run: string | undefined, io: CommandIo): RunState | null {
   if (run === undefined) return findActiveRun(checkpoint, (line) => io.stderr(`${line}\n`));
   try {
-    return checkpoint.fold(run);
+    return checkpoint.fold(runIdOf(checkpoint, run));
   } catch (error) {
     if (error instanceof UnknownRunError) throw new UsageError(error.message);
     throw error;

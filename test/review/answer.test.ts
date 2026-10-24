@@ -11,6 +11,7 @@ import { gitContent } from '../../src/review/content.ts';
 import { spendBound } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { reportCopyPath } from '../../src/review/report-copy.ts';
+import { shortRunId } from '../../src/review/runs.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
@@ -132,7 +133,8 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(box.run().review!.answers.length, 3);
     assert.deepEqual(box.run().review!.report, finished.review!.report, 'the run stays complete');
 
-    const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought');
+    // --run takes the first 8 characters of the id that the brief shows (R11 of the questions in the chat).
+    const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought', '--run', shortRunId(finished.id));
     assert.equal(given.status, 0, given.stderr);
     assert.equal(given.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe run only reviewed; run review --fix to apply the answer with the fixes\n`);
     const again = await run(box, '--finding', departing, '--accept');

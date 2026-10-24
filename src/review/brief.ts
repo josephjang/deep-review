@@ -20,6 +20,7 @@ import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { shortRunId } from './runs.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
 import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
@@ -839,7 +840,7 @@ export function briefShortForm(brief: Brief): string[] {
   const gaps = brief.notCovered;
   const notCovered = gaps.length === 0 ? 'nothing' : gaps.length === 1 ? inlineText(gaps[0]!.text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0]!.text)}`;
   const lines = [
-    `${inlineText(brief.title)} (run ${brief.run.slice(0, 8)})`,
+    `${inlineText(brief.title)} (run ${shortRunId(brief.run)})`,
     `The change: ${change}`,
     openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}: ${idWords(openQuestions)}`,
     openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}: ${idWords(openDepartures)}`,
