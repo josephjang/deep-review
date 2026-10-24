@@ -156,8 +156,8 @@ it outside the repository, and keep the numbers the text relies on.
 
 Markdown documents (proposals, reports) put each paragraph and each list
 item on one line, as the vision note does; do not hard-wrap them. An
-older document, this file among them, is converted only when it is
-rewritten anyway. Commit message bodies still wrap at 72 columns.
+older document is converted only when it is rewritten anyway. Commit
+message bodies still wrap at 72 columns.
 
 Comments that say what code does are welcome; keep them true.
 
