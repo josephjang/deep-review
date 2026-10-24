@@ -27823,6 +27823,10 @@ var init_markdown = __esm({
 });
 
 // src/scope/scope-line.ts
+function askedMode(captured, request, reviewBase) {
+  const range = request.range;
+  return range !== void 0 && range.to === "HEAD" && range.mergeBase && typeof reviewBase === "string" && range.from === reviewBase ? "branch" : captured;
+}
 function baseNameOf(mode, request) {
   if (request.range !== void 0) return request.range.mergeBase ? `the merge base with ${request.range.from}` : request.range.from;
   if (request.ref !== void 0) return request.ref;
@@ -36702,7 +36706,7 @@ function briefJson(brief, local, notShown) {
     title: brief.title,
     headline: { ...brief.headline },
     changeState: change.state,
-    change: change.state !== "given" ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] } },
+    change: change.state !== "given" ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, beforeEdits: change.beforeEdits },
     questions: brief.questions.map((question) => ({
       id: question.id,
       question: question.question,
@@ -36738,7 +36742,7 @@ function briefJson(brief, local, notShown) {
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state }))
   };
 }
-var text2, ids, condition, answer, gapKindsV1, briefJsonV1, briefJsonV2, briefJsonV3, answerJson;
+var text2, ids, condition, answer, gapKindsV1, changeV1, briefJsonV1, briefJsonV2, briefJsonV3, answerJson;
 var init_brief_json = __esm({
   "src/review/brief-json.ts"() {
     "use strict";
@@ -36751,6 +36755,7 @@ var init_brief_json = __esm({
     condition = external_exports.strictObject({ holds: external_exports.boolean(), what: text2.nullable(), files: external_exports.array(text2) });
     answer = external_exports.strictObject({ kind: external_exports.enum(["option", "accept", "reject"]), option: external_exports.number().int().min(1).nullable(), words: text2, at: text2, applied: external_exports.boolean() });
     gapKindsV1 = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop"];
+    changeV1 = external_exports.strictObject({ what: text2, why: text2.nullable(), whyFrom: external_exports.array(text2), restsOn: external_exports.array(text2), publicInterface: condition, wideEffect: condition });
     briefJsonV1 = external_exports.strictObject({
       version: external_exports.literal(1),
       run: text2,
@@ -36758,7 +36763,7 @@ var init_brief_json = __esm({
       headline: external_exports.strictObject({ text: text2, questions: external_exports.number().int().min(0), departures: external_exports.number().int().min(0) }),
       /** Whether the triage gave the core of the change, gave none, or recorded none, as an engine before the account did. */
       changeState: external_exports.enum(["given", "none", "unrecorded"]),
-      change: external_exports.strictObject({ what: text2, why: text2.nullable(), whyFrom: external_exports.array(text2), restsOn: external_exports.array(text2), publicInterface: condition, wideEffect: condition }).nullable(),
+      change: changeV1.nullable(),
       questions: external_exports.array(external_exports.strictObject({
         id: text2,
         question: text2,
@@ -36815,6 +36820,7 @@ var init_brief_json = __esm({
     briefJsonV3 = external_exports.strictObject({
       ...briefJsonV2.shape,
       version: external_exports.literal(3),
+      change: external_exports.strictObject({ ...changeV1.shape, beforeEdits: external_exports.boolean() }).nullable(),
       notShown: external_exports.array(external_exports.strictObject({ run: text2, state: text2 }))
     });
     answerJson = (given) => given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied };
@@ -36926,10 +36932,9 @@ function continueLine(state, adapter, continuation) {
 function askedModeOf(state) {
   const scope = state.scope;
   if (scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const range = scope.request.range;
   const configuration = state.review?.configuration;
   const base = configuration === void 0 ? void 0 : recordedSetting(configuration, "review.base")?.value;
-  return range !== void 0 && range.to === "HEAD" && range.mergeBase && typeof base === "string" && range.from === base ? "branch" : scope.mode;
+  return askedMode(scope.mode, scope.request, base);
 }
 function shownScopeOf(state, scope, commits) {
   const mode = askedModeOf(state);
@@ -37033,9 +37038,9 @@ function stateWords(state) {
   if (status3 === "blocked") return `blocked (${state.review.blocker.code})`;
   return status3;
 }
-function runListLines(runs, worktree, copyOf) {
+function runListLines(runs, worktree, copyOf, every = false) {
   const newest = [...runs].reverse().sort((a, b) => a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0);
-  const shown = newest.slice(0, listedRuns);
+  const shown = every ? newest : newest.slice(0, listedRuns);
   const lines = shown.map((state) => {
     const id = shortRunId(state.id);
     const scope = state.scope === null ? "no scope captured yet" : scopeWords(state, state.scope);
@@ -37046,7 +37051,11 @@ function runListLines(runs, worktree, copyOf) {
     return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report2}`;
   });
   const more = newest.length - shown.length;
-  return more === 0 ? lines : [...lines, `${counted(more, "older run is", "older runs are")} not shown; deep-review status --run <id> shows one`];
+  return more === 0 ? lines : [...lines, `${counted(more, "older run is", "older runs are")} not shown; deep-review status --all --every lists every run`];
+}
+function unreadableRunsLine(count2) {
+  const them = count2 === 1 ? "it" : "them";
+  return `${counted(count2, "run is", "runs are")} not listed, since this deep-review cannot read ${them}; a newer deep-review lists ${them}`;
 }
 var listedRuns;
 var init_status = __esm({
@@ -37488,7 +37497,7 @@ async function configCommand(values, rest, io) {
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
   const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  const mode = branchNamed(values, source.scopeSettings()) ? "branch" : captured;
+  const mode = askedMode(captured, chosen.request, resolvedValue(resolved, "review.base"));
   const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
   let shown;
   try {
@@ -37604,6 +37613,7 @@ function resolveRun(checkpoint, run2, io) {
 function status2(values, io, root, worktree) {
   if (values.all === true && values.run !== void 0) throw new UsageError("--all lists every run; leave out --run, or leave out --all to show one run");
   if (values.all === true && values.json === true) throw new UsageError("--all prints a list for a person and has no JSON form; deep-review report --run <id> --json gives one run");
+  if (values.every === true && values.all !== true) throw new UsageError("--every applies to --all only, which it makes list every run past the newest");
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) {
     io.stdout(values.json === true ? "null\n" : "No run: this repository has no checkpoint yet.\n");
@@ -37611,13 +37621,18 @@ function status2(values, io, root, worktree) {
   }
   try {
     if (values.all === true) {
-      const runs = readableRuns(checkpoint, (line) => io.stderr(`${line}
-`));
+      let unreadable = 0;
+      const runs = readableRuns(checkpoint, (line) => {
+        unreadable += 1;
+        io.stderr(`${line}
+`);
+      });
       const copyOf = (state2) => {
         const copy2 = reportCopyPath(checkpoint.root, state2);
         return existsSync10(copy2) ? copy2 : null;
       };
-      io.stdout(runs.length === 0 ? "No active run.\n" : `${runListLines(runs, worktree, copyOf).join("\n")}
+      const lines = [...runListLines(runs, worktree, copyOf, values.every === true), ...unreadable === 0 ? [] : [unreadableRunsLine(unreadable)]];
+      io.stdout(lines.length === 0 ? "No active run.\n" : `${lines.join("\n")}
 `);
       return 0;
     }
@@ -37792,7 +37807,7 @@ var init_command2 = __esm({
   deep-review config  validate [<file>] [--layer repository|operator|clone|invocation] [--repo <dir>]
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
-  deep-review status  --all [--repo <dir>]   (the runs of the checkpoint, newest first)
+  deep-review status  --all [--every] [--repo <dir>]   (the runs of the checkpoint, newest first: the ${String(listedRuns)} newest, or every run with --every)
   deep-review report  [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, or a line for each fix; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
@@ -37828,6 +37843,7 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
       run: { type: "string" },
       json: { type: "boolean" },
       all: { type: "boolean" },
+      every: { type: "boolean" },
       reason: { type: "string" },
       fix: { type: "boolean" },
       fresh: { type: "boolean" },
@@ -37855,7 +37871,7 @@ exit codes: 0 a report (the short form of its brief, then the path of its copy, 
     sourceEntry = fileURLToPath(new URL("./cli.ts", import.meta.url));
     allowed = {
       review: ["runtime", "executable", "executable-arg", "strong-model", "fast-model", "last-commit", "worktree", "branch", "base", "ref", "from", "to", "merge-base", "path", "concurrency", "budget-usd", "repo", "roles", "fix", "fresh", "check", "no-check", "codex-windows-sandbox", "set", "config", "no-repository-config", "help"],
-      status: ["run", "json", "all", "repo", "help"],
+      status: ["run", "json", "all", "every", "repo", "help"],
       // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
       config: [],
       abandon: ["reason", "run", "repo", "help"],
