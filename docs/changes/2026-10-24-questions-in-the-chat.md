@@ -136,7 +136,7 @@ A run that applied no fix and no answer keeps the words of today. A rewrite by a
 
 A line gives the id and what became of the fix, in short words of its own: applied, already in the tree, put off by its fixer, not applied by its fixer, or not attempted. These are not the sentences of the brief, such as "Its fixer put it off." Then it gives the subject of the commit message that the fixer gave. A fix with no message gets the first sentence of the note of its fixer. A line has at most 200 characters, cut at a word. The last line is the path of the copy, as for `report`.
 
-It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
+It takes the run as `report` takes it (R8, R11), and it gives the lines of R8 first. In a run that only reviewed, it prints the sentence of the brief that says so. A fix run that gave no finding to a fixer prints `This run gave no finding to a fixer, so it applied no fix.`, and then the findings that it left. The brief keeps its part "What deep-review changed" as today. `--fixes` does not go with `--json` or with `--brief`. This is an invented example:
 
 ```text
 RIPPLE-1, applied: Guard the cache against a missing entry
@@ -181,7 +181,7 @@ These words name no phase, because a phase is a term of the engine (R12 of the b
 
 `deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others. With no checkpoint, or with no run, it prints the line that `status` prints today.
 
-A line gives the first 8 characters of the id of the run (R11) and the time that it started. It gives its state, with the reason of an abandon. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`.
+A line gives the first 8 characters of the id of the run (R11) and the time that it started. It gives its state, with the reason of an abandon, cut at a word at 200 characters, because that reason has no limit. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its current report, or says that the run has no current report. `--all` does not go with `--run` or with `--json`.
 
 Both skills get one sentence. When the user asks for a run and does not know which, the skill runs `status --all` and shows what it prints. Then it runs `report --run` with the run that the user chooses.
 
@@ -193,7 +193,7 @@ Each command that takes `--run` takes the whole id of a run, or its first 8 or m
 
 The `Scope:` line of `config show` gives the scope as the person asked for it: `branch` for `--branch` or for a `scope.default` of `branch`. It gives the number of commits and of changed files that the run reviews. It names where the change starts, with the name that the scope gives the base and its short commit, and where the change ends. For a change that ends at the working tree, it counts the reviewed files that hold uncommitted changes, or it says that none do. It counts apart the paths that `scope.exclude` leaves out.
 
-The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A change that starts at the empty tree counts each commit up to its end. This is an invented example:
+The count of commits follows the first parent from the end of the change back to its base, so a merge counts as one commit. With `--path`, it counts the commits that change those paths. A commit that changes only paths that `scope.exclude` leaves out does not count, because the run reviews nothing of it. A change that starts at the empty tree counts each commit up to its end. This is an invented example:
 
 ```text
 Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b35) to the working tree, which has no uncommitted change
