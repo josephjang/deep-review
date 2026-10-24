@@ -50,30 +50,29 @@ older ledger.
 
 ## Before every commit
 
-`npm run check` must pass at every commit. `npm run test:contract`, the
-contract test of resumable runs, is left out of it because it is by far
-the costliest file of the tests: run it before a commit that changes how the
-engine stops, resumes, launches a child or appends to the ledger, and CI
-runs it as its own job on every pull request. `npm run verify` must pass at
-every head that is pushed, a pull request's head and `main`, since those
-are the commits the plugin marketplace and the Codex skill install from;
-a commit in the middle of a series may leave `dist/` stale, and the
-series then ends with the commit that rebuilds it. A commit that changes
-built output includes the updated `dist/` and says in its message what
-changed and why.
+Every commit is written so that `npm run check` passes at it, and a
+series is proven at its head: after a rebase or at the end of a long
+series, run `npm run check` at the head. A commit can replay cleanly and
+still not compile against a renamed symbol, so type-check and lint each
+commit, which takes seconds:
+`git rebase <base> --exec "npm run typecheck && npm run lint"`. Go back
+through the series commit by commit only when the head fails.
+
+`npm run test:contract`, the contract test of resumable runs, is left out
+of `npm run check` because it is by far the costliest file of the tests:
+run it before a commit that changes how the engine stops, resumes,
+launches a child or appends to the ledger, and CI runs it as its own job
+on every pull request. `npm run verify` must pass at every head that is
+pushed, a pull request's head and `main`, since those are the commits the
+plugin marketplace and the Codex skill install from; a commit in the
+middle of a series may leave `dist/` stale, and the series then ends with
+the commit that rebuilds it. A commit that changes built output includes
+the updated `dist/` and says in its message what changed and why. A
+rebase conflict in `dist/*/engine/engine.json`, the bundle hash, is
+resolved by `npm run build`, never by taking a side.
 
 A commit that changes what a skill or a role prompt *says* and a commit
 that changes where that text *lives* are different commits.
-
-Every commit is written to pass `npm run check`, but a series is proven
-once, at its head. After a rebase or at the end of a long series, run
-`npm run check` at the head, and `npm run verify` where `dist/` matters.
-A commit can replay cleanly and still not compile against a renamed
-symbol, so type-check and lint each commit, which takes seconds:
-`git rebase <base> --exec "npm run typecheck && npm run lint"`. Go back
-through the series commit by commit only when the head fails. A rebase
-conflict in `dist/*/engine/engine.json`, the bundle hash, is resolved by
-`npm run build`, never by taking a side.
 
 ## Change proposals
 
