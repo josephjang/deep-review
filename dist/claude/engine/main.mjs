@@ -23517,6 +23517,7 @@ function configure(state, payload, event, { surveyed, decided, documented }) {
     ranking: null,
     decisions: null,
     report: null,
+    reportSetAsideBy: null,
     continuedFrom: null,
     fix: payload.fix ? emptyFixState() : null,
     survey: surveyed ? emptySurveyState() : null,
@@ -23786,7 +23787,7 @@ var init_review_fold = __esm({
       if (review2.report !== null) throw invalid(event, "writes its report twice");
       const revisions = review2.fix?.revisions.length ?? 0;
       if (payload.patches.length !== revisions) throw invalid(event, `writes ${String(payload.patches.length)} patches for ${String(revisions)} revisions`);
-      return withReview(current, { ...review2, report: payload }, event);
+      return withReview(current, { ...review2, report: payload, reportSetAsideBy: null }, event);
     };
     reportWrittenV12 = (state, payload, event, drafts) => reportWritten(state, { ...payload, patches: [] }, event, drafts);
     reviewReducers = {
@@ -23908,7 +23909,7 @@ var init_answer_fold = __esm({
       const phaseStates = { ...review2.phases };
       for (const phase of [...answerPhases, "report"]) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
       const pass = { ids: payload.ids, at: event.recordedAt, reportBefore: review2.report, openedAt: { answer: review2.phases.answer.attempt, checks: review2.phases["answer-checks"].attempt } };
-      return withReview(current, { ...review2, phases: phaseStates, report: null, answerPasses: [...review2.answerPasses, pass] }, event);
+      return withReview(current, { ...review2, phases: phaseStates, report: null, reportSetAsideBy: "answer-pass", answerPasses: [...review2.answerPasses, pass] }, event);
     };
     answerReducers = {
       "answer.recorded@1": answerRecorded,
@@ -24020,7 +24021,7 @@ function pinFix(state, payload, settings2, event, drafts) {
   for (const phase of configuredPhases(review2, fixPhases)) phaseStates[phase] = { status: "pending", attempt: 0 };
   for (const phase of reopened2) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
   const configuration = { ...review2.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings2 };
-  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
+  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: "continuation", continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
 }
 function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (review2.report === null) throw invalid(event, `${verb} commits before its report`);
@@ -24338,7 +24339,7 @@ var init_fix_fold = __esm({
       const documentation = fixes || payload.units.some((unit) => unit.phase === "documentation");
       const reopenedPhases = [...fixes ? ["fixes"] : [], ...documentation ? ["documentation"] : [], "checks", "repair", "repair-checks", "report"];
       for (const phase of configuredPhases(review2, reopenedPhases)) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
-      return withReview(current, { ...review2, phases: phaseStates, report: null, fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
+      return withReview(current, { ...review2, phases: phaseStates, report: null, reportSetAsideBy: "reopened-fix-pass", fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
     };
     fixReducers = {
       "checks.planned@1": checksPlannedV12,
@@ -24827,13 +24828,17 @@ var init_checkpoint = __esm({
        * never throws for such a run, which another engine build may have
        * written into this shared ledger; any other failure to fold still
        * throws. A command that picks a run reads this and passes the
-       * unreadable ones over.
+       * unreadable ones over. An unreadable entry carries the worktree of
+       * its creation event when that event is one this engine declares,
+       * folded through its schema as any event is.
        */
       listRuns() {
         return this.ledger.listRuns().map((run2) => {
           const events = this.ledger.events(run2.id).map(decode3);
           const unknown2 = firstUnknownEvent(events, this.#model);
-          return unknown2 === null ? foldRun(events, this.#model) : { id: run2.id, unreadable: unknown2 };
+          if (unknown2 === null) return foldRun(events, this.#model);
+          const created2 = events[0];
+          return { id: run2.id, unreadable: unknown2, worktree: created2 === void 0 || created2.sequence === unknown2.sequence ? null : foldRun([created2], this.#model).worktree };
         });
       }
       /** The id of every run of the ledger, in ledger order, unreadable runs too, with no fold: what a lookup of a run by the start of its id reads. */
@@ -26327,10 +26332,10 @@ function commitMessages(repo, base, head2) {
   for (let index2 = 0; index2 + 1 < fields.length; index2 += 2) messages.push({ commit: fields[index2].trim(), message: fields[index2 + 1].trimEnd() });
   return messages;
 }
-function commitCount(repo, base, head2, paths = []) {
+function commitCount(repo, base, head2, paths = [], exclude = []) {
   const range = isEmptyTree(base) ? [head2] : [`${base}..${head2}`];
   try {
-    const text3 = gitText(repo, ["rev-list", "--count", "--first-parent", ...range, "--", ...paths.map(literal2)]).trim();
+    const text3 = gitText(repo, ["rev-list", "--count", "--first-parent", ...range, "--", ...pathspecs(paths, exclude)]).trim();
     const count2 = Number(text3);
     return /^[0-9]+$/.test(text3) && Number.isSafeInteger(count2) ? count2 : null;
   } catch {
@@ -27220,8 +27225,7 @@ function scopeBase(repo, input2) {
 }
 function scopeEnds(repo, input2) {
   validateRequest(input2);
-  const { base, target } = chooseMode(repo, normalizeRequest(input2), head(repo));
-  return { base, target };
+  return chooseMode(repo, normalizeRequest(input2), head(repo));
 }
 function captureScope(checkpoint, runId, input2, options2 = {}) {
   const state = checkpoint.fold(runId);
@@ -29218,9 +29222,12 @@ var init_spend = __esm({
 });
 
 // src/review/state.ts
+function hasCurrentReport(state) {
+  return state.review?.report !== null && state.review?.report !== void 0;
+}
 function reviewStatus(state) {
   if (state.status === "abandoned") return "abandoned";
-  if (state.review?.report !== null && state.review?.report !== void 0) return "complete";
+  if (hasCurrentReport(state)) return "complete";
   if (state.review?.blocker !== null && state.review?.blocker !== void 0) return "blocked";
   return "active";
 }
@@ -30697,6 +30704,9 @@ function readableRuns(checkpoint, log) {
   }
   return readable;
 }
+function latestFirst(runs) {
+  return [...runs].sort((a, b) => b.lastSequence - a.lastSequence);
+}
 function passedOverLine(runId, unknown2, reader) {
   return `run ${runId}: passed over: ${unreadableRunReason(unknown2, reader)}`;
 }
@@ -31019,7 +31029,7 @@ function requireCommittable(run2) {
 }
 function chooseRun(checkpoint, runId, log) {
   if (runId !== void 0) return requireCommittable(checkpoint.fold(runIdOf(checkpoint, runId)));
-  const found = readableRuns(checkpoint, log).filter((run2) => whyNotCommittable(run2) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
+  const found = latestFirst(readableRuns(checkpoint, log)).find((run2) => whyNotCommittable(run2) === null);
   if (found === void 0) throw new ReviewRefusedError("no completed fix run has changes left to commit; name one with --run <id>");
   return found;
 }
@@ -34238,8 +34248,8 @@ function fateOf(review2, fix, id, passes = "read") {
   return { id, outcome: "not attempted", decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
 }
 function lastFixAnswer(review2, fix, id) {
-  const { answer: answer3, reason } = fateOf(review2, fix, id);
-  return { answer: answer3, reason };
+  const { outcome, answer: answer3, reason } = fateOf(review2, fix, id);
+  return { outcome, answer: answer3, reason };
 }
 function findingOutcomes(review2, fix, id) {
   const last = fateOf(review2, fix, id);
@@ -34905,13 +34915,11 @@ function checksWords(checks) {
   return `The checks: ${checks.map((check2) => `${check2.kind} ${words(check2)}`).join("; ")}.`;
 }
 function readOnlyChangedSentence(changed, show) {
-  const left = changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left, show)}.`;
   const toFix = !changed.decided ? "" : changed.toFix.length === 0 ? " It decided to fix no finding." : ` It decided to fix ${counted(changed.toFix.length, "finding", "findings")}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
-  return `This run only reviewed: it changed nothing.${toFix}${left}`;
+  return `This run only reviewed: it changed nothing.${toFix}${leftSentence(changed, show)}`;
 }
 function changedPart(changed, { link }) {
   const lines = ["## What deep-review changed", ""];
-  const left = changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left, link)}.`;
   if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
   const part = (ids2, words) => ids2.length === 0 ? [] : [`${words} ${String(ids2.length)} (${idWords(ids2, link)})`];
   const outcomes = [
@@ -34922,7 +34930,7 @@ function changedPart(changed, { link }) {
     ...part(changed.notAttempted, "no fixer attempted")
   ];
   const commits = changed.patches === 0 ? "No fix changed a file." : changed.commits === null ? changed.patches === 1 ? "Its patch is not committed: `deep-review commit` commits it." : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.` : `They are in ${counted(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, and ${counted(changed.commits.uncommittedPatches, "later patch is", "later patches are")} not committed yet`}.`;
-  return [...lines, `${outcomes.join("; ")}. ${commits}${left} ${checksWords(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
+  return [...lines, `${outcomes.join("; ")}. ${commits}${leftSentence(changed, link)} ${checksWords(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
 }
 function documentsPart(documents) {
   if (documents.length === 0) return [];
@@ -35001,8 +35009,8 @@ function briefShortForm(brief) {
   const cut = (line) => cutAtWord(line, shortLineLimit);
   return [
     cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
-    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat).
-    cutAtWord(`${brief.change.state === "given" && brief.change.beforeEdits ? "The change before the fixes" : "The change"}: ${change}`, changeLineLimit),
+    // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat); the limit counts the sentence, not the mark (R4).
+    `${brief.change.state === "given" && brief.change.beforeEdits ? "The change before the fixes" : "The change"}: ${cutAtWord(change, changeLineLimit)}`,
     cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? "none" : "none open; each is answered"}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
     ...open2.slice(0, shownQuestions).flatMap(questionLines),
     ...moreLine(openQuestions.slice(shownQuestions), "more question", "more questions").map(cut),
@@ -35015,7 +35023,7 @@ function briefShortForm(brief) {
     cut(`Changed: ${changedWords(brief.changed)}`)
   ];
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, leftSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -35086,6 +35094,7 @@ var init_brief = __esm({
       none: "The triage of this run gave no account of the change."
     };
     beforeEditsSentence = "The title and this account describe the change before the fixes and the answers of this run; What deep-review changed names the fixes.";
+    leftSentence = (changed, show) => changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left, show)}.`;
     questionsHeading = (brief, words) => [
       `## Questions for you (${String(brief.questions.length)})`,
       "",
@@ -36531,7 +36540,7 @@ function requireAdmitted(run2, finding, answer3) {
 }
 function chooseAnswerRun(checkpoint, runId, worktree, log) {
   if (runId !== void 0) return checkpoint.fold(runIdOf(checkpoint, runId));
-  const found = readableRuns(checkpoint, log).filter((run2) => whyNotAnswerable(run2, worktree) === null).reduce((last, run2) => last === void 0 || run2.lastSequence > last.lastSequence ? run2 : last, void 0);
+  const found = latestFirst(readableRuns(checkpoint, log)).find((run2) => whyNotAnswerable(run2, worktree) === null);
   if (found === void 0) throw new ReviewRefusedError("no complete run of this worktree has decisions to answer; name one with --run <id>");
   return found;
 }
@@ -36818,16 +36827,18 @@ function fixLines2(state) {
   const review2 = state.review;
   const fix = review2.fix;
   if (fix === null) return [readOnlyChangedSentence(changed, (id) => id)];
-  const fates = countedFates(changed);
-  return rankedFindings(review2).flatMap(({ finding }) => {
-    const fate = fates.get(finding.id);
-    if (fate === void 0) return [];
-    const { answer: answer3, reason } = lastFixAnswer(review2, fix, finding.id);
+  const fixes = rankedFindings(review2).flatMap(({ finding }) => {
+    const { outcome, answer: answer3, reason } = lastFixAnswer(review2, fix, finding.id);
+    const fate = fateWordsOf[outcome];
+    return fate === void 0 ? [] : [{ id: finding.id, fate, answer: answer3, reason }];
+  });
+  if (fixes.length === 0) return [noFixSentence(changed)];
+  return fixes.map(({ id, fate, answer: answer3, reason }) => {
     const words = answer3 === null ? reason ?? "no fixer answered for it" : answer3.message === null ? firstSentence(answer3.note) : answer3.message.subject;
-    return [cutAtWord(`${finding.id}, ${fixFateWords[fate]}: ${inlineText(words)}`, shortLineLimit)];
+    return cutAtWord(`${id}, ${fixFateWords[fate]}: ${inlineText(words)}`, shortLineLimit);
   });
 }
-var countedFates;
+var noFixSentence;
 var init_fix_lines = __esm({
   "src/review/fix-lines.ts"() {
     "use strict";
@@ -36835,13 +36846,70 @@ var init_fix_lines = __esm({
     init_fix_report();
     init_markdown();
     init_state();
-    countedFates = (changed) => new Map([
-      ...changed.applied.map((id) => [id, "applied"]),
-      ...changed.alreadyInTree.map((id) => [id, "already-in-tree"]),
-      ...changed.deferred.map((id) => [id, "deferred"]),
-      ...changed.blocked.map((id) => [id, "blocked"]),
-      ...changed.notAttempted.map((id) => [id, "not-attempted"])
-    ]);
+    noFixSentence = (changed) => {
+      const left = changed.left.length === 0 ? "" : ` It left ${counted(changed.left.length, "finding", "findings")}: ${idWords(changed.left)}.`;
+      return `This run gave no finding to a fixer, so it applied no fix.${left}`;
+    };
+  }
+});
+
+// src/review/report-choice.ts
+function abandonWords(reason) {
+  const inline = inlineText(reason).trim();
+  return inline.replace(/[\s.]+$/, "") || inline;
+}
+function noReportWords(state) {
+  const review2 = state.review;
+  if (state.status === "abandoned") return `was abandoned: ${abandonWords(state.abandonReason ?? "")}`;
+  if (review2 === null) return "never started its review";
+  if (review2.blocker !== null) return `is blocked (${review2.blocker.code})`;
+  switch (review2.reportSetAsideBy) {
+    case "answer-pass":
+      return "works again in an answer pass";
+    case "continuation":
+      return "works again, continued into the fix pass";
+    case "reopened-fix-pass":
+      return "works again in a reopened fix pass";
+    case null:
+      return "is in progress";
+  }
+}
+function chooseReportRun(checkpoint, worktree, log) {
+  const weighed = [];
+  for (const listed2 of checkpoint.listRuns()) {
+    if (isUnreadable(listed2)) {
+      log(passedOverLine(listed2.id, listed2.unreadable, checkpoint.engine));
+      if (listed2.worktree === null || sameDirectory(listed2.worktree, worktree)) weighed.push({ id: listed2.id, lastSequence: checkpoint.ledger.lastSequence(listed2.id), state: null, words: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
+    } else if (sameDirectory(listed2.worktree, worktree)) {
+      weighed.push({ id: listed2.id, lastSequence: listed2.lastSequence, state: listed2, words: noReportWords(listed2) });
+    }
+  }
+  const ordered = latestFirst(weighed);
+  const index2 = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
+  const newest = ordered[0];
+  const passed = (entry) => ({ run: entry.id, state: entry.words });
+  return {
+    run: index2 === -1 ? null : ordered[index2].state,
+    passedOver: index2 === -1 ? [] : ordered.slice(0, index2).map(passed),
+    newest: newest === void 0 ? null : passed(newest)
+  };
+}
+function notShownLines(passedOver) {
+  const lines = passedOver.slice(0, shownPassedOver).map((entry) => `Not shown: run ${shortRunId(entry.run)}, a later run, ${entry.state}.`);
+  const more = passedOver.length - shownPassedOver;
+  return [...lines, ...more > 0 ? [`Not shown: ${counted(more, "more later run", "more later runs")}; deep-review status --all lists them`] : []].map((line) => cutAtWord(line, shortLineLimit));
+}
+var shownPassedOver;
+var init_report_choice = __esm({
+  "src/review/report-choice.ts"() {
+    "use strict";
+    init_checkpoint();
+    init_paths();
+    init_brief();
+    init_markdown();
+    init_runs();
+    init_state();
+    shownPassedOver = 3;
   }
 });
 
@@ -36957,12 +37025,11 @@ function fixStatus(state, review2) {
   return { lines, json: { clusters, batches, held, claims: fix.claims, lostClaims: fix.lostClaims, checks, revisions: fix.revisions.length } };
 }
 function scopeWords(state, scope) {
-  const end = scope.mode === "last-commit" ? commitWords(scope.head) : "the working tree";
-  return `${askedModeOf(state)}, ${counted(scope.files.length, "file", "files")}, from ${commitWords(scope.base)} to ${end}`;
+  return `${askedModeOf(state)}, ${counted(scope.files.length, "file", "files")}, from ${commitWords(scope.base)} to ${endWords(shownScopeOf(state, scope, null))}`;
 }
 function stateWords(state) {
   const status3 = reviewStatus(state);
-  if (status3 === "abandoned") return `abandoned (${inlineText(state.abandonReason ?? "")})`;
+  if (status3 === "abandoned") return `abandoned (${cutAtWord(inlineText(state.abandonReason ?? ""), shortLineLimit)})`;
   if (status3 === "blocked") return `blocked (${state.review.blocker.code})`;
   return status3;
 }
@@ -36973,26 +37040,13 @@ function runListLines(runs, worktree, copyOf) {
     const id = shortRunId(state.id);
     const scope = state.scope === null ? "no scope captured yet" : scopeWords(state, state.scope);
     const elsewhere = sameDirectory(state.worktree, worktree) ? "" : `; worktree ${state.worktree}`;
-    const current = state.review?.report !== null && state.review?.report !== void 0;
+    const current = hasCurrentReport(state);
     const copy = current ? copyOf(state) : null;
     const report2 = !current ? "no current report" : copy === null ? `a current report with no copy; deep-review report --run ${id} writes one` : `report ${copy}`;
     return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report2}`;
   });
   const more = newest.length - shown.length;
   return more === 0 ? lines : [...lines, `${counted(more, "older run is", "older runs are")} not shown; deep-review status --run <id> shows one`];
-}
-function noReportWords(state) {
-  const review2 = state.review;
-  if (state.status === "abandoned") return `was abandoned: ${inlineText(state.abandonReason ?? "").replace(/[\s.]+$/, "")}`;
-  if (review2 === null) return "never started its review";
-  if (review2.blocker !== null) return `is blocked (${review2.blocker.code})`;
-  const again = [
-    { at: review2.answerPasses.at(-1)?.at ?? null, words: "works again in an answer pass" },
-    { at: review2.continuedFrom?.at ?? null, words: "works again, continued into the fix pass" },
-    { at: review2.fix?.reopenings.at(-1)?.at ?? null, words: "works again in a reopened fix pass" }
-  ].filter((entry) => entry.at !== null);
-  const last = again.reduce((latest, entry) => latest === null || entry.at >= latest.at ? entry : latest, null);
-  return last?.words ?? "is in progress";
 }
 var listedRuns;
 var init_status = __esm({
@@ -37004,6 +37058,7 @@ var init_status = __esm({
     init_paths();
     init_settings_state();
     init_scope_line();
+    init_brief();
     init_continue_command();
     init_fix_report();
     init_markdown();
@@ -37015,53 +37070,6 @@ var init_status = __esm({
     init_state();
     init_vocabulary();
     listedRuns = 20;
-  }
-});
-
-// src/review/report-choice.ts
-function createdWorktree(checkpoint, runId) {
-  const first = checkpoint.ledger.events(runId)[0];
-  if (first?.kind !== "run.created" || first.version !== 1) return null;
-  const payload = JSON.parse(first.payload);
-  return typeof payload === "object" && payload !== null && "worktree" in payload && typeof payload.worktree === "string" ? payload.worktree : null;
-}
-function chooseReportRun(checkpoint, worktree, log) {
-  const weighed = [];
-  for (const listed2 of checkpoint.listRuns()) {
-    if (isUnreadable(listed2)) {
-      log(passedOverLine(listed2.id, listed2.unreadable, checkpoint.engine));
-      const created2 = createdWorktree(checkpoint, listed2.id);
-      if (created2 === null || sameDirectory(created2, worktree)) weighed.push({ id: listed2.id, lastSequence: checkpoint.ledger.lastSequence(listed2.id), state: null, unreadable: `cannot be read by this engine (${checkpoint.engine}); an engine that declares its events can show it` });
-    } else if (sameDirectory(listed2.worktree, worktree)) {
-      weighed.push({ id: listed2.id, lastSequence: listed2.lastSequence, state: listed2, unreadable: null });
-    }
-  }
-  const latestFirst = weighed.sort((a, b) => b.lastSequence - a.lastSequence);
-  const wordsOf = (entry) => entry.unreadable ?? noReportWords(entry.state);
-  const index2 = latestFirst.findIndex((entry) => entry.state?.review?.report !== null && entry.state?.review?.report !== void 0);
-  const newest = latestFirst[0];
-  return {
-    run: index2 === -1 ? null : latestFirst[index2].state,
-    passedOver: index2 === -1 ? [] : latestFirst.slice(0, index2).map((entry) => ({ run: entry.id, state: wordsOf(entry) })),
-    newest: newest === void 0 ? null : { id: newest.id, state: wordsOf(newest) }
-  };
-}
-function notShownLines(passedOver) {
-  const lines = passedOver.slice(0, shownPassedOver).map((entry) => `Not shown: run ${shortRunId(entry.run)}, a later run, ${entry.state}.`);
-  const more = passedOver.length - shownPassedOver;
-  return [...lines, ...more > 0 ? [`Not shown: ${counted(more, "more later run", "more later runs")}; deep-review status --all lists them`] : []].map((line) => cutAtWord(line, shortLineLimit));
-}
-var shownPassedOver;
-var init_report_choice = __esm({
-  "src/review/report-choice.ts"() {
-    "use strict";
-    init_checkpoint();
-    init_paths();
-    init_brief();
-    init_markdown();
-    init_runs();
-    init_status();
-    shownPassedOver = 3;
   }
 });
 
@@ -37478,9 +37486,9 @@ async function configCommand(values, rest, io) {
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
   const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
-  const { base, target } = scopeEnds(location.worktree, chosen.request);
+  const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
-  const mode = branchNamed(values, source.scopeSettings()) ? "branch" : chosen.mode !== "auto" ? chosen.mode : target === null ? "worktree" : "last-commit";
+  const mode = branchNamed(values, source.scopeSettings()) ? "branch" : captured;
   const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
   let shown;
   try {
@@ -37490,7 +37498,7 @@ async function configCommand(values, rest, io) {
     const uncommitted = target === null ? new Set(changedAgainstHead(location.worktree)) : null;
     shown = {
       ...ends,
-      commits: commitCount(location.worktree, base, target ?? listed2.guard.head, listed2.request.paths),
+      commits: commitCount(location.worktree, base, target ?? listed2.guard.head, listed2.request.paths, listed2.request.exclude),
       fileCount: files.length,
       excludedCount: listed2.excluded.length,
       uncommitted: uncommitted === null ? null : files.filter((path) => uncommitted.has(path)).length,
@@ -37620,7 +37628,7 @@ function status2(values, io, root, worktree) {
     }
     const context = copyContextOf(io, state);
     const copy = reportCopyPath(checkpoint.root, state);
-    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths);
+    const commits = state.scope === null ? null : commitCount(worktree, state.scope.base, state.scope.head, state.scope.request.paths, state.scope.request.exclude);
     const described = describeRun(state, context.adapter, (reference) => checkpoint.evidence.pathOf(reference), { continuation: context, reportCopy: existsSync10(copy) ? copy : null, commits });
     io.stdout(values.json === true ? `${JSON.stringify(described.json, null, 2)}
 ` : `${described.lines.join("\n")}
@@ -37656,7 +37664,7 @@ function report(values, io, root, worktree) {
     const found = choice.run;
     if (found === null) {
       if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; deep-review status shows the run that is active`);
-      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.id}, ${choice.newest.state}; deep-review status --all lists the runs`);
+      throw new ReviewRefusedError(`no run of worktree ${worktree} has a report; the newest, run ${choice.newest.run}, ${choice.newest.state}; deep-review status --all lists the runs`);
     }
     const release = runLockForCopy(checkpoint.root, found.id, log);
     try {
@@ -37669,31 +37677,22 @@ function report(values, io, root, worktree) {
       const copy = release === null ? null : refreshReportCopy(checkpoint, state, context, log);
       const record2 = checkpoint.evidence.pathOf(review2.report.report);
       const brief = briefOf(state);
-      if (form === "fixes") {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...fixLines2(state), copy ?? record2].join("\n")}
-`);
-        return 0;
-      }
-      if (form === "brief") {
-        io.stdout(`${[...notShownLines(choice.passedOver), ...briefMarkdown(brief, "chat"), copy ?? record2].join("\n")}
-`);
-        return 0;
-      }
-      if (form === "finding") {
-        const id = values.finding;
-        const block = briefBlock(brief, id);
-        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
-        io.stdout(`${[...notShownLines(choice.passedOver), ...block, copy ?? record2].join("\n")}
-`);
-        return 0;
-      }
       if (form === "json") {
         const local = { copy, record: record2, repository: state.worktree, store: checkpoint.evidence.root, continueCommand: stoppedContinueCommand(state, context) };
         io.stdout(`${JSON.stringify(briefJson(brief, local, choice.passedOver), null, 2)}
 `);
         return 0;
       }
-      io.stdout(`${[...notShownLines(choice.passedOver), ...briefShortForm(brief), copy ?? record2].join("\n")}
+      let body;
+      if (form === "fixes") body = fixLines2(state);
+      else if (form === "brief") body = briefMarkdown(brief, "chat");
+      else if (form === "finding") {
+        const id = values.finding;
+        const block = briefBlock(brief, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        body = block;
+      } else body = briefShortForm(brief);
+      io.stdout(`${[...notShownLines(choice.passedOver), ...body, copy ?? record2].join("\n")}
 `);
       return 0;
     } finally {
