@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
 import type { RecordedDecision } from '../../src/checkpoint/events.ts';
+import { changeLineLimit } from '../../src/review/brief.ts';
 import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskDecided, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import type { CommitMessage } from '../../src/scope/git.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
@@ -175,6 +176,13 @@ describe('the task texts', () => {
       const task = triageTask({ kind: 'read', messages: [], withTree: false });
       assert.ok(task.includes(`- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`), 'the title');
       assert.ok(task.includes(`Keep \`why\` within ${String(accountLimits.why)} characters.`), 'the reason');
+    });
+
+    it('asks for a first sentence of what that says alone what the change does, within the length the short form gives whole (R4 of the questions in the chat)', () => {
+      const task = triageTask({ kind: 'read', messages: [], withTree: false });
+      assert.equal(accountLimits.firstSentence, 160);
+      assert.ok(task.includes(`- \`what\`: what the change does, in at most five sentences of plain words. Start with one sentence of at most ${String(accountLimits.firstSentence)} characters that says alone what the change does. Name no file`), 'the first sentence');
+      assert.ok(accountLimits.firstSentence < changeLineLimit, 'a sentence the triage keeps to its length is never cut');
     });
 
     it('says when the engine could not read the commit messages, with git\'s reason on one line', () => {
