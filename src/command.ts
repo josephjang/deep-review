@@ -843,7 +843,7 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
  * the time it started. It writes the copy of the report again under the
  * run's lock, or not while another engine holds it, then prints the short
  * form and the path of the copy, or else of the record, last, or with
- * `--json` version 1 of the JSON form. A worktree with no run, and a run with no current
+ * `--json` version 2 of the JSON form. A worktree with no run, and a run with no current
  * report, are refused with exit 2, naming `status`: such a run is not done,
  * or works again in an answer pass, a continuation or a reopened fix pass.
  */
