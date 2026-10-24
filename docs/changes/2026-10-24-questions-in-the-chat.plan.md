@@ -218,7 +218,7 @@ git commit -m "feat(report): Print the brief, or the block of one finding, in Ma
 Files:
 
 - `skill/claude/skills/deep-review/SKILL.md`, step 3: it runs `status`, then `config show` when no run is active, then the review as a background command. Then it writes the message with the lines that it copies, as the last text of the turn. For an active run, it copies the `Run`, `Scope:` and `Settings:` lines of `status`.
-- In the same file, the three facts that step 2 tells the user before a fix run move into that message of step 3. Step 2 no longer tells the model to say them before the command. The Codex skill keeps them in step 2.
+- In the same file, the three facts that step 2 tells the user before a fix run move into that message of step 3. Step 2 no longer tells the model to say them before the command, except for a fix run that continues a read-only run that finished, which starts its fixes at once. The Codex skill keeps them in step 2.
 - In the same step, a user who stops the review gets the background command stopped first, and then `abandon`.
 - In the same file, step 4 puts the short form in the last message of the turn.
 - In the same file, step 5 runs `report` after `commit`. The last message shows the lines of `commit`, and then the short form that `report` printed, which names the commits. `skill/codex/SKILL.md` gets the same sentences.
@@ -229,7 +229,7 @@ Files:
 Tests:
 
 - `test/skills.test.ts`: the new order of step 3 in the Claude Code skill, and the old order in the Codex skill. For an active run, both skills copy the `Scope:` line of `status` too. The case checks that `describeRun` prints a line that starts with `Scope: `.
-- In the same file, the case that pins the warning of a fix run: in the Claude Code skill, the three facts are in the message of step 3, after the review starts. In the Codex skill, they stay in step 2, before the command, as the case asks today.
+- In the same file, the case that pins the warning of a fix run: in the Claude Code skill, the three facts are in the message of step 3, after the review starts, and in step 2, before the command, for a fix run that continues a finished read-only run. In the Codex skill, they stay in step 2, before the command, as the case asks today.
 - In the same file: the sentences of step 4, of step 5 with `report` after `commit`, and of the paragraph about a finished run, in both skills. The case checks that the words of `changedWords` name the commits once a run has them. So the short form that `report` prints after `commit` names them. The two texts stay one, except the lines of each runtime. The tests that pin the sentences of today change with them.
 
 ```sh
