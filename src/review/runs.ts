@@ -26,6 +26,16 @@ export function readableRuns(checkpoint: Checkpoint, log: (line: string) => void
   return readable;
 }
 
+/**
+ * `runs` by their last event in the ledger, the latest first: the order
+ * `answer`, `commit` and `report` take their run in, the first that
+ * qualifies, since a read-only run continued into the fix pass finishes
+ * after runs that started later (R9 of fix pass continuation).
+ */
+export function latestFirst<Run extends { readonly lastSequence: number }>(runs: readonly Run[]): Run[] {
+  return [...runs].sort((a, b) => b.lastSequence - a.lastSequence);
+}
+
 /** The line a command prints for a run it passes over because the engine `reader` cannot read it. */
 export function passedOverLine(runId: string, unknown: UnknownEvent, reader: string): string {
   return `run ${runId}: passed over: ${unreadableRunReason(unknown, reader)}`;
