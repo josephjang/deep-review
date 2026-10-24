@@ -257,7 +257,9 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
   const cause = stepNotRunCause(review);
   // The step is one unit, so a settled unit leaves every item of its plan not attempted, for one reason.
   const notAttempted = isNotAttempted(fix, 'documentation', documentationUnitKey);
-  const items = (plan?.items ?? []).flatMap((item, index) => {
+  // A run the step has not planned has no item.
+  const planned = plan?.items ?? [];
+  const items = planned.flatMap((item, index) => {
     const finding = answer?.findings.find((candidate) => candidate.id === item.id);
     const outcome = finding !== undefined ? statusWords[finding.status] : notAttempted ? 'not attempted' : 'not answered';
     const document = item.file === null
@@ -280,7 +282,7 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
     '## Documentation',
     '',
     cause === null
-      ? `The documentation step answered for ${counted((plan?.items.length ?? 1) - 1, 'document', 'documents')} the fixers named, and for its own search.`
+      ? `The documentation step answered for ${counted(planned.filter((item) => item.file !== null).length, 'document', 'documents')} the fixers named, and for its own search.`
       : `The documentation step did not run: ${cause}.`,
     '',
     ...items,
