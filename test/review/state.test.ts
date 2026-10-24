@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { FixState } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { budgetStoppedRun, compareFindings, currentPhase, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { budgetStoppedRun, compareFindings, currentPhase, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
 import { baselined, configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -21,6 +21,14 @@ describe('reviewStatus', () => {
     const blocked = configured().start('triage').finish('triage', 'blocked', 1, { code: 'budget', detail: 'd', action: 'a' }).fold();
     assert.equal(reviewStatus(blocked), 'blocked');
     assert.equal(reviewStatus(configured().events.length > 0 ? { ...configured().fold(), review: null } : configured().fold()), 'active');
+  });
+});
+
+describe('hasCurrentReport', () => {
+  it('holds for a run whose review wrote its report, not for one with no review or a review with none yet', () => {
+    assert.equal(hasCurrentReport(reported().fold()), true);
+    assert.equal(hasCurrentReport(configured().fold()), false, 'a review with no report');
+    assert.equal(hasCurrentReport({ ...configured().fold(), review: null }), false, 'a run with no review, whose report is undefined rather than null');
   });
 });
 

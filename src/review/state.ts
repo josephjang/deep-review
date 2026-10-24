@@ -14,9 +14,14 @@ import { angleClasses, phases, severities, type DeduplicationPhase, type Phase, 
 /** What a run is doing, as `status` prints it: the ledger's own status, refined by the review's blocker and report. */
 export type ReviewStatus = 'active' | 'blocked' | 'complete' | 'abandoned';
 
+/** Whether a run has a current report: one its review wrote and that no answer pass, continuation or reopening has set aside since. */
+export function hasCurrentReport(state: RunState): boolean {
+  return state.review?.report !== null && state.review?.report !== undefined;
+}
+
 export function reviewStatus(state: RunState): ReviewStatus {
   if (state.status === 'abandoned') return 'abandoned';
-  if (state.review?.report !== null && state.review?.report !== undefined) return 'complete';
+  if (hasCurrentReport(state)) return 'complete';
   if (state.review?.blocker !== null && state.review?.blocker !== undefined) return 'blocked';
   return 'active';
 }
