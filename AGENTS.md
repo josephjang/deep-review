@@ -32,9 +32,6 @@ or in the last commit of the series when a run of the engine made it. An
 edit made directly in `dist/`, or in an installed copy, is invisible to
 the build and fails `npm run verify` on the next run.
 
-The build replaces each `dist/<runtime>` tree wholesale, so a renamed or
-removed source never leaves a stale file behind.
-
 ## The ledger is append-only and forward-compatible
 
 Events in the checkpoint ledger are never updated or deleted; the database

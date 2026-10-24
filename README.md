@@ -768,7 +768,9 @@ npm run replay-score -- --results <results.json> --labels <labels.json>   # the 
 `node:test` suites against the TypeScript sources directly; nothing is
 transpiled. `npm run build` bundles `src/cli.ts` with esbuild into each
 artifact's `engine/main.mjs`, writes the sidecar and copies `roles/`
-beside it, then copies the skill sources; `npm run verify` assembles both
+beside it, then copies the skill sources. It replaces each
+`dist/<runtime>` tree wholesale, so a renamed or removed source never
+leaves a stale file behind. `npm run verify` assembles both
 artifacts into a temporary tree and compares them with the committed
 `dist/`, bundle included, so a commit that claims to change only where
 text lives can be checked rather than trusted. Continuous integration
