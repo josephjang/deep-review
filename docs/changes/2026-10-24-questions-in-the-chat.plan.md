@@ -159,12 +159,13 @@ git commit -m "feat(brief): Keep the first sentence of the change whole"
 
 Files:
 
-- `src/review/brief.ts`: `changePart` takes the brief, and it ends with the sentence of R5 when `changed.patches` is more than 0. `briefShortForm` starts the line with `The change before the fixes:` in the same case.
+- `src/review/brief.ts`: `changePart` takes the brief, and it ends with the sentence of R5 when `change.state` is `given` and `changed.patches` is more than 0. `briefShortForm` starts the line with `The change before the fixes:` in the same case. The states `none` and `unrecorded` keep their words of today.
 
 Tests:
 
-- `test/review/brief.test.ts`: a fix run with a patch gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today. An answer pass that makes the first patch gives both.
+- `test/review/brief.test.ts`: a fix run with a patch gives the sentence and the label. A run that only reviewed and a fix run with no patch keep the words of today. An answer pass that makes the first patch gives both. A fix run with a patch whose triage gave no account, and one whose triage recorded none, keep the words of today.
 - `test/review/report.test.ts` and `test/review/report-copy.test.ts`, where they pin the part "The change".
+- The snapshots `test/fixtures/reports/fix.md`, `survey.md` and `synthetic.md` stay as they are. Each is the report of a run whose triage recorded no account. `test/review/fix-report.test.ts`, `test/review/survey-report.test.ts` and `test/review/report.test.ts` compare them, and each passes with no new snapshot.
 
 ```sh
 npm run check

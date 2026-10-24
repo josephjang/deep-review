@@ -124,7 +124,7 @@ The line `The change:` gives the first sentence of the account whole, up to 400 
 
 ### R5: The core of the change says when it describes the change before the fixes
 
-In a run whose fixes changed a file, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. A run that changed no file keeps the words of today.
+In a run whose fixes changed a file, the line of the change starts with `The change before the fixes:`. The part "The change" of the brief ends with one more sentence. It says that the title and the account describe the change before the fixes and the answers of the run. It also says that the part "What deep-review changed" names the fixes. A run that changed no file keeps the words of today. So does a run whose triage gave no account, or recorded none: it has no account to mark.
 
 ### R6: `report --fixes` prints a line for each fix
 
