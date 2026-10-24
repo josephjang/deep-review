@@ -17,7 +17,7 @@ import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { SurveyState } from '../checkpoint/survey-state.ts';
 import { leftAs } from './decision-report.ts';
-import { stepNotRunCause, unheldDriftLines, type UnheldLine } from './documents.ts';
+import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
 import { codeSpan, counted, inlineText, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
@@ -283,7 +283,7 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
     '',
     cause === null
       ? `The documentation step answered for ${counted(planned.filter((item) => item.file !== null).length, 'document', 'documents')} the fixers named, and for its own search.`
-      : `The documentation step did not run: ${cause}.`,
+      : stepNotRunSentence(cause),
     '',
     ...items,
     ...(found.length === 0 ? [] : ['Documents the documentation step found out of date at its end, which it did not bring in line:', '', ...found, '']),

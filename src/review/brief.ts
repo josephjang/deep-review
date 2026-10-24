@@ -17,7 +17,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
-import { leftByStep, leftDocumentsOf, stepNotRunCause, type LeftDocument } from './documents.ts';
+import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
@@ -394,7 +394,7 @@ function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
   if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
   // A step that did not answer brought no document in line; one whose fixes changed no file had nothing to do, and a run an engine before the step configured never had one, though its brief counts its lines (R7, R8, R11 of the documentation step).
   const cause = stepNotRunCause(context.review);
-  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: 'documentation', text: `The documentation step did not run: ${cause}.${context.documents.length === 0 ? '' : ' The documents left are in Documents left out of date.'}` });
+  if (context.review.documentationStep && cause !== null && cause !== fixesChangedNothing) gaps.push({ kind: 'documentation', text: `${stepNotRunSentence(cause)}${context.documents.length === 0 ? '' : ' The documents left are in Documents left out of date.'}` });
   return gaps;
 }
 
@@ -485,8 +485,9 @@ function changedOf(context: BriefContext): BriefChanged {
  */
 function documentationWords(review: ReviewState, fix: FixState): string {
   const cause = stepNotRunCause(review);
-  const answer = fix.answers.documentation[documentationUnitKey];
-  if (cause !== null || answer === undefined) return `The documentation step did not run: ${cause ?? 'it has not answered yet'}.`;
+  if (cause !== null) return stepNotRunSentence(cause);
+  // A fix run's step with no cause answered.
+  const answer = fix.answers.documentation[documentationUnitKey]!;
   // What it updated: every file an item edited, whatever its status, since a deferred item may hold a partial change.
   const updated = new Set(answer.findings.flatMap((finding) => finding.files)).size;
   // What it left, by the identity the list of documents left groups it by, so two spellings of one document count once and two documents twice.

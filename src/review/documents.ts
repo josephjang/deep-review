@@ -112,6 +112,9 @@ export function stepNotRunCause(review: Pick<ReviewState, 'fix' | 'documentation
   return settled.cause === 'budget' ? 'the run budget was reached first' : 'its worker failed twice';
 }
 
+/** The sentence that says why the documentation step did not answer, for a cause `stepNotRunCause` gave; a step that answered has no cause, so no sentence. */
+export const stepNotRunSentence = (cause: string): string => `The documentation step did not run: ${cause}.`;
+
 /** A sentence from a note of a worker, with one period at its end. */
 const sentence = (note: string): string => `${note.trim().replace(/[.]+$/, '')}.`;
 
@@ -241,10 +244,12 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
     entry.time = Math.max(entry.time, time);
     entries.set(key, entry);
   };
-  const notRun: LeftReason = { kind: 'not-run', text: `The documentation step did not run: ${stepNotRunCause(review) ?? 'it has not answered yet'}.` };
+  // Why the step did not answer, or null for a step that answered: a run with no plan has a cause.
+  const cause = stepNotRunCause(review);
+  const notRun: LeftReason | null = cause === null ? null : { kind: 'not-run', text: stepNotRunSentence(cause) };
   const plan = fix.documentation;
   if (plan !== null) {
-    if (fix.answers.documentation[documentationUnitKey] === undefined) {
+    if (notRun !== null) {
       for (const item of plan.items) if (item.file !== null) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
     } else {
       for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
@@ -253,7 +258,7 @@ export function leftDocumentsOf(review: Pick<ReviewState, 'fix' | 'documentation
   // Each line no item holds: with a plan, a line of the repair or an answer pass, reported after the step; with none, any line, since the step did not run.
   for (const line of unheldDriftLines(review)) {
     const by = reporterOf[line.phase];
-    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
+    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: 'after', text: `${by.charAt(0).toUpperCase()}${by.slice(1)} reported it after the documentation step.` }, line.time);
   }
   // An answer pass that opened after an entry's last line, revised its file and reported no line of it brought it in line (PD10); a document of the repository only by its own path.
   const endedBy = (key: string, time: number): boolean => review.answerPasses.some((_, index) => {
