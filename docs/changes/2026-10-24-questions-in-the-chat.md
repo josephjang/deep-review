@@ -169,7 +169,7 @@ The refusal of `report --run <id>` and the line of R8 give the state of the run 
 
 `deep-review status --all` prints one line for each run of the checkpoint that this engine can read, newest first. It shows at most 20 runs, and then the count of the others.
 
-A line gives the whole id of the run, the time that it started, and its state with the reason of an abandon. It also gives the mode of its scope, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its report, or says that the run has none. `--all` does not go with `--run` or with `--json`.
+A line gives the whole id of the run, the time that it started, and its state with the reason of an abandon. It also gives the mode of its scope as R12 names it, its number of files and both ends. It names its worktree when that is not this worktree. Last, it gives the path of the copy of its report, or says that the run has none. `--all` does not go with `--run` or with `--json`.
 
 Both skills get one sentence. When the user asks for a run and does not know which, the skill runs `status --all` and shows what it prints. Then it runs `report --run` with the run that the user chooses.
 
@@ -185,7 +185,9 @@ The `Scope:` line of `config show` gives the scope as the person asked for it: `
 Scope: branch, 1 commit and 4 files, from the merge base with origin/main (2247b35) to the working tree, which has no uncommitted change
 ```
 
-The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record. `status --json` gives the same two lists in `scope`. When git cannot count the commits, the line leaves the count out and does not fail.
+The `--json` output gives these facts in `scope`. It also gives the path of each file that the run reviews, and of each path that `scope.exclude` leaves out. `status` gives a `Scope:` line from the scope that the run captured, so a resumed run shows its scope too. The line has the same facts, except the count of uncommitted files, which the run does not record.
+
+The run records `--branch` as a range, so `status` names the mode from what the run recorded. A range that starts at the merge base with the recorded `review.base` and ends at `HEAD` reads as `branch`. The same range given as `--from <base> --to HEAD --merge-base` reads as `branch` too, because it is the same change. A run that recorded no settings keeps the mode that it captured. `status --json` gives the same two lists in `scope`. When git cannot count the commits, the line leaves the count out and does not fail.
 
 ### R13: The Claude Code skill shows the scope after it starts the review
 
