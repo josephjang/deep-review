@@ -459,7 +459,7 @@ describe('the documentation step\'s task', () => {
       .start('documentation');
     return history.add('documentation.planned', { items: documentationItems(history) });
   };
-  const task = (review: ReviewState): string => taskFor(unit('documentation', 'documentation', 'documentation'), review, { editing, evidence, documentation: { patches: [patch], exclude: ['dist/**'] } });
+  const task = (review: ReviewState): string => taskFor(unit('documentation', 'documentation', 'documentation'), review, { editing, evidence, documentation: { patches: [{ reference: patch, subject: 'fix: Guard the null' }], exclude: ['dist/**'] } });
 
   it('gives the step its plan, what the fixer did and the path of each patch of the fixes in the store, the files it owns and the patterns left out', () => {
     const text = task(planned().review());
@@ -491,12 +491,11 @@ describe('the documentation step\'s task', () => {
     assert.match(word('reject', null), /which the fix amends; the author rejected the departure, which no fix of the run has applied yet, so the tree does not hold it yet$/m);
   });
 
-  it('refuses a step with no plan, no patches or the wrong count of them', () => {
+  it('refuses a step with no plan or no patches', () => {
     const unplanned = planned().review();
     const review: ReviewState = { ...unplanned, fix: { ...unplanned.fix!, documentation: null } };
     assert.throws(() => task(review), /runs only once it is planned/);
     assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence }), /needs them/);
-    assert.throws(() => taskFor(unit('documentation', 'documentation', 'documentation'), unplanned, { editing, evidence, documentation: { patches: [], exclude: [] } }), /is given 0 patches for the 1 revisions of the fixes/);
   });
 
   it('gives the repair the step\'s files as the step\'s, beside the fixers\', and what the step did (R9)', () => {

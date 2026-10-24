@@ -16,7 +16,6 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV6, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { reviewConfiguredV6 } from '../checkpoint/events.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf } from '../config/record.ts';
@@ -62,7 +61,7 @@ import { parseUnitLabel } from './labels.ts';
 import { acquireRunLock, acquireStartLock, releaseOnExit, type ReleaseLock } from './lock.ts';
 import { planPathOf } from './documents.ts';
 import { patchSeries } from './patch.ts';
-import { contributionOf, invocationFor, type PhaseContext } from './phases.ts';
+import { contributionOf, invocationFor, type DocumentationPatch, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
 import { briefOf, briefShortForm, changeShapeOf } from './brief.ts';
@@ -475,13 +474,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const { claims } = directories;
   /** What turning a worker's work into events reads, from the fold as it is now. */
   const revisionContext = (): RevisionContext => ({ state, worktree: options.worktree, evidence: checkpoint.evidence, match: content.match, claims });
-  /** The patch series of `revisions`, put in the evidence store: one patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry (R13, R20, TD12 of the fix pass). */
-  const storedPatches = (fix: FixState, revisions: readonly TreeRevised[]): ArtifactReference[] => {
+  /** The patch series of `revisions`, put in the evidence store: one patch per revision, rendered from the frozen bytes in ledger order, each with the message its commit would carry, whose subject it is given with (R13, R20, TD12 of the fix pass). */
+  const storedPatches = (fix: FixState, revisions: readonly TreeRevised[]): DocumentationPatch[] => {
     const messaged = revisions.map((revision) => ({ ...revision, change: { ...revision.change, message: revisionMessageOf(fix, revision) } }));
-    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch) => checkpoint.evidence.put(patch));
+    // The series has one patch per revision, in their order.
+    return messaged.length === 0 ? [] : patchSeries(messaged, (reference) => checkpoint.evidence.read(reference), objectFormat(options.worktree), content.stored).map((patch, index) => ({ reference: checkpoint.evidence.put(patch), subject: messaged[index]!.change.message.subject }));
   };
-  /** The patch of each revision of the fixes alone, which the documentation step's task names before its worker launches, so it reads the edits of the run apart from the reviewed change (R2 of the documentation step). */
-  const fixPatches = (current: RunState): ArtifactReference[] => {
+  /** The patch of each revision of the fixes alone, with its subject, which the documentation step's task names before its worker launches, so it reads the edits of the run apart from the reviewed change (R2 of the documentation step). */
+  const fixPatches = (current: RunState): DocumentationPatch[] => {
     const fix = current.review!.fix!;
     return storedPatches(fix, fix.revisions.filter((revision) => revision.phase === 'fixes'));
   };
@@ -870,7 +870,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'write-report': {
           // One patch per revision of the run (R13 of the fix pass).
           const fixState = state.review!.fix;
-          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions);
+          const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions).map((patch) => patch.reference);
           const statistics = statisticsOf(state, adapter);
           // A fix pass the run budget stopped is continued by the same command with a higher budget, which the report and the log name (R11, R15 of resumable runs).
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;

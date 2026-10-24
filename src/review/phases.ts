@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { allBatches, appliedOptionOf, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { allBatches, appliedOptionOf, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -436,8 +436,6 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
   const fix = review.fix;
   const plan = fix?.documentation ?? null;
   if (fix === null || plan === null) throw new Error('The documentation step runs only once it is planned');
-  const revisions = fix.revisions.filter((revision) => revision.phase === 'fixes');
-  if (options.patches.length !== revisions.length) throw new Error(`The documentation step is given ${String(options.patches.length)} patches for the ${String(revisions.length)} revisions of the fixes`);
   const fixes = allBatches(fix).flatMap((batch) => (fix.answers.fixes[batch.key]?.findings ?? []).map((finding): DocumentationTaskFix => ({
     batch: batch.key, id: finding.id, status: finding.status, note: finding.note, files: finding.files, subject: finding.message?.subject ?? null, decided: decidedWords(review, finding.id),
   })));
@@ -445,7 +443,7 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
   return documentationTask({
     documents: plan.items.flatMap((item) => (item.file === null ? [] : [{ id: item.id, file: item.file, path: item.path, drift: item.drift.map((line) => ({ batch: line.key, file: line.file, what: line.what })) }])),
     fixes,
-    patches: revisions.map((revision, index) => ({ path: evidence.pathOf(options.patches[index]!), subject: revisionMessageOf(fix, revision).subject })),
+    patches: options.patches.map((patch) => ({ path: evidence.pathOf(patch.reference), subject: patch.subject })),
     owned,
     exclude: options.exclude,
     checks: fix.checks.planned?.checks ?? [],
@@ -459,13 +457,19 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
 /**
  * What the documentation step's task needs beyond the fold (R2, PD11 of
  * the documentation step): the patch of each revision of the fixes, in
- * ledger order, which the controller put in the evidence store before the
- * launch, and the patterns `scope.exclude` kept out of the review, which
- * the run's scope records.
+ * ledger order, with the subject of its commit, which the controller put
+ * in the evidence store before the launch, and the patterns
+ * `scope.exclude` kept out of the review, which the run's scope records.
  */
 export interface DocumentationTaskOptions {
-  readonly patches: readonly ArtifactReference[];
+  readonly patches: readonly DocumentationPatch[];
   readonly exclude: readonly string[];
+}
+
+/** A patch of the fix pass in the evidence store, with the subject of the message its commit would carry. */
+export interface DocumentationPatch {
+  readonly reference: ArtifactReference;
+  readonly subject: string;
 }
 
 /** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, the commit messages of the change the triage's task lists, and the documentation step's patches and patterns. */
