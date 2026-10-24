@@ -33,7 +33,7 @@ import { shortRunId } from './runs.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
 import { unitLabel } from './labels.ts';
-import { budgetStoppedRun, currentPhase, reviewStatus } from './state.ts';
+import { budgetStoppedRun, currentPhase, hasCurrentReport, reviewStatus } from './state.ts';
 import { checkPhases, decisionCounts, decisionCountWords } from './vocabulary.ts';
 
 /**
@@ -242,7 +242,7 @@ export function runListLines(runs: readonly RunState[], worktree: string, copyOf
     const id = shortRunId(state.id);
     const scope = state.scope === null ? 'no scope captured yet' : scopeWords(state, state.scope);
     const elsewhere = sameDirectory(state.worktree, worktree) ? '' : `; worktree ${state.worktree}`;
-    const current = state.review?.report !== null && state.review?.report !== undefined;
+    const current = hasCurrentReport(state);
     const copy = current ? copyOf(state) : null;
     const report = !current ? 'no current report' : copy === null ? `a current report with no copy; deep-review report --run ${id} writes one` : `report ${copy}`;
     return `${id} started ${state.createdAt}: ${stateWords(state)}; ${scope}${elsewhere}; ${report}`;
