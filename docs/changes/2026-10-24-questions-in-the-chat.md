@@ -207,7 +207,7 @@ The run records `--branch` as a range, so `status` names the mode from what the 
 
 Step 3 of the Claude Code skill runs `status`, and `config show` when no run is active, as today. Then it starts the review as a background command. Only after that does it write the message. This message is the last text of the turn.
 
-The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review.
+The message holds the `Scope:` line, the `budget.usd` line and the fix choice. For an active run, it holds the `Run`, `Scope:` and `Settings:` lines of `status` (R12). For a fix run, it also holds the words of step 2: the workers edit the working tree, the engine runs the check commands that it chose from the repository, and the run commits nothing. Step 2 of this skill no longer says them before the review, except for a fix run that continues a read-only run that finished. Such a run starts its fixes at once, so step 2 says them before the command, as it did before this change.
 
 When the review exits, the skill goes on with step 4. This needs nothing new of Claude Code. Today too, step 3 runs the review as a background command, and the turn ends while it runs. The host calls the model again when the command exits.
 
@@ -289,7 +289,7 @@ Step 3 told the model to write the message before its next tool call, in the sam
 
 In the work on the skill surface, four runs in print mode had three different words in step 3. In none of them did the model write such a message before the review. In two interactive sessions, it wrote one in its own words. So the place of the message in the middle of a turn does not hold. This proposal moves the message to where the model writes text: the end of the turn, after the review starts.
 
-The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way.
+The words of step 2 for a fix run go into the same message, for the same reason. R14 of the fix pass says that a skill tells the person beforehand that the run edits the working tree and commits nothing. After this change, the person learns it a few seconds after the start, and before the run edits a file or runs a check. This proposal revises R14 of the fix pass in that way. A fix run that continues a read-only run that finished is not such a run: it reviews nothing again, and it starts with the checks and then the fixes. So for that run the skill still says the words of step 2 before the command, although the model can write them in its `thinking`.
 
 The cost is that the run starts a few seconds before the person sees its scope. The run edits nothing and runs no check before the decision, and the triage, the finders and the verification come first. A person who stops it in its first minutes loses the survey, when the run has one, and the start of its triage. The proposal rejects a hook that prints the scope, because it works only on Claude Code and gives the same text a second place.
 

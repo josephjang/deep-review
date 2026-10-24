@@ -38,8 +38,13 @@ Bash tool from then on.
    and `--no-check <kind>` only for a check the user says to skip (kind
    `build`, `typecheck`, `lint` or `test`): each settles its kind over
    the survey. The message of step 3 tells the user what a fix run
-   does. Without such a request, do not pass `--fix`: the review then
-   edits nothing and runs no check.
+   does. A run that `--fix` continues starts its fixes at once, so when
+   you continue a read-only run that finished, tell the user before you
+   run the review that the engine's workers will edit the working tree,
+   that it runs the check commands it chose from the repository, and
+   that the run commits nothing.
+   Without such a request, do not pass `--fix`: the review then edits
+   nothing and runs no check.
 3. First find out what the run will review. Run this from the
    repository and wait for it to exit:
 
@@ -75,10 +80,10 @@ Bash tool from then on.
    and ignores the scope flags. Then end the turn: the review goes on,
    and when it exits you go on with step 4.
    A user who sees a wrong scope stops the review before it has spent
-   much; until its fixes phase the run has edited nothing. When the user
-   stops it because its scope is wrong, stop the background command
-   first, since `abandon` refuses a run whose engine still runs; then
-   close the run with `abandon --reason <text>` before you run the
+   much; a run that reviews edits nothing until its fixes phase. When
+   the user stops it because its scope is wrong, stop the background
+   command first, since `abandon` refuses a run whose engine still runs;
+   then close the run with `abandon --reason <text>` before you run the
    corrected request, so that the next review starts a new run rather
    than resume this one.
 
