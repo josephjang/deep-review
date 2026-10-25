@@ -712,6 +712,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     writeFileSync(marker, '');
     const midway = box.run();
     const running = Object.values(midway.workers).filter((worker) => worker.status === 'running');
+    // This once found no running worker on the macOS runner, for a reason not yet known: https://github.com/josephjang/deep-review/issues/80
     assert.ok(running.length >= 1, 'a worker was running when the engine died');
     assert.equal(midway.review!.phases.finders.status, 'running');
     const resumed = await run(box, ...claudeFlags(box));
