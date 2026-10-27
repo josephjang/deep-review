@@ -117,11 +117,11 @@ A check that failed before the fixes does not count, whatever the base says. On 
 
 ### R5: What the review did not cover names a check that the change breaks or that the run did not compare
 
-"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that failed before and after the fixes and that the run did not compare with the base, with the reason. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Invented examples:
+"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Invented examples:
 
 ```text
 The typecheck check fails on the change and passes on its base, the merge base with origin/main (2247b35e). No step of the run fixes a failure that the change brings.
-The typecheck check failed before and after the fixes, and the run could not compare it with the base, the merge base with origin/main (2247b35e): the check failed there for a missing tool.
+The typecheck check failed before and after the fixes, and the run could not compare it with the base, the merge base with origin/main (2247b35e): the repair could not compare the outputs.
 ```
 
 ### R6: The short form of a fix run has a line `Checks:`
