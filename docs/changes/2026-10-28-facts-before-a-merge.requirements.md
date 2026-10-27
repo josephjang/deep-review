@@ -19,10 +19,13 @@ flowchart TD
     B -->|failed| D{After the fixes}
     D -->|passed| D1[The fixes made it pass.<br/>A later failure is one<br/>that the edits made]
     D -->|failed| E[It runs once more on the base,<br/>and the repair compares the failures]
-    E -->|the base passes| E1[The change breaks it:<br/>What the review did not cover]
-    E -->|the base has the same failures| E2[The base has it too:<br/>the line Checks says so]
-    E -->|the change adds failures| E3[The change adds failures:<br/>What the review did not cover]
-    E -->|no comparison| E4[Not known, with the reason:<br/>What the review did not cover]
+    E --> F{Its last run}
+    F -->|passed| F1[It passes now:<br/>the base gives it no fault]
+    F -->|failed or timed out| G{On the base}
+    G -->|the base passes| E1[The change breaks it:<br/>What the review did not cover]
+    G -->|the base has the same failures| E2[The base has it too:<br/>the line Checks says so]
+    G -->|the change adds failures| E3[The change adds failures:<br/>What the review did not cover]
+    G -->|no comparison| E4[Not known, with the reason:<br/>What the review did not cover]
 ```
 
 Figure 1. Where the brief puts each check of a fix run after this change.
@@ -119,7 +122,7 @@ A check that failed before the fixes and has not passed since does not count, wh
 
 ### R5: What the review did not cover names a check that the change breaks or that the run did not compare
 
-"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Each fact of the brief that rests on the comparison says that it is the reading of the repair, as the brief marks the account of the triage. The brief names no local path: it gives each reason in fixed words, and the error of git and the words of the repair stay in the report. Invented examples:
+"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose last run passed is not listed, whatever the base says: the merge question is about the tree now, so a check that a later run made pass, such as one that an answer pass fixed, reads as a check that failed before the fixes and passes now, and the brief does not say that the run left its failure. A check whose last run did not finish keeps the gap of a check that did not finish. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Each fact of the brief that rests on the comparison says that it is the reading of the repair, as the brief marks the account of the triage. The brief names no local path: it gives each reason in fixed words, and the error of git and the words of the repair stay in the report. Invented examples:
 
 ```text
 The typecheck check fails on the change and passes on its base, the merge base with origin/main (2247b35e). No step of the run fixes a failure that the change brings.
