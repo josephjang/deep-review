@@ -95,6 +95,8 @@ In a fix run, a check that failed or timed out before the fixes, and again after
 
 The run installs nothing in the worktree (PD2). When the base is the empty tree, the check does not run there, and the brief says why. A check that passed before the fixes, or that passed after them, does not run on the base. The base runs before the repair, once in each fix run.
 
+When the check is not the build and the run has a build command, the build runs on the base first, since the other checks read what it produces, as in each other run of the checks. When the build fails on the base, the other checks do not run there, and the brief says that the run did not compare them.
+
 ### R2: The repair compares the failures with the base
 
 The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The base shows the same failures. The change adds failures to those of the base. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
@@ -117,7 +119,7 @@ A check that failed before the fixes and has not passed since does not count, wh
 
 ### R5: What the review did not cover names a check that the change breaks or that the run did not compare
 
-"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Invented examples:
+"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Invented examples:
 
 ```text
 The typecheck check fails on the change and passes on its base, the merge base with origin/main (2247b35e). No step of the run fixes a failure that the change brings.
