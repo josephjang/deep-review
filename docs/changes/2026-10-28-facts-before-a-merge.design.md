@@ -117,6 +117,7 @@ The phase runs the planned command of the kind through `runCheck`, with three di
 - The base passed: the check passes on the base of the change, so the change brings its failures. They are not the repair's to fix, as the failures before the fixes are not.
 - The base failed or timed out: the output there follows. The worker compares the failures before the fixes, on the change as submitted, with those on the base, and gives one entry in `comparisons`.
 - The base was skipped: the reason follows, and the worker gives no entry.
+- The base run did not start: the error of the start follows, and the worker gives no entry.
 
 The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
 
@@ -142,18 +143,20 @@ interface BriefCheck {
 
 `last` is the run that `after` is today, with `when` taken from its phase: `checks` gives `fixes`, `repair-checks` gives `repair` and `answer-checks` gives `answers`. `afterPhases` keeps its three phases, so a run on the base is never the last run (R3, #78). `base` holds the commit of the base, its name from `baseNameOf`, the outcome there with the error of a `skipped` run, and the reading and the words of the repair. It is null for a kind that did not run on the base.
 
-`fault` follows from the fold:
+`fault` follows from the fold. The rows apply in order, and a check takes the first row that holds:
 
 | `fault` | When |
 |---|---|
 | `edits` | `last` failed, and an earlier run of the kind in this run passed: the baseline, or a run after the fixes, the repair or an earlier answer pass, in the order of the ledger |
-| `change-breaks` | `before` and `last` did not pass, and the base passed |
-| `change-adds` | `before` and `last` did not pass, and the repair read `adds` |
-| `base-has` | `before` and `last` did not pass, and the repair read `same` |
-| `not-compared` | `before` and `last` did not pass in a run configured with the phase, and none of the three rows above holds |
-| null | every other case |
+| `change-breaks` | The kind ran on the base, and the base passed |
+| `change-adds` | The kind failed or timed out on the base, and the repair read `adds` |
+| `base-has` | The kind failed or timed out on the base, and the repair read `same` |
+| `not-compared` | The kind is in `baseKinds`, and none of the rows above holds |
+| null | Every other case |
 
-A run that this change did not configure gets no `not-compared`, since it never had a run on the base (R10). It gets `edits` as each run does.
+A row that reads the base holds only for a kind that the phase took. A kind that the planner skipped after a failed `build`, or that did not start for a missing tool, never had a run on the base, so it gets no fault from the base and keeps the gap of today: a check that did not finish.
+
+The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since `baseKinds` is empty for it (R10). It gets `edits` as each run does.
 
 The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, "Nothing needs you" ends with `, and its edits made no check fail`.
 
@@ -321,7 +324,7 @@ A test of the task holds its paragraph for each case of the base. A test of the 
 
 ### R3, R4 and R5: The checks of the brief
 
-Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault`, the headline and its clause, and the words of each gap.
+Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault` and their order, the headline and its clause, and the words of each gap with each reason of `not-compared`. A test holds that a kind skipped after a failed `build` gets no fault from the base and one gap only.
 
 ### R6: The short form
 
