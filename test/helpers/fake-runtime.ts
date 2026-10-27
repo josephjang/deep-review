@@ -50,7 +50,7 @@ export interface ScriptEdit {
 export interface ScriptStep {
   /** The edits a fixer makes before answering (or before waiting, with `waitFor`), so a test sees the tree a fixer leaves. */
   readonly edits?: readonly ScriptEdit[];
-  /** The structured answer; the role's empty answer when absent. */
+  /** The structured answer; the role's empty answer when absent. A repair answer that names no `comparisons` compares nothing (see answerFor). */
   readonly output?: unknown;
   /** Answer with text that is not the schema's shape, so the launcher fails the worker. */
   readonly malformed?: boolean;
@@ -107,11 +107,7 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };
   if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
   if (role === 'decider') return deciderAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
-  if (role === 'fixer') {
-    const answer = fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
-    // The repair of a run with the checks on the base answers in a schema with `comparisons`, which its task names; the fake compares nothing unless a script says it does.
-    return prompt.includes('Return `comparisons`') ? { ...(answer as object), comparisons: [] } : answer;
-  }
+  if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   // The documentation worker finds every document already in line, so it edits nothing unless a script says it does.
   if (role === 'documentation') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({ status: 'already-applied' as const })));
   return { answer: 'ok' };
@@ -269,6 +265,18 @@ export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], p
 }
 
 /**
+ * The answer as the worker whose prompt this is gives it. The repair of a
+ * run with the checks on the base answers in a schema that asks for
+ * `comparisons`, which its task names, so an answer that names none there
+ * compares nothing: a test scripts a repair answer as a fixer's and gives
+ * `comparisons` only when it compares.
+ */
+function answerFor(output: unknown, prompt: string): unknown {
+  if (!prompt.includes('Return `comparisons`') || typeof output !== 'object' || output === null || Object.hasOwn(output, 'comparisons')) return output;
+  return { ...output, comparisons: [] };
+}
+
+/**
  * The scripted step for the review worker whose prompt this is, from the
  * FAKE_SCRIPT file, with the role's empty answer as the step when the
  * script names none; null when the fake is not scripted or the prompt is
@@ -283,7 +291,7 @@ export function scriptedStep(host: FakeHost, prompt: string): { readonly role: s
   const key = [`${header.role}:${header.phase}:${header.unitKey}`, `${header.role}:${header.unitKey}`, header.role, '*'].find((candidate) => Object.hasOwn(script, candidate));
   const entry = key === undefined ? {} : script[key]!;
   const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`, host.id), entry.length - 1)] ?? {}) : (entry as ScriptStep);
-  return { role: header.role, unit: header.unitKey, step: { ...step, output: step.output ?? defaultOutput(header.role, prompt) } };
+  return { role: header.role, unit: header.unitKey, step: { ...step, output: answerFor(step.output ?? defaultOutput(header.role, prompt), prompt) } };
 }
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
