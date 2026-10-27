@@ -6,7 +6,7 @@ Technical part: [2026-10-28-facts-before-a-merge.design.md](2026-10-28-facts-bef
 
 After a fix run, a person asks one question first: can this change merge? The report [`2026-10-23-skill-ux.md`](../reports/2026-10-23-skill-ux.md) shows that the brief does not give the facts for that question (U3). It does not say if a check that fails also fails on the base of the change. It can say that a check failed after the fixes when it failed after the answers (#78). The short form in the chat has no line for the checks. And only the end of the report says how the fixers validated the fixes. So the hosts did the work of the report: Claude Code made a worktree of `main` and ran the typecheck there, and Codex took a failure that `main` also has as a reason to wait.
 
-This proposal gives the brief those facts. A check that fails before the fixes and after them runs once more on the base of the change, in a temporary worktree. The repair worker compares the failures with the base. Then the brief says if the base has the same failures, if the change causes the failure, or that the run could not compare. Each check says when its last run failed: after the fixes, after the repair or after the answers. The headline counts a check that the edits of the run made fail. A check that the change itself breaks goes to "What the review did not cover". The short form of a fix run gets a line `Checks:`. "What deep-review changed" gets one sentence on how the fixers validated the fixes.
+This proposal gives the brief those facts. A check that fails before the fixes and after them runs once more on the base of the change, in a temporary worktree. The repair worker compares the failures of the change as submitted with those on the base. Then the brief says if the base has the same failures, if the change causes the failure, or that the run could not compare. Each check says when its last run failed: after the fixes, after the repair or after the answers. The headline counts a check that the edits of the run made fail. A check that the change itself breaks goes to "What the review did not cover". The short form of a fix run gets a line `Checks:`. "What deep-review changed" gets one sentence on how the fixers validated the fixes.
 
 The core of the change stays what it is: the account of the change as it was submitted for review.
 
@@ -97,7 +97,7 @@ The run installs nothing in the worktree (PD2). When the base is the empty tree,
 
 ### R2: The repair compares the failures with the base
 
-The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker says one of three things. The base shows the same failures. The change adds failures to those of the base. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
+The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The base shows the same failures. The change adds failures to those of the base. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
 
 When the check passed on the base, the engine knows without the worker that the change breaks the check. When no answer of the repair says it, because the run budget stopped the repair or its worker failed, a check that failed on the base reads as not compared. The repair still fixes only the failures that the fixes added (PD8).
 
@@ -197,7 +197,7 @@ The proposal rejects two other ways. The survey can choose an install command, s
 
 ### PD3: The repair worker compares the failures, and the engine does not compare the text
 
-The output of a check names the paths of its worktree, and the lines of a failure move when the code moves. A comparison of the text by the engine reads such outputs as different. A comparison of the exit codes reads a base that failed for a missing tool as the same failure. The repair worker already reads the output before the fixes and the output after them, and it tells the failures that the fixes added from the others. The output on the base is one more output for the same reading, so no new worker is needed.
+The output of a check names the paths of its worktree, and the lines of a failure move when the code moves. A comparison of the text by the engine reads such outputs as different. A comparison of the exit codes reads a base that failed for a missing tool as the same failure. The repair worker already reads the output before the fixes and the output after them, and it tells the failures that the fixes added from the others. The output on the base is one more output beside them, so no new worker is needed. The worker compares it with the output before the fixes. Whether the change causes a failure is a question about the change as submitted, and a comparison with the output after the fixes would count a failure that the fixes added as a failure of the change.
 
 When the base passes, the engine needs no reading: the change breaks the check.
 
@@ -290,6 +290,10 @@ A check can fail on the base for a missing tool. The repair worker reads the out
 ### The repair worker reads the comparison wrong
 
 The comparison is a reading of a model. The line `Checks:` gives it as a fact of the run, and the report names the outputs that it rests on.
+
+### A failure that the fixes add to a check that already failed
+
+A check that failed before the fixes can hold, at its last run, failures that the fixes added and the repair did not remove. The comparison is about the change, so the brief says what the base says of the change. The answer of the repair for the check, in the report, says what the repair did. The headline does not count such a check, because the check never passed in the run.
 
 ### A test that fails by chance counts in the headline
 
