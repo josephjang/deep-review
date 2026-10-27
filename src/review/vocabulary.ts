@@ -375,6 +375,19 @@ export const baseReadings = ['same', 'adds', 'unknown'] as const;
 export const baseReadingSchema = z.enum(baseReadings);
 export type BaseReading = z.infer<typeof baseReadingSchema>;
 
+/**
+ * Why a kind got a `skipped` run on the base, in the fixed words the
+ * brief gives (R5 of the facts before a merge). A run on the base records
+ * one as its error; a worktree git could not make adds the error of git
+ * after a colon, which names local paths and so stays out of the brief.
+ */
+export const baseSkipReasons = {
+  emptyTree: 'the base of the change is the empty tree',
+  noWorktree: 'no worktree of the base could be made',
+  buildFailed: 'the build failed on the base',
+} as const;
+export type BaseSkipReason = keyof typeof baseSkipReasons;
+
 /** How a fixer validated a fix (fixer-validation.md): a red run on the old code, a mutation, a static check, existing tests, or a stated limit. */
 export const validationMethods = ['old-code', 'mutation', 'static', 'existing', 'limited'] as const;
 export const validationMethodSchema = z.enum(validationMethods);
