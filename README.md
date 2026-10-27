@@ -471,10 +471,15 @@ failures are new is the worker's reading; the engine parses no output.
 A check that failed before any fix and fails after the fixes too first
 runs once more on the commit the change starts from, `build` before it,
 in a temporary git worktree that git keeps locked with the run's id and
-the engine removes. Nothing is installed there, the hooks of the
-repository are off, and no path into the reviewed tree is left in its
-environment. The repair worker also gets that output and says whether
-the change as submitted has a failure the base does not have; the brief
+the engine removes. Nothing is installed there and the hooks of the
+repository are off. The check's environment there loses git's
+repository variables, a `VIRTUAL_ENV` inside the reviewed tree, and the
+entries inside the reviewed tree of `PATH`, `PYTHONPATH`, `NODE_PATH`,
+`PERL5LIB`, `PERLLIB`, `RUBYLIB`, `GEM_PATH` and `CLASSPATH`; every
+other variable, such as `PWD`, `HOME` or `CLAUDE_PROJECT_DIR`, is
+inherited as it is, and may still name the reviewed tree. The repair
+worker also gets that output and says whether the change as submitted
+has a failure the base does not have; the brief
 gives that as the repair's reading. See
 `docs/changes/2026-10-28-facts-before-a-merge.requirements.md` and its
 design. In the fixes and repair
