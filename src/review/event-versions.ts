@@ -4,7 +4,7 @@
  * carries, and never older than the version the engine writes for the
  * phases it knew before. A run that never enters a later phase then holds
  * no event an older engine cannot read. Adding a phase is one row of
- * `phaseVersions`.
+ * `phaseVersions`, and adding a carried word one row of `carriedVersions`.
  */
 import type { AttemptFault, Phase, worktreeMoments } from './vocabulary.ts';
 
@@ -35,21 +35,22 @@ const phaseVersions: Readonly<Partial<Record<Phase, Readonly<Partial<Record<Vers
   'base-checks': { 'phase.started': 7, 'phase.finished': 8, 'worktree.checked': 8, 'report.written': 7, 'check.started': 2, 'check.ran': 4 },
 };
 
-/** The moment of a worktree check after a write back, which version 6 first records (R7 of resumable runs). */
-const momentVersions: Readonly<Partial<Record<WorktreeMoment, number>>> = { restored: 6 };
-
-/** The faults of a failed attempt that version 7 first records: a kill mark and the provider's usage limit (R4, R14 of resumable runs). */
-const faultVersions: Readonly<Partial<Record<AttemptFault, number>>> = { cut: 7, limit: 7 };
-
-/** The answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge). */
-const comparisonsVersion = 4;
-
 /** What an event of a kind carries beside its phases that a later version records. */
 interface Carried {
   readonly 'worktree.checked': { readonly moment: WorktreeMoment };
   readonly 'attempt.failed': { readonly fault: AttemptFault };
   readonly 'fix.recorded': { readonly comparisons: boolean };
 }
+
+/** The first version of each kind of `Carried` that records the words it carries, 0 for words every version holds. */
+const carriedVersions: { readonly [K in keyof Carried]: (words: Carried[K]) => number } = {
+  // The moment of a worktree check after a write back, which version 6 first records (R7 of resumable runs).
+  'worktree.checked': ({ moment }) => (moment === 'restored' ? 6 : 0),
+  // The faults of a failed attempt that version 7 first records: a kill mark and the provider's usage limit (R4, R14 of resumable runs).
+  'attempt.failed': ({ fault }) => (fault === 'cut' || fault === 'limit' ? 7 : 0),
+  // The answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
+  'fix.recorded': ({ comparisons }) => (comparisons ? 4 : 0),
+};
 
 /**
  * The version to write an event of `kind` at, for the phases it names,
@@ -60,12 +61,8 @@ interface Carried {
  * base.
  */
 export function writtenVersion<K extends VersionedKind>(kind: K, phases: readonly Phase[], ...carried: K extends keyof Carried ? [Carried[K]] : []): number {
-  const words = carried[0] as Partial<Carried['worktree.checked'] & Carried['attempt.failed'] & Carried['fix.recorded']> | undefined;
-  return Math.max(
-    floors[kind],
-    ...phases.map((phase) => phaseVersions[phase]?.[kind] ?? 0),
-    words?.moment === undefined ? 0 : (momentVersions[words.moment] ?? 0),
-    words?.fault === undefined ? 0 : (faultVersions[words.fault] ?? 0),
-    words?.comparisons === true ? comparisonsVersion : 0,
-  );
+  // A generic kind cannot index the table, so the lookup widens each row to the words of any carried kind; the signature pairs them.
+  const version = (carriedVersions as Partial<Record<VersionedKind, (words: Carried[keyof Carried]) => number>>)[kind];
+  const words = carried[0];
+  return Math.max(floors[kind], ...phases.map((phase) => phaseVersions[phase]?.[kind] ?? 0), version === undefined || words === undefined ? 0 : version(words));
 }
