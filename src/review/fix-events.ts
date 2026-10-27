@@ -11,10 +11,10 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { FixedFinding, FixRecorded, TreeRevised } from '../checkpoint/events.ts';
-import { clusterClaims, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, roundOf, unitIdsOf, type PathHolder } from '../checkpoint/fix-state.ts';
+import type { BaseComparison, FixedFinding, FixRecorded, FixRecordedV4, TreeRevised } from '../checkpoint/events.ts';
+import { clusterClaims, comparableKinds, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, roundOf, unitIdsOf, type FixState, type PathHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { preRunStrays } from '../checkpoint/review-fold.ts';
+import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { batchOfUnit, foldedWith, holderSpelled, isPending, lateClaim, requireFix, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
@@ -23,12 +23,12 @@ import { expectedTreeOf } from './drift.ts';
 import { writtenVersion } from './event-versions.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup, type RepoLookup } from './locations.ts';
-import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
+import { checkFixerAnswer, type FixerOutput, type RepairOutput } from './schemas.ts';
 import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, type SnapshotManifest } from './snapshot.ts';
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
-import { isClaimingPhase, type CheckKind, type EditingPhase, type TreeCheckPhase } from './vocabulary.ts';
+import { isClaimingPhase, type CheckKind, type EditingPhase, type Phase, type TreeCheckPhase } from './vocabulary.ts';
 
 /**
  * What turning work into events needs: the fold it is recorded against,
@@ -43,6 +43,38 @@ export interface RevisionContext {
   readonly evidence: Pick<EvidenceStore, 'put'>;
   readonly match: ExpectedMatch;
   readonly claims: ClaimsAccess | null;
+}
+
+/** What recording a completed answer needs beyond the revisions: where a line about it goes, such as a comparison with the base the engine dropped. */
+export interface AnswerContext extends RevisionContext {
+  readonly log: (line: string) => void;
+}
+
+/**
+ * Whether an answer of `phase` carries comparisons with the base (R2, TD6
+ * of the facts before a merge): the repair's, in a run with the checks on
+ * the base. Such a repair answers in `repairOutputSchema` and is recorded
+ * at `fix.recorded@4`; every other answer keeps its schema and version.
+ */
+export const comparesWithBase = (review: Pick<ReviewState, 'baseChecksStep'>, phase: Phase): boolean => phase === 'repair' && review.baseChecksStep;
+
+/**
+ * The comparisons of a repair's answer the ledger keeps (R2, TD6 of the
+ * facts before a merge): the first entry of each kind that failed or timed
+ * out on the base (`comparableKinds`). Every other entry is dropped with a
+ * line, and the answer is recorded all the same: a fault in the comparison
+ * never costs the repair its edits, and a kind left with no entry reads as
+ * not compared.
+ */
+function keptComparisons(fix: FixState, given: readonly BaseComparison[], log: (line: string) => void): BaseComparison[] {
+  const comparable = comparableKinds(fix);
+  const kept: BaseComparison[] = [];
+  for (const comparison of given) {
+    if (!comparable.includes(comparison.kind)) log(`dropped its comparison of the ${comparison.kind} check with the base: only a check that failed or timed out there is compared`);
+    else if (kept.some((entry) => entry.kind === comparison.kind)) log(`dropped a second comparison of the ${comparison.kind} check with the base: the first is kept`);
+    else kept.push(comparison);
+  }
+  return kept;
 }
 
 /** The longest commit subject the engine composes, as a person would keep one. */
@@ -175,8 +207,10 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * claims the round's directory holds that the ledger does not, the
  * files the answer names that nobody holds as its late claim, then
  * `fix.recorded` with every path resolved and the violations, the named
- * files another cluster holds once those claims are folded, then one
- * `tree.revised` per revision its snapshots give. Throws
+ * files another cluster holds once those claims are folded, and for a
+ * repair that compares with the base the comparisons the ledger keeps
+ * (`keptComparisons`), then one `tree.revised` per revision its snapshots
+ * give. Throws
  * `StructuralCheckError` for an answer that leaves out an index, reports
  * a path outside the repository, blocks a finding on a file its own
  * cluster owns or claimed, blocks one at all in the repair or the
@@ -186,11 +220,12 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * answered unit makes, so a file it edited without claiming stays free;
  * the retry is told the tree may hold its work.
  */
-export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: RevisionContext): NewEvent[] {
+export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: AnswerContext): NewEvent[] {
   const { state, worktree, evidence } = context;
   const phase = unit.phase as EditingPhase;
   const output = receipt.output as FixerOutput;
   const ids = unitIds(state, phase, unit.key);
+  const compares = comparesWithBase(state.review!, phase);
   // Only a fixer's finding can be blocked: the repair and the documentation step are alone in the tree and may edit every file of the repository, so their tasks offer no `blocked` (`answerFields` in tasks.ts).
   checkFixerAnswer(output, ids.length, phase === 'fixes' || phase === 'answer');
   const owned = ownedFiles(state.review!, phase, unit.key);
@@ -207,7 +242,9 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   // Each resolved finding is already the ledger's shape but for its id, which takes the place of the index the answer gave it.
   const byIndex = new Map(resolved.findings.map(({ index, ...finding }) => [index, finding]));
   const findings = ids.map((id, index): FixedFinding => ({ id, ...byIndex.get(index)! }));
-  const recorded: FixRecorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
+  const answered: FixRecorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
+  // The launcher held the answer of a repair that compares to `repairOutputSchema`, so its `comparisons` is there.
+  const recorded: FixRecorded | FixRecordedV4 = compares ? { ...answered, comparisons: keptComparisons(requireFix(state), (output as RepairOutput).comparisons, context.log) } : answered;
 
   // The fixer's snapshots are under the scratch directory its launch recorded; a worker given none took none.
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
@@ -215,7 +252,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: false }), payload: recorded },
+    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares }), payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
       version: writtenVersion('tree.revised', [phase]),

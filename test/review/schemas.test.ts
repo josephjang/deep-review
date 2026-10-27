@@ -18,6 +18,7 @@ import {
   mergeRankOutputSchema,
   normalizeTriageChange,
   outputSchemaOf,
+  repairOutputSchema,
   sweepOutputSchema,
   triageOutputSchema,
   verifierOutputSchema,
@@ -258,6 +259,25 @@ describe('the fixer\'s output schema', () => {
       ['requiredFiles', answer([{ ...finding(0), requiredFiles: undefined }])],
       ['suite', { findings: [finding(0)], drift: [], tests: [], suite: { result: 'green', command: '', failures: '' } }],
     ] as const) assert.equal(fixerOutputSchema.safeParse(value).success, false, name);
+  });
+
+  it('gives the repair that compares with the base the fixer\'s answer with its comparisons, which compiles for both runtimes (R2, TD6 of the facts before a merge)', () => {
+    const { json } = compileOutputSchema(repairOutputSchema);
+    assert.equal(json.additionalProperties, false);
+    assert.deepEqual((json.required as string[]).filter((field) => !(compileOutputSchema(fixerOutputSchema).json.required as string[]).includes(field)), ['comparisons']);
+    const same = { kind: 'lint', reading: 'same', words: 'the same two errors as on the base' };
+    const compared = (comparisons: unknown): boolean => repairOutputSchema.safeParse({ ...answer([finding(0)]), comparisons }).success;
+    assert.equal(compared([same, { ...same, kind: 'test', reading: 'adds' }, { ...same, reading: 'unknown' }]), true, 'a second entry for a kind is the engine\'s to drop, not the schema\'s');
+    assert.equal(compared([]), true);
+    for (const [name, comparisons] of [
+      ['none given', undefined],
+      ['a kind that is no check', [{ ...same, kind: 'format' }]],
+      ['a reading that is none of the three', [{ ...same, reading: 'worse' }]],
+      ['no words', [{ ...same, words: '' }]],
+      ['words over 400 characters', [{ ...same, words: 'w'.repeat(401) }]],
+      ['an unknown field', [{ ...same, path: 'src/a.ts' }]],
+    ] as const) assert.equal(compared(comparisons), false, name);
+    assert.equal(fixerOutputSchema.safeParse({ ...answer([finding(0)]), comparisons: [same] }).success, false, 'no other worker answers with comparisons');
   });
 
   it('refuses the answer of #54: a blocked finding with no files and a message', () => {

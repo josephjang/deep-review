@@ -532,7 +532,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
       }
       const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
-      const events = contributionOf(settled.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      const events = contributionOf(settled.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost, log: (line) => log(`worker ${settled.unit.role} ${name}: ${line}`) });
       for (const event of events) {
         for (const line of claimLines(event)) log(line);
         if (event.kind === 'attempt.failed') log(`worker ${settled.unit.role} ${name}: attempt failed: ${(event.payload as { reason: string }).reason}`);

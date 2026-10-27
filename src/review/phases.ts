@@ -23,7 +23,7 @@ import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
 import { writtenVersion } from './event-versions.ts';
-import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
+import { attemptRevisionEvents, comparesWithBase, fixAnswerEvents, type AnswerContext, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
 import { pinnedRole, pinnedWindowsSandbox } from './policy.ts';
@@ -37,6 +37,7 @@ import {
   normalizeTriageChange,
   checkVerdicts,
   outputSchemaOf,
+  repairOutputSchema,
   type CandidateOutput,
   type DeciderOutput,
   type DeduplicationOutput,
@@ -572,7 +573,9 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
  * round's claims directory with its siblings, which its task's claim
  * command writes, and its task names what each cluster holds as the fold
  * and the directory's live markers say at the launch (R2, R8 of commit
- * series integrity).
+ * series integrity). Each unit answers in its role's schema, but the
+ * repair of a run with the checks on the base answers in its own, which
+ * carries its comparisons (TD6 of the facts before a merge).
  */
 export function invocationFor(unit: Unit, context: PhaseContext): InvocationInput {
   const role = context.roles.get(unit.role);
@@ -596,7 +599,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
     access: scratch === null ? 'read-only' : 'edit',
     shell: true,
     prompt,
-    outputSchema: outputSchemaOf(unit.role),
+    outputSchema: comparesWithBase(review, unit.phase) ? repairOutputSchema : outputSchemaOf(unit.role),
     timeoutMs: policy.timeoutMs,
     ...(policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd }),
     ...(scratch === null ? {} : { scratch }),
@@ -665,8 +668,8 @@ function recordedDecisions(output: DeciderOutput, findings: readonly ReportFindi
   }));
 }
 
-/** What recording a contribution needs: the revision context, for the survey what the invocation knew when it launched the surveyor, and whether a fixes-phase unit's claims directory was removed while it ran. */
-export interface ContributionContext extends RevisionContext {
+/** What recording a contribution needs: the answer context, for the survey what the invocation knew when it launched the surveyor, and whether a fixes-phase unit's claims directory was removed while it ran. */
+export interface ContributionContext extends AnswerContext {
   readonly survey: () => SurveyInputs;
   readonly claimsLost: boolean;
 }
