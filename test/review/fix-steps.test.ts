@@ -490,6 +490,13 @@ describe('nextStep in the checks on the base (R1, R11, TD4, TD14, TD16 of the fa
     }
   });
 
+  it('skips each later kind with the reason of a build skipped on the base, which never ran there', () => {
+    for (const error of [baseSkipReasons.emptyTree, `${baseSkipReasons.noWorktree}: fatal: no room`]) {
+      const history = ranOnBase(onBase(), 'build', 'skipped', 1, null, { error });
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: error }, error);
+    }
+  });
+
   it('builds the base again first after a stop that left a kind due, since the new attempt makes a new worktree, and then nothing more (TD16)', () => {
     const history = ranOnBase(onBase(), 'build', 'passed').start('base-checks', 2);
     assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'build', replaces: 'earlier-worktree passed@1', skip: null });

@@ -8,7 +8,7 @@ import { baseLockReason, makeBaseTree } from '../../src/review/checks/base.ts';
 import { baseSkipReasons } from '../../src/review/vocabulary.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { fixedA, reviewScript } from '../helpers/fix-pass-fixture.ts';
+import { fixedA, found, noLeads, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { commitAll, git, repositoryWith, write } from '../helpers/repository.ts';
 import { appending, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -17,6 +17,17 @@ const script: Script = {
   ...reviewScript,
   'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
   'fixer:repair:repair': { output: fixerAnswer([{ status: 'deferred', files: [], note: 'every failure was there before the fixes' }]) },
+};
+
+/**
+ * Two findings in src/a.ts, one batch each at a batch size of 1, whose first
+ * fixer spends past a run budget of 1 USD, so the second batch is left for a
+ * reopened fix pass.
+ */
+const budgetScript: Script = {
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 6, 'other() passes null on')], leads: noLeads, change: null } },
+  'fixer:fixes:c1-1': { costUsd: 5, edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+  'fixer:fixes:c1-2': { edits: [{ writes: { 'src/a.ts': fixedA.replace('return parse(null);', 'return parse(\'\');') }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
 };
 
 /** The worktrees of the repository as `git worktree list --porcelain` gives them, each as its lines. */
@@ -183,5 +194,25 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     assert.equal(readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8'), edited, 'the edit stays');
     assert.ok(!box.events(runId).some(([kind]) => kind === 'tree.restored'));
     assert.deepEqual(baseTreesOf(box.repo, runId), [], 'the attempt removed the worktree the stop left before it checked the tree');
+  });
+
+  it('makes no worktree of the base for a kind a reopened fix pass only records skipped after a build that failed there, and gives it that reason', async (t) => {
+    const box = ReviewSandbox.forTest(t, budgetScript);
+    box.editPolicy((policy) => ({ ...policy, fixes: { batchSize: 1 } }));
+    // build fails on the base alone, its third run; typecheck fails before the fixes and again after the reopened batch, so the reopen adds it to the kinds the base takes.
+    box.checks({ lint: 'fail', build: ['pass', 'pass', 'fail', 'pass'], typecheck: ['fail', 'pass', 'fail'] });
+    reportText(await box.fix('claude', { flags: { budgetUsd: 1 } }));
+    const stopped = box.run().review!.fix!.checks.runs['base-checks'];
+    assert.deepEqual(stopped.map((run) => [run.kind, run.outcome, run.error]), [['build', 'failed', null], ['lint', 'skipped', baseSkipReasons.buildFailed]]);
+    const placesBefore = box.checkPlaces().length;
+    // Git can make no worktree from here on, so a checkout the reopened phase tried would give its reason in place of the build's.
+    writeFileSync(join(box.repo, '.git', 'worktrees'), '');
+    reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
+    const state = box.run();
+    assert.equal(state.review!.fix!.reopenings.length, 1);
+    const reopened = state.review!.fix!.checks.runs['base-checks'].filter((run) => run.attempt === state.review!.phases['base-checks'].attempt && run.attempt > 1);
+    assert.deepEqual(reopened.map((run) => [run.kind, run.outcome, run.error]), [['typecheck', 'skipped', baseSkipReasons.buildFailed]], 'the build that failed on the base stays its result');
+    assert.ok(box.checkPlaces().slice(placesBefore).every((place) => place.cwd.startsWith(box.repo)), 'no check ran on the base after the reopen');
+    assert.ok(!box.logs.some((line) => line.includes('no worktree of the base could be made')), box.logs.join('\n'));
   });
 });
