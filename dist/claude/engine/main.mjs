@@ -13,6 +13,46 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
+// src/runtime/environment.ts
+function comparable(name, platform) {
+  return platform === "win32" ? name.toUpperCase() : name;
+}
+function spellingsOf(environment, name, platform) {
+  const wanted = comparable(name, platform);
+  return Object.entries(environment).filter(([key]) => comparable(key, platform) === wanted);
+}
+function withoutVariables(environment, names2, platform) {
+  const removed = new Set(names2.map((name) => comparable(name, platform)));
+  return Object.fromEntries(Object.entries(environment).filter(([key]) => !removed.has(comparable(key, platform))));
+}
+function pinVariables(environment, values, platform) {
+  return { ...withoutVariables(environment, Object.keys(values), platform), ...values };
+}
+function withPathFirst(environment, directories, platform) {
+  if (directories.length === 0) return environment;
+  const [effective] = spellingsOf(environment, "PATH", platform).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const current = effective?.[1];
+  const delimiter3 = platform === "win32" ? ";" : ":";
+  return pinVariables(environment, { [effective?.[0] ?? "PATH"]: [...directories, ...current === void 0 || current === "" ? [] : [current]].join(delimiter3) }, platform);
+}
+function workerEnvironment(environment, scratch, platform = process.platform, toolsPath = []) {
+  const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: platform === "win32" ? scratch.replaceAll("\\", "/") : scratch };
+  return withPathFirst(pinVariables(environment, { ...buildServerPins, ...temporary }, platform), toolsPath, platform);
+}
+var buildServerPins, launcherPins;
+var init_environment = __esm({
+  "src/runtime/environment.ts"() {
+    "use strict";
+    buildServerPins = {
+      MSBUILDDISABLENODEREUSE: "1",
+      DOTNET_CLI_USE_MSBUILD_SERVER: "0",
+      UseSharedCompilation: "false",
+      UseRazorBuildServer: "false"
+    };
+    launcherPins = [...Object.keys(buildServerPins), "TEMP", "TMP", "TMPDIR"];
+  }
+});
+
 // src/runtime/git-sync.ts
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -53,13 +93,56 @@ function gitFailureDetail(error62, timeout = gitTimeoutMs) {
   if (gitTimedOut(error62)) return `timed out after ${timeout / 1e3} s and was ended${stderr === "" ? "" : `: ${stderr}`}`;
   return stderr || failure2.message;
 }
-var gitTimeoutMs, onDriveOrShare, installedGit;
+function isRepositoryVariable(name, platform = process.platform) {
+  const candidate = comparable(name, platform);
+  return repositoryVariables.some((variable) => comparable(variable, platform) === candidate) || repositoryVariablePrefixes.some((prefix) => candidate.startsWith(comparable(prefix, platform)));
+}
+function withoutRepositoryVariables(environment, platform = process.platform) {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => !isRepositoryVariable(name, platform)));
+}
+var gitTimeoutMs, onDriveOrShare, installedGit, repositoryVariables, repositoryVariablePrefixes;
 var init_git_sync = __esm({
   "src/runtime/git-sync.ts"() {
     "use strict";
+    init_environment();
     gitTimeoutMs = 6e4;
     onDriveOrShare = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
     installedGit = gitLocator();
+    repositoryVariables = [
+      // The repository: the git directory, which overrides any directory git
+      // would find from its working directory, and the common directory a
+      // linked worktree shares, which holds the config, the refs and the ledger.
+      "GIT_DIR",
+      "GIT_COMMON_DIR",
+      // The working tree and the index that go with the repository, and git's
+      // note to its children that the working tree was implied, not named.
+      "GIT_WORK_TREE",
+      "GIT_IMPLICIT_WORK_TREE",
+      "GIT_INDEX_FILE",
+      // Where objects are written and read.
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      // Files and refs that change the history git reads: shallow boundaries,
+      // grafts, and replace refs.
+      "GIT_SHALLOW_FILE",
+      "GIT_GRAFT_FILE",
+      "GIT_NO_REPLACE_OBJECTS",
+      "GIT_REPLACE_REF_BASE",
+      // The subdirectory of the enclosing repository's working tree the command
+      // ran in, which means nothing in another repository.
+      "GIT_PREFIX",
+      // Settings carried in: a config file read in place of the repository's
+      // own, the `git -c` settings of the enclosing command, and the count of
+      // GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> pairs, which isRepositoryVariable
+      // drops by prefix.
+      "GIT_CONFIG",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_COUNT",
+      // Not on git's list: it puts every ref a command reads or writes under
+      // refs/namespaces/<name>, so a branch is not where its caller looks.
+      "GIT_NAMESPACE"
+    ];
+    repositoryVariablePrefixes = ["GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"];
   }
 });
 
@@ -21242,7 +21325,7 @@ function refineDocumentationPlan(plan, context) {
 function isDocumentItem(item) {
   return item.file !== null;
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, eventRegistry;
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -22566,6 +22649,85 @@ var init_events = __esm({
     documentationPlannedV1 = external_exports.strictObject({
       items: external_exports.array(documentationItemSchemaV1).min(1)
     }).superRefine(refineDocumentationPlan);
+    reviewVocabularyV9 = {
+      phases: [
+        "survey",
+        "triage",
+        "finders",
+        "deduplication",
+        "verification",
+        "sweep",
+        "sweep-deduplication",
+        "sweep-verification",
+        "merge-rank",
+        "decision",
+        "baseline-checks",
+        "fixes",
+        "documentation",
+        "checks",
+        "base-checks",
+        "repair",
+        "repair-checks",
+        "answer",
+        "answer-checks",
+        "report"
+      ],
+      checkPhases: ["baseline-checks", "checks", "base-checks", "repair-checks", "answer-checks"],
+      baseReadings: ["same", "adds", "unknown"]
+    };
+    vocabularyV9 = reviewVocabularyV9;
+    phaseSchemaV9 = external_exports.enum(vocabularyV9.phases);
+    checkPhaseSchemaV9 = external_exports.enum(vocabularyV9.checkPhases);
+    reviewConfiguredV8 = reviewConfiguredV7;
+    phaseStartedV7 = external_exports.strictObject({
+      phase: phaseSchemaV9,
+      attempt: external_exports.number().int().min(1)
+    });
+    phaseFinishedV8 = external_exports.strictObject({
+      phase: phaseSchemaV9,
+      attempt: external_exports.number().int().min(1),
+      outcome: external_exports.enum(vocabularyV3.phaseOutcomes),
+      blocker: blockerSchemaV5.nullable()
+    }).refine((finish) => finish.outcome === "blocked" === (finish.blocker !== null), {
+      message: "a blocker is present exactly when the outcome is blocked",
+      path: ["blocker"]
+    });
+    worktreeCheckedV8 = external_exports.strictObject({
+      ...worktreeCheckedV6.shape,
+      phase: phaseSchemaV9
+    }).refine((check2) => check2.drifted === (check2.files.length > 0 || check2.head !== null), {
+      message: "drifted exactly when some file differs or HEAD moved",
+      path: ["drifted"]
+    });
+    checkStartedV2 = external_exports.strictObject({
+      ...checkStartedV1.shape,
+      phase: checkPhaseSchemaV9
+    });
+    checkRanV4 = external_exports.strictObject({
+      ...checkRanV3.shape,
+      phase: checkPhaseSchemaV9
+    }).superRefine(refineCheckRan);
+    comparisonWordsLengthV1 = 400;
+    fixRecordedV4 = external_exports.strictObject({
+      ...fixRecordedV3.shape,
+      comparisons: external_exports.array(external_exports.strictObject({
+        kind: checkKindSchemaV3,
+        reading: external_exports.enum(vocabularyV9.baseReadings),
+        words: external_exports.string().min(1).max(comparisonWordsLengthV1)
+      }))
+    }).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+      message: "each finding is answered once",
+      path: ["findings"]
+    });
+    reportWrittenV7 = external_exports.strictObject({
+      report: artifactReferenceSchema,
+      statistics: external_exports.strictObject({
+        phases: external_exports.array(spendSchema.extend({ phase: phaseSchemaV9 })),
+        total: spendSchema,
+        budgetApplied: external_exports.boolean()
+      }),
+      patches: external_exports.array(artifactReferenceSchema).max(2e3)
+    });
     eventRegistry = defineRegistry({
       "run.created": { 1: { schema: runCreatedV1 } },
       "run.abandoned": { 1: { schema: runAbandonedV1 } },
@@ -22573,11 +22735,11 @@ var init_events = __esm({
       "worker.launched": { 1: { schema: workerLaunchedV1 } },
       "worker.finished": { 1: { schema: workerFinishedV1 } },
       "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
-      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 } },
+      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 } },
       "limits.changed": { 1: { schema: limitsChangedV1 } },
-      "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 } },
-      "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 } },
-      "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 } },
+      "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 } },
+      "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 } },
+      "worktree.checked": { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 }, 8: { schema: worktreeCheckedV8 } },
       "candidates.recorded": { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
       "attempt.failed": { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 } },
       "angle.failed": { 1: { schema: angleFailedV1 } },
@@ -22586,14 +22748,14 @@ var init_events = __esm({
       "verdicts.recorded": { 1: { schema: verdictsRecordedV1 } },
       "group.unverified": { 1: { schema: groupUnverifiedV1 } },
       "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
-      "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 } },
+      "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 } },
       "fixes.planned": { 1: { schema: fixesPlannedV1 } },
       "fixes.replanned": { 1: { schema: fixesReplannedV1 } },
       "checks.planned": { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
-      "check.started": { 1: { schema: checkStartedV1 } },
-      "check.ran": { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 } },
+      "check.started": { 1: { schema: checkStartedV1 }, 2: { schema: checkStartedV2 } },
+      "check.ran": { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 }, 4: { schema: checkRanV4 } },
       "tree.restored": { 1: { schema: treeRestoredV1 } },
-      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 } },
+      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 } },
       "tree.revised": { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
       "unit.unattempted": { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
       "commits.prepared": { 1: { schema: commitsPreparedV1 } },
@@ -22640,7 +22802,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, isCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22678,6 +22840,7 @@ var init_vocabulary = __esm({
       "fixes",
       "documentation",
       "checks",
+      "base-checks",
       "repair",
       "repair-checks",
       "answer",
@@ -22685,13 +22848,15 @@ var init_vocabulary = __esm({
       "report"
     ];
     phaseSchema2 = external_exports.enum(phases);
-    fixPhases = ["baseline-checks", "fixes", "documentation", "checks", "repair", "repair-checks"];
+    fixPhases = ["baseline-checks", "fixes", "documentation", "checks", "base-checks", "repair", "repair-checks"];
     answerPhases = ["answer", "answer-checks"];
-    checkPhases = ["baseline-checks", "checks", "repair-checks", "answer-checks"];
+    checkPhases = ["baseline-checks", "checks", "base-checks", "repair-checks", "answer-checks"];
     checkPhaseSchema = external_exports.enum(checkPhases);
     editingPhases = ["fixes", "documentation", "repair", "answer"];
     editingPhaseSchema = external_exports.enum(editingPhases);
+    treeCheckPhases = ["baseline-checks", "checks", "repair-checks", "answer-checks"];
     isCheckPhase = (phase) => checkPhases.includes(phase);
+    isTreeCheckPhase = (phase) => treeCheckPhases.includes(phase);
     isEditingPhase = (phase) => editingPhases.includes(phase);
     fixPassEditingPhases = ["fixes", "documentation"];
     answeredUnits = { fixes: "finding", documentation: "item", repair: "check", answer: "finding" };
@@ -22745,6 +22910,13 @@ var init_vocabulary = __esm({
     userRulesSettingSchema = external_exports.enum(userRulesSettings);
     fixStatuses = ["applied", "already-applied", "deferred", "blocked"];
     fixStatusSchema = external_exports.enum(fixStatuses);
+    baseReadings = ["same", "adds", "unknown"];
+    baseReadingSchema = external_exports.enum(baseReadings);
+    baseSkipReasons = {
+      emptyTree: "the base of the change is the empty tree",
+      noWorktree: "no worktree of the base could be made",
+      buildFailed: "the build failed on the base"
+    };
     validationMethods = ["old-code", "mutation", "static", "existing", "limited"];
     validationMethodSchema = external_exports.enum(validationMethods);
     suiteResults = ["pass", "fail", "not-run"];
@@ -23077,8 +23249,10 @@ function runStanding(review2, phase, kind) {
   if (last.outcome === "cut") return { kind: "again", run: last, why: "cut" };
   const current = review2.phases[phase].attempt;
   const firstTimeout = review2.fix.checks.runs[phase].find((run2) => run2.kind === kind && run2.attempt === current && run2.outcome === "timeout");
-  if (last.outcome === "timeout" && last.attempt === current && firstTimeout === last) return { kind: "again", run: last, why: "timeout" };
+  if (phase !== "base-checks" && last.outcome === "timeout" && last.attempt === current && firstTimeout === last) return { kind: "again", run: last, why: "timeout" };
   if (last.outcome !== "passed" && isCutAttempt(review2, phase, last.attempt)) return { kind: "again", run: last, why: "cut-attempt" };
+  const unbuilt = phase === "base-checks" && kind === "build" && (last.outcome === "passed" || last.outcome === "skipped") && last.attempt < current;
+  if (unbuilt && baseKinds(review2.fix).some((other) => other !== "build" && runStanding(review2, phase, other) !== null)) return { kind: "again", run: last, why: "earlier-worktree" };
   return null;
 }
 function secondCut(replaces, attempt, outcome) {
@@ -23090,6 +23264,7 @@ function openStart(fix, phase, kind, attempt) {
   return fix.checks.runs[phase].slice(start.runsBefore).some((run2) => run2.kind === kind && run2.attempt === attempt) ? null : start;
 }
 function cutShortChecks(fix, phase) {
+  if (!isTreeCheckPhase(phase)) return [];
   const starts = fix.checks.starts[phase];
   const started = (run2, index2) => starts.some((start) => start.kind === run2.kind && start.attempt === run2.attempt && start.runsBefore <= index2);
   const order = { start: 0, run: 1 };
@@ -23122,6 +23297,19 @@ function repairTargets(fix, read = "current") {
   const planned = fix.checks.planned?.checks ?? [];
   const afterFixes = (kind) => read === "current" ? lastFreshRun(fix, "checks", kind) : lastRecordedRun(fix, "checks", kind);
   return planned.map((check2) => check2.kind).filter((kind) => (lastFreshRun(fix, "baseline-checks", kind)?.outcome === "passed" || failedAtBaseline(fix, kind)) && ["failed", "timeout"].includes(afterFixes(kind)?.outcome ?? ""));
+}
+function baseKinds(fix, read = "current") {
+  return repairTargets(fix, read).filter((kind) => failedAtBaseline(fix, kind));
+}
+function takenOnBase(review2, kind) {
+  const kinds = baseKinds(review2.fix);
+  return kinds.includes(kind) || kind === "build" && kinds.some((other) => other !== "build" && runStanding(review2, "base-checks", other) !== null);
+}
+function failedOnBase(fix, kind) {
+  return ["failed", "timeout"].includes(lastFreshRun(fix, "base-checks", kind)?.outcome ?? "");
+}
+function comparableKinds(fix) {
+  return baseKinds(fix).filter((kind) => failedOnBase(fix, kind));
 }
 function allClusters(fix) {
   return [...fix.plan?.clusters ?? [], ...fix.secondRound?.clusters ?? []];
@@ -23390,6 +23578,7 @@ var init_fix_state = __esm({
     plannedCheckOfV2 = (check2) => check2.origin === "flag" ? { ...check2, origin: "setting", layer: "flag" } : { ...check2, layer: null };
     stalingPhases = {
       "baseline-checks": [],
+      "base-checks": [],
       checks: ["fixes", "documentation", "answer"],
       "repair-checks": ["fixes", "documentation", "repair", "answer"],
       "answer-checks": ["fixes", "documentation", "repair"]
@@ -23493,14 +23682,15 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
-function configure(state, payload, event, { surveyed, decided, documented }) {
+function configure(state, payload, event, { surveyed, decided, documented, compared }) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (state.review !== null) throw invalid(event, "is configured for review twice");
-  const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"], ...decided ? [] : ["decision"], ...documented ? [] : ["documentation"], ...answerPhases]);
+  const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"], ...decided ? [] : ["decision"], ...documented ? [] : ["documentation"], ...compared ? [] : ["base-checks"], ...answerPhases]);
   const review2 = {
     configuration: payload,
     documentationStep: documented,
+    baseChecksStep: compared,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
@@ -23539,10 +23729,11 @@ function withFreshAttempts(review2, drafts, phase) {
   }
   return units;
 }
-function skipReason(phase, documentationStep2) {
+function skipReason(phase, review2) {
   if (phase === "survey") return "it was configured before the survey existed";
   if (phase === "decision") return "it was configured before the decision step existed";
-  if (phase === "documentation" && !documentationStep2) return "it was configured before the documentation step existed";
+  if (phase === "documentation" && !review2.documentationStep) return "it was configured before the documentation step existed";
+  if (phase === "base-checks" && !review2.baseChecksStep) return "it was configured before the checks on the base existed";
   if (answerPhases.includes(phase)) return "no answer pass has opened it";
   return "it was configured without the fix pass";
 }
@@ -23601,7 +23792,7 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
@@ -23613,13 +23804,14 @@ var init_review_fold = __esm({
     unsettled = { settings: null, fixSettings: null };
     unsurveyed = { survey: { userRules: "apply" } };
     unpinnedCodex = (runtime, worktree) => ({ codex: runtime === "codex" && !worktree.startsWith("/") ? { windowsSandbox: "unelevated" } : null });
-    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true });
-    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false });
-    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false });
-    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false });
-    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false });
-    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
-    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false });
+    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true });
+    configuredV7 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false });
+    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false });
+    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false });
+    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false });
+    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false });
+    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false });
+    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false });
     limitsChanged = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
       if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -23629,7 +23821,7 @@ var init_review_fold = __esm({
       const { current, review: review2 } = requireReview(state, event);
       const phase = review2.phases[payload.phase];
       if (phase.status === "completed" || phase.status === "degraded") throw invalid(event, `starts phase ${payload.phase} again after it ${phase.status}`);
-      if (phase.status === "skipped") throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase, review2.documentationStep)}`);
+      if (phase.status === "skipped") throw invalid(event, `starts phase ${payload.phase}, which this run skips: ${skipReason(payload.phase, review2)}`);
       if (payload.attempt !== phase.attempt + 1) throw invalid(event, `starts phase ${payload.phase} at attempt ${String(payload.attempt)} after attempt ${String(phase.attempt)}`);
       if (payload.phase === "baseline-checks" && (review2.fix?.checks.planned ?? null) === null) throw invalid(event, "starts baseline-checks before its checks are planned");
       for (const earlier of phases.slice(0, phases.indexOf(payload.phase))) {
@@ -23797,7 +23989,8 @@ var init_review_fold = __esm({
       "review.configured@4": configuredV4,
       "review.configured@5": configuredV5,
       "review.configured@6": configuredV6,
-      "review.configured@7": configured,
+      "review.configured@7": configuredV7,
+      "review.configured@8": configured,
       "limits.changed@1": limitsChanged,
       "phase.started@1": phaseStarted,
       "phase.started@2": phaseStarted,
@@ -23805,6 +23998,7 @@ var init_review_fold = __esm({
       "phase.started@4": phaseStarted,
       "phase.started@5": phaseStarted,
       "phase.started@6": phaseStarted,
+      "phase.started@7": phaseStarted,
       "phase.finished@1": phaseFinished,
       "phase.finished@2": phaseFinished,
       "phase.finished@3": phaseFinished,
@@ -23812,6 +24006,7 @@ var init_review_fold = __esm({
       "phase.finished@5": phaseFinished,
       "phase.finished@6": phaseFinished,
       "phase.finished@7": phaseFinished,
+      "phase.finished@8": phaseFinished,
       "worktree.checked@1": worktreeCheckedV12,
       "worktree.checked@2": worktreeChecked,
       "worktree.checked@3": worktreeChecked,
@@ -23819,6 +24014,7 @@ var init_review_fold = __esm({
       "worktree.checked@5": worktreeChecked,
       "worktree.checked@6": worktreeChecked,
       "worktree.checked@7": worktreeChecked,
+      "worktree.checked@8": worktreeChecked,
       "candidates.recorded@1": candidatesRecordedV12,
       "candidates.recorded@2": candidatesRecorded,
       "attempt.failed@1": attemptFailed,
@@ -23841,7 +24037,8 @@ var init_review_fold = __esm({
       "report.written@3": reportWritten,
       "report.written@4": reportWritten,
       "report.written@5": reportWritten,
-      "report.written@6": reportWritten
+      "report.written@6": reportWritten,
+      "report.written@7": reportWritten
     };
   }
 });
@@ -23995,6 +24192,9 @@ function requirePlannedCheck(review2, fix, event, payload, verb) {
   if (planned === void 0) throw invalid(event, `${verb} the ${payload.kind} check before the checks are planned`);
   if (planned.command === null) throw invalid(event, `${verb} the ${payload.kind} check, which has no command`);
   if (planned.command !== payload.command) throw invalid(event, `${verb} ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
+  if (payload.phase === "base-checks" && !takenOnBase({ ...review2, fix }, payload.kind)) {
+    throw invalid(event, `${verb} the ${payload.kind} check on the base, which takes only [${baseKinds(fix).join(", ")}], and build while another of them is due`);
+  }
 }
 function pinFix(state, payload, settings2, event, drafts) {
   const { current, review: review2 } = requireReview(state, event);
@@ -24035,7 +24235,7 @@ function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `${verb} commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
 }
-var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
+var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, fixRecordedV32, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
 var init_fix_fold = __esm({
   "src/checkpoint/fix-fold.ts"() {
     "use strict";
@@ -24046,7 +24246,7 @@ var init_fix_fold = __esm({
     init_settings_state();
     init_survey_state();
     withFix = (current, review2, fix, event, units = review2.units) => withReview(current, { ...review2, fix, units }, event);
-    configuredPhases = (review2, phases2) => phases2.filter((phase) => phase !== "documentation" || review2.documentationStep);
+    configuredPhases = (review2, phases2) => phases2.filter((phase) => (phase !== "documentation" || review2.documentationStep) && (phase !== "base-checks" || review2.baseChecksStep));
     checksPlannedV12 = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       if (fix.checks.planned !== null) throw invalid(event, "plans its checks twice");
@@ -24187,6 +24387,14 @@ var init_fix_fold = __esm({
     fixRecorded = (state, payload, event, drafts) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requireRunning(review2, event, payload.phase);
+      if (payload.comparisons.length > 0 && payload.phase !== "repair") throw invalid(event, `compares checks with the base in ${payload.phase}:${payload.key}, which only the repair does`);
+      const comparable3 = comparableKinds(fix);
+      const compared = /* @__PURE__ */ new Set();
+      for (const { kind } of payload.comparisons) {
+        if (!comparable3.includes(kind)) throw invalid(event, `compares the ${kind} check with the base, where it did not fail or time out`);
+        if (compared.has(kind)) throw invalid(event, `compares the ${kind} check with the base twice`);
+        compared.add(kind);
+      }
       const ids2 = unitIdsOf(review2, payload.phase, payload.key);
       if (ids2 === null) throw invalid(event, `records an answer for ${payload.phase}:${payload.key}, which the phase does not have`);
       requireUnanswered(review2, event, { phase: payload.phase, key: payload.key });
@@ -24206,6 +24414,7 @@ var init_fix_fold = __esm({
       const personAnswers = answersFindings(payload.phase) ? withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings) : review2.answers;
       return withReview(current, { ...review2, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
     };
+    fixRecordedV32 = (state, payload, event, drafts) => fixRecorded(state, { ...payload, comparisons: [] }, event, drafts);
     treeRevised = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requireRunning(review2, event, payload.phase);
@@ -24337,7 +24546,7 @@ var init_fix_fold = __esm({
       const phaseStates = { ...review2.phases };
       const fixes = payload.units.some((unit) => unit.phase === "fixes");
       const documentation = fixes || payload.units.some((unit) => unit.phase === "documentation");
-      const reopenedPhases = [...fixes ? ["fixes"] : [], ...documentation ? ["documentation"] : [], "checks", "repair", "repair-checks", "report"];
+      const reopenedPhases = [...fixes ? ["fixes"] : [], ...documentation ? ["documentation"] : [], "checks", "base-checks", "repair", "repair-checks", "report"];
       for (const phase of configuredPhases(review2, reopenedPhases)) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
       return withReview(current, { ...review2, phases: phaseStates, report: null, reportSetAsideBy: "reopened-fix-pass", fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
     };
@@ -24348,13 +24557,16 @@ var init_fix_fold = __esm({
       "fixes.planned@1": fixesPlanned,
       "fixes.replanned@1": fixesReplanned,
       "check.started@1": checkStarted,
+      "check.started@2": checkStarted,
       "check.ran@1": checkRan,
       "check.ran@2": checkRan,
       "check.ran@3": checkRanV32,
+      "check.ran@4": checkRanV32,
       "tree.restored@1": treeRestored,
-      "fix.recorded@1": fixRecorded,
-      "fix.recorded@2": fixRecorded,
-      "fix.recorded@3": fixRecorded,
+      "fix.recorded@1": fixRecordedV32,
+      "fix.recorded@2": fixRecordedV32,
+      "fix.recorded@3": fixRecordedV32,
+      "fix.recorded@4": fixRecorded,
       "tree.revised@1": treeRevised,
       "tree.revised@2": treeRevised,
       "tree.revised@3": treeRevised,
@@ -24892,46 +25104,6 @@ var init_checkpoint = __esm({
   }
 });
 
-// src/runtime/environment.ts
-function comparable(name, platform) {
-  return platform === "win32" ? name.toUpperCase() : name;
-}
-function spellingsOf(environment, name, platform) {
-  const wanted = comparable(name, platform);
-  return Object.entries(environment).filter(([key]) => comparable(key, platform) === wanted);
-}
-function withoutVariables(environment, names2, platform) {
-  const removed = new Set(names2.map((name) => comparable(name, platform)));
-  return Object.fromEntries(Object.entries(environment).filter(([key]) => !removed.has(comparable(key, platform))));
-}
-function pinVariables(environment, values, platform) {
-  return { ...withoutVariables(environment, Object.keys(values), platform), ...values };
-}
-function withPathFirst(environment, directories, platform) {
-  if (directories.length === 0) return environment;
-  const [effective] = spellingsOf(environment, "PATH", platform).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const current = effective?.[1];
-  const delimiter3 = platform === "win32" ? ";" : ":";
-  return pinVariables(environment, { [effective?.[0] ?? "PATH"]: [...directories, ...current === void 0 || current === "" ? [] : [current]].join(delimiter3) }, platform);
-}
-function workerEnvironment(environment, scratch, platform = process.platform, toolsPath = []) {
-  const temporary = scratch === null ? {} : { TEMP: scratch, TMP: scratch, TMPDIR: platform === "win32" ? scratch.replaceAll("\\", "/") : scratch };
-  return withPathFirst(pinVariables(environment, { ...buildServerPins, ...temporary }, platform), toolsPath, platform);
-}
-var buildServerPins, launcherPins;
-var init_environment = __esm({
-  "src/runtime/environment.ts"() {
-    "use strict";
-    buildServerPins = {
-      MSBUILDDISABLENODEREUSE: "1",
-      DOTNET_CLI_USE_MSBUILD_SERVER: "0",
-      UseSharedCompilation: "false",
-      UseRazorBuildServer: "false"
-    };
-    launcherPins = [...Object.keys(buildServerPins), "TEMP", "TMP", "TMPDIR"];
-  }
-});
-
 // src/runtime/claude-powershell.ts
 import { lstatSync as lstatSync3 } from "node:fs";
 import { posix, win32 as win322 } from "node:path";
@@ -24978,11 +25150,86 @@ var init_claude_powershell = __esm({
   }
 });
 
+// src/runtime/errors.ts
+var InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError, InheritedOverrideError, PreflightError;
+var init_errors5 = __esm({
+  "src/runtime/errors.ts"() {
+    "use strict";
+    init_errors3();
+    InvalidInvocationError = class extends EngineError {
+      name = "InvalidInvocationError";
+    };
+    UnknownRuntimeError = class extends EngineError {
+      name = "UnknownRuntimeError";
+      runtime;
+      constructor(runtime, known) {
+        super(`Unknown runtime ${runtime}; registered: ${known.length === 0 ? "none" : known.join(", ")}`);
+        this.runtime = runtime;
+      }
+    };
+    UnsupportedCapabilityError = class extends EngineError {
+      name = "UnsupportedCapabilityError";
+      runtime;
+      /** The key of the missing capability in the adapter's capability table. */
+      capability;
+      constructor(runtime, capability, action) {
+        super(`Runtime ${runtime} cannot ${action} (capability ${capability})`);
+        this.runtime = runtime;
+        this.capability = capability;
+      }
+    };
+    InheritedOverrideError = class extends EngineError {
+      name = "InheritedOverrideError";
+      variable;
+      constructor(variable, reason) {
+        super(`Inherited environment variable ${variable} ${reason}; unset it before launching a worker`);
+        this.variable = variable;
+      }
+    };
+    PreflightError = class extends EngineError {
+      name = "PreflightError";
+    };
+  }
+});
+
+// src/runtime/scratch.ts
+import { tmpdir } from "node:os";
+import { join as join8, resolve as resolve6 } from "node:path";
+function defaultScratchRoot() {
+  return join8(tmpdir(), "deep-review-scratch");
+}
+function checkpointScratchKey(checkpoint) {
+  return sha256Hex(Buffer.from(checkpoint.root, "utf8")).slice(0, 16);
+}
+function chooseScratch(checkpoint, state, adapter, invocation, continued, fallback) {
+  if (continued !== null) return continued.launch.scratch;
+  if (invocation.access === "read-only" && !adapter.capabilities.readOnlyScratch) return null;
+  return requireOutsideRun("scratch directory", resolve6(invocation.scratch ?? fallback), state, checkpoint);
+}
+function chooseShared(checkpoint, state, invocation) {
+  if (invocation.shared === void 0) return null;
+  if (invocation.access === "read-only") throw new InvalidInvocationError(`A read-only worker writes nowhere, so it is given no shared directory, not ${invocation.shared}`);
+  return requireOutsideRun("shared directory", resolve6(invocation.shared), state, checkpoint);
+}
+function requireOutsideRun(what, directory, state, checkpoint) {
+  if (isInside(state.worktree, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the reviewed tree ${state.worktree}`);
+  if (isInside(checkpoint.root, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the checkpoint ${checkpoint.root}`);
+  return directory;
+}
+var init_scratch = __esm({
+  "src/runtime/scratch.ts"() {
+    "use strict";
+    init_store();
+    init_paths();
+    init_errors5();
+  }
+});
+
 // src/checkpoint/locate.ts
 import { realpathSync as realpathSync2 } from "node:fs";
-import { join as join8, resolve as resolve6 } from "node:path";
+import { join as join9, resolve as resolve7 } from "node:path";
 function locateCheckpoint(directory) {
-  const cwd = resolve6(directory);
+  const cwd = resolve7(directory);
   let output2;
   try {
     output2 = runGitSync(["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"], {
@@ -24998,7 +25245,7 @@ function locateCheckpoint(directory) {
     throw new NotInRepositoryError(`Unexpected git output while locating the checkpoint for ${cwd}: ${JSON.stringify(output2)}`);
   }
   const resolvedCommonDir = realpathSync2.native(commonDir);
-  return { root: join8(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync2.native(toplevel), commonDir: resolvedCommonDir };
+  return { root: join9(resolvedCommonDir, checkpointDirectoryName), worktree: realpathSync2.native(toplevel), commonDir: resolvedCommonDir };
 }
 function locateFailure(cwd, error62) {
   const detail = gitFailureDetail(error62);
@@ -25017,7 +25264,7 @@ var init_locate = __esm({
 
 // src/roles/errors.ts
 var InvalidRoleManifestError, InvalidRoleFragmentError;
-var init_errors5 = __esm({
+var init_errors6 = __esm({
   "src/roles/errors.ts"() {
     "use strict";
     init_errors3();
@@ -25052,7 +25299,7 @@ var init_manifest = __esm({
   "src/roles/manifest.ts"() {
     "use strict";
     init_zod();
-    init_errors5();
+    init_errors6();
     roleKeyPattern = /^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)*$/;
     roleKeyRule = "a role key is letters, digits and single dashes, starting with a letter and ending with a letter or digit";
     roleKeySchema = external_exports.string().regex(roleKeyPattern, roleKeyRule);
@@ -25081,9 +25328,9 @@ var init_manifest = __esm({
 
 // src/roles/assemble.ts
 import { lstatSync as lstatSync4, readdirSync as readdirSync2, readFileSync as readFileSync4 } from "node:fs";
-import { join as join9, resolve as resolve7 } from "node:path";
+import { join as join10, resolve as resolve8 } from "node:path";
 function repositoryRolesRoot() {
-  return resolve7(import.meta.dirname, "..", "..", "roles");
+  return resolve8(import.meta.dirname, "..", "..", "roles");
 }
 function repeatedJsonKey(text3) {
   const open2 = [];
@@ -25109,7 +25356,7 @@ function repeatedJsonKey(text3) {
   return void 0;
 }
 function readRoleManifest(rolesRoot) {
-  const path = join9(rolesRoot, manifestFileName);
+  const path = join10(rolesRoot, manifestFileName);
   let text3;
   try {
     text3 = readFileSync4(path, "utf8");
@@ -25131,8 +25378,8 @@ function readRoleManifest(rolesRoot) {
 function loadRoleFragment(rolesRoot, name) {
   const named = fragmentNameSchema.safeParse(name);
   if (!named.success) throw new InvalidRoleFragmentError(name, `is not a valid fragment name: ${named.error.issues.map((issue2) => issue2.message).join("; ")}`);
-  const directory = join9(rolesRoot, fragmentsDirectoryName);
-  const path = join9(directory, name);
+  const directory = join10(rolesRoot, fragmentsDirectoryName);
+  const path = join10(directory, name);
   const examine = (inspect) => {
     try {
       return inspect();
@@ -25177,7 +25424,7 @@ function refuseMalformedFragmentText(name, text3) {
   if (includeMarker.test(text3)) throw new InvalidRoleFragmentError(name, "contains an include marker; composition is declared in the manifest only");
 }
 function reconcileFragments(rolesRoot, manifest) {
-  const fragmentsDirectory = join9(rolesRoot, fragmentsDirectoryName);
+  const fragmentsDirectory = join10(rolesRoot, fragmentsDirectoryName);
   const list = (inspect) => {
     try {
       return inspect();
@@ -25221,7 +25468,7 @@ var init_assemble = __esm({
   "src/roles/assemble.ts"() {
     "use strict";
     init_store();
-    init_errors5();
+    init_errors6();
     init_manifest();
     manifestFileName = "manifest.json";
     fragmentsDirectoryName = "fragments";
@@ -25233,14 +25480,14 @@ var init_assemble = __esm({
 
 // src/engine.ts
 import { existsSync as existsSync4, readFileSync as readFileSync5 } from "node:fs";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function engineVersion() {
-  const manifest = JSON.parse(readFileSync5(join10(import.meta.dirname, "..", "package.json"), "utf8"));
+  const manifest = JSON.parse(readFileSync5(join11(import.meta.dirname, "..", "package.json"), "utf8"));
   if (typeof manifest.version !== "string" || manifest.version.length === 0) throw new Error("package.json has no version");
   return manifest.version;
 }
 function readEngineSidecar(directory = import.meta.dirname) {
-  const path = join10(directory, engineSidecarName);
+  const path = join11(directory, engineSidecarName);
   if (!existsSync4(path)) return null;
   const parsed = JSON.parse(readFileSync5(path, "utf8"));
   if (typeof parsed.version !== "string" || parsed.version.length === 0 || typeof parsed.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(parsed.sha256)) {
@@ -25253,7 +25500,7 @@ function engineIdentity(directory = import.meta.dirname) {
   return sidecar === null ? `${engineVersion()}+dev` : `${sidecar.version}+${sidecar.sha256.slice(0, 12)}`;
 }
 function engineRolesRoot(directory = import.meta.dirname) {
-  return readEngineSidecar(directory) === null ? repositoryRolesRoot() : join10(directory, "roles");
+  return readEngineSidecar(directory) === null ? repositoryRolesRoot() : join11(directory, "roles");
 }
 var engineSidecarName;
 var init_engine = __esm({
@@ -26265,7 +26512,7 @@ var init_dist = __esm({
 
 // src/review/errors.ts
 var InvalidPolicyError, StructuralCheckError, ReviewRefusedError;
-var init_errors6 = __esm({
+var init_errors7 = __esm({
   "src/review/errors.ts"() {
     "use strict";
     init_errors3();
@@ -26813,48 +27060,6 @@ var init_codex = __esm({
   }
 });
 
-// src/runtime/errors.ts
-var InvalidInvocationError, UnknownRuntimeError, UnsupportedCapabilityError, InheritedOverrideError, PreflightError;
-var init_errors7 = __esm({
-  "src/runtime/errors.ts"() {
-    "use strict";
-    init_errors3();
-    InvalidInvocationError = class extends EngineError {
-      name = "InvalidInvocationError";
-    };
-    UnknownRuntimeError = class extends EngineError {
-      name = "UnknownRuntimeError";
-      runtime;
-      constructor(runtime, known) {
-        super(`Unknown runtime ${runtime}; registered: ${known.length === 0 ? "none" : known.join(", ")}`);
-        this.runtime = runtime;
-      }
-    };
-    UnsupportedCapabilityError = class extends EngineError {
-      name = "UnsupportedCapabilityError";
-      runtime;
-      /** The key of the missing capability in the adapter's capability table. */
-      capability;
-      constructor(runtime, capability, action) {
-        super(`Runtime ${runtime} cannot ${action} (capability ${capability})`);
-        this.runtime = runtime;
-        this.capability = capability;
-      }
-    };
-    InheritedOverrideError = class extends EngineError {
-      name = "InheritedOverrideError";
-      variable;
-      constructor(variable, reason) {
-        super(`Inherited environment variable ${variable} ${reason}; unset it before launching a worker`);
-        this.variable = variable;
-      }
-    };
-    PreflightError = class extends EngineError {
-      name = "PreflightError";
-    };
-  }
-});
-
 // src/runtime/contract.ts
 import { isAbsolute as isAbsolute2 } from "node:path";
 function parseInvocation(value) {
@@ -26930,7 +27135,7 @@ var init_contract = __esm({
     "use strict";
     init_zod();
     init_events();
-    init_errors7();
+    init_errors5();
     init_json();
     noNul = (value) => !value.includes("\0");
     text = external_exports.string().min(1).refine(noNul, "must not contain a NUL character");
@@ -26990,7 +27195,7 @@ var init_contract = __esm({
 // src/review/policy.ts
 import { createHash as createHash3 } from "node:crypto";
 import { readFileSync as readFileSync6 } from "node:fs";
-import { join as join11 } from "node:path";
+import { join as join12 } from "node:path";
 function codexWindowsSandboxFlagProblem(runtime, value) {
   if (value === void 0) return null;
   if (!isWindowsSandbox(value)) return `--codex-windows-sandbox must be one of ${windowsSandboxes.join(", ")}, not ${JSON.stringify(value)}`;
@@ -27024,7 +27229,7 @@ function parsePolicy(value) {
   return parsed.data;
 }
 function readPolicy(rolesRoot) {
-  const path = join11(rolesRoot, policyFileName);
+  const path = join12(rolesRoot, policyFileName);
   let text3;
   try {
     text3 = readFileSync6(path, "utf8");
@@ -27112,7 +27317,7 @@ var init_policy = __esm({
     init_codex();
     init_contract();
     init_manifest();
-    init_errors6();
+    init_errors7();
     init_vocabulary();
     policyFileName = "policy.json";
     tiers = ["strong", "fast"];
@@ -27190,7 +27395,7 @@ var init_errors8 = __esm({
 
 // src/scope/capture.ts
 import { lstatSync as lstatSync5, readFileSync as readFileSync7 } from "node:fs";
-import { join as join12 } from "node:path";
+import { join as join13 } from "node:path";
 function isMagicPattern(pattern) {
   return pattern.startsWith(":");
 }
@@ -27348,7 +27553,7 @@ function readBase(repo, base, entry) {
   return { bytes: blobThroughFilters(repo, base, entry.path), symlink: false };
 }
 function readWorktree(repo, path) {
-  const absolute = join12(repo, ...path.split("/"));
+  const absolute = join13(repo, ...path.split("/"));
   const stat = lstatSync5(absolute, { throwIfNoEntry: false });
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
@@ -27433,7 +27638,7 @@ var init_capture = __esm({
 });
 
 // src/config/settings.ts
-import { delimiter, resolve as resolve8 } from "node:path";
+import { delimiter, resolve as resolve9 } from "node:path";
 function checkTimeoutMs(minutes) {
   return Math.round(minutes * 6e4);
 }
@@ -27571,7 +27776,7 @@ var init_settings = __esm({
         example: [".venv/bin"],
         flag: null,
         describe: "Directories that go first on PATH for each check and each worker; a relative one is relative to the root of the worktree.",
-        normalize: (directories, worktree) => directories.map((directory) => resolve8(worktree, directory))
+        normalize: (directories, worktree) => directories.map((directory) => resolve9(worktree, directory))
       }),
       "conventions.user_rules": declare({
         owner: "repository-first",
@@ -27634,15 +27839,15 @@ var init_settings = __esm({
 import { createHash as createHash4 } from "node:crypto";
 import { readFileSync as readFileSync8, statSync as statSync2 } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute as isAbsolute3, join as join13 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join14 } from "node:path";
 function operatorConfigPath(environment, platform, home = homedir()) {
   const variable = (name) => spellingsOf(environment, name, platform).find(([, value]) => value !== void 0 && value !== "")?.[1];
   if (platform === "win32") {
     const appData = variable("APPDATA");
-    return appData === void 0 ? null : join13(appData, "deep-review", "config.toml");
+    return appData === void 0 ? null : join14(appData, "deep-review", "config.toml");
   }
   const xdg = variable("XDG_CONFIG_HOME");
-  return join13(xdg !== void 0 && isAbsolute3(xdg) ? xdg : join13(home, ".config"), "deep-review", "config.toml");
+  return join14(xdg !== void 0 && isAbsolute3(xdg) ? xdg : join14(home, ".config"), "deep-review", "config.toml");
 }
 function readConfigFile(layer, path) {
   const read = readConfigBytes(layer, path);
@@ -27752,7 +27957,7 @@ var init_files = __esm({
   "src/config/files.ts"() {
     "use strict";
     init_dist();
-    init_errors6();
+    init_errors7();
     init_environment();
     init_git();
     init_settings();
@@ -27761,8 +27966,8 @@ var init_files = __esm({
     maxConfigBytes = 64 * 1024;
     configSchemaVersion = 1;
     absent = { file: null, problems: [] };
-    cloneConfigPath = (commonDir) => join13(commonDir, cloneConfigName);
-    repositoryConfigFile = (worktree) => join13(worktree, ...repositoryConfigPath.split("/"));
+    cloneConfigPath = (commonDir) => join14(commonDir, cloneConfigName);
+    repositoryConfigFile = (worktree) => join14(worktree, ...repositoryConfigPath.split("/"));
     tooLarge = (layer, path, size) => `${path}: ${layerWords[layer]} holds ${String(size)} bytes, more than the ${String(maxConfigBytes)} the engine reads`;
     isTable = (value) => typeof value === "object" && value !== null && !Array.isArray(value) && !(value instanceof Date);
     leaves = (value, name) => {
@@ -27940,7 +28145,7 @@ var init_command = __esm({
 
 // src/review/checks/discover.ts
 import { readdirSync as readdirSync3, readFileSync as readFileSync9, statSync as statSync3 } from "node:fs";
-import { join as join14 } from "node:path";
+import { join as join15 } from "node:path";
 function flagCheckSettings(commands, dropped) {
   const layers2 = {};
   for (const kind of checkKinds) {
@@ -28052,7 +28257,7 @@ function readRootManifests(root) {
   const files = {};
   for (const name of manifestNames) {
     if (!entries.includes(name)) continue;
-    const path = join14(root, name);
+    const path = join15(root, name);
     if (statSync3(path, { throwIfNoEntry: false })?.isFile() !== true) continue;
     files[name] = readFileSync9(path, "utf8");
   }
@@ -28294,7 +28499,7 @@ var init_resolve = __esm({
   "src/config/resolve.ts"() {
     "use strict";
     init_dist();
-    init_errors6();
+    init_errors7();
     init_git();
     init_errors9();
     init_files();
@@ -28343,9 +28548,9 @@ var init_source = __esm({
 // src/review/claims.ts
 import { createHash as createHash5 } from "node:crypto";
 import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
-import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join15, relative as relative2, sep as sep2 } from "node:path";
+import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join16, relative as relative2, sep as sep2 } from "node:path";
 function claimsDirectoryFor(scratchBase, runId, round) {
-  return join15(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
+  return join16(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
 }
 function pathKey(path, caseInsensitive) {
   return caseInsensitive ? path.normalize("NFC").toUpperCase().toLowerCase() : path;
@@ -28379,7 +28584,7 @@ function resolveClaimPath(worktree, raw) {
 function foldsCase(fs, directory, listing, name) {
   const flipped = flipCase(name);
   if (listing.includes(name) && listing.includes(flipped)) return false;
-  return fs.stat(join15(directory, flipped)) !== void 0;
+  return fs.stat(join16(directory, flipped)) !== void 0;
 }
 function readableListing(fs, directory) {
   try {
@@ -28403,10 +28608,10 @@ function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
   return process.platform === "win32" || process.platform === "darwin";
 }
 function claimsDirectoryIntact(dir) {
-  return existsSync5(join15(dir, heldFileName));
+  return existsSync5(join16(dir, heldFileName));
 }
 function readHeld(dir) {
-  const file2 = join15(dir, heldFileName);
+  const file2 = join16(dir, heldFileName);
   let text3;
   try {
     text3 = readFileSync10(file2, "utf8");
@@ -28424,7 +28629,7 @@ function readHeld(dir) {
   return parsed.data;
 }
 function readMarker(dir, hash2, generation, caseInsensitive, now) {
-  const file2 = join15(dir, `${hash2}.${String(generation)}.json`);
+  const file2 = join16(dir, `${hash2}.${String(generation)}.json`);
   let text3;
   try {
     text3 = readFileSync10(file2, "utf8");
@@ -28458,7 +28663,7 @@ function markersOf(dir, hash2, caseInsensitive, now) {
   }
 }
 function createMarker(dir, hash2, generation, marker) {
-  return createFileExclusive(join15(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
+  return createFileExclusive(join16(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
 `);
 }
 function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()) {
@@ -28482,7 +28687,7 @@ function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()
 function prepareClaims(dir, held, recorded, expectExisting, rename) {
   if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
   mkdirSync3(dir, { recursive: true });
-  const heldFile = join15(dir, heldFileName);
+  const heldFile = join16(dir, heldFileName);
   let refreshed = true;
   try {
     writeFileAtomic(heldFile, `${JSON.stringify(held)}
@@ -28635,7 +28840,7 @@ var init_fix_answer = __esm({
   "src/review/fix-answer.ts"() {
     "use strict";
     init_paths();
-    init_errors6();
+    init_errors7();
     init_locations();
     rooted2 = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute5(name);
     fixerWording = { what: "The reported path", gitDirectory: "which no fixer edits" };
@@ -28776,7 +28981,7 @@ var init_claim_events = __esm({
     init_fix_state();
     init_fold();
     init_claims();
-    init_errors6();
+    init_errors7();
     init_fix_answer();
     init_locations();
     settledNothing = (state, caseInsensitive) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive });
@@ -28785,7 +28990,7 @@ var init_claim_events = __esm({
 });
 
 // src/review/survey.ts
-import { isAbsolute as isAbsolute6, join as join16 } from "node:path";
+import { isAbsolute as isAbsolute6, join as join17 } from "node:path";
 function policyPart(setting, userFiles) {
   switch (setting) {
     case "apply":
@@ -28804,7 +29009,7 @@ function surveyFailure(reason, setting, userFiles) {
 }
 function repositoryFile(context, raw, what) {
   const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
-  const absolute = join16(context.worktree, ...path.split("/"));
+  const absolute = join17(context.worktree, ...path.split("/"));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
   if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
@@ -28924,7 +29129,7 @@ var init_survey = __esm({
     init_settings();
     init_paths();
     init_discover();
-    init_errors6();
+    init_errors7();
     init_fix_answer();
     init_vocabulary();
     offeredUserFiles = (setting, inputs) => setting === "judge" ? inputs.userFiles : [];
@@ -29361,6 +29566,7 @@ function unitsOf(review2, phase) {
     }
     case "baseline-checks":
     case "checks":
+    case "base-checks":
     case "repair-checks":
     case "answer-checks":
     case "report":
@@ -29420,6 +29626,7 @@ function degradationOf(review2, unit) {
     case "decision":
     case "baseline-checks":
     case "checks":
+    case "base-checks":
     case "repair-checks":
     case "answer":
     case "answer-checks":
@@ -29493,7 +29700,7 @@ function claimsLostBlocker(directory) {
   return { code: "claims-lost", detail: truncated(`the claims directory ${directory} was removed while the run was editing`, maxRecordedTextLength), action: blockerActions["claims-lost"] };
 }
 function restoreStep(review2, phase, attempt, drift) {
-  if (review2.fix === null || drift.moment !== "start" || drift.head !== null) return null;
+  if (review2.fix === null || !isTreeCheckPhase(phase) || drift.moment !== "start" || drift.head !== null) return null;
   const check2 = cutShortBefore({ ...review2, fix: review2.fix }, phase);
   if (check2 === null) return null;
   const writable = drift.files.every((file2) => file2.expected === null || file2.expected !== void 0 && "blob" in file2.expected);
@@ -29511,11 +29718,11 @@ function dueCheck(review2, phase) {
   }
   const withFix2 = { ...review2, fix };
   for (const check2 of planned.checks) {
-    if (check2.command === null) continue;
+    if (check2.command === null || phase === "base-checks" && !takenOnBase(withFix2, check2.kind)) continue;
     const standing = runStanding(withFix2, phase, check2.kind);
     if (standing === null || phase === "repair-checks" && standing.kind === "first" && !repairRevisedSince(fix, check2.kind)) continue;
     const build2 = lastCurrentRun(withFix2, phase, "build");
-    const skip = check2.kind !== "build" && build2 !== null && build2.outcome !== "passed" ? `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}` : null;
+    const skip = check2.kind === "build" || build2 === null || build2.outcome === "passed" ? null : phase === "base-checks" ? baseSkipReasons.buildFailed : `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}`;
     return { kind: check2.kind, command: check2.command, skip, replaces: standing.kind === "first" ? null : { run: standing.run, why: standing.why } };
   }
   return null;
@@ -29688,7 +29895,7 @@ var init_compare = __esm({
 
 // src/review/tree.ts
 import { lstatSync as lstatSync6, readFileSync as readFileSync11 } from "node:fs";
-import { join as join17 } from "node:path";
+import { join as join18 } from "node:path";
 function expectedAt(expected, base, path) {
   return expected.has(path) ? expected.get(path) ?? null : base(path);
 }
@@ -29717,7 +29924,7 @@ function applyRevision(tree, files) {
   for (const file2 of files) tree.set(file2.path, file2.after === null ? null : { frozen: file2.after, symlink: file2.symlink });
 }
 function readTreeEntry(worktree, path) {
-  const absolute = join17(worktree, ...path.split("/"));
+  const absolute = join18(worktree, ...path.split("/"));
   let stat;
   try {
     stat = lstatSync6(absolute, { throwIfNoEntry: false });
@@ -29817,7 +30024,7 @@ var init_tree = __esm({
 
 // src/review/drift.ts
 import { chmodSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, rmSync as rmSync3, statSync as statSync5, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname3, join as join18 } from "node:path";
+import { dirname as dirname3, join as join19 } from "node:path";
 function expectedTreeOf(state) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
   return expectedTree(state.scope, state.review?.fix?.revisions ?? []);
@@ -29889,7 +30096,7 @@ function writeBackFile(worktree, file2, read) {
   } catch (error62) {
     return `reading its expected bytes failed: ${error62.message}`;
   }
-  const absolute = join18(worktree, ...file2.path.split("/"));
+  const absolute = join19(worktree, ...file2.path.split("/"));
   try {
     const parent = parentInTheWay(worktree, file2.path);
     if (parent !== null) return `${parent} is not a directory`;
@@ -29913,7 +30120,7 @@ function parentInTheWay(worktree, path) {
   const segments = path.split("/");
   for (let depth = 1; depth < segments.length; depth += 1) {
     const parent = segments.slice(0, depth);
-    const stat = lstatSync7(join18(worktree, ...parent), { throwIfNoEntry: false });
+    const stat = lstatSync7(join19(worktree, ...parent), { throwIfNoEntry: false });
     if (stat === void 0) return null;
     if (!stat.isDirectory()) return parent.join("/");
   }
@@ -29929,7 +30136,7 @@ function indexMode(worktree, path) {
   const [record2] = records(gitText(worktree, ["ls-files", "--stage", "-z", "--", literal2(path)]));
   return record2 === void 0 ? null : record2.slice(0, record2.indexOf(" "));
 }
-var drifted, worktreeCheckVersion;
+var drifted;
 var init_drift = __esm({
   "src/review/drift.ts"() {
     "use strict";
@@ -29942,7 +30149,45 @@ var init_drift = __esm({
     init_tree();
     init_vocabulary();
     drifted = (found) => found.files.length > 0 || found.head !== null;
-    worktreeCheckVersion = (check2) => check2.phase === "documentation" ? 7 : check2.moment === "restored" ? 6 : 5;
+  }
+});
+
+// src/review/event-versions.ts
+function writtenVersion(kind, phases2, ...carried) {
+  const words = carried[0];
+  return Math.max(
+    floors[kind],
+    ...phases2.map((phase) => phaseVersions[phase]?.[kind] ?? 0),
+    words?.moment === void 0 ? 0 : momentVersions[words.moment] ?? 0,
+    words?.fault === void 0 ? 0 : faultVersions[words.fault] ?? 0,
+    words?.comparisons === true ? comparisonsVersion : 0
+  );
+}
+var floors, phaseVersions, momentVersions, faultVersions, comparisonsVersion;
+var init_event_versions = __esm({
+  "src/review/event-versions.ts"() {
+    "use strict";
+    floors = {
+      "phase.started": 5,
+      "phase.finished": 6,
+      "worktree.checked": 5,
+      "attempt.failed": 6,
+      "worker.lost": 5,
+      "report.written": 5,
+      "tree.revised": 2,
+      "fix.recorded": 2,
+      "unit.unattempted": 1,
+      "fix.reopened": 1,
+      "check.started": 1,
+      "check.ran": 3
+    };
+    phaseVersions = {
+      documentation: { "phase.started": 6, "phase.finished": 7, "worktree.checked": 7, "attempt.failed": 8, "worker.lost": 6, "report.written": 6, "tree.revised": 3, "fix.recorded": 3, "unit.unattempted": 2, "fix.reopened": 2 },
+      "base-checks": { "phase.started": 7, "phase.finished": 8, "worktree.checked": 8, "report.written": 7, "check.started": 2, "check.ran": 4 }
+    };
+    momentVersions = { restored: 6 };
+    faultVersions = { cut: 7, limit: 7 };
+    comparisonsVersion = 4;
   }
 });
 
@@ -30076,13 +30321,13 @@ function checkDecisions(output2, count2) {
   const missing = missingIndexes(seen, count2);
   if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count2)} the task gave`);
 }
-var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, mergeRankOutputSchema, decisionText2, deciderOutputSchema, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, outOfRange, missingIndexes;
+var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, mergeRankOutputSchema, decisionText2, deciderOutputSchema, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, outOfRange, missingIndexes;
 var init_schemas3 = __esm({
   "src/review/schemas.ts"() {
     "use strict";
     init_zod();
     init_events();
-    init_errors6();
+    init_errors7();
     init_vocabulary();
     candidateFields = {
       /** The path as the finder gives it; the engine normalizes it against the scope. */
@@ -30216,6 +30461,14 @@ var init_schemas3 = __esm({
       tests: external_exports.array(external_exports.strictObject({ file: external_exports.string().min(1).max(1e3), covers: external_exports.string().min(1).max(400) })).max(50),
       suite: external_exports.strictObject({ result: suiteResultSchema, command: external_exports.string().max(400), failures: external_exports.string().max(2e3) })
     });
+    repairOutputSchema = external_exports.strictObject({
+      ...fixerOutputSchema.shape,
+      comparisons: external_exports.array(external_exports.strictObject({
+        kind: checkKindSchema,
+        reading: baseReadingSchema,
+        words: external_exports.string().min(1).max(comparisonWordsLengthV1)
+      }))
+    });
     outOfRange = (what, value, count2) => new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count2 - 1)}]`);
     missingIndexes = (seen, count2) => Array.from({ length: count2 }, (_, position) => position).filter((position) => !seen.has(position));
   }
@@ -30224,7 +30477,7 @@ var init_schemas3 = __esm({
 // src/review/snapshot.ts
 import { createHash as createHash6 } from "node:crypto";
 import { existsSync as existsSync6, lstatSync as lstatSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
-import { dirname as dirname4, join as join19 } from "node:path";
+import { dirname as dirname4, join as join20 } from "node:path";
 function safePath(path) {
   try {
     validateScopePath(path);
@@ -30235,7 +30488,7 @@ function safePath(path) {
   }
 }
 function readManifest(into) {
-  const file2 = join19(into, snapshotManifestFileName);
+  const file2 = join20(into, snapshotManifestFileName);
   if (!existsSync6(file2)) return null;
   const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync12(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
@@ -30244,7 +30497,7 @@ function readManifest(into) {
 function statOf(worktree, path) {
   let stat;
   try {
-    stat = lstatSync8(join19(worktree, ...path.split("/")), { throwIfNoEntry: false });
+    stat = lstatSync8(join20(worktree, ...path.split("/")), { throwIfNoEntry: false });
   } catch (error62) {
     if (error62.code === "ENOTDIR") return null;
     throw error62;
@@ -30263,7 +30516,7 @@ function changedSince(manifest) {
   const changed = [];
   const found = /* @__PURE__ */ new Set();
   const walk = (relative5) => {
-    for (const entry of readdirSync5(join19(manifest.worktree, ...relative5.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+    for (const entry of readdirSync5(join20(manifest.worktree, ...relative5.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
       const path = relative5 === "" ? entry.name : `${relative5}/${entry.name}`;
       if (entry.name === ".git") continue;
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
@@ -30282,8 +30535,8 @@ function changedSince(manifest) {
 }
 function takeSnapshot(request) {
   if (isInside(request.worktree, request.into)) throw new InvalidScopeRequestError(`The snapshot directory ${request.into} is inside the worktree ${request.worktree}; a snapshot there would be a stray file of the review`);
-  const copies = join19(request.into, String(request.finding));
-  const listingFile = join19(request.into, `${String(request.finding)}.json`);
+  const copies = join20(request.into, String(request.finding));
+  const listingFile = join20(request.into, `${String(request.finding)}.json`);
   rmSync4(listingFile, { force: true });
   rmSync4(copies, { recursive: true, force: true });
   mkdirSync5(copies, { recursive: true });
@@ -30292,7 +30545,7 @@ function takeSnapshot(request) {
   const listed2 = paths.map((path) => {
     const entry = readTreeEntry(request.worktree, path);
     if (entry === null) return [path, "absent"];
-    const copy = join19(copies, ...path.split("/"));
+    const copy = join20(copies, ...path.split("/"));
     mkdirSync5(dirname4(copy), { recursive: true });
     writeFileSync5(copy, entry.bytes);
     return [path, { sha256: sha2562(entry.bytes), size: entry.bytes.length, symlink: entry.symlink }];
@@ -30313,7 +30566,7 @@ function readSnapshot(into, finding) {
     if (listed2 === "absent") return null;
     let bytes;
     try {
-      bytes = readFileSync12(join19(into, String(finding), ...path.split("/")));
+      bytes = readFileSync12(join20(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
@@ -30321,7 +30574,7 @@ function readSnapshot(into, finding) {
   };
 }
 function readListing(into, finding) {
-  const listingFile = join19(into, `${String(finding)}.json`);
+  const listingFile = join20(into, `${String(finding)}.json`);
   if (!existsSync6(listingFile)) return null;
   try {
     const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync12(listingFile, "utf8")));
@@ -30339,7 +30592,7 @@ function snapshotPaths(into, count2) {
 }
 function writeManifest(into, manifest) {
   mkdirSync5(into, { recursive: true });
-  writeFileSync5(join19(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
+  writeFileSync5(join20(into, snapshotManifestFileName), `${JSON.stringify(manifest)}
 `);
 }
 function hashOf(worktree, path) {
@@ -30405,7 +30658,17 @@ var init_snapshot = __esm({
 });
 
 // src/review/fix-events.ts
-import { join as join20 } from "node:path";
+import { join as join21 } from "node:path";
+function keptComparisons(fix, given, log) {
+  const comparable3 = comparableKinds(fix);
+  const kept = [];
+  for (const comparison of given) {
+    if (!comparable3.includes(comparison.kind)) log(`dropped its comparison of the ${comparison.kind} check with the base: only a check that failed or timed out there is compared`);
+    else if (kept.some((entry) => entry.kind === comparison.kind)) log(`dropped a second comparison of the ${comparison.kind} check with the base: the first is kept`);
+    else kept.push(comparison);
+  }
+  return kept;
+}
 function baseOf(context) {
   const head2 = context.state.scope?.head;
   if (head2 === void 0) throw new Error(`Run ${context.state.id} has no scope`);
@@ -30479,6 +30742,7 @@ function fixAnswerEvents(unit, receipt, context) {
   const phase = unit.phase;
   const output2 = receipt.output;
   const ids2 = unitIds(state, phase, unit.key);
+  const compares = comparesWithBase(state.review, phase);
   checkFixerAnswer(output2, ids2.length, phase === "fixes" || phase === "answer");
   const owned = ownedFiles(state.review, phase, unit.key);
   const settle4 = settleOf(context, phase, unit.key);
@@ -30492,17 +30756,17 @@ function fixAnswerEvents(unit, receipt, context) {
   requireOwnedReported([.../* @__PURE__ */ new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
   const byIndex = new Map(resolved.findings.map(({ index: index2, ...finding }) => [index2, finding]));
   const findings = ids2.map((id, index2) => ({ id, ...byIndex.get(index2) }));
-  const recorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
+  const answered2 = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
+  const recorded = compares ? { ...answered2, comparisons: keptComparisons(requireFix2(state), output2.comparisons, context.log) } : answered2;
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join21(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids2, context.match);
   return [
     ...claims,
-    // Only the documentation step's answer and revisions need version 3 (TD5 of the documentation step).
-    { kind: "fix.recorded", version: phase === "documentation" ? 3 : 2, payload: recorded },
+    { kind: "fix.recorded", version: writtenVersion("fix.recorded", [phase], { comparisons: compares }), payload: recorded },
     ...revisions.map((revision) => ({
       kind: "tree.revised",
-      version: phase === "documentation" ? 3 : 2,
+      version: writtenVersion("tree.revised", [phase]),
       payload: { phase, source: { kind: "fix", key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] }
     }))
   ];
@@ -30523,7 +30787,7 @@ function attemptRevisionEvents(context, phase, key, workerId, reason, end) {
   const { state, worktree, evidence } = context;
   const ids2 = unitIds(state, phase, key);
   const scratch = state.workers[workerId]?.launch.scratch ?? null;
-  const into = scratch === null ? null : join20(scratch, snapshotsDirectoryName);
+  const into = scratch === null ? null : join21(scratch, snapshotsDirectoryName);
   const settle4 = settleOf(context, phase, key);
   const keyOf = keyOfSettle(settle4);
   const others = othersHeldInRound(settle4.state, phase, key, keyOf);
@@ -30548,7 +30812,7 @@ The files are recorded as it left them after its last snapshot; no finding accou
 
 The files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload = { phase, source: { kind: "attempt", key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
-    return { kind: "tree.revised", version: phase === "documentation" ? 3 : 2, payload };
+    return { kind: "tree.revised", version: writtenVersion("tree.revised", [phase]), payload };
   }) };
 }
 function checkRevision(context, phase, kind, command, manifest) {
@@ -30564,9 +30828,9 @@ function checkRevision(context, phase, kind, command, manifest) {
     change: { findings: [], message: { subject: `chore: apply the ${kind} check's rewrite`, body: truncated(`The ${kind} check, \`${command}\`, rewrote these files when run ${state.id} ran it in ${phase}.`, bodyLength) } },
     files
   };
-  return { kind: "tree.revised", version: 2, payload };
+  return { kind: "tree.revised", version: writtenVersion("tree.revised", [phase]), payload };
 }
-var subjectLength, bodyLength, keyOfSettle, conventionalSubject;
+var comparesWithBase, subjectLength, bodyLength, keyOfSettle, conventionalSubject;
 var init_fix_events = __esm({
   "src/review/fix-events.ts"() {
     "use strict";
@@ -30575,6 +30839,7 @@ var init_fix_events = __esm({
     init_claim_events();
     init_claims();
     init_drift();
+    init_event_versions();
     init_fix_answer();
     init_locations();
     init_schemas3();
@@ -30583,6 +30848,7 @@ var init_fix_events = __esm({
     init_steps();
     init_tree();
     init_vocabulary();
+    comparesWithBase = (review2, phase) => phase === "repair" && review2.baseChecksStep;
     subjectLength = 72;
     bodyLength = 4e3;
     keyOfSettle = (settle4) => (path) => pathKey(path, settle4.caseInsensitive);
@@ -30593,13 +30859,13 @@ var init_fix_events = __esm({
 // src/review/lock.ts
 import { mkdirSync as mkdirSync6, readFileSync as readFileSync13, rmSync as rmSync5, writeFileSync as writeFileSync6 } from "node:fs";
 import { constants } from "node:os";
-import { join as join21 } from "node:path";
+import { join as join22 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
 function startLockPath(checkpointRoot) {
-  return join21(checkpointRoot, "start.lock");
+  return join22(checkpointRoot, "start.lock");
 }
 function lockPath(checkpointRoot, runId) {
-  return join21(checkpointRoot, locksDirectoryName, `${runId}.lock`);
+  return join22(checkpointRoot, locksDirectoryName, `${runId}.lock`);
 }
 function holderPath(path) {
   return `${path}.pid`;
@@ -30616,7 +30882,7 @@ function lockHolder(path) {
   return text3 !== "" && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
 }
 function acquireRunLock(checkpointRoot, runId) {
-  mkdirSync6(join21(checkpointRoot, locksDirectoryName), { recursive: true });
+  mkdirSync6(join22(checkpointRoot, locksDirectoryName), { recursive: true });
   return acquireLock(lockPath(checkpointRoot, runId), `is running run ${runId}`);
 }
 function acquireStartLock(checkpointRoot) {
@@ -30691,7 +30957,7 @@ var init_lock = __esm({
   "src/review/lock.ts"() {
     "use strict";
     init_vocabulary();
-    init_errors6();
+    init_errors7();
     locksDirectoryName = "runs";
     sqliteBusy = 5;
     sqliteNotADatabase = 26;
@@ -30727,7 +30993,7 @@ var init_runs = __esm({
     "use strict";
     init_checkpoint();
     init_errors4();
-    init_errors6();
+    init_errors7();
     shortRunIdLength = 8;
     shortRunId = (runId) => runId.slice(0, shortRunIdLength);
   }
@@ -30997,8 +31263,8 @@ var init_content = __esm({
 
 // src/review/commit.ts
 import { mkdtempSync, rmSync as rmSync6 } from "node:fs";
-import { tmpdir } from "node:os";
-import { join as join22 } from "node:path";
+import { tmpdir as tmpdir2 } from "node:os";
+import { join as join23 } from "node:path";
 function git2(worktree, args, options2 = {}) {
   try {
     return runGitSync(["--no-optional-locks", ...args], {
@@ -31202,9 +31468,9 @@ function build(run2, options2) {
   const fix = run2.review.fix;
   const series = seriesOf(run2);
   for (const [path, file2] of expectedTree(scope, fix.revisions)) if (file2 !== null && series.paths.has(path)) bytesOf(checkpoint, path, file2.frozen);
-  const temporary = mkdtempSync(join22(tmpdir(), "deep-review-commit-"));
+  const temporary = mkdtempSync(join23(tmpdir2(), "deep-review-commit-"));
   try {
-    const trees = new TreeBuilder(worktree, checkpoint, join22(temporary, "index"), series.head);
+    const trees = new TreeBuilder(worktree, checkpoint, join23(temporary, "index"), series.head);
     const made = [];
     let parent = series.head;
     const commit2 = (message, revision) => {
@@ -31252,7 +31518,7 @@ var init_commit = __esm({
     init_fix_events();
     init_paths();
     init_git_sync();
-    init_errors6();
+    init_errors7();
     init_lock();
     init_markdown();
     init_runs();
@@ -31503,7 +31769,7 @@ var preflightTimeoutMs, maxProbeOutputBytes;
 var init_preflight = __esm({
   "src/runtime/preflight.ts"() {
     "use strict";
-    init_errors7();
+    init_errors5();
     init_process();
     preflightTimeoutMs = 1e4;
     maxProbeOutputBytes = 4 * 1024 * 1024;
@@ -31736,7 +32002,7 @@ var init_claude = __esm({
     init_claude_limits();
     init_adapter();
     init_environment();
-    init_errors7();
+    init_errors5();
     init_json();
     claudeFlags = [
       "--print",
@@ -31814,7 +32080,7 @@ var namePattern, RuntimeRegistry;
 var init_registry2 = __esm({
   "src/runtime/registry.ts"() {
     "use strict";
-    init_errors7();
+    init_errors5();
     namePattern = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
     RuntimeRegistry = class {
       #adapters = /* @__PURE__ */ new Map();
@@ -31852,39 +32118,6 @@ var init_runtimes = __esm({
     init_claude();
     init_codex();
     init_registry2();
-  }
-});
-
-// src/runtime/scratch.ts
-import { tmpdir as tmpdir2 } from "node:os";
-import { join as join23, resolve as resolve9 } from "node:path";
-function defaultScratchRoot() {
-  return join23(tmpdir2(), "deep-review-scratch");
-}
-function checkpointScratchKey(checkpoint) {
-  return sha256Hex(Buffer.from(checkpoint.root, "utf8")).slice(0, 16);
-}
-function chooseScratch(checkpoint, state, adapter, invocation, continued, fallback) {
-  if (continued !== null) return continued.launch.scratch;
-  if (invocation.access === "read-only" && !adapter.capabilities.readOnlyScratch) return null;
-  return requireOutsideRun("scratch directory", resolve9(invocation.scratch ?? fallback), state, checkpoint);
-}
-function chooseShared(checkpoint, state, invocation) {
-  if (invocation.shared === void 0) return null;
-  if (invocation.access === "read-only") throw new InvalidInvocationError(`A read-only worker writes nowhere, so it is given no shared directory, not ${invocation.shared}`);
-  return requireOutsideRun("shared directory", resolve9(invocation.shared), state, checkpoint);
-}
-function requireOutsideRun(what, directory, state, checkpoint) {
-  if (isInside(state.worktree, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the reviewed tree ${state.worktree}`);
-  if (isInside(checkpoint.root, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the checkpoint ${checkpoint.root}`);
-  return directory;
-}
-var init_scratch = __esm({
-  "src/runtime/scratch.ts"() {
-    "use strict";
-    init_store();
-    init_paths();
-    init_errors7();
   }
 });
 
@@ -32225,7 +32458,7 @@ var init_launcher = __esm({
     init_adapter();
     init_contract();
     init_environment();
-    init_errors7();
+    init_errors5();
     init_preflight();
     init_kill_marks();
     init_process();
@@ -32472,7 +32705,7 @@ var init_configuration = __esm({
     init_source();
     init_paths();
     init_discover();
-    init_errors6();
+    init_errors7();
     init_vocabulary();
     minimumNodeMajor = 26;
     nodeVersionOf = (executable) => execFileSync2(executable, ["--version"], { encoding: "utf8", timeout: 1e4, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -32588,11 +32821,115 @@ var init_run = __esm({
   }
 });
 
+// src/review/checks/base.ts
+import { mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, readdirSync as readdirSync6, rmSync as rmSync9 } from "node:fs";
+import { isAbsolute as isAbsolute8, join as join27 } from "node:path";
+function makeBaseTree(context, base) {
+  if (isEmptyTree(base)) return { kind: "none", reason: baseSkipReasons.emptyTree };
+  try {
+    requireOutsideRun("worktree of the base", context.scratch, { worktree: context.worktree }, { root: context.checkpointRoot });
+    mkdirSync9(context.scratch, { recursive: true });
+    const path = mkdtempSync2(join27(context.scratch, directoryPrefix(context.runId)));
+    baseGit(context, ["-c", `core.hooksPath=${path}.no-hooks`, "worktree", "add", "--detach", "--lock", "--reason", baseLockReason(context.runId), path, base], baseCheckoutTimeoutMs);
+    context.log(`the worktree of the base ${base.slice(0, 8)} is at ${path}`);
+    return { kind: "made", path };
+  } catch (error62) {
+    const detail = gitFailureDetail(error62, baseCheckoutTimeoutMs);
+    context.log(`no worktree of the base ${base.slice(0, 8)} could be made: ${detail}`);
+    return { kind: "none", reason: `${baseSkipReasons.noWorktree}: ${detail.split(/\r?\n/)[0] ?? ""}` };
+  }
+}
+function lockedWith(listing, reason) {
+  const paths = [];
+  let path = null;
+  for (const field of listing.split("\0")) {
+    if (field.startsWith("worktree ")) path = field.slice("worktree ".length);
+    else if (field === `locked ${reason}` && path !== null) paths.push(path);
+  }
+  return paths;
+}
+function removeBaseTrees(context) {
+  let paths = [];
+  try {
+    paths = lockedWith(baseGit(context, ["worktree", "list", "--porcelain", "-z"]), baseLockReason(context.runId));
+  } catch (error62) {
+    context.log(`could not list the worktrees of the base: ${gitFailureDetail(error62)}`);
+  }
+  for (const path of paths) {
+    try {
+      baseGit(context, ["worktree", "remove", "-f", "-f", path], baseCheckoutTimeoutMs);
+      context.log(`removed the worktree of the base at ${path}`);
+    } catch (error62) {
+      context.log(`could not remove the worktree of the base at ${path}: ${gitFailureDetail(error62, baseCheckoutTimeoutMs)}`);
+    }
+  }
+  let names2 = [];
+  try {
+    names2 = readdirSync6(context.scratch).filter((name) => name.startsWith(directoryPrefix(context.runId)));
+  } catch (error62) {
+    if (error62.code !== "ENOENT") context.log(`could not read the scratch directory ${context.scratch}: ${error62.message}`);
+  }
+  for (const name of names2) {
+    try {
+      rmSync9(join27(context.scratch, name), { recursive: true, force: true });
+    } catch (error62) {
+      context.log(`could not remove ${join27(context.scratch, name)}: ${error62.message}`);
+    }
+  }
+}
+function baseEnvironment(environment, reviewed, toolsPath, platform = process.platform) {
+  const inside = (directory) => isAbsolute8(directory) && isInside(reviewed, directory);
+  const delimiter3 = platform === "win32" ? ";" : ":";
+  const lists = new Set(directoryLists.map((name) => comparable(name, platform)));
+  const changed = [];
+  const kept = [];
+  for (const [name, value] of Object.entries(checkEnvironment(environment, platform, toolsPath))) {
+    if (isRepositoryVariable(name, platform)) {
+      changed.push(name);
+      continue;
+    }
+    if (comparable(name, platform) === comparable("VIRTUAL_ENV", platform) && value !== void 0 && inside(value)) {
+      changed.push(`${name}, inside the reviewed worktree`);
+      continue;
+    }
+    if (lists.has(comparable(name, platform)) && value !== void 0) {
+      const entries = value.split(delimiter3);
+      const removed = entries.filter(inside);
+      if (removed.length > 0) {
+        changed.push(`the entries of ${name} inside the reviewed worktree: ${removed.join(", ")}`);
+        kept.push([name, entries.filter((entry) => !inside(entry)).join(delimiter3)]);
+        continue;
+      }
+    }
+    kept.push([name, value]);
+  }
+  return { environment: Object.fromEntries(kept), changed };
+}
+var baseLockReason, directoryPrefix, baseCheckoutTimeoutMs, gitEnvironment, baseGit, directoryLists;
+var init_base = __esm({
+  "src/review/checks/base.ts"() {
+    "use strict";
+    init_paths();
+    init_environment();
+    init_git_sync();
+    init_scratch();
+    init_git();
+    init_vocabulary();
+    init_run();
+    baseLockReason = (runId) => `deep-review ${runId}`;
+    directoryPrefix = (runId) => `${runId}-base-`;
+    baseCheckoutTimeoutMs = 6e5;
+    gitEnvironment = (environment) => pinVariables(withoutRepositoryVariables(environment), { GIT_LFS_SKIP_SMUDGE: "1", GIT_TERMINAL_PROMPT: "0" }, process.platform);
+    baseGit = (context, args, timeout) => runGitSync(args, { cwd: context.worktree, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironment(context.environment), ...timeout === void 0 ? {} : { timeout } });
+    directoryLists = ["PATH", "PYTHONPATH", "NODE_PATH"];
+  }
+});
+
 // src/review/conventions.ts
 import { homedir as homedir2 } from "node:os";
-import { join as join27 } from "node:path";
+import { join as join28 } from "node:path";
 function existingUserRulesFiles(home = homedir2()) {
-  return userConventionFiles.map((relative5) => join27(home, ...relative5.split("/"))).filter(isFile);
+  return userConventionFiles.map((relative5) => join28(home, ...relative5.split("/"))).filter(isFile);
 }
 function mailmapAddress(output2) {
   const address = /<([^<>]*)>\s*$/.exec(output2.trim())?.[1]?.trim().toLowerCase();
@@ -32789,7 +33126,7 @@ var init_documents = __esm({
     init_answer_state();
     init_events();
     init_fix_state();
-    init_errors6();
+    init_errors7();
     init_fix_answer();
     init_locations();
     init_markdown();
@@ -33182,10 +33519,10 @@ function answerFields(unit) {
   const required2 = blocks ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : "`requiredFiles`, which stays empty";
   return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial2} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required2}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 }
-function earlierWork(unit, unfinished) {
+function earlierWork(unit, unfinished2) {
   const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
-  if (unfinished.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
+  if (unfinished2.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished2.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 function editingTail(input2, unit, answerSuffix = "") {
   return [
@@ -33350,6 +33687,28 @@ function repairCheckEnd(check2) {
   const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
   return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
 }
+function baseLines(base) {
+  const where = "on the base of the change, the Base the scope names";
+  switch (base.outcome) {
+    case "passed":
+      return [`    It passes ${where}, so the change as submitted brings the failures its output before any fixer edited the tree shows: like every failure there, they are not yours to fix.`];
+    case "failed":
+    case "timeout":
+      return [
+        `    It ${repairCheckEnd(base)} ${where}. Compare the failures its output before any fixer edited the tree shows, on the change as submitted, with its failures on the base, and give one entry for this check in \`comparisons\`: its \`reading\` is \`same\` when the change has no failure the base does not have, \`adds\` when it has one, and \`unknown\` when the two outputs cannot be compared, as when the check failed on the base for a missing tool or dependency and not for the code; its \`words\` say why in at most ${String(comparisonWordsLengthV1)} characters and name no path. Its output on the base:`,
+        outputTail("stdout", base.stdout.tail, base.stdout.path),
+        outputTail("stderr", base.stderr.tail, base.stderr.path)
+      ];
+    case "skipped":
+      return [`    It did not run ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+    case "not-started":
+      return [`    It did not start ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+  }
+}
+function comparisonsRule(checks) {
+  const compared = checks.some((check2) => check2.base?.outcome === "failed" || check2.base?.outcome === "timeout");
+  return compared ? " Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other." : " Return `comparisons` empty: no check above failed or timed out on the base of the change.";
+}
 function repairTask(input2) {
   const count2 = input2.checks.length;
   const step = input2.documentation.length > 0;
@@ -33363,7 +33722,8 @@ function repairTask(input2) {
       "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
       outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
       outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
-    ]
+    ],
+    ...check2.base === null ? [] : baseLines(check2.base)
   ].join("\n"));
   return [
     `Repair: ${String(count2)} check${count2 === 1 ? "" : "s"}, numbered [0] to [${String(count2 - 1)}], fail${count2 === 1 ? "s" : ""} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
@@ -33381,7 +33741,7 @@ function repairTask(input2) {
     ...step ? ["What the documentation step did:", input2.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join("\n"), ""] : [],
     checksBlock(input2.allChecks),
     "",
-    ...editingTail(input2, "check", " The message in an applied check's `edits` describes what the repair changed.")
+    ...editingTail(input2, "check", ` The message in an applied check's \`edits\` describes what the repair changed.${input2.baseChecks ? comparisonsRule(input2.checks) : ""}`)
   ].join("\n");
 }
 function documentLines(index2, document) {
@@ -33458,6 +33818,7 @@ var init_tasks = __esm({
     "use strict";
     init_fix_state();
     init_review_fold();
+    init_events();
     init_markdown();
     init_prompts();
     init_kill_marks();
@@ -33485,7 +33846,7 @@ var init_tasks = __esm({
 });
 
 // src/review/phases.ts
-import { join as join28 } from "node:path";
+import { join as join29 } from "node:path";
 function requireReview2(state) {
   if (state.review === null) throw new Error(`Run ${state.id} is not configured for review`);
   return state.review;
@@ -33680,9 +34041,25 @@ function tailOf(evidence, reference) {
   const bytes = evidence.read(reference);
   return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
 }
+function baseRunOf(evidence, run2) {
+  if (run2 === null) return null;
+  switch (run2.outcome) {
+    case "passed":
+      return { outcome: "passed" };
+    case "failed":
+    case "timeout":
+      return { outcome: run2.outcome, exitCode: run2.exitCode, signal: run2.signal, stdout: tailOf(evidence, run2.stdout), stderr: tailOf(evidence, run2.stderr) };
+    case "skipped":
+    case "not-started":
+      return { outcome: run2.outcome, reason: run2.error ?? "no reason recorded" };
+    case "cut":
+      throw new Error(`The ${run2.kind} check was cut short on the base and is due there again, so the repair cannot start before it runs`);
+  }
+}
 function repairTaskOf(review2, editing, evidence) {
   const fix = review2.fix;
   if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
+  const onBase = review2.baseChecksStep ? baseKinds(fix) : [];
   const checks = repairTargets(fix).map((kind) => {
     const run2 = lastFreshRun(fix, "checks", kind);
     const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, "baseline-checks", kind) : null;
@@ -33694,13 +34071,14 @@ function repairTaskOf(review2, editing, evidence) {
       signal: run2.signal,
       stdout: tailOf(evidence, run2.stdout),
       stderr: tailOf(evidence, run2.stderr),
-      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) }
+      baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
+      base: onBase.includes(kind) ? baseRunOf(evidence, lastFreshRun(fix, "base-checks", kind)) : null
     };
   });
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
   const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
-  return repairTask({ checks, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+  return repairTask({ checks, baseChecks: review2.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
 }
 function documentationDecided(review2, id) {
   const decision = review2.decisions?.find((candidate) => candidate.id === id) ?? null;
@@ -33808,6 +34186,7 @@ function taskFor(unit, review2, options2 = {}) {
       return answerTaskOf(unit, review2, requireEditing(), evidence);
     case "baseline-checks":
     case "checks":
+    case "base-checks":
     case "repair-checks":
     case "answer-checks":
       throw new Error(`The ${unit.phase} phase runs checks, not workers`);
@@ -33823,7 +34202,7 @@ function invocationFor(unit, context) {
   const shared2 = unit.phase === "fixes" ? context.claims.directoryOf(unit.key) : null;
   const live2 = unit.phase === "fixes" ? context.claims.live(unit.key) : null;
   const review2 = requireReview2(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
-  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join28(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
+  const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join29(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
   const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
   const documentation = unit.phase === "documentation" ? context.documentation() : null;
@@ -33837,7 +34216,7 @@ function invocationFor(unit, context) {
     access: scratch === null ? "read-only" : "edit",
     shell: true,
     prompt,
-    outputSchema: outputSchemaOf(unit.role),
+    outputSchema: comparesWithBase(review2, unit.phase) ? repairOutputSchema : outputSchemaOf(unit.role),
     timeoutMs: policy.timeoutMs,
     ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
     ...scratch === null ? {} : { scratch },
@@ -33846,7 +34225,7 @@ function invocationFor(unit, context) {
   };
 }
 function failed(unit, receipt, reason, fault) {
-  return { kind: "attempt.failed", version: unit.phase === "documentation" ? 8 : fault === "cut" || fault === "limit" ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  return { kind: "attempt.failed", version: writtenVersion("attempt.failed", [unit.phase], { fault }), payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 function recordCandidates2(phase, key, candidates, state, worktree) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -33966,6 +34345,7 @@ function contributionEvent(unit, receipt, review2, context) {
       throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
     case "baseline-checks":
     case "checks":
+    case "base-checks":
     case "repair-checks":
     case "answer-checks":
     case "report":
@@ -33982,7 +34362,8 @@ var init_phases = __esm({
     init_survey_state();
     init_claim_events();
     init_documents();
-    init_errors6();
+    init_errors7();
+    init_event_versions();
     init_fix_events();
     init_labels();
     init_locations();
@@ -34110,6 +34491,201 @@ var init_decision_report = __esm({
     answerCommandOf = (id, choice) => `deep-review ${answerArguments(id, choice)}`;
     reviewCommand = (id) => answerCommandOf(id, "--accept");
     answerAtTerminal = (engineEntry) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments("<id>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+  }
+});
+
+// src/review/brief-checks.ts
+function lastRunOf(review2, kind) {
+  const runs = (read) => afterPhases.flatMap((phase) => {
+    const run2 = read(phase);
+    return run2 === null ? [] : [{ phase, run: run2 }];
+  });
+  const [current] = runs((phase) => lastCurrentRun(review2, phase, kind));
+  if (current !== void 0) return current;
+  return runs((phase) => lastRecordedRun(review2.fix, phase, kind)).reduce((found, entry) => found === null || entry.run.revisionsBefore > found.run.revisionsBefore ? entry : found, null);
+}
+function earlierOf(fix, kind, last) {
+  if (last === null) return { passed: null, failed: null };
+  const runs = treeCheckPhases.flatMap((phase, rank) => fix.checks.runs[phase].flatMap((run2, index2) => run2.kind === kind ? [{ phase, run: run2, order: [run2.revisionsBefore, rank, index2] }] : [])).sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1] || a.order[2] - b.order[2]);
+  const before = runs.slice(0, runs.findIndex((entry) => entry.run === last.run));
+  const latest = (holds) => {
+    const found = before.findLast((entry) => holds(entry.run.outcome));
+    return found === void 0 ? null : momentOf[found.phase];
+  };
+  return { passed: latest((outcome) => outcome === "passed"), failed: latest(failedOrTimedOut) };
+}
+function skippedReason(error62) {
+  const reason = Object.keys(skippedReasons).find((key) => error62?.startsWith(baseSkipReasons[key]) === true);
+  return reason === void 0 ? "not-run" : skippedReasons[reason];
+}
+function baseOf2(fix, kind, base) {
+  const run2 = lastRecordedRun(fix, "base-checks", kind);
+  const outcome = run2?.outcome ?? null;
+  const reading = failedOrTimedOut(outcome) ? fix.answers.repair[repairUnitKey]?.comparisons.find((comparison) => comparison.kind === kind)?.reading ?? null : null;
+  return { ...base, outcome, reading, reason: run2 === null ? "not-run" : reasonOf[run2.outcome](run2, reading) };
+}
+function briefChecksOf(review2, scope) {
+  const { fix } = review2;
+  const taken = review2.baseChecksStep ? baseKinds(fix, "recorded") : [];
+  const base = { commit: scope.base, name: baseNameOf(scope.mode, scope.request) };
+  return (fix.checks.planned?.checks ?? []).filter((check2) => check2.command !== null).map((check2) => {
+    const last = lastRunOf(review2, check2.kind);
+    const facts = {
+      kind: check2.kind,
+      before: lastRecordedRun(fix, "baseline-checks", check2.kind)?.outcome ?? null,
+      last: last === null ? null : { outcome: last.run.outcome, when: lastMomentOf[last.phase] },
+      earlier: earlierOf(fix, check2.kind, last),
+      base: taken.includes(check2.kind) ? baseOf2(fix, check2.kind, base) : null
+    };
+    return { ...facts, fault: checkFaults.find((fault) => faultHolds[fault](facts)) ?? null };
+  });
+}
+function ranWords({ before, last }) {
+  if (last !== null && before === last.outcome && last.when === "fixes") return `${outcomeVerbs[last.outcome]} before and after the fixes`;
+  const first = before === null ? "did not run before the fixes" : `${outcomeVerbs[before]} before the fixes`;
+  if (last === null) return `${first} and did not run after them`;
+  const when = last.when === "fixes" ? "after them" : lastWords[last.when];
+  return `${first} and ${before === last.outcome ? when : `${outcomeVerbs[last.outcome]} ${when}`}`;
+}
+function baseFactWords(base) {
+  const where = baseWords2(base);
+  if (base.reason !== null) return `, and the run could not compare it with the base, ${where}, since ${notComparedWords[base.reason]}`;
+  if (base.outcome === "passed") return `, and it passes on the base, ${where}`;
+  return base.reading === "adds" ? `, and the change has failures that the base, ${where}, does not have, by the repair's reading` : `, and the base, ${where}, has the same failures, by the repair's reading`;
+}
+function checksSentence(checks) {
+  if (checks.length === 0) return "No check ran.";
+  if (checks.every((check2) => check2.before === "passed" && check2.last?.outcome === "passed" && check2.earlier.failed === null)) return "The checks passed before and after the fixes.";
+  return `The checks: ${checks.map((check2) => `${check2.kind} ${ranWords(check2)}${check2.base === null ? "" : baseFactWords(check2.base)}`).join("; ")}.`;
+}
+function lineEntry(check2) {
+  for (const row of clauseRows) {
+    const clause = clauses[row](check2);
+    if (clause !== null) return { kind: check2.kind, row, clause };
+  }
+  return { kind: check2.kind, row: "passed", clause: check2.kind };
+}
+function checksLine(checks, noCommand) {
+  if (checks.length === 0) return "Checks: none, since the run has no check command";
+  const entries = [...checks.map(lineEntry), ...noCommand.map((kind) => ({ kind, row: "no-command", clause: `no ${kind} check` }))].sort((a, b) => lineRows.indexOf(a.row) - lineRows.indexOf(b.row) || checkKinds.indexOf(a.kind) - checkKinds.indexOf(b.kind));
+  const ranAfter = checks.some((check2) => check2.last !== null);
+  const passed = entries.filter((entry) => entry.row === "passed").map((entry) => entry.kind);
+  if (passed.length === entries.length) return ranAfter ? "Checks: each passed before and after the fixes" : "Checks: each passed before the fixes; no check ran after them, since no fix changed a file";
+  const parts = [
+    ...entries.filter((entry) => entry.row !== "passed").map((entry) => entry.clause),
+    ...passed.length === 0 ? [] : [`${listed(passed)} passed`],
+    ...ranAfter ? [] : ["no check ran after the fixes, since no fix changed a file"]
+  ];
+  return `Checks: ${parts.join("; ")}`;
+}
+function checkGap({ kind, base, fault }) {
+  if (base === null) return null;
+  const where = baseWords2(base);
+  switch (fault) {
+    case "change-breaks":
+      return `The ${kind} check fails on the change and passes on its base, ${where}. No step of the run fixes a failure that the change brings.`;
+    case "change-adds":
+      return `The ${kind} check fails on the change with failures that its base, ${where}, does not have, by the repair's reading. No step of the run fixes a failure that the change brings.`;
+    case "not-compared":
+      return base.reason === null ? null : `The ${kind} check failed before and after the fixes, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
+    default:
+      return null;
+  }
+}
+function validationOf(applied) {
+  const strongest = (methods) => validationStrengths.find((strength) => methods.some((method) => strengthOfMethod[method] === strength)) ?? "none";
+  const byFix = applied.map((fix) => ({ id: fix.id, strength: strongest(fix.methods) }));
+  return Object.fromEntries(validationStrengths.map((strength) => [strength, byFix.filter((fix) => fix.strength === strength).map((fix) => fix.id)]));
+}
+function validationSentence(validation, list) {
+  const total = validationStrengths.reduce((sum, strength) => sum + validation[strength].length, 0);
+  if (total === 0) return null;
+  const tested = validation.test.length;
+  const fixes = total === 1 ? "the fix" : `${tested === total ? "each" : tested === 0 ? "none" : String(tested)} of the ${String(total)} fixes`;
+  const lead = tested === 0 && total === 1 ? "The fixers report that no test validated the fix." : `The fixers report that a test validated ${fixes}${tested === 0 ? "." : ": it fails on the code before the fix, or on a mutation of the fix."}`;
+  const rest = ["existing", "static", "limited", "none"].flatMap((strength) => {
+    const ids2 = validation[strength];
+    return ids2.length === 0 ? [] : [`${list(ids2)} ${restsOn[strength][ids2.length === 1 ? 0 : 1]}.`];
+  });
+  return [lead, ...rest].join(" ");
+}
+var lastMoments, afterPhases, lastMomentOf, momentOf, notComparedReasons, notComparedWords, skippedReasons, checkFaults, failedOrTimedOut, failsNow, fromBase, faultHolds, reasonOf, baseWords2, outcomeVerbs, lastWords, lineRows, earlierWords, unfinished, clauses, clauseRows, validationStrengths, strengthOfMethod, restsOn;
+var init_brief_checks = __esm({
+  "src/review/brief-checks.ts"() {
+    "use strict";
+    init_fix_state();
+    init_git();
+    init_scope_line();
+    init_markdown();
+    init_vocabulary();
+    lastMoments = ["fixes", "repair", "answers"];
+    afterPhases = ["answer-checks", "repair-checks", "checks"];
+    lastMomentOf = { checks: "fixes", "repair-checks": "repair", "answer-checks": "answers" };
+    momentOf = { "baseline-checks": "before", ...lastMomentOf };
+    notComparedReasons = ["empty-tree", "no-worktree", "build-failed", "not-started", "not-run", "no-comparison", "unknown"];
+    notComparedWords = {
+      "empty-tree": baseSkipReasons.emptyTree,
+      "no-worktree": baseSkipReasons.noWorktree,
+      "build-failed": baseSkipReasons.buildFailed,
+      "not-started": "the check did not start on the base",
+      "not-run": "the check did not run on the base",
+      "no-comparison": "the repair gave no comparison",
+      unknown: "the repair could not compare the outputs"
+    };
+    skippedReasons = { emptyTree: "empty-tree", noWorktree: "no-worktree", buildFailed: "build-failed" };
+    checkFaults = ["edits", "change-breaks", "change-adds", "not-compared", "base-has"];
+    failedOrTimedOut = (outcome) => outcome === "failed" || outcome === "timeout";
+    failsNow = ({ last }) => last !== null && failedOrTimedOut(last.outcome);
+    fromBase = (holds) => (check2) => failsNow(check2) && check2.base !== null && holds(check2.base);
+    faultHolds = {
+      edits: (check2) => failsNow(check2) && check2.earlier.passed !== null,
+      "change-breaks": fromBase((base) => base.outcome === "passed"),
+      "change-adds": fromBase((base) => base.reading === "adds"),
+      "not-compared": fromBase((base) => base.reason !== null),
+      "base-has": fromBase((base) => base.reading === "same")
+    };
+    reasonOf = {
+      passed: () => null,
+      failed: (_run, reading) => reading === null ? "no-comparison" : reading === "unknown" ? "unknown" : null,
+      timeout: (run2, reading) => reasonOf.failed(run2, reading),
+      skipped: (run2) => skippedReason(run2.error),
+      "not-started": () => "not-started",
+      cut: () => "not-run"
+    };
+    baseWords2 = (base) => isEmptyTree(base.commit) ? "the empty tree" : `${base.name} (${commitWords(base.commit)})`;
+    outcomeVerbs = { passed: "passed", failed: "failed", timeout: "timed out", "not-started": "did not start", skipped: "was skipped", cut: "was cut short" };
+    lastWords = { fixes: "after the fixes", repair: "after the repair", answers: "after your answers" };
+    lineRows = [...checkFaults, "failing", "passes-now", "repaired", "not-rerun", "unfinished", "no-command", "passed"];
+    earlierWords = { before: "before the fixes", fixes: "after the fixes", repair: "after the repair", answers: "after earlier answers" };
+    unfinished = (outcome) => outcome === null || ["timeout", "skipped", "not-started", "cut"].includes(outcome);
+    clauses = {
+      edits: ({ kind, fault, last, earlier }) => fault === "edits" && last !== null && earlier.passed !== null ? `${kind} ${outcomeVerbs[last.outcome]} ${lastWords[last.when]}, and passed ${earlierWords[earlier.passed]}` : null,
+      "change-breaks": ({ kind, fault, base }) => fault === "change-breaks" && base !== null ? `${kind} fails on the change and passes on the base (${commitWords(base.commit)})` : null,
+      "change-adds": ({ kind, fault, base }) => fault === "change-adds" && base !== null ? `${kind} fails on the change with failures that the base (${commitWords(base.commit)}) does not have, by the repair's reading` : null,
+      "not-compared": ({ kind, fault }) => fault === "not-compared" ? `${kind} failed before and after the fixes, not compared with the base` : null,
+      "base-has": ({ kind, fault, base }) => fault === "base-has" && base !== null ? `${kind} failed, as it does on the base (${commitWords(base.commit)}), by the repair's reading` : null,
+      // A check whose last run failed with no fault: one that never passed, in a run configured before the checks on the base or of a kind the run did not take there.
+      failing: (check2) => check2.last?.outcome === "failed" ? `${check2.kind} ${ranWords(check2)}` : null,
+      "passes-now": ({ kind, before, last }) => failedOrTimedOut(before) && last?.outcome === "passed" ? `${kind} ${outcomeVerbs[before]} before the fixes and passes now` : null,
+      repaired: ({ kind, earlier, last }) => earlier.failed !== null && last?.outcome === "passed" ? `${kind} failed ${earlierWords[earlier.failed]} and passed ${lastWords[last.when]}` : null,
+      "not-rerun": ({ kind, before, last }) => failedOrTimedOut(before) && last === null ? `${kind} ${outcomeVerbs[before]} before the fixes and did not run again` : null,
+      unfinished: ({ kind, before, last }) => unfinished(last?.outcome ?? before) ? `${kind} did not finish` : null
+    };
+    clauseRows = lineRows.filter((row) => row !== "no-command" && row !== "passed");
+    validationStrengths = ["test", "existing", "static", "limited", "none"];
+    strengthOfMethod = {
+      "old-code": "test",
+      mutation: "test",
+      existing: "existing",
+      static: "static",
+      limited: "limited"
+    };
+    restsOn = {
+      existing: ["rests on the tests that already exist", "rest on the tests that already exist"],
+      static: ["rests on a check of the source", "rest on a check of the source"],
+      limited: ["rests on a limit that its fixer named", "rest on limits that their fixers named"],
+      none: ["has no validation that its fixer reported", "have no validation that their fixers reported"]
+    };
   }
 });
 
@@ -34401,30 +34977,61 @@ function fixesSection(review2, fix) {
   ];
   return lines.filter((line, index2) => line !== "" || lines[index2 - 1] !== "");
 }
-function checkCell(run2, evidencePath, failedBefore) {
+function checkCell(run2, evidencePath, note) {
   if (run2 === null) return "-";
-  if (run2.outcome === "skipped") return tableCell(`skipped: ${run2.error ?? "build did not pass"}`);
+  if (run2.outcome === "skipped") return tableCell(`skipped: ${run2.phase === "base-checks" ? notComparedWords[skippedReason(run2.error)] : run2.error ?? "build did not pass"}`);
   const output2 = run2.stdout === null || run2.stderr === null ? "" : `; output ${evidencePath(run2.stdout)}, ${evidencePath(run2.stderr)}`;
-  const text3 = `${run2.outcome}, ${runSeconds(run2)}${run2.outcome === "passed" ? "" : output2}${failedBefore ? " (failing before the fix pass)" : ""}`;
+  const text3 = `${run2.outcome}, ${runSeconds(run2)}${run2.outcome === "passed" ? "" : output2}${note}`;
   return tableCell(text3);
 }
-function checksSection(fix, survey, answered2, evidencePath) {
+function baseNotes(review2, fix, checks, scope) {
+  if (!review2.baseChecksStep) return [];
+  const title = phaseTitles["base-checks"];
+  const taken = checks.flatMap((check2) => check2.base === null ? [] : [{ kind: check2.kind, reason: check2.base.reason }]);
+  if (taken.length === 0 && fix.checks.runs["base-checks"].length === 0) return fix.checks.runs.checks.length === 0 ? [] : [`- ${title}: not run, since no check failed before and after the fixes.`];
+  const notRun = notComparedReasons.flatMap((reason) => {
+    const kinds = taken.filter((entry) => entry.reason === reason).map((entry) => entry.kind);
+    const words = notRunOnBase[reason];
+    return kinds.length === 0 || words === void 0 ? [] : [`- ${title}: ${words(listed(kinds))}`];
+  });
+  return [`- ${title}: the base of the change is ${baseWords2({ commit: scope.base, name: baseNameOf(scope.mode, scope.request) })}.`, ...notRun];
+}
+function baseWorktreeLines(review2) {
+  const prefix = `${baseSkipReasons.noWorktree}: `;
+  const errors = new Set((review2.fix?.checks.runs["base-checks"] ?? []).flatMap((run2) => run2.outcome === "skipped" && run2.error?.startsWith(prefix) === true ? [run2.error.slice(prefix.length)] : []));
+  return [...errors].map((error62) => `Worktree of the base: git could not make it: ${inlineText(error62)}`);
+}
+function checksSection(review2, fix, scope, evidencePath) {
+  const { survey } = review2;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
   const sourceCell = (check2) => survey === null ? [] : [checkSourceCell(survey, check2)];
   const shown = (phase, kind) => lastRecordedRun(fix, phase, kind);
   const edits = new Map(ran.map((phase) => [phase, planned.map((check2) => shown(phase, check2.kind)).flatMap((run2) => run2 === null ? [] : [earlierTreeEdit(fix, phase, run2)]).find((edit) => edit !== null) ?? null]));
+  const checks = briefChecksOf({ ...review2, fix }, scope);
+  const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
+  const baseNote = (kind) => {
+    const comparison = comparisons.find((entry) => entry.kind === kind);
+    if (comparison !== void 0) return `; the repair's reading: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
+    return checks.find((check2) => check2.kind === kind)?.base?.reason === "no-comparison" ? `; ${notComparedWords["no-comparison"]}` : "";
+  };
+  const note = (phase, kind) => {
+    if (phase === "base-checks") return baseNote(kind);
+    return phase !== "baseline-checks" && failedAtBaseline2(kind) ? " (failing before the fix pass)" : "";
+  };
   const rows = planned.map((check2) => {
     if (check2.command === null) return `| ${[check2.kind, unavailableCell(survey, check2), ...sourceCell(check2), ...ran.map(() => "-")].join(" | ")} |`;
-    const cells = ran.map((phase) => checkCell(shown(phase, check2.kind), evidencePath, phase !== "baseline-checks" && failedAtBaseline2(check2.kind)));
+    const cells = ran.map((phase) => checkCell(shown(phase, check2.kind), evidencePath, note(phase, check2.kind)));
     return `| ${[check2.kind, tableCell(check2.command), ...sourceCell(check2), ...cells].join(" | ")} |`;
   });
+  const answered2 = review2.answerPasses.length > 0;
   const repairWhy = repairTargets(fix, "recorded").length === 0 ? "no check failed after the fixes" : isNotAttempted(fix, "repair", repairUnitKey) ? "the repair was not attempted" : "the repair changed no file";
   const notRun = planned.every((check2) => check2.command === null) ? ["- No check ran in any phase, since no kind has a command."] : [
     ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
     ...fix.checks.runs["repair-checks"].length === 0 ? [`- After the repair: not run, since ${repairWhy}.`] : [],
-    ...answered2 && fix.checks.runs["answer-checks"].length === 0 ? ["- After answers: not run, since no answer pass changed a file."] : []
+    ...answered2 && fix.checks.runs["answer-checks"].length === 0 ? ["- After answers: not run, since no answer pass changed a file."] : [],
+    ...baseNotes(review2, fix, checks, scope)
   ];
   const earlier = ran.flatMap((phase) => {
     const edit = edits.get(phase) ?? null;
@@ -34501,7 +35108,7 @@ function fixSections(state, evidencePath, patches) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [fixesSection(review2, fix), documentationSection(review2, fix), checksSection(fix, review2.survey, review2.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
+  return [fixesSection(review2, fix), documentationSection(review2, fix), checksSection(review2, fix, state.scope, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -34566,7 +35173,7 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds;
+var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, notRunOnBase;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
@@ -34575,6 +35182,8 @@ var init_fix_report = __esm({
     init_fix_state();
     init_kill_marks();
     init_review_fold();
+    init_scope_line();
+    init_brief_checks();
     init_decision_report();
     init_documents();
     init_markdown();
@@ -34591,9 +35200,20 @@ var init_fix_report = __esm({
     allFixerAnswers = (fix) => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
     reporterWords = (line) => line.phase === "repair" ? "the repair" : line.phase === "answer" ? `answer pass ${String(line.time)}` : line.key;
     laterPass = (revision) => revision.phase === "answer" || revision.phase === "answer-checks" ? "an answer pass" : "the reopened fix pass";
-    phaseTitles = { "baseline-checks": "Before the fixes", checks: "After the fixes", "repair-checks": "After the repair", "answer-checks": "After answers" };
+    phaseTitles = { "baseline-checks": "Before the fixes", checks: "After the fixes", "base-checks": "On the base", "repair-checks": "After the repair", "answer-checks": "After answers" };
     revisionOwners = { fixes: "the fixes", documentation: "the documentation step", repair: "the repair", answer: "an answer pass" };
     runSeconds = (run2) => `${((Date.parse(run2.endedAt) - Date.parse(run2.startedAt)) / 1e3).toFixed(1)} s`;
+    readingWords = {
+      same: "the change has no failure that the base does not have",
+      adds: "the change has a failure that the base does not have",
+      unknown: "the outputs cannot be compared"
+    };
+    notRunOnBase = {
+      "empty-tree": (kinds) => `${kinds} did not run there, since the base of the change is the empty tree.`,
+      "no-worktree": (kinds) => `${kinds} did not run there, since no worktree of the base could be made; the facts of the run give the error of git.`,
+      "build-failed": (kinds) => `${kinds} did not run there, since the build failed on the base.`,
+      "not-run": (kinds) => `${kinds} did not run there.`
+    };
   }
 });
 
@@ -34622,7 +35242,8 @@ function contextOf(state, review2) {
   const findings = rankedFindings(review2).map((entry) => ({ entry, decision: byId.get(entry.finding.id) ?? null }));
   const fix = review2.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review2, fix, entry.finding.id)]));
-  return { state, review: review2, findings, outcomes, documents: leftDocumentsOf(review2) };
+  const checks = fix === null ? [] : briefChecksOf({ ...review2, fix }, state.scope);
+  return { state, review: review2, findings, outcomes, documents: leftDocumentsOf(review2), checks };
 }
 function decisionsOf(context, kind) {
   return context.findings.flatMap(({ decision }) => decision !== null && decision.decision === kind ? [decision] : []);
@@ -34664,23 +35285,17 @@ function departuresOf(context) {
     }];
   });
 }
-function checksOf(review2) {
-  const { fix } = review2;
-  return (fix.checks.planned?.checks ?? []).filter((check2) => check2.command !== null).map((check2) => {
-    const before = lastRecordedRun(fix, "baseline-checks", check2.kind)?.outcome ?? null;
-    const current = afterPhases.map((phase) => lastCurrentRun(review2, phase, check2.kind)).find((run2) => run2 !== null);
-    const newest = afterPhases.map((phase) => lastRecordedRun(fix, phase, check2.kind)).reduce((found, run2) => run2 !== null && (found === null || run2.revisionsBefore > found.revisionsBefore) ? run2 : found, null);
-    return { kind: check2.kind, before, after: (current ?? newest)?.outcome ?? null };
-  });
-}
 function fixGaps(context, fix) {
   const gaps = [];
   for (const check2 of fix.checks.planned?.checks ?? []) {
     if (check2.command === null) gaps.push({ kind: "check", text: `No ${check2.kind} check ran: ${droppedByOperator(context.review.survey, check2) ?? check2.reason ?? "the run has no command for it"}.` });
   }
-  for (const check2 of checksOf({ answerPasses: context.review.answerPasses, fix })) {
-    const unfinished = [check2.before, check2.after].map(unfinishedWords).filter((words) => words !== null);
-    if (unfinished.length > 0) gaps.push({ kind: "check", text: `The ${check2.kind} check did not finish: it ${unfinished.join(", then ")}.` });
+  for (const check2 of context.checks) {
+    const unfinished2 = [check2.before, check2.last?.outcome ?? null].map(unfinishedWords).filter((words) => words !== null);
+    if (unfinished2.length > 0) gaps.push({ kind: "check", text: `The ${check2.kind} check did not finish: it ${unfinished2.join(", then ")}.` });
+  }
+  for (const text3 of context.checks.map(checkGap)) {
+    if (text3 !== null) gaps.push({ kind: "check", text: text3 });
   }
   const unappliedWords = (fate, id) => {
     if (fate !== "not-attempted") return fateClause(fate);
@@ -34762,13 +35377,14 @@ function changedOf(context) {
   const left = decisionsOf(context, "leave").map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, "fix").map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], noCommand: [], documentation: null, validation: validationOf([]) };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit2) => commit2.sha));
+  const applied = withOutcome(context, "applied");
   return {
     fixed: true,
     decided: context.review.decisions !== null,
-    applied: withOutcome(context, "applied"),
+    applied,
     alreadyInTree: withOutcome(context, "already applied"),
     deferred: withOutcome(context, "deferred"),
     blocked: withOutcome(context, "blocked"),
@@ -34778,8 +35394,11 @@ function changedOf(context) {
     patches: fix.revisions.length,
     // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
     left: [...left, ...withOutcome(context, "held for the author")],
-    checks: checksOf({ answerPasses: context.review.answerPasses, fix }),
-    documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null
+    checks: context.checks,
+    noCommand: (fix.checks.planned?.checks ?? []).filter((check2) => check2.command === null).map((check2) => check2.kind),
+    documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null,
+    // The answer that gave each fix its last outcome applied it: the fix pass's, or an answer pass's.
+    validation: validationOf(applied.map((id) => ({ id, methods: (lastFixAnswer(context.review, fix, id).answer?.validation ?? []).map((entry) => entry.method) })))
   };
 }
 function documentationWords(review2, fix) {
@@ -34793,24 +35412,23 @@ function documentationWords(review2, fix) {
   return `The documentation step updated ${counted(updated, "document", "documents")}${leftFiles === 0 ? "" : ` and left ${String(leftFiles)}`}.`;
 }
 function headlineText(counts, defaultsInPlace, fixed) {
-  const { questions, departures, documents } = counts;
-  const total = questions + departures + documents;
+  const { questions, departures, documents, checks } = counts;
+  const total = questions + departures + documents + checks;
   if (total === 0) {
-    return fixed ? "Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of." : "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
+    return fixed ? "Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail." : "Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.";
   }
   const parts = [
     ...questions === 0 ? [] : [counted(questions, "question", "questions")],
     ...departures === 0 ? [] : [counted(departures, "fix that goes against a written rule", "fixes that go against a written rule")],
-    ...documents === 0 ? [] : [counted(documents, "document that the edits of the run left out of date", "documents that the edits of the run left out of date")]
+    ...documents === 0 ? [] : [counted(documents, "document that the edits of the run left out of date", "documents that the edits of the run left out of date")],
+    ...checks === 0 ? [] : [counted(checks, "check that the edits of the run made fail", "checks that the edits of the run made fail")]
   ];
   const waits = questions === 0 ? "Nothing waits for you: the run went on as it decided." : `Nothing waits for you: ${questions === 1 ? "the" : "each"} question has a default${defaultsInPlace ? " in place" : ""}.`;
   return `${counted(total, "thing needs", "things need")} you: ${listed(parts)}. ${waits}`;
 }
-function coveredText(review2) {
-  const { fix } = review2;
-  if (fix === null) return "Each angle ran, and a verifier examined each candidate.";
-  const after = checksOf({ answerPasses: review2.answerPasses, fix }).every((check2) => check2.after !== null);
-  return after ? "Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes." : "Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.";
+function coveredText(context) {
+  if (context.review.fix === null) return "Each angle ran, and a verifier examined each candidate.";
+  return context.checks.every((check2) => check2.last !== null) ? "Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes." : "Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.";
 }
 function changeOf(account, beforeEdits) {
   if (account.kind !== "given") return { state: account.kind };
@@ -34826,7 +35444,7 @@ function briefOf(state) {
   const openQuestions = questions.filter((question) => question.answer === null).length;
   const openDepartures = departures.filter((departure) => departure.review === null).length;
   const notCovered = gapsOf(context);
-  const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length };
+  const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length, checks: context.checks.filter((check2) => check2.fault === "edits").length };
   const changed = changedOf(context);
   const edited = changed.applied.length > 0 || review2.answers.some((answer3) => answer3.appliedBy !== null && answer3.appliedBy !== "tree");
   return {
@@ -34838,7 +35456,7 @@ function briefOf(state) {
     departures,
     documents: context.documents,
     notCovered,
-    covered: notCovered.length === 0 ? coveredText(review2) : null,
+    covered: notCovered.length === 0 ? coveredText(context) : null,
     look: lookOf(context, departures),
     changed
   };
@@ -34858,8 +35476,8 @@ function changePart(change) {
     case "given": {
       const sources = (list) => list.map(inlineText).join(", ");
       const why = change.why === null ? "The change states no reason." : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? "the triage named no source" : `from ${sources(change.whyFrom)}`}).`;
-      const restsOn = change.restsOn.length === 0 ? "" : ` It rests on ${sources(change.restsOn)}.`;
-      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn}`, ...change.beforeEdits ? ["", beforeEditsSentence] : []];
+      const restsOn2 = change.restsOn.length === 0 ? "" : ` It rests on ${sources(change.restsOn)}.`;
+      return [...lines, paragraphText(change.what), "", paragraphText(why), "", `This is the triage's account of the change, which no verifier examined.${restsOn2}`, ...change.beforeEdits ? ["", beforeEditsSentence] : []];
     }
   }
 }
@@ -34911,13 +35529,6 @@ function lookPart(brief, words) {
   const judged2 = brief.change.state === "given" ? " The triage judged that the change alters no public interface and affects no file beyond its own." : "";
   return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged2}`];
 }
-function checksWords(checks) {
-  if (checks.length === 0) return "No check ran.";
-  if (checks.every((check2) => check2.before === "passed" && check2.after === "passed")) return "The checks passed before and after the fixes.";
-  const at = (outcome, when) => outcome === null ? `did not run ${when}` : `${outcome} ${when}`;
-  const words = (check2) => check2.before !== null && check2.before === check2.after ? `${check2.before} before and after the fixes` : `${at(check2.before, "before the fixes")} and ${at(check2.after, "after them")}`;
-  return `The checks: ${checks.map((check2) => `${check2.kind} ${words(check2)}`).join("; ")}.`;
-}
 function readOnlyChangedSentence(changed, show) {
   const toFix = !changed.decided ? "" : changed.toFix.length === 0 ? " It decided to fix no finding." : ` It decided to fix ${counted(changed.toFix.length, "finding", "findings")}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
   return `This run only reviewed: it changed nothing.${toFix}${leftSentence(changed, show)}`;
@@ -34934,7 +35545,8 @@ function changedPart(changed, { link }) {
     ...part(changed.notAttempted, "no fixer attempted")
   ];
   const commits = changed.patches === 0 ? "No fix changed a file." : changed.commits === null ? changed.patches === 1 ? "Its patch is not committed: `deep-review commit` commits it." : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.` : `They are in ${counted(changed.commits.shas.length, "commit", "commits")}${changed.commits.uncommittedPatches === 0 ? "" : `, and ${counted(changed.commits.uncommittedPatches, "later patch is", "later patches are")} not committed yet`}.`;
-  return [...lines, `${outcomes.join("; ")}. ${commits}${leftSentence(changed, link)} ${checksWords(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
+  const validation = validationSentence(changed.validation, (ids2) => idWords(ids2, link));
+  return [...lines, `${outcomes.join("; ")}. ${commits}${leftSentence(changed, link)}${validation === null ? "" : ` ${validation}`} ${checksSentence(changed.checks)}${changed.documentation === null ? "" : ` ${changed.documentation}`}`];
 }
 function documentsPart(documents) {
   if (documents.length === 0) return [];
@@ -35021,13 +35633,16 @@ function briefShortForm(brief) {
     cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? "no fix" : "no fix left to review"}` : `Against a written rule: ${counted(openDepartures.length, "fix", "fixes")}`),
     ...openDepartures.slice(0, shownDepartures).map(departureLine),
     ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), "more fix", "more fixes").map(cut),
-    ...brief.changed.fixed ? [cut(brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`)] : [],
+    ...brief.changed.fixed ? [
+      cut(brief.documents.length === 0 ? "Documents left out of date: none" : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`),
+      cut(checksLine(brief.changed.checks, brief.changed.noCommand))
+    ] : [],
     cut(`Not covered: ${notCovered}`),
     cut(`Look at: ${brief.look.length === 0 ? "nothing" : brief.look.map(lookWords).join(", ")}`),
     cut(`Changed: ${changedWords(brief.changed)}`)
   ];
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, afterPhases, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, leftSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, leftSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -35037,6 +35652,7 @@ var init_brief = __esm({
     init_kill_marks();
     init_decision_report();
     init_documents();
+    init_brief_checks();
     init_fix_report();
     init_markdown();
     init_runs();
@@ -35058,7 +35674,6 @@ var init_brief = __esm({
     };
     withOutcome = (context, outcome) => [...context.outcomes].filter(([, found]) => found.last === outcome).map(([id]) => id);
     withFate = (context, fate) => [...context.outcomes].filter(([, found]) => fateWordsOf[found.last] === fate).map(([id]) => id);
-    afterPhases = ["answer-checks", "repair-checks", "checks"];
     unfinishedOutcomeWords = {
       timeout: "timed out",
       skipped: "was skipped",
@@ -35380,6 +35995,7 @@ function factsOfRun(state, scope, review2, input2) {
     ...reopenedLine(review2),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refuted(review2).length)} refuted at verification`,
     ...[fixHeaderLine(review2)].filter((line) => line !== null),
+    ...baseWorktreeLines(review2),
     `Evidence store: ${inlineText(input2.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is the file <hash> in it.`,
     ...answering.length === 0 ? [] : ["", ...answering],
     ...continuing
@@ -35472,11 +36088,11 @@ var init_report = __esm({
 });
 
 // src/review/report-copy.ts
-import { existsSync as existsSync9, mkdirSync as mkdirSync9, rmSync as rmSync9 } from "node:fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync10, rmSync as rmSync10 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
-import { dirname as dirname5, join as join29 } from "node:path";
+import { dirname as dirname5, join as join30 } from "node:path";
 function reportCopyPath(checkpointRoot, state) {
-  return join29(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${shortRunId(state.id)}.md`);
+  return join30(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${shortRunId(state.id)}.md`);
 }
 function stoppedContinueCommand(state, context) {
   const spend = budgetStoppedRun(state) ? budgetSpendOf(state, context.adapter).usd : null;
@@ -35501,7 +36117,7 @@ function reportInputOf(checkpoint, state, context) {
 function removeStaleCopy(path, runId, log) {
   if (!existsSync9(path)) return;
   try {
-    rmSync9(path, { force: true });
+    rmSync10(path, { force: true });
     log(`run ${runId}: removed the copy of the report at ${path}, which is older than the report`);
   } catch (error62) {
     log(`run ${runId}: could not remove the copy of the report at ${path}, which is older than the report: ${messageOf2(error62)}`);
@@ -35509,7 +36125,7 @@ function removeStaleCopy(path, runId, log) {
 }
 function writeReportCopy(path, text3, runId, log, write = writeFileAtomic) {
   try {
-    mkdirSync9(dirname5(path), { recursive: true });
+    mkdirSync10(dirname5(path), { recursive: true });
     write(path, text3);
     return path;
   } catch (error62) {
@@ -35549,7 +36165,7 @@ var init_report_copy = __esm({
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
 import { homedir as homedir4 } from "node:os";
-import { join as join30 } from "node:path";
+import { join as join31 } from "node:path";
 function inFlightOf(unit, startedAt, running) {
   let settled3 = null;
   const promise2 = running.then((value) => {
@@ -35592,6 +36208,8 @@ function rerunWords(replaces) {
       return `it timed out after ${took} at its first run in this attempt`;
     case "cut":
       return `its run of attempt ${String(run2.attempt)} was cut after ${took}, with no result of its own`;
+    case "earlier-worktree":
+      return run2.outcome === "skipped" ? `attempt ${String(run2.attempt)} had no worktree of the base to build it in, and this attempt makes one` : `it passed in ${took} in the worktree of the base of attempt ${String(run2.attempt)}, and this attempt makes a new one`;
   }
 }
 function once2(read) {
@@ -35642,7 +36260,7 @@ function ancestorDirectories(changedPaths2) {
   return [...directories].sort((a, b) => a.split("/").length - b.split("/").length || (a < b ? -1 : a > b ? 1 : 0));
 }
 function presurveyRulesFiles(worktree, changedPaths2, home) {
-  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join30(worktree, ...path.split("/"))));
+  const repository = ancestorDirectories(changedPaths2).flatMap((directory) => presurveyRulesFileNames.map((name) => directory === "" ? name : `${directory}/${name}`)).filter((path) => isFile(join31(worktree, ...path.split("/"))));
   return [...existingUserRulesFiles(home).map((path) => ({ level: "user", path })), ...repository.map((path) => ({ level: "repository", path }))];
 }
 function snapshotCommandFor(engineEntry, into) {
@@ -35690,7 +36308,7 @@ async function runReview(options2) {
   };
   const surveyInputs = () => surveyed;
   const engineEntry = options2.engineEntry ?? process.argv[1] ?? "deep-review";
-  const scratchBase = join30(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
+  const scratchBase = join31(options2.scratchRoot ?? defaultScratchRoot(), checkpointScratchKey(checkpoint));
   const caseInsensitive = once2(() => caseInsensitiveFileSystem(options2.worktree));
   const directories = claimsDirectories({ scratchBase, runId, worktree: options2.worktree, state: () => state, caseInsensitive, command: (key, directory) => claimCommandFor(engineEntry, key, directory), log });
   const { claims } = directories;
@@ -35723,11 +36341,11 @@ async function runReview(options2) {
         if (drifted(found)) {
           log(`worker ${settled3.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
           const check2 = worktreeChecked2(state, options2.worktree, phase, attempt, "answer", found).payload;
-          return [{ kind: "worktree.checked", version: worktreeCheckVersion(check2), payload: check2 }];
+          return [{ kind: "worktree.checked", version: writtenVersion("worktree.checked", [check2.phase], { moment: check2.moment }), payload: check2 }];
         }
       }
       const settling = phase === "fixes" ? directories.settleReading(settled3.unit.key) : { access: claims, lost: false };
-      const events = contributionOf(settled3.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost });
+      const events = contributionOf(settled3.unit, receipt, { ...revisionContext(), claims: settling.access, survey: surveyInputs, claimsLost: settling.lost, log: (line) => log(`worker ${settled3.unit.role} ${name}: ${line}`) });
       for (const event of events) {
         for (const line of claimLines(event)) log(line);
         if (event.kind === "attempt.failed") log(`worker ${settled3.unit.role} ${name}: attempt failed: ${event.payload.reason}`);
@@ -35760,7 +36378,7 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files${excluded2 === 0 ? "" : `; scope.exclude left out ${String(excluded2)} changed path${excluded2 === 1 ? "" : "s"}`}`);
     }
     if (configure2 !== null) {
-      state = append(checkpoint, state, [{ kind: "review.configured", version: 7, payload: configure2.payload }]);
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 8, payload: configure2.payload }]);
       const pinnedNow = configure2.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure2.resolved)) log(line);
@@ -35820,28 +36438,45 @@ async function runReview(options2) {
         log(reason === void 0 ? `check ${check2.kind} (${phase}): wrote back ${file2.path}, ${changed}; the bytes before are ${bytes}` : `check ${check2.kind} (${phase}): did not write back ${file2.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
       }
     };
+    const baseTrees = { runId, worktree: options2.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
+    let onBase = null;
+    const baseOf3 = (attempt) => {
+      if (onBase?.attempt === attempt) return onBase;
+      const tree = makeBaseTree(baseTrees, scope.base);
+      const base = baseEnvironment(environment, options2.worktree, toolsPath);
+      if (tree.kind === "made" && base.changed.length > 0) log(`phase base-checks: its checks run without ${base.changed.join("; ")}`);
+      onBase = { attempt, tree, environment: base.environment };
+      return onBase;
+    };
+    const removeBase = () => {
+      removeBaseTrees(baseTrees);
+      onBase = null;
+    };
     const runDueCheck = async (phase, attempt, due) => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
-      if (due.skip !== null) {
-        log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
+      const base = isTreeCheckPhase(phase) ? null : baseOf3(attempt);
+      const skip = base?.tree.kind === "none" ? base.tree.reason : due.skip;
+      if (skip !== null) {
+        log(`check ${due.kind} (${phase}): skipped, ${skip}`);
         const now = (/* @__PURE__ */ new Date()).toISOString();
-        const skipped = { phase, attempt, kind: due.kind, command: due.command, outcome: "skipped", exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip, replaces };
-        state = append(checkpoint, state, [{ kind: "check.ran", version: 3, payload: skipped }]);
+        const skipped = { phase, attempt, kind: due.kind, command: due.command, outcome: "skipped", exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip, maxRecordedTextLength), replaces };
+        state = append(checkpoint, state, [{ kind: "check.ran", version: writtenVersion("check.ran", [phase]), payload: skipped }]);
         return;
       }
       if (due.replaces !== null) log(`check ${due.kind} (${phase}): running again; ${rerunWords(due.replaces)}`);
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
-      state = append(checkpoint, state, [{ kind: "check.started", version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } }]);
-      const manifest = prepareCheckManifest(join30(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree);
+      state = append(checkpoint, state, [{ kind: "check.started", version: writtenVersion("check.started", [phase]), payload: { phase, attempt, kind: due.kind, command: due.command } }]);
+      const manifest = base === null ? prepareCheckManifest(join31(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree) : null;
       const result = await runCheck(checkpoint.evidence, {
         command: due.command,
-        worktree: options2.worktree,
-        environment,
-        toolsPath,
+        worktree: base?.tree.kind === "made" ? base.tree.path : options2.worktree,
+        environment: base?.environment ?? environment,
+        // The environment of a check on the base has the directories of tools.path already, less those inside the reviewed worktree.
+        toolsPath: base === null ? toolsPath : [],
         timeoutMs,
-        ioDirectory: join30(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`),
+        ioDirectory: join31(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`),
         ...options2.runProcess === void 0 ? {} : { runProcess: options2.runProcess }
       });
       const cutAgain = secondCut(due.replaces, attempt, result.outcome);
@@ -35850,7 +36485,11 @@ async function runReview(options2) {
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error62 === null ? "" : `: ${error62}`}`);
       if (outcome === "cut") log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error62 === null ? null : truncated(error62, maxRecordedTextLength), replaces };
-      const recorded = { kind: "check.ran", version: 3, payload: ran };
+      const recorded = { kind: "check.ran", version: writtenVersion("check.ran", [phase]), payload: ran };
+      if (!isTreeCheckPhase(phase) || manifest === null) {
+        state = append(checkpoint, state, [recorded]);
+        return;
+      }
       if (killedRun(ran)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options2.worktree, content.match, checkpoint.evidence), [recorded]);
         return;
@@ -35879,13 +36518,14 @@ async function runReview(options2) {
         }
         case "start-phase":
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
-          state = append(checkpoint, state, [{ kind: "phase.started", version: step.phase === "documentation" ? 6 : 5, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: "phase.started", version: writtenVersion("phase.started", [step.phase]), payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case "check-worktree": {
+          if (step.phase === "base-checks" && step.moment === "start") removeBase();
           const { payload: check2, unlisted } = phaseCheck(state, options2.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check2.drifted) log(`phase ${step.phase}: the worktree ${step.moment === "restored" ? "still differs from what the run expects after the write back" : "drifted from what the run expects"}: ${driftList(check2)}`);
           if (check2.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check2.strays.join(", ")}${unlisted === 0 ? "" : `, and ${String(unlisted)} more the check does not list`}`);
-          state = append(checkpoint, state, [{ kind: "worktree.checked", version: worktreeCheckVersion(check2), payload: check2 }]);
+          state = append(checkpoint, state, [{ kind: "worktree.checked", version: writtenVersion("worktree.checked", [check2.phase], { moment: check2.moment }), payload: check2 }]);
           break;
         }
         case "restore-tree": {
@@ -35939,7 +36579,7 @@ async function runReview(options2) {
                 return { kind: "group.unverified", version: 1, payload: { phase: degradation.phase, groupId: degradation.groupId, reason: degradation.reason } };
               case "unit.unattempted":
                 degraded2(`${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`, degradation.reason);
-                return { kind: "unit.unattempted", version: degradation.phase === "documentation" ? 2 : 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+                return { kind: "unit.unattempted", version: writtenVersion("unit.unattempted", [degradation.phase]), payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
@@ -35954,7 +36594,7 @@ async function runReview(options2) {
             survey: surveyInputs,
             commitMessages: changeMessages,
             evidence: checkpoint.evidence,
-            newScratch: () => join30(scratchBase, randomUUID4()),
+            newScratch: () => join31(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
             claims,
@@ -35963,7 +36603,7 @@ async function runReview(options2) {
           for (const unit of step.units) {
             if (unit.phase === "fixes" && !directories.prepare(unit.key)) break;
             const invocation = invocationFor(unit, context);
-            if (invocation.scratch !== void 0) prepareSnapshots(join30(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
+            if (invocation.scratch !== void 0) prepareSnapshots(join31(invocation.scratch, snapshotsDirectoryName), options2.worktree, expectedTreeOf(state).keys());
             log(`worker ${unit.role} ${unit.phase}:${unit.key}: started${batchWords(state, unit)}`);
             const startedAt = Date.now();
             const running = runWorker(checkpoint, runId, invocation, {
@@ -35986,8 +36626,9 @@ async function runReview(options2) {
           await recordSettled(inFlight, record2);
           break;
         case "finish-phase":
+          if (step.phase === "base-checks") removeBase();
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: "phase.finished", version: step.phase === "documentation" ? 7 : 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: "phase.finished", version: writtenVersion("phase.finished", [step.phase]), payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case "write-report": {
           const fixState = state.review.fix;
@@ -35999,9 +36640,9 @@ async function runReview(options2) {
           const text3 = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options2.home ?? homedir4(), ...fix });
           const report2 = checkpoint.evidence.put(text3);
           state = append(checkpoint, state, [
-            // Only statistics with the documentation phase's row need version 6: a run configured before the step skips the phase and has none (TD5 of the documentation step).
-            { kind: "report.written", version: statistics.phases.some((row) => row.phase === "documentation") ? 6 : 5, payload: { report: report2, statistics, patches } },
-            { kind: "phase.finished", version: 6, payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
+            // A run that skips a phase has no row of it, so it needs no version that names it.
+            { kind: "report.written", version: writtenVersion("report.written", statistics.phases.map((row) => row.phase)), payload: { report: report2, statistics, patches } },
+            { kind: "phase.finished", version: writtenVersion("phase.finished", ["report"]), payload: { phase: "report", attempt: state.review.phases.report.attempt, outcome: "completed", blocker: null } }
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report2)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
           copied = { path: writeReportCopy(reportCopyPath(checkpoint.root, state), text3, runId, log) };
@@ -36268,7 +36909,7 @@ async function reopenRun(runs, context) {
     const current = run2.review.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
     const unstaged = settle4 !== null && settle4.kind === "complete" ? resetSettledIndex(run2, settle4.series, context.worktree) : [];
-    const state = append(checkpoint, run2, [...settling, { kind: "fix.reopened", version: units.some((unit) => unit.phase === "documentation") ? 2 : 1, payload: { units } }, ...changed ? [{ kind: "limits.changed", version: 1, payload: limits }] : []]);
+    const state = append(checkpoint, run2, [...settling, { kind: "fix.reopened", version: writtenVersion("fix.reopened", units.map((unit) => unit.phase)), payload: { units } }, ...changed ? [{ kind: "limits.changed", version: 1, payload: limits }] : []]);
     if (settle4 !== null && settle4.kind !== "elsewhere") log(settle4.line);
     if (unstaged.length > 0) log(unstagedLine(run2.id, unstaged));
     log(`run ${run2.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(", ")}; ${spendWords(budgetSpendOf(run2, context.adapter).usd, limits.runBudgetUsd)}`);
@@ -36415,7 +37056,7 @@ function recordLostWorkers(checkpoint, state, context, log) {
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === "running")) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost = { kind: "worker.lost", version: unit?.phase === "documentation" ? 6 : 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost = { kind: "worker.lost", version: writtenVersion("worker.lost", unit === null ? [] : [unit.phase]), payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason, "lost") : { claims: [], revisions: [] };
     for (const line of edits.claims.flatMap(claimLines)) log(line);
     if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? "" : "s"}`);
@@ -36429,7 +37070,7 @@ function reenterPhase(checkpoint, state, adapter, log) {
   if (phase === null) return state;
   const attempt = review2.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
-  return append(checkpoint, state, [{ kind: "phase.started", version: phase === "documentation" ? 6 : 5, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: "phase.started", version: writtenVersion("phase.started", [phase]), payload: { phase, attempt } }]);
 }
 var seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped, spendBound;
 var init_controller = __esm({
@@ -36446,7 +37087,7 @@ var init_controller = __esm({
     init_survey_state();
     init_assemble();
     init_environment();
-    init_errors7();
+    init_errors5();
     init_launcher();
     init_kill_marks();
     init_preflight();
@@ -36459,12 +37100,14 @@ var init_controller = __esm({
     init_claims_directories();
     init_configuration();
     init_claims();
+    init_base();
     init_run();
     init_content();
     init_conventions();
     init_drift();
+    init_event_versions();
     init_paths();
-    init_errors6();
+    init_errors7();
     init_claim_events();
     init_continue_command();
     init_commit();
@@ -36641,7 +37284,7 @@ var init_answer = __esm({
     init_commit();
     init_controller();
     init_drift();
-    init_errors6();
+    init_errors7();
     init_lock();
     init_runs();
     init_steps();
@@ -36652,7 +37295,7 @@ var init_answer = __esm({
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter as delimiter2, extname, isAbsolute as isAbsolute8, join as join31, posix as posix2, resolve as resolve11, win32 as win323 } from "node:path";
+import { delimiter as delimiter2, extname, isAbsolute as isAbsolute9, join as join32, posix as posix2, resolve as resolve11, win32 as win323 } from "node:path";
 function refuseShim(executable, platform = process.platform) {
   const extension = (platform === "win32" ? win323 : posix2).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
@@ -36664,7 +37307,7 @@ function refuseShim(executable, platform = process.platform) {
   return executable;
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
-  if (isAbsolute8(name) || name.includes("/") || name.includes("\\")) {
+  if (isAbsolute9(name) || name.includes("/") || name.includes("\\")) {
     const absolute = resolve11(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute), platform);
@@ -36674,7 +37317,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   const extensions = platform === "win32" ? extname(name) === "" ? spellingsOf(environment, "PATHEXT", platform)[0]?.[1]?.split(";").filter((extension) => extension.length > 0) ?? defaultPathExt : [""] : [""];
   for (const directory of directories) {
     for (const extension of extensions) {
-      const candidate = join31(directory.replaceAll('"', ""), `${name}${extension}`);
+      const candidate = join32(directory.replaceAll('"', ""), `${name}${extension}`);
       if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
     }
   }
@@ -36686,7 +37329,7 @@ var init_executable = __esm({
     "use strict";
     init_paths();
     init_environment();
-    init_errors6();
+    init_errors7();
     defaultPathExt = [".COM", ".EXE", ".BAT", ".CMD"];
     shellShims = /* @__PURE__ */ new Set([".cmd", ".bat"]);
     windowsSpawnable = /* @__PURE__ */ new Set([".exe", ".com"]);
@@ -36701,7 +37344,7 @@ var init_executable = __esm({
 function briefJson(brief, local, notShown) {
   const { change, changed } = brief;
   return {
-    version: 3,
+    version: 4,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -36736,18 +37379,21 @@ function briefJson(brief, local, notShown) {
       commits: brief.changed.commits === null ? null : { shas: [...brief.changed.commits.shas], uncommittedPatches: brief.changed.commits.uncommittedPatches },
       patches: changed.patches,
       left: [...brief.changed.left],
-      checks: brief.changed.checks.map((check2) => ({ ...check2 }))
+      // When a check passed and failed before its last run is for the words of the brief; its fault says what a program needs of it.
+      checks: changed.checks.map((check2) => ({ kind: check2.kind, before: check2.before, last: check2.last === null ? null : { ...check2.last }, base: check2.base === null ? null : { ...check2.base }, fault: check2.fault })),
+      validation: Object.fromEntries(validationStrengths.map((strength) => [strength, [...changed.validation[strength]]]))
     },
     local: { ...local },
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state }))
   };
 }
-var text2, ids, condition, answer, gapKindsV1, changeV1, briefJsonV1, briefJsonV2, briefJsonV3, answerJson;
+var text2, ids, condition, answer, gapKindsV1, changeV1, briefJsonV1, briefJsonV2, briefJsonV3, briefJsonV4, answerJson;
 var init_brief_json = __esm({
   "src/review/brief-json.ts"() {
     "use strict";
     init_zod();
     init_brief();
+    init_brief_checks();
     init_documents();
     init_vocabulary();
     text2 = external_exports.string();
@@ -36822,6 +37468,22 @@ var init_brief_json = __esm({
       version: external_exports.literal(3),
       change: external_exports.strictObject({ ...changeV1.shape, beforeEdits: external_exports.boolean() }).nullable(),
       notShown: external_exports.array(external_exports.strictObject({ run: text2, state: text2 }))
+    });
+    briefJsonV4 = external_exports.strictObject({
+      ...briefJsonV3.shape,
+      version: external_exports.literal(4),
+      headline: external_exports.strictObject({ text: text2, questions: external_exports.number().int().min(0), departures: external_exports.number().int().min(0), documents: external_exports.number().int().min(0), checks: external_exports.number().int().min(0) }),
+      changed: external_exports.strictObject({
+        ...briefJsonV3.shape.changed.shape,
+        checks: external_exports.array(external_exports.strictObject({
+          kind: external_exports.enum(checkKinds),
+          before: text2.nullable(),
+          last: external_exports.strictObject({ outcome: text2, when: external_exports.enum(lastMoments) }).nullable(),
+          base: external_exports.strictObject({ commit: text2, name: text2, outcome: text2.nullable(), reading: external_exports.enum(baseReadings).nullable(), reason: external_exports.enum(notComparedReasons).nullable() }).nullable(),
+          fault: external_exports.enum(checkFaults).nullable()
+        })),
+        validation: external_exports.strictObject(Object.fromEntries(validationStrengths.map((strength) => [strength, ids])))
+      })
     });
     answerJson = (given) => given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied };
   }
@@ -37009,7 +37671,7 @@ function fixStatus(state, review2) {
   });
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === "held").map((route) => route.id);
   const heldWords = review2.phases.decision.status === "skipped" ? "held for the author" : "no fixer sees, as decided";
-  const shown = checkPhases.filter((phase) => phase !== "answer-checks" || review2.answerPasses.length > 0);
+  const shown = checkPhases.filter((phase) => (phase !== "answer-checks" || review2.answerPasses.length > 0) && (phase !== "base-checks" || fix.checks.runs["base-checks"].length > 0));
   const checks = (fix.checks.planned?.checks ?? []).map((check2) => ({
     kind: check2.kind,
     command: check2.command,
@@ -37097,8 +37759,8 @@ __export(command_exports, {
   scopeRequestOf: () => scopeRequestOf,
   usage: () => usage
 });
-import { existsSync as existsSync10, mkdirSync as mkdirSync10, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname6, join as join32, relative as relative4, resolve as resolve12 } from "node:path";
+import { existsSync as existsSync10, mkdirSync as mkdirSync11, writeFileSync as writeFileSync9 } from "node:fs";
+import { dirname as dirname6, join as join33, relative as relative4, resolve as resolve12 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 function number4(flag, text3) {
@@ -37247,7 +37909,7 @@ async function run(argv, io) {
     case "report":
       return report(values, io, location.root, location.worktree);
     default:
-      return abandon(values, io, location.root);
+      return abandon(values, io, location.root, location.worktree);
   }
 }
 function hookCommand(values, rest, io) {
@@ -37486,7 +38148,7 @@ async function configCommand(values, rest, io) {
     const path = layer === "repository" ? repositoryConfigFile(location.worktree) : layer === "clone" ? cloneConfigPath(location.commonDir) : operatorConfigPath(io.environment, process.platform);
     if (path === null) throw new ReviewRefusedError("the operator's file is under APPDATA, which has no value here; set it, or write the file by hand");
     if (existsSync10(path)) throw new ReviewRefusedError(`${path} exists, and config init writes only a new file; edit it, or remove it first`);
-    mkdirSync10(dirname6(path), { recursive: true });
+    mkdirSync11(dirname6(path), { recursive: true });
     writeFileSync9(path, initText(layer, readPolicy(values.roles ?? engineRolesRoot())), { flag: "wx" });
     io.stdout(`${path}
 `);
@@ -37525,7 +38187,7 @@ async function configCommand(values, rest, io) {
   return 0;
 }
 function openCheckpoint(root, create) {
-  if (!create && !existsSync10(join32(root, ledgerFileName))) return null;
+  if (!create && !existsSync10(join33(root, ledgerFileName))) return null;
   return Checkpoint.open(root, { engine: engineIdentity() });
 }
 function invocationOf(values, io, worktree, commonDir) {
@@ -37717,7 +38379,7 @@ function report(values, io, root, worktree) {
     checkpoint.close();
   }
 }
-function abandon(values, io, root) {
+function abandon(values, io, root, worktree) {
   if (values.reason === void 0 || values.reason.trim() === "") throw new UsageError("--reason <text> is required");
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError("this repository has no checkpoint, so there is no run to abandon");
@@ -37732,6 +38394,8 @@ function abandon(values, io, root) {
         const status3 = reviewStatus(state);
         if (status3 === "complete" || status3 === "abandoned") throw new UsageError(`run ${state.id} is ${status3}; only an active or blocked run can be abandoned`);
         checkpoint.append(state.id, state.lastSequence, [{ kind: "run.abandoned", version: 1, payload: { reason: values.reason } }]);
+        removeBaseTrees({ runId: state.id, worktree, scratch: join33(defaultScratchRoot(), checkpointScratchKey(checkpoint)), checkpointRoot: checkpoint.root, environment: io.environment, log: (line) => io.stderr(`run ${state.id}: ${line}
+`) });
       } finally {
         release();
       }
@@ -37751,6 +38415,7 @@ var init_command2 = __esm({
     "use strict";
     init_checkpoint();
     init_claude_powershell();
+    init_scratch();
     init_errors4();
     init_answer_state();
     init_events();
@@ -37768,13 +38433,14 @@ var init_command2 = __esm({
     init_answer();
     init_controller();
     init_content();
-    init_errors6();
+    init_errors7();
     init_executable();
     init_lock();
     init_assemble();
     init_policy();
     init_state();
     init_vocabulary();
+    init_base();
     init_discover();
     init_claims();
     init_commit();
