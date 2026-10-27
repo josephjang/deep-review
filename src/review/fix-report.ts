@@ -360,7 +360,7 @@ const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Dat
 /** One table cell: a run's outcome and seconds, the frozen output's paths for one that did not pass, and the note that follows them. */
 function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: string; bytes: number }) => string, note: string): string {
   if (run === null) return '-';
-  // A run on the base says why it was skipped in fixed words: the error of git after them names local paths, which the facts of the run alone give (R5 of the facts before a merge).
+  // A run on the base says why it was skipped in fixed words: the error after them names local paths, which the facts of the run alone give (R5 of the facts before a merge).
   if (run.outcome === 'skipped') return tableCell(`skipped: ${run.phase === 'base-checks' ? notComparedWords[skippedReason(run.error)] : run.error ?? 'build did not pass'}`);
   const output = run.stdout === null || run.stderr === null ? '' : `; output ${evidencePath(run.stdout)}, ${evidencePath(run.stderr)}`;
   const text = `${run.outcome}, ${runSeconds(run)}${run.outcome === 'passed' ? '' : output}${note}`;
@@ -377,14 +377,14 @@ const readingWords: Readonly<Record<BaseReading, string>> = {
 /**
  * Why a kind the run took to the base did not run there, as a note under
  * the Checks table says it (R8 of the facts before a merge): for a reason
- * a run there records skipped, in the words of the brief, with the error of
- * git left to the facts of the run; null for a run there that ended, which
- * has its cell.
+ * a run there records skipped, in the words of the brief, with the error
+ * left to the facts of the run; null for a run there that ended, which has
+ * its cell.
  */
 function notRunOnBase(reason: NotComparedReason, kinds: string): string | null {
   if (reason === 'not-run') return `${kinds} did not run there.`;
   if (!Object.hasOwn(baseSkipReasons, reason)) return null;
-  return `${kinds} did not run there, since ${notComparedWords[reason]}${reason === 'no-worktree' ? '; the facts of the run give the error of git' : ''}.`;
+  return `${kinds} did not run there, since ${notComparedWords[reason]}${reason === 'no-worktree' ? '; the facts of the run give the error' : ''}.`;
 }
 
 /**
@@ -409,14 +409,16 @@ function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefChe
 }
 
 /**
- * The error of git for each worktree of the base it could not make, as a
+ * The error for each worktree of the base that could not be made, as a
  * line of the facts of the run, the one part of the report that names a
  * local path (R5 of the facts before a merge; R15 of the brief of a run).
+ * The error is git's or the engine's own refusal of a scratch directory
+ * inside the run (`makeBaseTree`), so the line blames neither.
  */
 export function baseWorktreeLines(review: ReviewState): string[] {
   const prefix = `${baseSkipReasons['no-worktree']}: `;
   const errors = new Set((review.fix?.checks.runs['base-checks'] ?? []).flatMap((run) => (run.outcome === 'skipped' && run.error?.startsWith(prefix) === true ? [run.error.slice(prefix.length)] : [])));
-  return [...errors].map((error) => `Worktree of the base: git could not make it: ${inlineText(error)}`);
+  return [...errors].map((error) => `Worktree of the base: could not be made: ${inlineText(error)}`);
 }
 
 /**

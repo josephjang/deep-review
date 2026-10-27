@@ -607,11 +607,14 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
     assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), /^\| lint \| .* \| failed, 4\.0 s; [^|]*; the repair gave no comparison \|$/m);
   });
 
-  it('says why a kind did not run on the base, with the error of git in the facts of the run alone', () => {
+  it('says why a kind did not run on the base, with the error in the facts of the run alone', () => {
     const report = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', `no worktree of the base could be made: ${gitError}`]] })));
     assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
-    assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error of git\.$/m);
-    assert.match(report, /^Worktree of the base: git could not make it: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
+    assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error\.$/m);
+    assert.match(report, /^Worktree of the base: could not be made: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
+    const refused = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no worktree of the base could be made: The worktree of the base (/w/tmp) is inside the reviewed tree (/w).']] })));
+    assert.match(refused, /^Worktree of the base: could not be made: The worktree of the base \(\/w\/tmp\) is inside the reviewed tree \(\/w\)\.$/m);
+    assert.doesNotMatch(refused, /git could not|error of git/, 'a refusal of the engine is not blamed on git');
     assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## The run\n'), 'the path is in the facts of the run alone');
     assert.equal(report.split('/home/me/.cache/x').length, 2, 'once');
     assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }), /^- On the base: lint did not run there, since the build did not pass on the base\.$/m);
