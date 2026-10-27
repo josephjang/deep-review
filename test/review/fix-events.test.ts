@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import type { FilesClaimed, FixedFinding, FixRecorded, TreeRevised } from '../../src/checkpoint/events.ts';
+import type { FilesClaimed, FixedFinding, FixRecorded, FixRecordedV4, TreeRevised } from '../../src/checkpoint/events.ts';
 import { documentationItemsOf, ownedFiles } from '../../src/checkpoint/fix-state.ts';
 import { applyEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
@@ -11,13 +11,14 @@ import { foldedWith, type ClaimsAccess } from '../../src/review/claim-events.ts'
 import { markerHash, type LiveClaim } from '../../src/review/claims.ts';
 import { planPathOf } from '../../src/review/documents.ts';
 import { expectedTreeOf, unsettledFiles } from '../../src/review/drift.ts';
-import { attemptRevisionEvents, checkRevision, fixAnswerEvents, revisionMessage, type RevisionContext } from '../../src/review/fix-events.ts';
+import { attemptRevisionEvents, checkRevision, fixAnswerEvents, revisionMessage, type AnswerContext, type RevisionContext } from '../../src/review/fix-events.ts';
 import { prepareCheckManifest, prepareSnapshots, snapshotsDirectoryName, takeSnapshot } from '../../src/review/snapshot.ts';
+import type { Unit } from '../../src/review/steps.ts';
 import { rawMatch } from '../../src/review/tree.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { git, remove, repositoryWith, write } from '../helpers/repository.ts';
-import { answer, baselined, checksPhase, claimed, decidedFixRun, decidedOf, endCheck, fixAnswer, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, type History, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
+import { answer, baselined, checksPhase, claimed, decidedFixRun, decidedOf, documentationAnswered, endCheck, fixAnswer, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, ranOnBase, type History, withBaseChecks, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
 
 const finding = (id: string, status: FixedFinding['status'], subject: string | null = null): FixedFinding => ({
   id, status, file: 'src/a.ts', line: 1, note: `${id} note`, message: subject === null ? null : { subject, body: `${subject}, because.` },
@@ -97,7 +98,7 @@ describe('claims spelled otherwise (TD4 of commit series integrity)', () => {
     const state = history.worker(60, 'fixer fixes:c1-1').fold();
     return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
   };
-  const contextOf = (state: RunState, claims: ClaimsAccess): RevisionContext => ({ state, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims });
+  const contextOf = (state: RunState, claims: ClaimsAccess): AnswerContext => ({ state, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims, log: () => {} });
   /** A case-folding claims directory holding these markers, or none to read. */
   const folding = (markers: LiveClaim[] | null): ClaimsAccess => ({ live: () => (markers === null ? null : { markers, caseInsensitive: true }), caseInsensitive: () => true });
   const running = (): History => baselined().start('fixes').add('fixes.planned', twoClusterPlan);
@@ -229,7 +230,7 @@ describe('the events of an answer pass\'s fixer (R5 of answers)', () => {
     const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }).start('answer').worker(71, 'fixer answer:pass-1').fold();
     return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
   };
-  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const contextOf = (state: RunState): AnswerContext => ({ state, worktree: repo, evidence: new EvidenceStore(join(directory, 'evidence')), match: rawMatch, claims: { live: () => null, caseInsensitive: () => false }, log: () => {} });
   const receipt = (paths: readonly string[]): WorkerReceipt => ({ workerId: worker(71), output: fixerAnswer([{ files: [...paths], subject: 'fix: Follow the rule parse throws on null' }]) }) as unknown as WorkerReceipt;
 
   it('records the pass\'s answer under its key, claims nothing, judges no violation, and takes a file outside what it owns as named', () => {
@@ -299,7 +300,7 @@ describe('the events of the documentation step', () => {
     prepareSnapshots(into(), repo, expectedTreeOf(state).keys());
     return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
   };
-  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const contextOf = (state: RunState): AnswerContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false }, log: () => {} });
   const unit = { phase: 'documentation', key: 'documentation', role: 'documentation' } as const;
   const receipt = (output: unknown): WorkerReceipt => ({ workerId: worker(55), output }) as unknown as WorkerReceipt;
   /** The state with `events` folded on, as the engine appends them. */
@@ -381,13 +382,15 @@ describe('the events of the repair', () => {
     const state = checksPhase(history, 'checks', { test: 'failed' }).start('repair').worker(60, 'fixer repair:repair').fold();
     return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
   };
-  const contextOf = (state: RunState): RevisionContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false } });
+  const contextOf = (state: RunState): AnswerContext => ({ state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false }, log: () => {} });
   const unit = { phase: 'repair', key: 'repair', role: 'fixer' } as const;
   const receipt = (output: unknown): WorkerReceipt => ({ workerId: worker(60), output }) as unknown as WorkerReceipt;
 
-  it('records a deferred check', () => {
+  it('records a deferred check, at version 2 in a run without the checks on the base', () => {
     const recorded = fixAnswerEvents(unit, receipt(fixerAnswer([{ status: 'deferred', note: 'every failure was there before' }])), contextOf(repairing())).find((event) => event.kind === 'fix.recorded')!;
     assert.deepEqual((recorded.payload as FixRecorded).findings.map((entry) => [entry.id, entry.status]), [['test', 'deferred']]);
+    assert.equal(recorded.version, 2);
+    assert.equal('comparisons' in (recorded.payload as object), false);
   });
 
   it('refuses a blocked check, with no required file or one in the repository it does not own, since its task offers no `blocked`', () => {
@@ -395,5 +398,91 @@ describe('the events of the repair', () => {
       const output = fixerAnswer([{ status: 'blocked', requiredFiles, note: 'needs a file' }]);
       assert.throws(() => fixAnswerEvents(unit, receipt(output), contextOf(repairing())), /Finding \[0\] is blocked, a status its task does not offer/, String(requiredFiles));
     }
+  });
+});
+
+// R2, TD6 and TD7 of the facts before a merge.
+describe('the events of the repair that compares with the base', () => {
+  let directory: string;
+  let repo: string;
+  let evidence: EvidenceStore;
+  beforeEach(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-comparison-events-')));
+    repo = repositoryWith(join(directory, 'repo'), { 'src/a.ts': 'a, fixed\n' });
+    evidence = new EvidenceStore(join(directory, 'evidence'));
+  });
+  afterEach(() => {
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  /** A run with the checks on the base through its fixes, where c1-1 left src/a.ts as the tree holds it, with lint and test failing before them. */
+  const throughFixes = (): History => {
+    const atBaseline = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', { lint: 'failed', test: 'failed' }), null));
+    return documentationAnswered(atBaseline.start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50), evidence.put('a, fixed\n')))
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes'));
+  };
+  /** The same run with lint and test failing after the fixes too; on the base build passes, lint fails and test passes; its repair worker launched. */
+  const comparing = (): RunState => {
+    const history = ranOnBase(ranOnBase(ranOnBase(checksPhase(throughFixes(), 'checks', { lint: 'failed', test: 'failed' }).start('base-checks'), 'build', 'passed'), 'lint', 'failed'), 'test', 'passed');
+    const state = history.finish('base-checks').start('repair').worker(60, 'fixer repair:repair').fold();
+    return { ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } };
+  };
+  const unit = { phase: 'repair', key: 'repair', role: 'fixer' } as const;
+  /** The repair's answer: lint applied in src/a.ts, test deferred, and the comparisons given. */
+  const answered = (comparisons: readonly Record<string, unknown>[]): WorkerReceipt => ({
+    workerId: worker(60),
+    output: { ...(fixerAnswer([{ files: ['src/a.ts'], subject: 'style: Format the guard' }, { status: 'deferred', note: 'every failure was there before the fixes' }]) as object), comparisons },
+  }) as unknown as WorkerReceipt;
+  const same = { kind: 'lint', reading: 'same', words: 'the same two lint errors as on the base' };
+  /** The events of an answer, the lines it logged, and the run with the events folded on, as the engine appends them. */
+  const record = (state: RunState, given: WorkerReceipt, of: Unit = unit): { events: ReturnType<typeof fixAnswerEvents>; lines: string[]; after: RunState } => {
+    const lines: string[] = [];
+    const events = fixAnswerEvents(of, given, { state, worktree: repo, evidence, match: rawMatch, claims: { live: () => null, caseInsensitive: () => false }, log: (line) => lines.push(line) });
+    const after = events.reduce((current, event) => applyEvent(current, { sequence: current.lastSequence + 1, runId: current.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: '2026-10-28T00:00:00.000Z', engine: 'test' }), state);
+    return { events, lines, after };
+  };
+  /** The repair's revisions the run holds, by the findings and paths of each; the worker took no snapshot, so its one revision names both checks. */
+  const repairEdits = (state: RunState): [readonly string[], string[]][] => state.review!.fix!.revisions.filter((revision) => revision.phase === 'repair').map((revision) => [revision.change.findings, revision.files.map((file) => file.path)]);
+
+  it('records a valid answer at version 4 with its comparisons, and its edits', () => {
+    write(repo, 'src/a.ts', 'a, formatted\n');
+    const { events, lines, after } = record(comparing(), answered([same]));
+    const recorded = events.find((event) => event.kind === 'fix.recorded')!;
+    assert.equal(recorded.version, 4);
+    assert.deepEqual((recorded.payload as FixRecordedV4).comparisons, [same]);
+    assert.deepEqual(after.review!.fix!.answers.repair.repair?.comparisons, [same]);
+    assert.deepEqual(repairEdits(after), [[['lint', 'test'], ['src/a.ts']]]);
+    assert.deepEqual(lines, []);
+  });
+
+  it('records an answer with no entry for a check that failed on the base, and counts its edits; the kind is left with no comparison', () => {
+    write(repo, 'src/a.ts', 'a, formatted\n');
+    const { events, lines, after } = record(comparing(), answered([]));
+    assert.equal(events.find((event) => event.kind === 'fix.recorded')!.version, 4);
+    assert.deepEqual(after.review!.fix!.answers.repair.repair?.comparisons, []);
+    assert.deepEqual(repairEdits(after), [[['lint', 'test'], ['src/a.ts']]]);
+    assert.deepEqual(lines, []);
+  });
+
+  it('drops an entry for a check whose base passed, for one that did not run on the base, and a second one for a kind, each with a line, and records the rest with the edits', () => {
+    write(repo, 'src/a.ts', 'a, formatted\n');
+    const passedThere = { kind: 'test', reading: 'adds', words: 'test fails on the change only' };
+    const notThere = { kind: 'typecheck', reading: 'unknown', words: 'no typecheck ran' };
+    const second = { ...same, reading: 'adds', words: 'a third lint error' };
+    const { events, lines, after } = record(comparing(), answered([passedThere, same, notThere, second]));
+    assert.deepEqual((events.find((event) => event.kind === 'fix.recorded')!.payload as FixRecordedV4).comparisons, [same], 'the first entry of the one kind that failed on the base');
+    assert.deepEqual(after.review!.fix!.answers.repair.repair?.comparisons, [same]);
+    assert.deepEqual(repairEdits(after), [[['lint', 'test'], ['src/a.ts']]]);
+    assert.deepEqual(lines.map((line) => /^dropped .*comparison of the (\w+) check with the base/.exec(line)?.[1]), ['test', 'typecheck', 'lint'], 'one line for each entry dropped, naming its kind');
+    assert.match(lines[2]!, /second/);
+  });
+
+  it('records a fixer\'s answer in a run with the checks on the base at the version of today, with no comparison', () => {
+    const state = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', { lint: 'failed' }), null)).start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').fold();
+    const fixer = { workerId: worker(50), output: fixerAnswer([{ files: ['src/a.ts'] }]) } as unknown as WorkerReceipt;
+    const recorded = record({ ...state, scope: { ...state.scope!, head: git(repo, 'rev-parse', 'HEAD') } }, fixer, { phase: 'fixes', key: 'c1-1', role: 'fixer' }).events.find((event) => event.kind === 'fix.recorded')!;
+    assert.equal(recorded.version, 2);
+    assert.equal('comparisons' in (recorded.payload as object), false);
   });
 });

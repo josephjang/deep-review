@@ -11,14 +11,15 @@ import { flagCheckSettings, noCheckSettings } from '../../src/review/checks/disc
 import { lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { contributionOf, groupCandidates, invocationFor, standingSurvey, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
-import { outputSchemaOf } from '../../src/review/schemas.ts';
+import { fixerOutputSchema, outputSchemaOf, repairOutputSchema } from '../../src/review/schemas.ts';
 import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { deciderAnswer } from '../helpers/fake-runtime.ts';
-import { answer, askDecision, baselined, decidedFixRun, documentationAnswer, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { deciderAnswer, fixerAnswer } from '../helpers/fake-runtime.ts';
+import { LauncherSandbox } from '../helpers/launcher.ts';
+import { answer, askDecision, baselined, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -41,7 +42,7 @@ const noSurveyInputs: SurveyInputs = { platform: 'linux', checkSettings: noCheck
 
 /** The one event a reading unit's receipt becomes; a reading unit freezes and compares nothing, so the evidence store refuses every write and the comparison every call. */
 const contribution = (of: Unit, answer: WorkerReceipt, state: RunState, worktree: string, survey: SurveyInputs = noSurveyInputs): NewEvent => {
-  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, claims: null, survey: () => survey, claimsLost: false });
+  const events = contributionOf(of, answer, { state, worktree, evidence: { put: () => { throw new Error('a reading unit freezes nothing'); } }, match: () => { throw new Error('a reading unit compares no file'); }, claims: null, survey: () => survey, claimsLost: false, log: () => {} });
   assert.equal(events.length, 1, JSON.stringify(events));
   return events[0]!;
 };
@@ -508,5 +509,65 @@ describe('the documentation step\'s task', () => {
     assert.match(text, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the edits of the fixers and the documentation step\./);
     assert.match(text, /^Files you own: every file the fixers and the documentation step changed\.\n- docs\/parse\.md\n- src\/a\.ts\n/m);
     assert.match(text, /^What the documentation step did:\n- doc-1 applied: docs\/parse\.md says parse guards the null\n- search already-applied: nothing else is stale$/m);
+  });
+});
+
+// R2 and TD6 of the facts before a merge.
+describe('the repair of a run with the checks on the base', () => {
+  const evidence = { read: () => Buffer.from('output\n'), pathOf: (artifact: { readonly sha256: string }) => `/store/artifacts/${artifact.sha256.slice(0, 4)}` };
+  /** A decided fix run with the documentation step, lint failing before the fixes, through its checks after them, where lint and test fail; with the checks on the base unless `compared` is false. */
+  const checked = (compared = true): History => {
+    const atBaseline = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', { lint: 'failed' }), null);
+    const fixed = (compared ? withBaseChecks(atBaseline) : atBaseline).start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1')
+      .add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50))).add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+    return checksPhase(documentationAnswered(fixed), 'checks', { lint: 'failed', test: 'failed' });
+  };
+  const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+  const context = (state: RunState): PhaseContext => ({
+    state, worktree: '/w', roles,
+    configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 600_000 })) },
+    scopeBlock: () => '## Scope', survey: () => noSurveyInputs, commitMessages: () => ({ kind: 'read', messages: [], withTree: false }), evidence,
+    newScratch: () => '/scratch/new', snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`, unelevatedEditors: false,
+    claims: { directoryOf: () => '/scratch/claims/run/round-1', command: () => 'claim', live: () => null, caseInsensitive: () => false },
+    documentation: () => ({ patches: [], exclude: [] }),
+  });
+  /** The invocation of the repair of the run with lint failing on the base too. */
+  const comparingRepair = () => invocationFor(unit('repair', 'repair', 'fixer'), context(ranOnBase(ranOnBase(checked().start('base-checks'), 'build', 'passed'), 'lint', 'failed').finish('base-checks').start('repair').fold()));
+
+  it('is answered in the repair\'s own schema, while the fixers of the same run and the repair of an older run keep the fixer\'s', () => {
+    assert.equal(comparingRepair().outputSchema, repairOutputSchema);
+    assert.equal(invocationFor(unit('repair', 'repair', 'fixer'), context(checked(false).start('repair').fold())).outputSchema, fixerOutputSchema);
+    const fixing = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null)).start('fixes').add('fixes.planned', fixPlan).fold();
+    assert.equal(invocationFor(unit('fixes', 'c1-1', 'fixer'), context(fixing)).outputSchema, fixerOutputSchema);
+  });
+
+  describe('at the launch', () => {
+    let box: LauncherSandbox;
+    beforeEach(() => {
+      box = new LauncherSandbox();
+    });
+    afterEach(() => {
+      box.close();
+    });
+    const answer = (comparisons: readonly unknown[] | null): string => JSON.stringify({ ...(fixerAnswer([{ status: 'deferred' }]) as object), ...(comparisons === null ? {} : { comparisons }) });
+    const same = { kind: 'lint', reading: 'same', words: 'the same lint errors as on the base' };
+    const required = (text: string): string[] => (JSON.parse(text) as { required: string[] }).required;
+
+    it('hands each runtime the schema its invocation gives the repair, and takes an answer with its comparisons and refuses one without', async () => {
+      const comparing = { outputSchema: comparingRepair().outputSchema };
+      const claude = await box.run(box.claude(comparing), { FAKE_OUTPUT: answer([same]) });
+      assert.equal(claude.outcome, 'completed', claude.error ?? '');
+      assert.deepEqual((claude.output as { comparisons: unknown }).comparisons, [same]);
+      const argv = box.recorded().argv;
+      assert.ok(required(argv[argv.indexOf('--json-schema') + 1]!).includes('comparisons'), 'Claude Code gets the schema on its command line');
+      const codex = await box.run(box.codex(comparing), { FAKE_OUTPUT: answer([same]) });
+      assert.equal(codex.outcome, 'completed', codex.error ?? '');
+      assert.ok(required(box.checkpoint.evidence.read(codex.evidence.schema).toString('utf8')).includes('comparisons'), 'Codex gets the schema in the file it is pointed at, which the launcher froze');
+      const without = await box.run(box.claude(comparing), { FAKE_OUTPUT: answer(null) });
+      assert.equal(without.outcome, 'failed');
+      assert.match(without.error ?? '', /does not match the output schema[\s\S]*comparisons/);
+      const fixer = await box.run(box.claude({ outputSchema: fixerOutputSchema }), { FAKE_OUTPUT: answer([same]) });
+      assert.equal(fixer.outcome, 'failed', 'a fixer\'s schema has no comparisons');
+    });
   });
 });

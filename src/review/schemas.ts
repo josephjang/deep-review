@@ -7,9 +7,9 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
-import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, comparisonWordsLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -254,6 +254,25 @@ export const fixerOutputSchema = z.strictObject({
   suite: z.strictObject({ result: suiteResultSchema, command: z.string().max(400), failures: z.string().max(2000) }),
 });
 export type FixerOutput = z.infer<typeof fixerOutputSchema>;
+
+/**
+ * What the repair of a run with the checks on the base returns (R2, TD6
+ * of the facts before a merge): a fixer's answer with the checks as its
+ * findings, and its reading of each check that failed or timed out on the
+ * base, of the failures before the fixes against those there. Only that
+ * repair answers in it, chosen by its unit, so no other worker gets a
+ * field it must leave empty. The engine keeps the entries of the kinds it
+ * compares, the first of each, and refuses no answer for the others.
+ */
+export const repairOutputSchema = z.strictObject({
+  ...fixerOutputSchema.shape,
+  comparisons: z.array(z.strictObject({
+    kind: checkKindSchema,
+    reading: baseReadingSchema,
+    words: z.string().min(1).max(comparisonWordsLengthV1),
+  })),
+});
+export type RepairOutput = z.infer<typeof repairOutputSchema>;
 
 /**
  * Refuse a fixer's answer whose findings do not name each index of the
