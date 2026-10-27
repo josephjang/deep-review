@@ -149,8 +149,8 @@ export function removeBaseTrees(context: BaseTreeContext): void {
   }
 }
 
-/** The variables that list directories a check finds programs or modules in, whose entries inside the reviewed worktree a check on the base leaves out (TD11). */
-const directoryLists: readonly string[] = ['PATH', 'PYTHONPATH', 'NODE_PATH'];
+/** The variables that list directories or archives a check finds programs or modules in, of the shell, Python, Node, Perl, Ruby and Java, whose entries inside the reviewed worktree a check on the base leaves out (TD11). */
+const directoryLists: readonly string[] = ['PATH', 'PYTHONPATH', 'NODE_PATH', 'PERL5LIB', 'PERLLIB', 'RUBYLIB', 'GEM_PATH', 'CLASSPATH'];
 
 /** The environment of a check on the base, and each variable it changed, in the words of the log. */
 export interface BaseEnvironment {
@@ -178,9 +178,12 @@ function insideReviewed(reviewed: string, directory: string): boolean {
  * The environment of a check on the base (TD11): `checkEnvironment` with
  * the directories of `tools.path` first on PATH, as every check has it,
  * then without the repository variables of git, without each entry of
- * PATH, PYTHONPATH and NODE_PATH inside the reviewed worktree, and without
- * VIRTUAL_ENV when it is inside it. A relative entry stays: it names a
- * directory of the check's working directory, the worktree of the base.
+ * PATH, PYTHONPATH, NODE_PATH, PERL5LIB, PERLLIB, RUBYLIB, GEM_PATH and
+ * CLASSPATH inside the reviewed worktree, and without VIRTUAL_ENV when it
+ * is inside it. A relative entry stays: it names a directory of the
+ * check's working directory, the worktree of the base. A variable that
+ * names one path or holds options, such as HOME, TMPDIR or NODE_OPTIONS,
+ * stays as it is.
  */
 export function baseEnvironment(environment: NodeJS.ProcessEnv, reviewed: string, toolsPath: readonly string[], platform: NodeJS.Platform = process.platform): BaseEnvironment {
   const inside = (directory: string): boolean => isAbsolute(directory) && insideReviewed(reviewed, directory);
