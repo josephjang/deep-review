@@ -212,6 +212,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(gapsWith('timeout', 'skipped'), [`The ${kind} check did not finish: it timed out, then was skipped.`]);
       assert.deepEqual(gapsWith('passed', 'not-started'), [`The ${kind} check did not finish: it did not start.`]);
       assert.deepEqual(gapsWith('passed', 'failed'), []);
+      assert.ok(gapsWith('passed', 'cut').every((gap) => !gap.includes('did not finish')));
     });
 
     it('says of a question whose default a fixer did not apply that the default went to a fixer, not that it was decided as a fix', () => {
