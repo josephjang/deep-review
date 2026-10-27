@@ -1,0 +1,360 @@
+# Technical Design: The facts before a merge
+
+Product part: [2026-10-28-facts-before-a-merge.requirements.md](2026-10-28-facts-before-a-merge.requirements.md).
+
+## Summary
+
+A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. The worktree has a path that the run fixes, and the phase removes it when it ends, when an attempt starts again and when the run is abandoned.
+
+The repair task gets the output on the base beside the outputs before and after the fixes. The repair answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
+
+The brief computes from the fold when the last run of each check ran, which check the edits of the run made fail, and what the base says of each other failure. It records nothing new for that, so R3 and R4 hold for older runs too. The short form gets a line `Checks:`, the headline a count, "What the review did not cover" two kinds of gap, and "What deep-review changed" a sentence on the validation. The JSON form goes to version 4. `review.configured@8` marks a run with the phase, and only the events that name the phase or carry the comparison get a new version.
+
+## Non-Goals
+
+### No install step in the worktree
+
+The phase runs the planned command as it is, in a tree where nothing is installed (PD2). A repository setup step is issue #83.
+
+### No change to the checks in the reviewed worktree
+
+The checks of `baseline-checks`, `checks`, `repair-checks` and `answer-checks` run where and as they run today. Only the run on the base removes the repository variables of git from its environment (TD11). The same fault for the other checks and for the git calls of the engine stays with #27.
+
+### No change to the role prompts
+
+The repair learns of the base from its task, and its answer gets a field from its schema. No fragment under `roles/fragments/` changes (TD6).
+
+### No new worker
+
+The repair worker reads the comparison (PD3). The phase itself runs no worker.
+
+### No run on the base in an answer pass
+
+An answer pass opens `answer` and `answer-checks` only, as today.
+
+### No change to the scope of the repair
+
+The repair fixes only the failures that the fixes added (PD8). Its task says so for a check whose base passes, as it says today for a check that failed before the fixes.
+
+## Context
+
+Verified at `4c764a7`. No uncommitted change was used.
+
+### The check phases and the planner
+
+`phases` in `src/review/vocabulary.ts` orders the fix pass as `baseline-checks`, `fixes`, `documentation`, `checks`, `repair`, `repair-checks`, and an answer pass as `answer`, `answer-checks`. `checkPhases` holds the four phases that run checks and no worker. `nextStep` in `src/review/steps.ts` returns `run-check` for a check phase while `dueCheck` names a kind, and `finish-phase` when it names none. `dueCheck` takes the first kind, in the order `build`, `typecheck`, `lint`, `test`, whose `runStanding` is not null. When the last current run of `build` did not pass, it skips each later kind with a reason. Each phase has its own gate: `checks` runs only after a revision of `fixes` or `documentation`, and `repair-checks` only after a revision of `repair`.
+
+`runDueCheck` in `src/review/controller.ts` appends `check.started@1`, takes a manifest of the tracked files of the reviewed worktree, calls `runCheck` and appends `check.ran@3`. It records a `tree.revised` when the check wrote files, and a `tree.restored@1` with a write back when a stop cut it. `runCheck` in `src/review/checks/run.ts` runs the command through the platform shell with `cwd` set to the reviewed worktree, under a guard that kills the tree of the process at the timeout. Its environment is `checkEnvironment`: the environment of the engine with the build server and non-interactive pins. It freezes stdout and stderr in the evidence store and takes the outcome from the exit: `passed`, `failed`, `timeout`, `cut` or `not-started`. The planner alone sets `skipped`. The timeout is the pinned `checks.timeoutMs`, 20 minutes by default in `roles/policy.json`.
+
+### The events of a check run, and the fold
+
+`check.started@1`, `check.ran@3` and `tree.restored@1` each fix their `phase` to the four check phases. `refineCheckRan` ties each outcome to its termination: a `skipped` run has no termination and no output, and it records an error. The reducers in `src/checkpoint/fix-fold.ts` keep the runs in `fix.checks.runs[phase]`, each as a `CheckRunState` with its `revisionsBefore`. In `src/checkpoint/fix-state.ts`, `lastFreshRun`, `lastRecordedRun` and `lastCurrentRun` read them. `isOldRun` makes a run old when a later revision belongs to a phase in `stalingPhases[phase]`, a table keyed by every check phase.
+
+### The repair
+
+`repairTargets` in `fix-state.ts` gives the kinds whose last fresh run after the fixes failed or timed out, and that passed before the fixes or failed then too (`failedAtBaseline`). `repairTaskOf` in `src/review/phases.ts` gives the repair task, for each such kind, the last 16 KiB of its output after the fixes and, for a kind that failed before the fixes, of its output then. `repairTask` in `src/review/tasks.ts` tells the worker to fix only the failures that the output before the fixes does not show, and to answer `deferred` naming them when every failure was there before. The repair answers in `fixerOutputSchema`, with the check kinds as the ids of its findings, and the engine records the answer as `fix.recorded@2` under `fix.answers.repair`.
+
+### The base of the scope
+
+`scope.captured` records `base`: the commit or the empty tree that the change is measured from. `chooseMode` in `src/scope/capture.ts` sets it to the merge base or the start of a range, to a named ref, to the first parent of `HEAD` for the last commit, or to `HEAD` for the working tree. A root commit has the empty tree as its base, and no worktree can be checked out at it. `baseNameOf` in `src/scope/scope-line.ts` names a base as a person reads it, such as `the merge base with origin/main`.
+
+### Git and the environment
+
+The engine has no helper for a git worktree. `git` in `src/scope/git.ts` runs git through `runGitSync` with the environment of the engine. No code under `src/` removes `GIT_DIR` or the other repository variables from that environment. Only the test suite does, with the list in `test/helpers/git.ts` (#27). `mkdtempSync` with a removal in a `finally` is the pattern of `src/review/commit.ts`, and `scratchBase` in the controller is the scratch directory of the checkpoint under `tmpdir()`.
+
+### The brief, its forms and the report
+
+`checksOf` in `src/review/brief.ts` gives each check `before`, its last baseline run, and `after`, the current run of the latest of `answer-checks`, `repair-checks` and `checks` (`afterPhases`), else the newest run. `checksWords` words `after` as "after them", the fixes, whatever its phase (#78). `headlineText` counts the open questions, the departures that no person reviewed and the documents left out of date, and on a fix run "Nothing needs you" says that the run left no document out of date that it knows of. `fixGaps` gives the gaps of a fix run, and `briefShortForm` gives at most 22 lines. `briefJson` in `src/review/brief-json.ts` writes version 3. The Checks part of the report is `checksSection` in `src/review/fix-report.ts`, one column for each check phase that ran, titled by `phaseTitles`.
+
+Each fixer reports `validation` for each finding, with a `method` among `old-code`, `mutation`, `static`, `existing` and `limited` (`roles/fragments/fixer-validation.md`). The report shows these lines only in its evidence.
+
+### The versions of the events and older runs
+
+`review.configured@7` marks a run with the documentation step. The documentation step wrote a new version only for an event that names its phase (TD5 of the documentation step), and this design follows that rule. At `4c764a7` the newest versions are `review.configured@7`, `phase.started@6`, `phase.finished@7`, `worktree.checked@7`, `check.started@1`, `check.ran@3`, `fix.recorded@3` and `report.written@6`. The golden fixtures end at `test/fixtures/checkpoints/schema-1-15`.
+
+### The digest of the roles
+
+`rolesDigest` in `src/review/policy.ts` hashes the key and the digest of each assembled role prompt. The output schema of a role and the text of a task are not in it. A run refuses to resume under another digest (PD8 of fix pass continuation), so a change that leaves the prompts alone lets a run that started before it continue and take answers.
+
+### The contract test
+
+`test/review/resumable-runs.contract.ts` lists the fixed stop points, and `npm run resume-test` stops at every append and every child start. In its fake repository, every check passes before the fixes, so a phase that runs only for a check that failed before and after the fixes never runs there today.
+
+## Design
+
+### The phase (R1, R11)
+
+`base-checks` comes after `checks` and before `repair` in `phases` and `fixPhases`, and it joins `checkPhases`. It is a check phase: it runs checks and no worker, and the planner walks it as it walks the others.
+
+The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it. The rule that skips each kind after a failed `build` does not hold in this phase (TD4). With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
+
+`stalingPhases['base-checks']` and `markingPhases['base-checks']` are empty: a run on the base never grows old, since no edit of the run changes the base (TD5).
+
+### The worktree of the base (R1, R11)
+
+The path of the worktree is `join(scratchBase, runId, 'base')`, so the run knows it with no event (TD3). Before the first due check of an attempt, the phase removes whatever is at that path and makes the worktree:
+
+```text
+git -c core.hooksPath=<an empty directory> worktree add --detach <path> <scope.base>
+```
+
+The empty directory turns off the hooks of the repository, such as a `post-checkout` hook, for this call. The call runs with the repository variables of git removed (TD11). The phase removes the worktree when it finishes: `git worktree remove --force <path>`, and when that fails, a removal of the directory and `git worktree prune`. `deep-review abandon` removes it too.
+
+When `scope.base` is the empty tree, the phase makes no worktree. When git cannot make the worktree, the phase keeps the first line of its error. In both cases each due kind gets a `check.ran@4` with the outcome `skipped` and an error that says why: `the base of the change is the empty tree`, or `could not make a worktree of the base: <error>`.
+
+### The run of a check on the base (R1)
+
+The phase runs the planned command of the kind through `runCheck`, with three differences from the other check phases. The `cwd` is the worktree of the base. The environment is `checkEnvironment` with the repository variables of git removed. And the run takes no manifest of the tracked files, records no `tree.revised` and writes nothing back, since it never touches the reviewed worktree. The timeout, the guard, the freezing of the output and the outcome are those of each check. A run on the base appends `check.started@2` before it and `check.ran@4` after it.
+
+### The repair and the comparison (R2)
+
+`RepairTaskCheck` gets a `base`: null for a kind that did not run on the base, else the outcome on the base and, for an outcome other than `passed` and `skipped`, the tail of its output with the frozen paths, as for the other outputs. A `skipped` base gets its error. `repairTask` adds one paragraph for each case:
+
+- The base passed: the check passes on the base of the change, so the change brings its failures. They are not the repair's to fix, as the failures before the fixes are not.
+- The base failed or timed out: the output there follows. The worker compares the failures after the fixes with those on the base and gives one entry in `comparisons`.
+- The base was skipped: the reason follows, and the worker gives no entry.
+
+The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. `invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The engine requires one entry for each kind whose base run failed or timed out, and none for another kind. An answer that breaks this is a `StructuralCheckError`, and the attempt fails as for each refused answer of a worker.
+
+The engine records the answer as `fix.recorded@4`: version 3 with `comparisons`. It writes version 4 only for the repair of a run configured with the phase, and version 3 for every other answer (TD7). The fold keeps `comparisons` with the answer of the repair, empty for an earlier version.
+
+When the run budget stops the repair, or its worker fails twice, no comparison exists. Each kind whose base failed then reads as not compared (R2).
+
+### The checks of the brief (R3, R4, R5)
+
+`BriefCheck` becomes:
+
+```ts
+interface BriefCheck {
+  readonly kind: CheckKind;
+  readonly before: string | null;
+  readonly last: { readonly outcome: string; readonly when: 'fixes' | 'repair' | 'answers' } | null;
+  readonly base: BriefBase | null;
+  readonly fault: 'edits' | 'base-has' | 'change-breaks' | 'change-adds' | 'not-compared' | null;
+}
+```
+
+`last` is the run that `after` is today, with `when` taken from its phase: `checks` gives `fixes`, `repair-checks` gives `repair` and `answer-checks` gives `answers`. `afterPhases` keeps its three phases, so a run on the base is never the last run (R3, #78). `base` holds the commit of the base, its name from `baseNameOf`, the outcome there with the error of a `skipped` run, and the reading and the words of the repair. It is null for a kind that did not run on the base.
+
+`fault` follows from the fold:
+
+| `fault` | When |
+|---|---|
+| `edits` | `last` failed, and an earlier run of the kind in this run passed: the baseline, or a run after the fixes, the repair or an earlier answer pass, in the order of the ledger |
+| `change-breaks` | `before` and `last` did not pass, and the base passed |
+| `change-adds` | `before` and `last` did not pass, and the repair read `adds` |
+| `base-has` | `before` and `last` did not pass, and the repair read `same` |
+| `not-compared` | `before` and `last` did not pass in a run configured with the phase, and none of the three rows above holds |
+| null | every other case |
+
+A run that this change did not configure gets no `not-compared`, since it never had a run on the base (R10). It gets `edits` as each run does.
+
+The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, "Nothing needs you" ends with `, and its edits made no check fail`.
+
+`fixGaps` gives a gap of the kind `check` for each check with the fault `change-breaks`, `change-adds` or `not-compared`, with the words of R5. The words name the base by its name and its first 8 characters, as the `Scope:` line does.
+
+`checksWords`, the sentence of the checks in "What deep-review changed", gives each check its outcome before the fixes and its last outcome with `when`. It adds the base for a check that ran there, with the words of the repair as its reading.
+
+### The short form (R6)
+
+`briefShortForm` gives a fix run the line `Checks:` after the line of the documents left out of date. It names the kinds that did not pass at some point of the run, in the order of the kinds, each with a clause, and then the kinds that passed:
+
+| Case | Clause |
+|---|---|
+| `edits` | `<kind> failed after <the fixes / the repair / your answers> and passed before` |
+| `base-has` | `<kind> failed, as it does on the base (<commit>), with the same failures` |
+| `change-breaks` | `<kind> fails on the change and passes on the base (<commit>)` |
+| `change-adds` | `<kind> fails on the change with more failures than on the base (<commit>)` |
+| `not-compared` | `<kind> failed before and after the fixes, not compared with the base` |
+| Failed before the fixes, passed at its last run | `<kind> failed before the fixes and passes now` |
+| Failed before the fixes, and no check ran after them | `<kind> failed before the fixes and did not run again` |
+| Its last run timed out, was skipped or did not start | `<kind> did not finish` |
+
+When each kind passed, the line is `Checks: each passed before and after the fixes`. A kind with no command is not named, as today. The line is cut at a word at 200 characters, so the short form has at most 23 lines.
+
+### The validation (R7)
+
+For each fix that "What deep-review changed" counts as applied, the brief takes the `validation` of the answer that applied it, and the strongest method of it: a test (`old-code` or `mutation`), then `existing`, `static` and `limited`, and none when the answer gave no entry (TD12). The sentence counts the fixes that a test validated, and names each other fix under its method, with at most 8 ids shown for each method and the others counted. A fix run that applied no fix gets no sentence.
+
+### The report (R8)
+
+`phaseTitles` gets `'base-checks': 'On the base'`, so the Checks table gets a column for the runs on the base. Its cell is that of each other column, followed by the reading of the repair and its words. The notes under the table name the base by its name and commit. They also say why no check ran on the base, or why a kind did not run there.
+
+### The JSON form (R9)
+
+Version 4 of the JSON form is version 3 with three changes. `headline` gets `checks`. Each entry of `changed.checks` gets `last` with `when`, `base` and `fault`, and it keeps `after` for a program of version 3 that reads a field by its name. `changed` gets `validation`, the ids of the applied fixes under each method. `briefJson` writes version 4 alone.
+
+### The events and the fold (R10)
+
+The vocabulary freezes as `reviewVocabularyV9`, with 20 phases and 5 check phases. These events get a new version, each written only where this change needs it (TD7):
+
+| Event | New version | Written for |
+|---|---|---|
+| `review.configured` | 8 | Each run that this engine configures. The version alone marks a run with the phase (TD8) |
+| `phase.started` | 7 | The phase `base-checks` |
+| `phase.finished` | 8 | The phase `base-checks` |
+| `worktree.checked` | 8 | A check of the reviewed worktree at the start of `base-checks` |
+| `check.started` | 2 | A run on the base |
+| `check.ran` | 4 | A run on the base |
+| `fix.recorded` | 4 | The answer of the repair of a run configured with the phase |
+| `report.written` | 7 | A report whose statistics hold the row of `base-checks` |
+
+`tree.restored` gets no new version, because no run on the base is restored. The phase has no unit, so `attempt.failed` and `unit.unattempted` get none either.
+
+In the fold, `ConfiguredSteps` gets `compared`, true from `review.configured@8`. `configure` skips `base-checks` in a run without it, with a reason in `skipReason`, as it skips `documentation` before version 7. `configuredPhases` in `fix-fold.ts` keeps the phase skipped when a fix pass is pinned or reopened in such a run. The reducers of `check.started` and `check.ran` take the new versions. `status` and the statistics of a run get the phase as each other phase.
+
+### Older runs and older engines (R10)
+
+A run that an engine before this change configured skips `base-checks`, and it never had a run on the base. Its brief follows R3 and R4, since `last`, `when` and `edits` come from the fold, and it says nothing of the base. An engine before this change does not know `review.configured@8`, so it passes over a run of this engine, as for each new version of an event.
+
+### A stop in the phase (R11)
+
+The phase appends `check.started@2` before each run, so a stop leaves an open start, as in each check phase. The next command enters the phase again with a new attempt. `runStanding` then gives the kind again, and the phase removes the worktree that the stop left and makes it again. A stop during `git worktree add` can leave a part of a worktree. The removal at the start of the attempt handles it with the same fallback. A run on the base never needs a write back, since it never touches the reviewed worktree.
+
+The contract test gets a repository whose `typecheck` fails before and after the fixes. So `base-checks` and the repair with a comparison run there, and the stop points of the phase join the fixed points. Its part "nothing false" compares the outcomes of the runs on the base too. Its part "no orphan" also holds that no worktree of the base is left after the run completes.
+
+### The golden fixture
+
+A change of the event kinds needs a new fixture: `npm run golden -- --output test/fixtures/checkpoints/schema-1-16`. Its fix run has a check that fails before and after the fixes, so the fixture holds `review.configured@8`, a run on the base and a repair answer with a comparison. The older fixtures must still open and fold.
+
+### The skills and the README
+
+The skills show the lines of the short form as printed, so the line `Checks:` reaches the chat with no change of their text. The README gets the line `Checks:`, the limit of 23 lines, the phase on the base in the list of the phases of the fix pass, and version 4 of the JSON form.
+
+## Technical Decisions
+
+### TD1: A phase of its own between `checks` and `repair`
+
+The run on the base is a check phase of its own, as the documentation step is a phase of its own (TD1 of the documentation step). The planner, the stop and the resume, the statistics and the report then treat it as each other check phase.
+
+The design rejects three other places. In the phase `checks`, a run on the base reads as a run after the fixes, and each reader of `afterPhases` and of the staleness rules must tell the two apart. Inside the phase `repair`, before the worker, the runs belong to a phase of units, which the planner does not run checks in. After the repair, the repair cannot compare.
+
+### TD2: A detached linked worktree, not a copy of the tree
+
+`git worktree add --detach` gives a checkout of the base that shares the objects of the repository. A tool that reads the metadata of git, such as a version from a tag, works there as in the tree of the person. The cost is an entry in the git directory while the worktree lives, and hooks that the call must turn off.
+
+The design rejects two other ways. A copy of the tree, with `git archive` or a checkout into a temporary index, has no git metadata, so such a tool fails on the base for a reason that is not in the code. A clone copies the history and takes longer.
+
+### TD3: A path that the run fixes, and no event for the worktree
+
+The path follows from the scratch directory of the checkpoint and the id of the run. Each attempt of the phase, its end and `abandon` remove what is there. An event that records the worktree would hold nothing that the fold needs.
+
+### TD4: Each kind that the repair takes and that failed before the fixes, with no skip after a failed build
+
+Only these kinds need a fact of the base (PD1). Each of them runs, also after a failed `build` on the base, because the repair reads each kind, and a failed build on the base is a fact to compare.
+
+### TD5: A run on the base never grows old
+
+No edit of the run changes the base, so `stalingPhases['base-checks']` is empty. A run on the base from an earlier attempt that completed stays the run of its kind.
+
+### TD6: The comparison is a field of the answer of the repair, in a schema of the repair alone
+
+The reading is the reading of the worker, so it comes in its answer. A schema of the repair alone, chosen by the unit, keeps the other fixers from a field that they must leave empty. The engine requires an entry for each kind whose base failed, so a comparison is never missing in silence. The instruction is in the task text, and neither is in the digest of the roles, so no role prompt changes. A run that started before this change can resume and take answers under the new engine.
+
+The design rejects two other ways. The note of the finding is free text, so the brief cannot classify it. An event that the engine writes from its own reading of the outputs reads paths and lines as different (PD3).
+
+### TD7: A new version only for an event that names the phase or carries the comparison
+
+This is the rule of TD5 of the documentation step. A run that never enters the phase writes the versions of today, so an older engine reads more of a ledger of this engine than with a new version of each event.
+
+### TD8: `review.configured@8` marks a run with the phase
+
+The version alone marks the run, as version 7 marks the documentation step. The payload does not change.
+
+### TD9: The brief computes `when`, the fault and the count
+
+`when` comes from the phase of the last run, `edits` from the order of the runs, and the other faults from the run on the base and the comparison. Nothing new is recorded for them, so a run before this change gets R3 and R4 too (TD6 of the documentation step does the same for the documents).
+
+### TD10: Version 4 of the JSON form
+
+A change of the shape is a new version (TD8 of the brief of a run). Version 4 keeps `after` beside `last`, so a program that reads that field by its name reads the same check.
+
+### TD11: The repository variables are removed for the worktree of the base
+
+A variable such as `GIT_DIR` or `GIT_WORK_TREE` in the environment of the engine makes git act on the repository it names, not on the worktree of the base. The phase removes them from its git calls and from the environment of its checks. The list moves from `test/helpers/git.ts` to `src/`, and the test helper imports it. The other checks and the other git calls of the engine keep their environment (#27).
+
+### TD12: The strongest method of a fix counts
+
+A fixer can give more than one entry for a fix. The sentence takes the strongest: a test that failed on the code before the fix or on a mutation of the fix, then the tests that already exist, then a reading of the source, then a named limit. This follows the order of `roles/fragments/fixer-validation.md`, which prefers an executed red run.
+
+## Open Questions
+
+### How long does a run on the base take?
+
+A tool such as `tox` makes its environment in the new worktree and downloads it. The metric of the time measures it on pallets/click #3878.
+
+### Does the repair compare the outputs well?
+
+The outputs on the base name other paths than those of the reviewed worktree. The gate reads each comparison against both outputs.
+
+### Does a worktree under the scratch directory work on each system?
+
+A long path on Windows, or a file that another program holds when the phase removes the worktree, can make a step fail. Each failure gives a check that the run did not compare, and the gate shows if it happens.
+
+## Test Strategy
+
+### R1: The run on the base
+
+A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, each of them after a failed `build`, and none when no kind failed before and after the fixes. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
+
+### R2: The comparison
+
+A test of the task holds its paragraph for each case of the base. A test of the answer holds that a missing entry, an extra entry or an entry for a passed base is refused, and that a valid answer is recorded as `fix.recorded@4` with its comparisons. A run whose repair the budget stopped reads each failed base as not compared.
+
+### R3, R4 and R5: The checks of the brief
+
+Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault`, the headline and its clause, and the words of each gap.
+
+### R6: The short form
+
+Tests hold each clause, the line when each kind passed, the cut at 200 characters, a run that only reviews with no line, and a short form of at most 23 lines.
+
+### R7: The validation
+
+Tests hold the sentence for each method, the strongest of several entries, a fix with no entry and a run with no applied fix.
+
+### R8: The report
+
+A test of `checksSection` holds the column, the reading and the notes.
+
+### R9: The JSON form
+
+A test holds that `briefJson` passes `briefJsonV4`, with `after` equal to the outcome of `last`.
+
+### R10: Older runs and older engines
+
+The fixture `schema-1-16` holds a run with the phase, and every older fixture still opens and folds. A test holds that a run configured with version 7 skips the phase and gets no `not-compared`.
+
+### R11: A stop in the phase
+
+The contract test holds the five parts at each stop point of the phase, and `npm run resume-test` breaks at none. The part "no orphan" holds that no worktree of the base is left.
+
+### R12: The gate
+
+The gate records each run of R12: the line `Checks:`, the headline and the gaps, against the outputs of the checks and of the same command run by hand on the base, and each comparison of the repair against both outputs. It records the time of the phase as a part of the time of the run, and what each host does when the person asks if the change can merge.
+
+## Verification
+
+No checks have run yet.
+
+## Risks & Migration
+
+### Ledgers before this change
+
+A ledger before this change folds as before. Its runs skip the phase, and their briefs get R3 and R4 from the fold.
+
+### An older engine and a newer run
+
+An older engine passes over a run that this engine configured, as for each new version of an event.
+
+### A program that reads the JSON form
+
+A program that reads version 3 must read version 4. Version 4 keeps each field of version 3 that this change does not remove, and it removes none.
+
+### An entry in the git directory
+
+While the worktree lives, the git directory of the person holds an entry for it, and `git worktree list` shows it. A run that crashes and never resumes leaves the entry and the directory until `abandon` or a `git worktree prune` after the directory is gone.
+
+### What the checkout of the base runs
+
+The hooks are off, but a filter of the repository, such as the smudge filter of Git LFS, runs at the checkout and can download. A submodule is not checked out, so a check that needs one fails on the base, and the brief says that the run did not compare it.
