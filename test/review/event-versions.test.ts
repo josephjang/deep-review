@@ -21,12 +21,15 @@ const before = {
   checkRan: (): number => 3,
 };
 
+/** The phases the engine wrote before the checks on the base, which the expressions above covered. */
+const earlierPhases = phases.filter((phase) => phase !== 'base-checks');
+
 /** Every list of the phases in `of`, the empty one among them. */
 const subsets = (of: readonly Phase[]): Phase[][] => of.reduce<Phase[][]>((lists, phase) => [...lists, ...lists.map((list) => [...list, phase])], [[]]);
 
 describe('the version each event that names a phase is written at', () => {
-  it('is the version each writer chose before the table, for every phase and every word it carries', () => {
-    for (const phase of phases) {
+  it('is the version each writer chose before the table, for every phase it knew and every word it carries', () => {
+    for (const phase of earlierPhases) {
       assert.equal(writtenVersion('phase.started', [phase]), before.phaseStarted(phase), `phase.started ${phase}`);
       assert.equal(writtenVersion('phase.finished', [phase]), before.phaseFinished(phase), `phase.finished ${phase}`);
       for (const moment of worktreeMoments) assert.equal(writtenVersion('worktree.checked', [phase], { moment }), before.worktreeChecked(phase, moment), `worktree.checked ${phase} ${moment}`);
@@ -38,13 +41,31 @@ describe('the version each event that names a phase is written at', () => {
       assert.equal(writtenVersion('check.ran', [phase]), before.checkRan(), `check.ran ${phase}`);
     }
     for (const phase of editingPhases) {
-      assert.equal(writtenVersion('fix.recorded', [phase]), before.fixRecorded(phase), `fix.recorded ${phase}`);
+      assert.equal(writtenVersion('fix.recorded', [phase], { comparisons: false }), before.fixRecorded(phase), `fix.recorded ${phase}`);
       assert.equal(writtenVersion('unit.unattempted', [phase]), before.unitUnattempted(phase), `unit.unattempted ${phase}`);
     }
     assert.equal(writtenVersion('worker.lost', []), before.workerLost(null), 'a lost worker with no unit');
-    assert.equal(writtenVersion('report.written', phases), before.reportWritten(phases), 'a report with a row for every phase');
-    assert.equal(writtenVersion('report.written', phases.filter((phase) => phase !== 'documentation')), 5, 'a report of a run that skips the documentation step');
+    assert.equal(writtenVersion('report.written', earlierPhases), before.reportWritten(earlierPhases), 'a report with a row for every phase');
+    assert.equal(writtenVersion('report.written', earlierPhases.filter((phase) => phase !== 'documentation')), 5, 'a report of a run that skips the documentation step');
     for (const units of subsets(budgetDegradingPhases)) assert.equal(writtenVersion('fix.reopened', units), before.fixReopened(units), `fix.reopened [${units.join(', ')}]`);
+  });
+
+  // The versions TD7 of the facts before a merge names: each event that names the phase, and the repair's answer with its comparisons.
+  it('names the checks on the base only at the versions that first hold them, and leaves every other kind at its floor', () => {
+    assert.equal(writtenVersion('phase.started', ['base-checks']), 7);
+    assert.equal(writtenVersion('phase.finished', ['base-checks']), 8);
+    for (const moment of worktreeMoments) assert.equal(writtenVersion('worktree.checked', ['base-checks'], { moment }), 8, moment);
+    assert.equal(writtenVersion('check.started', ['base-checks']), 2);
+    assert.equal(writtenVersion('check.ran', ['base-checks']), 4);
+    assert.equal(writtenVersion('report.written', ['base-checks']), 7);
+    assert.equal(writtenVersion('report.written', phases), 7, 'a report with a row for every phase, documentation among them');
+    assert.equal(writtenVersion('tree.revised', ['base-checks']), 2, 'no run on the base revises the tree, so no version names it');
+    assert.equal(writtenVersion('worker.lost', ['base-checks']), 5, 'the phase has no worker');
+    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: true }), 4);
+    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: false }), 2, 'the repair of a run configured before the phase');
+    assert.equal(writtenVersion('fix.recorded', ['documentation'], { comparisons: false }), 3);
+    assert.equal(writtenVersion('phase.started', ['checks']), 5, 'the other check phases keep their versions');
+    assert.equal(writtenVersion('check.ran', ['checks']), 3);
   });
 
   it('is a version whose schema holds the phase, for each kind a writer gives every phase', () => {

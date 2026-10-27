@@ -34,7 +34,7 @@ describe('the survey fold', () => {
     for (const phase of fixPhases) assert.equal(review.phases[phase].status, 'skipped', phase);
     const fixing = surveyConfiguredFix().review();
     assert.deepEqual(fixing.phases.survey, { status: 'pending', attempt: 0 });
-    for (const phase of fixPhases) assert.equal(fixing.phases[phase].status, phase === 'documentation' ? 'skipped' : 'pending', phase);
+    for (const phase of fixPhases) assert.equal(fixing.phases[phase].status, phase === 'documentation' || phase === 'base-checks' ? 'skipped' : 'pending', phase);
     assert.equal(configured().review().survey, null);
     assert.equal(configured().review().phases.survey.status, 'skipped');
     assert.equal(phases[0], 'survey', 'the survey runs before every other phase');

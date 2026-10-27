@@ -63,14 +63,15 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
 /**
  * The phases of a review, in the order they run (R2 of the read-only
  * review, R1 of the fix pass, R1 of the repository survey, R1 of the
- * decision step, R9 of answers, R1 of the documentation step): the
- * survey, which a run configured before it existed records as skipped,
- * the read-only phases, the decision, which a run configured before it
- * existed records as skipped and every later run runs, `--fix` or not,
- * then the six of the fix pass, which a run without `--fix` records as
- * skipped, with the documentation step after the fixes, which a run
- * configured before it existed records as skipped too, then the two of the
- * answer pass, which every run records as skipped and only an
+ * decision step, R9 of answers, R1 of the documentation step, R1 of the
+ * facts before a merge): the survey, which a run configured before it
+ * existed records as skipped, the read-only phases, the decision, which a
+ * run configured before it existed records as skipped and every later run
+ * runs, `--fix` or not, then the seven of the fix pass, which a run
+ * without `--fix` records as skipped, with the documentation step after
+ * the fixes and the checks on the base after their checks, which a run
+ * configured before each existed records as skipped too, then the two of
+ * the answer pass, which every run records as skipped and only an
  * `answer.pass` opens, then `report`, a phase with no worker that is
  * started so the worktree check before the report has a phase to block,
  * and finished when the report is written.
@@ -79,15 +80,15 @@ export const phases = [
   'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
   'decision',
-  'baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks',
+  'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks',
   'answer', 'answer-checks',
   'report',
 ] as const;
 export const phaseSchema = z.enum(phases);
 export type Phase = z.infer<typeof phaseSchema>;
 
-/** The six phases of the fix pass, in the order they run; a run without `--fix` skips them, and a run configured before the documentation step its `documentation`. */
-export const fixPhases = ['baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks'] as const;
+/** The seven phases of the fix pass, in the order they run; a run without `--fix` skips them, a run configured before the documentation step its `documentation`, and one configured before the checks on the base its `base-checks`. */
+export const fixPhases = ['baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks'] as const;
 export type FixPhase = (typeof fixPhases)[number];
 
 /**
@@ -100,8 +101,8 @@ export type FixPhase = (typeof fixPhases)[number];
 export const answerPhases = ['answer', 'answer-checks'] as const;
 export type AnswerPhase = (typeof answerPhases)[number];
 
-/** The phases that run the repository's checks and no worker: before any edit, after the fixes, after the repair, after an answer pass. */
-export const checkPhases = ['baseline-checks', 'checks', 'repair-checks', 'answer-checks'] as const;
+/** The phases that run the repository's checks and no worker: before any edit, after the fixes, on the base of the change (R1 of the facts before a merge), after the repair, after an answer pass. */
+export const checkPhases = ['baseline-checks', 'checks', 'base-checks', 'repair-checks', 'answer-checks'] as const;
 export const checkPhaseSchema = z.enum(checkPhases);
 export type CheckPhase = z.infer<typeof checkPhaseSchema>;
 
@@ -110,7 +111,18 @@ export const editingPhases = ['fixes', 'documentation', 'repair', 'answer'] as c
 export const editingPhaseSchema = z.enum(editingPhases);
 export type EditingPhase = z.infer<typeof editingPhaseSchema>;
 
+/**
+ * The check phases whose checks run in the reviewed worktree: every one
+ * but the checks on the base, which run in a worktree of the base (R1 of
+ * the facts before a merge). Only a check of these can write the tree the
+ * run expects, so only its writes are recorded as a revision or written
+ * back after a stop (TD14).
+ */
+export const treeCheckPhases = ['baseline-checks', 'checks', 'repair-checks', 'answer-checks'] as const satisfies readonly CheckPhase[];
+export type TreeCheckPhase = (typeof treeCheckPhases)[number];
+
 export const isCheckPhase = (phase: Phase): phase is CheckPhase => (checkPhases as readonly string[]).includes(phase);
+export const isTreeCheckPhase = (phase: Phase): phase is TreeCheckPhase => (treeCheckPhases as readonly string[]).includes(phase);
 export const isEditingPhase = (phase: Phase): phase is EditingPhase => (editingPhases as readonly string[]).includes(phase);
 
 /** The editing phases of the fix pass before its `checks`: the fixes and the documentation step, whose edits `checks` runs on and the repair owns (TD8 of the fix pass, R9 of the documentation step). */
@@ -352,6 +364,16 @@ export type UserRulesSetting = z.infer<typeof userRulesSettingSchema>;
 export const fixStatuses = ['applied', 'already-applied', 'deferred', 'blocked'] as const;
 export const fixStatusSchema = z.enum(fixStatuses);
 export type FixStatus = z.infer<typeof fixStatusSchema>;
+
+/**
+ * How the repair reads a check's failures before the fixes, on the change
+ * as submitted, against its failures on the base (R2, PD3 of the facts
+ * before a merge): the change has no failure the base does not have, it
+ * has one, or the outputs cannot be compared.
+ */
+export const baseReadings = ['same', 'adds', 'unknown'] as const;
+export const baseReadingSchema = z.enum(baseReadings);
+export type BaseReading = z.infer<typeof baseReadingSchema>;
 
 /** How a fixer validated a fix (fixer-validation.md): a red run on the old code, a mutation, a static check, existing tests, or a stated limit. */
 export const validationMethods = ['old-code', 'mutation', 'static', 'existing', 'limited'] as const;

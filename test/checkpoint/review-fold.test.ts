@@ -202,7 +202,7 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
   });
 
   it('skips the answer pass\'s two phases at every version of the configuration, fix run or not, which only an answer pass opens (R9 of answers)', () => {

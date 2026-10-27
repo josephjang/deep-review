@@ -10,10 +10,10 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecorded, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
+import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecordedV4, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
@@ -133,8 +133,8 @@ export interface FixState {
   readonly secondRound: FixesReplanned | null;
   /** The items of the documentation step, or null until the step is planned, and for good in a run without it or whose fixes revised nothing (R2, TD2 of the documentation step). */
   readonly documentation: DocumentationPlanned | null;
-  /** Each recorded answer, by editing phase and then by unit key. */
-  readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecorded>>>>;
+  /** Each recorded answer, by editing phase and then by unit key; the repair's of a run with the checks on the base holds its comparisons with the base (R2, TD6 of the facts before a merge), and every other none. */
+  readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecordedV4>>>>;
   /** Every revision of the tree, in ledger order. */
   readonly revisions: readonly TreeRevised[];
   /** The units settled without an answer, by editing phase and then by unit key: two failures or the run budget, with the reason; their findings are not attempted. */
@@ -169,7 +169,7 @@ export function emptyFixState(): FixState {
     plan: null,
     secondRound: null,
     documentation: null,
-    answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecorded>>,
+    answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecordedV4>>,
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
     claims: [],
@@ -204,15 +204,17 @@ export function lastRecordedRun(fix: FixState, phase: CheckPhase, kind: CheckKin
  * The editing phases whose revisions make a run of each checks phase old
  * (TD3 of resumable runs): a later revision makes a run old only when it
  * changes the state its phase checks. A baseline run checks the tree
- * before every edit and never grows old; a revision by a check makes no
- * run old, since a check that writes files records its own writes; and an
- * answer pass's revision runs `answer-checks` again through its floor
- * (`checksFloor`), not by making its runs old. The documentation step
- * revises the tree the fixes leave, so it stales what they stale (R9 of
- * the documentation step).
+ * before every edit and never grows old, nor does a run on the base, whose
+ * tree no edit of the run changes (TD5 of the facts before a merge); a
+ * revision by a check makes no run old, since a check that writes files
+ * records its own writes; and an answer pass's revision runs
+ * `answer-checks` again through its floor (`checksFloor`), not by making
+ * its runs old. The documentation step revises the tree the fixes leave,
+ * so it stales what they stale (R9 of the documentation step).
  */
 const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
   'baseline-checks': [],
+  'base-checks': [],
   checks: ['fixes', 'documentation', 'answer'],
   'repair-checks': ['fixes', 'documentation', 'repair', 'answer'],
   'answer-checks': ['fixes', 'documentation', 'repair'],
@@ -222,10 +224,10 @@ const stalingPhases: Readonly<Record<CheckPhase, readonly EditingPhase[]>> = {
  * The editing phases whose later revisions make the Checks table and
  * `status` say a run checked an earlier tree (R15, TD3 of resumable runs):
  * the fixes, the documentation step and the repair, after any phase but
- * the baseline, which checks
- * the tree before every edit. An answer pass marks no run, since the runs
- * after answers show the tree it left, so each phase's set is its
- * `stalingPhases` set without the answer pass.
+ * the baseline, which checks the tree before every edit, and the checks
+ * on the base, which check a tree no edit changes. An answer pass marks
+ * no run, since the runs after answers show the tree it left, so each
+ * phase's set is its `stalingPhases` set without the answer pass.
  */
 const markingPhases = Object.fromEntries(checkPhases.map((phase) => [phase, stalingPhases[phase].filter((editing) => editing !== 'answer')])) as unknown as Readonly<Record<CheckPhase, readonly EditingPhase[]>>;
 
@@ -265,8 +267,9 @@ export function isCutAttempt(review: Pick<ReviewState, 'phases'> & { readonly fi
  * run, by the rules of `check.ran@3` (R3, R4, R7 of resumable runs):
  * `first` when the kind has no current run; `again` with that run and why
  * when it was cut, when it is the first timeout of the kind in the current
- * attempt, or when it did not pass in a cut attempt; null when the kind may
- * not run again, since its last current run is its result.
+ * attempt, except on the base (TD15 of the facts before a merge), or when
+ * it did not pass in a cut attempt; null when the kind may not run again,
+ * since its last current run is its result.
  */
 export type RunStanding =
   | { readonly kind: 'first' }
@@ -279,7 +282,8 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   if (last.outcome === 'cut') return { kind: 'again', run: last, why: 'cut' };
   const current = review.phases[phase].attempt;
   const firstTimeout = review.fix.checks.runs[phase].find((run) => run.kind === kind && run.attempt === current && run.outcome === 'timeout');
-  if (last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
+  // A timeout on the base is its result (PD11, TD15 of the facts before a merge): the kind timed out or failed twice on the change already.
+  if (phase !== 'base-checks' && last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
   if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
   return null;
 }
@@ -323,9 +327,12 @@ export const killedRun = (run: Pick<CheckRunState, 'outcome' | 'termination' | '
  * start, or a start no run came after, which a stop cut. A run by an
  * engine from before `check.started` is never one: it has no start before
  * it, and it recorded its writes as a revision, so it explains no later
- * drift.
+ * drift. Nor is a run on the base, which never writes the reviewed
+ * worktree, so a drift after it is a person's edit and blocks (TD14 of the
+ * facts before a merge).
  */
 export function cutShortChecks(fix: FixState, phase: CheckPhase): readonly (CheckRunState | CheckStartState)[] {
+  if (!isTreeCheckPhase(phase)) return [];
   const starts = fix.checks.starts[phase];
   // A start of the run's kind in its attempt recorded before it, which only a version 3 run has.
   const started = (run: CheckRunState, index: number): boolean => starts.some((start) => start.kind === run.kind && start.attempt === run.attempt && start.runsBefore <= index);
@@ -411,6 +418,44 @@ export function repairTargets(fix: FixState, read: 'current' | 'recorded' = 'cur
   return planned
     .map((check) => check.kind)
     .filter((kind) => (lastFreshRun(fix, 'baseline-checks', kind)?.outcome === 'passed' || failedAtBaseline(fix, kind)) && ['failed', 'timeout'].includes(afterFixes(kind)?.outcome ?? ''));
+}
+
+/**
+ * The kinds that run on the base (R1, PD1, TD4 of the facts before a
+ * merge): those the repair takes (`repairTargets`) that failed or timed
+ * out before the fixes too (`failedAtBaseline`), where only the base tells
+ * whether the change as submitted brought the failure. The fold gives
+ * every run its kinds, a run configured before the phase among them, which
+ * never runs them.
+ */
+export function baseKinds(fix: FixState): CheckKind[] {
+  return repairTargets(fix).filter((kind) => failedAtBaseline(fix, kind));
+}
+
+/**
+ * Whether `base-checks` takes a kind now (R1, TD4 of the facts before a
+ * merge): a kind of `baseKinds`, or `build`, which the other kinds read,
+ * while another kind of `baseKinds` is due there (`runStanding`). The fold
+ * holds a start and a run on the base to it.
+ */
+export function takenOnBase(review: Pick<ReviewState, 'answerPasses' | 'phases'> & { readonly fix: FixState }, kind: CheckKind): boolean {
+  const kinds = baseKinds(review.fix);
+  return kinds.includes(kind) || (kind === 'build' && kinds.some((other) => other !== 'build' && runStanding(review, 'base-checks', other) !== null));
+}
+
+/** Whether a kind failed or timed out on the base, by its last run there, which never grows old. */
+export function failedOnBase(fix: FixState, kind: CheckKind): boolean {
+  return ['failed', 'timeout'].includes(lastFreshRun(fix, 'base-checks', kind)?.outcome ?? '');
+}
+
+/**
+ * The kinds the repair compares with the base (R2, TD6 of the facts before
+ * a merge): those of `baseKinds` that failed or timed out there. The
+ * engine keeps an answer's comparisons of these kinds, once each, and the
+ * fold refuses one of any other.
+ */
+export function comparableKinds(fix: FixState): CheckKind[] {
+  return baseKinds(fix).filter((kind) => failedOnBase(fix, kind));
 }
 
 export type PlannedCluster = FixesPlanned['clusters'][number];

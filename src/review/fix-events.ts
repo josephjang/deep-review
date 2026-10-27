@@ -28,7 +28,7 @@ import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, typ
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
 import { changedPaths, expectedAt, headStates, reviseFrom, revisionsFromSnapshots, unfinishedRevisions, worktreeReader, type BaseReader, type ExpectedMatch, type FindingRevision } from './tree.ts';
-import { isClaimingPhase, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
+import { isClaimingPhase, type CheckKind, type EditingPhase, type TreeCheckPhase } from './vocabulary.ts';
 
 /**
  * What turning work into events needs: the fold it is recorded against,
@@ -215,7 +215,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase]), payload: recorded },
+    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: false }), payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
       version: writtenVersion('tree.revised', [phase]),
@@ -350,7 +350,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
  * documentation step, so the revision is always `tree.revised@2` (TD5 of
  * the documentation step).
  */
-export function checkRevision(context: RevisionContext, phase: CheckPhase, kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
+export function checkRevision(context: RevisionContext, phase: TreeCheckPhase, kind: CheckKind, command: string, manifest: SnapshotManifest | null): NewEvent | null {
   const { state, worktree, evidence } = context;
   const expected = expectedTreeOf(state);
   // A stray before the run edited anything is the user's uncommitted work, which no revision may commit (as strayedInRun in fix-report.ts reads them).

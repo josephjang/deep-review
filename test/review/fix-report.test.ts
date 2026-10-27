@@ -188,7 +188,7 @@ describe('the report of a fix run', () => {
     // A fix run whose revisions changed files but whose every kind had no command, as an operator without the project's tools runs one.
     const state = fixRun().fold();
     const fix = state.review!.fix!;
-    const noCommand = { ...fix, checks: { ...fix.checks, planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'setting' as const, layer: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } };
+    const noCommand = { ...fix, checks: { ...fix.checks, planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.map((check) => ({ ...check, command: null, origin: 'setting' as const, layer: 'flag' as const, reason: 'dropped by --no-check' })) }, runs: { 'baseline-checks': [], checks: [], 'base-checks': [], 'repair-checks': [], 'answer-checks': [] } } };
     const report = render({ ...state, review: { ...state.review!, fix: noCommand } });
     assert.ok(fix.revisions.length > 0, 'the fixes changed files');
     assert.doesNotMatch(report, /no fix changed a file/);
@@ -548,7 +548,7 @@ describe('the Documentation section of the report', () => {
     // The fold of these lines is tested with the brief's list; here only how the report names who reported each.
     const state = passToReport(documentedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'deferred']], 1).fold();
     const fix = state.review!.fix!;
-    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('README.md', 'parse throws')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [] };
+    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('README.md', 'parse throws')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [], comparisons: [] };
     const passed = { ...fix.answers.answer['pass-1']!, drift: [line('docs/a.md', 'the example prints 4')] };
     const late = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair }, answer: { 'pass-1': passed } } } } } as RunState;
     assert.match(section(late), /\nDocumentation the repair or an answer pass says its edits made stale, after the documentation step:\n\n- README\.md: parse throws \(the repair\)\n- docs\/a\.md: the example prints 4 \(answer pass 1\)\n/);
@@ -559,7 +559,7 @@ describe('the Documentation section of the report', () => {
   it('names no fixer in the heading of the lines no step took when only the repair reported one', () => {
     const state = decidedFixRun().fold();
     const fix = state.review!.fix!;
-    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('docs/api.md', 'the check name changed')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [] };
+    const repair = { phase: 'repair' as const, key: 'repair', workerId: worker(60), findings: [], drift: [line('docs/api.md', 'the check name changed')], tests: [], suite: { result: 'not-run' as const, command: '', failures: '' }, violations: [], comparisons: [] };
     const repaired = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair } } } } } as RunState;
     const text = section(repaired);
     assert.match(text, /\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- docs\/api\.md: the check name changed \(the repair\)\n/);

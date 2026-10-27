@@ -77,7 +77,7 @@ import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit
 import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder, type ChangeMessages } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse } from './vocabulary.ts';
+import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, isTreeCheckPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type Phase, type PinnedUse, type TreeCheckPhase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved when the run it acts on
@@ -661,7 +661,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      * drifted and blocks. A stop between the record and the writes leaves
      * the drift, which the next start writes back again.
      */
-    const restore = (phase: CheckPhase, attempt: number, check: CutShortCheck, files: readonly RestoredFile[], before: readonly NewEvent[] = []): void => {
+    const restore = (phase: TreeCheckPhase, attempt: number, check: CutShortCheck, files: readonly RestoredFile[], before: readonly NewEvent[] = []): void => {
       state = append(checkpoint, state, [...before, { kind: 'tree.restored', version: 1, payload: { phase, attempt, check, files: [...files] } satisfies TreeRestored }]);
       const left = new Map(writeBack(options.worktree, files, (reference) => checkpoint.evidence.read(reference)).map((file) => [file.path, file.reason]));
       for (const file of files) {
@@ -684,7 +684,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      * engine runs at most one check, and no worker, at a time, so it awaits
      * the check here.
      */
-    const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<void> => {
+    const runDueCheck = async (phase: TreeCheckPhase, attempt: number, due: DueCheck): Promise<void> => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
       if (due.skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
@@ -796,6 +796,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         }
         case 'run-check':
+          // No run this engine configures has the checks on the base, which run in a worktree of their own (R1 of the facts before a merge).
+          if (!isTreeCheckPhase(step.phase)) throw new Error(`Run ${runId} has a check due on the base, which this engine does not run`);
           await runDueCheck(step.phase, step.attempt, step.check);
           break;
         case 'degrade': {

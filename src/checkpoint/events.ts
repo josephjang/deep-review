@@ -1900,7 +1900,6 @@ export const checkStartedV1 = z.strictObject({
   kind: checkKindSchemaV3,
   command: z.string().min(1),
 });
-export type CheckStarted = z.infer<typeof checkStartedV1>;
 
 /**
  * `check.ran` with the run it replaces and the outcome `cut` (R3, R4, R7,
@@ -1917,8 +1916,6 @@ export const checkRanV3 = z.strictObject({
   outcome: z.enum(vocabularyV7.checkOutcomes),
   replaces: z.strictObject({ attempt: attemptNumber, outcome: z.enum(vocabularyV7.checkOutcomes) }).nullable(),
 }).superRefine(refineCheckRan);
-/** A check's run as the fold holds it: a version 1 or 2 run reads as one that replaces nothing. */
-export type CheckRan = z.infer<typeof checkRanV3>;
 
 /** A file a write back found differing: what the tree held, frozen, and what the run expects there; null where nothing was, or is expected. */
 const restoredFileSchemaV1 = z.strictObject({
@@ -2037,7 +2034,6 @@ export const phaseStartedV6 = z.strictObject({
   phase: phaseSchemaV8,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV6>;
 
 /** `phase.finished` over the nineteen phases, with the blocker codes of version 5. */
 export const phaseFinishedV7 = z.strictObject({
@@ -2049,7 +2045,6 @@ export const phaseFinishedV7 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV7>;
 
 /** `worktree.checked` over the nineteen phases, with the moments of version 6. */
 export const worktreeCheckedV7 = z.strictObject({
@@ -2059,8 +2054,6 @@ export const worktreeCheckedV7 = z.strictObject({
   message: 'drifted exactly when some file differs or HEAD moved',
   path: ['drifted'],
 });
-/** A worktree check as the fold holds it, whichever version recorded it. */
-export type WorktreeCheckV7 = z.infer<typeof worktreeCheckedV7>;
 
 /** `attempt.failed` over the nineteen phases, with the faults of version 7. */
 export const attemptFailedV8 = z.strictObject({
@@ -2091,8 +2084,6 @@ export const reportWrittenV6 = z.strictObject({
   }),
   patches: z.array(artifactReferenceSchema).max(2000),
 });
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = z.infer<typeof reportWrittenV6>;
 
 /** `tree.revised` over the nineteen phases, so a revision of the documentation step can name its phase. */
 export const treeRevisedV3 = z.strictObject({
@@ -2185,6 +2176,128 @@ export function isDocumentItem(item: DocumentationItem): item is DocumentationIt
   return item.file !== null;
 }
 
+/**
+ * The vocabulary version 9 of the review events records (R1, R2, TD1 of
+ * the facts before a merge): the twenty phases, with `base-checks` after
+ * the checks after the fixes and before the repair; the five check
+ * phases, with `base-checks`; and the three readings of a comparison with
+ * the base. Frozen here for the reason `reviewVocabularyV1` is: a test
+ * holds it equal to today's vocabulary. The engine writes a version over
+ * this vocabulary only for an event that names the phase or carries a
+ * comparison (TD7), so a run configured before it holds none of them.
+ */
+export const reviewVocabularyV9 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'decision',
+    'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks',
+    'answer', 'answer-checks',
+    'report',
+  ],
+  checkPhases: ['baseline-checks', 'checks', 'base-checks', 'repair-checks', 'answer-checks'],
+  baseReadings: ['same', 'adds', 'unknown'],
+} as const;
+
+const vocabularyV9 = reviewVocabularyV9;
+const phaseSchemaV9 = z.enum(vocabularyV9.phases);
+const checkPhaseSchemaV9 = z.enum(vocabularyV9.checkPhases);
+
+/**
+ * `review.configured` with the checks on the base (TD8 of the facts before
+ * a merge): version 7 unchanged. The version alone says that the run has
+ * the phase `base-checks`, as version 7 said it has the documentation
+ * step.
+ */
+export const reviewConfiguredV8 = reviewConfiguredV7;
+export type ReviewConfigurationV8 = z.infer<typeof reviewConfiguredV8>;
+
+/** `phase.started` over the twenty phases. */
+export const phaseStartedV7 = z.strictObject({
+  phase: phaseSchemaV9,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV7>;
+
+/** `phase.finished` over the twenty phases, with the blocker codes of version 5. */
+export const phaseFinishedV8 = z.strictObject({
+  phase: phaseSchemaV9,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV8>;
+
+/** `worktree.checked` over the twenty phases, with the moments of version 6. */
+export const worktreeCheckedV8 = z.strictObject({
+  ...worktreeCheckedV6.shape,
+  phase: phaseSchemaV9,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+/** A worktree check as the fold holds it, whichever version recorded it. */
+export type WorktreeCheckV8 = z.infer<typeof worktreeCheckedV8>;
+
+/** `check.started` over the five check phases, so a run on the base has its start (R11 of the facts before a merge). */
+export const checkStartedV2 = z.strictObject({
+  ...checkStartedV1.shape,
+  phase: checkPhaseSchemaV9,
+});
+export type CheckStarted = z.infer<typeof checkStartedV2>;
+
+/** `check.ran` over the five check phases, so a run on the base can name its phase. */
+export const checkRanV4 = z.strictObject({
+  ...checkRanV3.shape,
+  phase: checkPhaseSchemaV9,
+}).superRefine(refineCheckRan);
+/** A check's run as the fold holds it: a version 1 or 2 run reads as one that replaces nothing. */
+export type CheckRan = z.infer<typeof checkRanV4>;
+
+/** The longest words of a comparison with the base: the cap the repair's schema gives them. */
+export const comparisonWordsLengthV1 = 400;
+
+/**
+ * `fix.recorded` with the repair's comparison of each check that failed
+ * or timed out on the base, once per kind (R2, TD6, TD13 of the facts
+ * before a merge): its reading of the failures before the fixes, on the
+ * change as submitted, against those on the base, with the worker's words
+ * on why. Written only for the repair of a run with the phase
+ * `base-checks`, its comparisons empty when it gave none; every other
+ * answer keeps the version it is written at today (TD7).
+ */
+export const fixRecordedV4 = z.strictObject({
+  ...fixRecordedV3.shape,
+  comparisons: z.array(z.strictObject({
+    kind: checkKindSchemaV3,
+    reading: z.enum(vocabularyV9.baseReadings),
+    words: z.string().min(1).max(comparisonWordsLengthV1),
+  })),
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: 'each finding is answered once',
+  path: ['findings'],
+});
+/** An answer of an editing unit as the fold holds it: an answer recorded before version 4 reads as one with no comparison. */
+export type FixRecordedV4 = z.infer<typeof fixRecordedV4>;
+/** One comparison of the repair, of a check's failures before the fixes with those on the base. */
+export type BaseComparison = FixRecordedV4['comparisons'][number];
+
+/** `report.written` over the twenty phases: the statistics gain the row of the checks on the base. */
+export const reportWrittenV7 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV9 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV7>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -2193,11 +2306,11 @@ export const eventRegistry = defineRegistry({
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 }, 8: { schema: worktreeCheckedV8 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
   'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
@@ -2206,14 +2319,14 @@ export const eventRegistry = defineRegistry({
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
-  'check.started': { 1: { schema: checkStartedV1 } },
-  'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 } },
+  'check.started': { 1: { schema: checkStartedV1 }, 2: { schema: checkStartedV2 } },
+  'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 }, 4: { schema: checkRanV4 } },
   'tree.restored': { 1: { schema: treeRestoredV1 } },
-  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 } },
+  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 } },
   'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
   'unit.unattempted': { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
   'commits.prepared': { 1: { schema: commitsPreparedV1 } },

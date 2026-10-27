@@ -24,8 +24,8 @@
  */
 import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
-import { batchOf, driftLineKey, budgetStoppedUnits, claimRefusal, documentationReadiness, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
+import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixRecordedV4, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import { batchOf, baseKinds, comparableKinds, driftLineKey, budgetStoppedUnits, claimRefusal, documentationReadiness, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
 import { recordedSetting } from './settings-state.ts';
@@ -40,8 +40,9 @@ function requireFix(state: RunState | undefined, event: DecodedEvent): { current
 
 const withFix = (current: RunState, review: ReviewState, fix: FixState, event: DecodedEvent, units: ReviewState['units'] = review.units): RunState => withReview(current, { ...review, fix, units }, event);
 
-/** The phases of `phases` the run was configured with, for a reducer that moves phases back to pending: a run an older engine configured keeps the documentation step skipped (R11 of the documentation step). */
-const configuredPhases = <P extends Phase>(review: Pick<ReviewState, 'documentationStep'>, phases: readonly P[]): P[] => phases.filter((phase) => phase !== 'documentation' || review.documentationStep);
+/** The phases of `phases` the run was configured with, for a reducer that moves phases back to pending: a run an older engine configured keeps the documentation step (R11 of the documentation step) and the checks on the base (R10 of the facts before a merge) skipped. */
+const configuredPhases = <P extends Phase>(review: Pick<ReviewState, 'documentationStep' | 'baseChecksStep'>, phases: readonly P[]): P[] =>
+  phases.filter((phase) => (phase !== 'documentation' || review.documentationStep) && (phase !== 'base-checks' || review.baseChecksStep));
 
 /** The checks of a version 1 plan, recorded at configuration by the manifest rules (R8 of the fix pass), on a run configured before the survey existed. */
 const checksPlannedV1: Reducer<ChecksPlannedV1> = (state, payload, event) => {
@@ -238,13 +239,21 @@ function requireBatches(event: DecodedEvent, routes: FixesPlanned['routes'], clu
   }
 }
 
-/** The phase's running attempt and the planned command of a kind, which a check's start and run must name; refused before the checks are planned or for a kind with no command. */
+/**
+ * The phase's running attempt and the planned command of a kind, which a
+ * check's start and run must name; refused before the checks are planned
+ * or for a kind with no command, and on the base for a kind the phase
+ * does not take (`takenOnBase`, R1, TD4 of the facts before a merge).
+ */
 function requirePlannedCheck(review: ReviewState, fix: FixState, event: DecodedEvent, payload: Pick<CheckStarted, 'phase' | 'attempt' | 'kind' | 'command'>, verb: string): void {
   requireRunning(review, event, payload.phase, payload.attempt);
   const planned = fix.checks.planned?.checks.find((check) => check.kind === payload.kind);
   if (planned === undefined) throw invalid(event, `${verb} the ${payload.kind} check before the checks are planned`);
   if (planned.command === null) throw invalid(event, `${verb} the ${payload.kind} check, which has no command`);
   if (planned.command !== payload.command) throw invalid(event, `${verb} ${JSON.stringify(payload.command)} for the ${payload.kind} check, pinned as ${JSON.stringify(planned.command)}`);
+  if (payload.phase === 'base-checks' && !takenOnBase({ ...review, fix }, payload.kind)) {
+    throw invalid(event, `${verb} the ${payload.kind} check on the base, which takes only [${baseKinds(fix).join(', ')}], and build while another of them is due`);
+  }
 }
 
 /** The run state of a check's run as the fold keeps it: its record, the revisions the ledger held before it (TD3 of resumable runs), and the run it replaces, if any. */
@@ -322,9 +331,23 @@ const treeRestored: Reducer<TreeRestored> = (state, payload, event) => {
   return withFix(current, review, { ...fix, restorations: [...fix.restorations, restoration] }, event);
 };
 
-const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDrafts) => {
+/**
+ * An answer of an editing unit. Its comparisons with the base are the
+ * repair's alone, of the kinds that failed or timed out there
+ * (`comparableKinds`), once each (R2, TD6 of the facts before a merge):
+ * the engine drops any other entry before it records the answer.
+ */
+const fixRecorded: Reducer<FixRecordedV4> = (state, payload, event, drafts: FoldDrafts) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
+  if (payload.comparisons.length > 0 && payload.phase !== 'repair') throw invalid(event, `compares checks with the base in ${payload.phase}:${payload.key}, which only the repair does`);
+  const comparable = comparableKinds(fix);
+  const compared = new Set<string>();
+  for (const { kind } of payload.comparisons) {
+    if (!comparable.includes(kind)) throw invalid(event, `compares the ${kind} check with the base, where it did not fail or time out`);
+    if (compared.has(kind)) throw invalid(event, `compares the ${kind} check with the base twice`);
+    compared.add(kind);
+  }
   const ids = unitIdsOf(review, payload.phase, payload.key);
   if (ids === null) throw invalid(event, `records an answer for ${payload.phase}:${payload.key}, which the phase does not have`);
   requireUnanswered(review, event, { phase: payload.phase, key: payload.key });
@@ -346,6 +369,9 @@ const fixRecorded: Reducer<FixRecorded> = (state, payload, event, drafts: FoldDr
   const personAnswers = answersFindings(payload.phase) ? withApplied(review.answers, { phase: payload.phase, key: payload.key }, payload.findings) : review.answers;
   return withReview(current, { ...review, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
 };
+
+/** An answer recorded before version 4, which holds no comparison with the base. */
+const fixRecordedV3: Reducer<FixRecorded> = (state, payload, event, drafts) => fixRecorded(state, { ...payload, comparisons: [] }, event, drafts);
 
 const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -597,7 +623,10 @@ const commitsDropped: Reducer<CommitsDropped> = (state, payload, event) => {
  * can launch again, and its failures stay. The report is kept beside the
  * reopening and cleared, and the reopening keeps how many answer passes
  * the run holds and whether the repair answered; `checks`, `repair`, `repair-checks` and `report`
- * are pending at their attempts, and `fixes` too when a batch of it is
+ * are pending at their attempts, `base-checks` too in a run with the
+ * checks on the base, whose runs never grow old, so it runs only a kind
+ * the reopened pass adds to `baseKinds` (R10 of the facts before a merge),
+ * and `fixes` too when a batch of it is
  * listed. In a run with the documentation step, `documentation` is pending
  * at its attempt when `fixes` is, so the step plans after the units the
  * reopening gives back, and when its own unit is listed (TD12 of the
@@ -620,7 +649,7 @@ const fixReopened: Reducer<FixReopened> = (state, payload, event) => {
   const phaseStates = { ...review.phases };
   const fixes = payload.units.some((unit) => unit.phase === 'fixes');
   const documentation = fixes || payload.units.some((unit) => unit.phase === 'documentation');
-  const reopenedPhases: Phase[] = [...(fixes ? ['fixes' as const] : []), ...(documentation ? ['documentation' as const] : []), 'checks', 'repair', 'repair-checks', 'report'];
+  const reopenedPhases: Phase[] = [...(fixes ? ['fixes' as const] : []), ...(documentation ? ['documentation' as const] : []), 'checks', 'base-checks', 'repair', 'repair-checks', 'report'];
   for (const phase of configuredPhases(review, reopenedPhases)) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   return withReview(current, { ...review, phases: phaseStates, report: null, reportSetAsideBy: 'reopened-fix-pass', fix: { ...fix, notAttempted, reopenings: [...fix.reopenings, reopening] } }, event);
 };
@@ -633,13 +662,16 @@ export const fixReducers = {
   'fixes.planned@1': fixesPlanned,
   'fixes.replanned@1': fixesReplanned,
   'check.started@1': checkStarted,
+  'check.started@2': checkStarted,
   'check.ran@1': checkRan,
   'check.ran@2': checkRan,
   'check.ran@3': checkRanV3,
+  'check.ran@4': checkRanV3,
   'tree.restored@1': treeRestored,
-  'fix.recorded@1': fixRecorded,
-  'fix.recorded@2': fixRecorded,
-  'fix.recorded@3': fixRecorded,
+  'fix.recorded@1': fixRecordedV3,
+  'fix.recorded@2': fixRecordedV3,
+  'fix.recorded@3': fixRecordedV3,
+  'fix.recorded@4': fixRecorded,
   'tree.revised@1': treeRevised,
   'tree.revised@2': treeRevised,
   'tree.revised@3': treeRevised,
