@@ -176,6 +176,17 @@ describe('baseEnvironment', () => {
     assert.equal(outsideOnly.environment.VIRTUAL_ENV, join(outside, '.venv'));
   });
 
+  for (const name of ['PERL5LIB', 'PERLLIB', 'RUBYLIB', 'GEM_PATH', 'CLASSPATH']) {
+    it(`leaves out each entry of ${name} inside the reviewed worktree, as it does PATH's`, (t) => {
+      const reviewed = createRepository(join(temporaryDirectory(t, 'deep-review-base-env-'), 'repo'));
+      const inside = join(reviewed, 'lib');
+      const outside = join(reviewed, '..', 'lib');
+      const { environment, changed } = baseEnvironment({ [name]: [inside, outside].join(delimiter) }, reviewed, []);
+      assert.equal(environment[name], outside);
+      assert.deepEqual(changed, [`the entries of ${name} inside the reviewed worktree: ${inside}`]);
+    });
+  }
+
   it('judges an entry under a directory it cannot search as written, keeping it outside the reviewed worktree and leaving it out inside', { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'POSIX file modes, which root ignores' }, (t) => {
     const directory = temporaryDirectory(t, 'deep-review-base-env-');
     const reviewed = createRepository(join(directory, 'repo'));
