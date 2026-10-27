@@ -1,6 +1,7 @@
 import { execFileSync, type ExecFileSyncOptions, type ExecFileSyncOptionsWithBufferEncoding, type ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { win32 } from 'node:path';
+import { comparable } from './environment.ts';
 
 /** How long a detached git call may run before it is ended, unless the caller gives its own `timeout`. */
 export const gitTimeoutMs = 60_000;
@@ -154,4 +155,66 @@ export function gitFailureDetail(error: unknown, timeout = gitTimeoutMs): string
   const stderr = (typeof failure.stderr === 'string' ? failure.stderr : (failure.stderr?.toString('utf8') ?? '')).trim();
   if (gitTimedOut(error)) return `timed out after ${timeout / 1000} s and was ended${stderr === '' ? '' : `: ${stderr}`}`;
   return stderr || failure.message;
+}
+
+/**
+ * Variables that name a repository, or part of one, or that carry settings
+ * into it. Inherited from a git that started the engine, as a hook or
+ * `git rebase --exec` does, they make a git the engine starts act on that
+ * repository instead of the one its working directory names (#27). The run
+ * of a check on the base removes them from its git calls and from its
+ * checks (TD11 of the facts before a merge), and the test suite from every
+ * git it starts. Every name but GIT_NAMESPACE is one `git rev-parse
+ * --local-env-vars` prints with git 2.55: git's own list of the variables
+ * it clears when it moves to another repository. A test holds this list to
+ * that output, so a newer git that adds one fails it.
+ */
+export const repositoryVariables: readonly string[] = [
+  // The repository: the git directory, which overrides any directory git
+  // would find from its working directory, and the common directory a
+  // linked worktree shares, which holds the config, the refs and the ledger.
+  'GIT_DIR',
+  'GIT_COMMON_DIR',
+  // The working tree and the index that go with the repository, and git's
+  // note to its children that the working tree was implied, not named.
+  'GIT_WORK_TREE',
+  'GIT_IMPLICIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  // Where objects are written and read.
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  // Files and refs that change the history git reads: shallow boundaries,
+  // grafts, and replace refs.
+  'GIT_SHALLOW_FILE',
+  'GIT_GRAFT_FILE',
+  'GIT_NO_REPLACE_OBJECTS',
+  'GIT_REPLACE_REF_BASE',
+  // The subdirectory of the enclosing repository's working tree the command
+  // ran in, which means nothing in another repository.
+  'GIT_PREFIX',
+  // Settings carried in: a config file read in place of the repository's
+  // own, the `git -c` settings of the enclosing command, and the count of
+  // GIT_CONFIG_KEY_<n> and GIT_CONFIG_VALUE_<n> pairs, which isRepositoryVariable
+  // drops by prefix.
+  'GIT_CONFIG',
+  'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_COUNT',
+  // Not on git's list: it puts every ref a command reads or writes under
+  // refs/namespaces/<name>, so a branch is not where its caller looks.
+  'GIT_NAMESPACE',
+];
+
+/** The numbered settings GIT_CONFIG_COUNT counts. */
+const repositoryVariablePrefixes: readonly string[] = ['GIT_CONFIG_KEY_', 'GIT_CONFIG_VALUE_'];
+
+/** Whether `name` is one of the repository variables, compared as the platform compares names: without case on Windows. */
+export function isRepositoryVariable(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  const candidate = comparable(name, platform);
+  return repositoryVariables.some((variable) => comparable(variable, platform) === candidate)
+    || repositoryVariablePrefixes.some((prefix) => candidate.startsWith(comparable(prefix, platform)));
+}
+
+/** A copy of the environment without any repository variable. */
+export function withoutRepositoryVariables(environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(environment).filter(([name]) => !isRepositoryVariable(name, platform)));
 }
