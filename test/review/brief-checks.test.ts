@@ -61,6 +61,12 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     assert.equal(brief.headline.checks, 1);
   });
 
+  it('counts a check that passed after an earlier answer pass and failed after the last one', () => {
+    const brief = briefOf(onBranch(answeredRun(answeredRun(checkedRun()), { test: 'failed' }, 2)));
+    assert.deepEqual([check(brief, 'test').fault, check(brief, 'test').earlier.passed], ['edits', 'answers']);
+    assert.equal(briefShortForm(brief).find((line) => line.startsWith('Checks:')), 'Checks: test failed after your answers, and passed after earlier answers; no typecheck check; build and lint passed');
+  });
+
   it('counts no check that failed before the fixes and never passed since, whatever the base says, and says that its edits made no check fail when none did', () => {
     for (const checks of [{ ...failing, base: [['build', 'passed'], ['lint', 'passed']] }, { ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }, { ...failing, compared: false }] as const) {
       assert.equal(briefOf(run(checks)).headline.checks, 0, JSON.stringify(checks));
