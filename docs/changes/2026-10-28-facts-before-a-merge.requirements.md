@@ -47,7 +47,7 @@ The short form has no line for the checks. In the same gate, the headline of the
 
 ### How the fixers validated the fixes
 
-Each fixer reports how it validated each fix: a test that fails on the code before the fix, a mutation of the fix that the test catches, the tests that already exist, a reading of the source, or a limit that it names. The report shows these lines only in its evidence, at the end. A person who asks if the fixes can be trusted does not find them in the brief (U3).
+Each fixer reports how it validated each fix: a test that fails on the code before the fix, a mutation of the fix that the test catches, the tests that already exist, a check of the source, or a limit that it names. The report shows these lines only in its evidence, at the end. A person who asks if the fixes can be trusted does not find them in the brief (U3).
 
 ## Goals
 
@@ -91,7 +91,7 @@ A fix that the fixer could not validate well does not become a condition of "Whe
 
 ### R1: A check that failed before the fixes and after them runs once more on the base
 
-In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree before the phase ends. A later command of the run, or its abandon, removes a worktree that a stop or a crash left, and the run touches no other worktree of the repository. The output is kept as evidence, as for each other run of a check. A check that times out on the base does not run there again (PD11).
+In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the start of a range or the named ref, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree before the phase ends. A later command of the run, or its abandon, removes a worktree that a stop or a crash left, and the run touches no other worktree of the repository. The output is kept as evidence, as for each other run of a check. A check that times out on the base does not run there again (PD11).
 
 The run installs nothing in the worktree (PD2). When the base is the empty tree, the check does not run there, and the brief says why. A check that passed before the fixes, or that passed after them, does not run on the base. The base runs before the repair, once in each fix run.
 
@@ -99,7 +99,7 @@ When the check is not the build and the run has a build command, the build runs 
 
 ### R2: The repair compares the failures with the base
 
-The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The change has no failure that the base does not have. The change has a failure that the base does not have. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
+The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed or timed out there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The change has no failure that the base does not have. The change has a failure that the base does not have. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
 
 When the check passed on the base, the engine knows without the worker that the change breaks the check. When no answer of the repair says it, because the run budget stopped the repair, its worker failed or its answer left the check out, a check that failed on the base reads as not compared. A comparison that the repair gets wrong or leaves out never costs the repair its edits. The repair still fixes only the failures that the fixes added (PD8).
 
@@ -128,7 +128,7 @@ The typecheck check failed before and after the fixes, and the run could not com
 
 ### R6: The short form of a fix run has a line `Checks:`
 
-The short form of a fix run gets a line `Checks:`, after the line of the documents left out of date and before `Not covered:`. It names first each check that the edits of the run made fail, then each check that the change breaks or that the run did not compare, then the other checks that did not pass at some point of the run, each with what happened to it in a few words, and last the checks that passed. So a cut of the line keeps the checks that need the person. When each check passed, the line says so. When no check ran after the fixes, because no fix changed a file, the line says that too. A kind of check that the run has no command for is named as missing. The line has at most 200 characters and is cut at a word, as the other lines. A run that only reviews has no such line. The short form then has at most 23 lines, one more than R13 of the brief of a run and PD12 of the questions in the chat allow today. Invented examples:
+The short form of a fix run gets a line `Checks:`, after the line of the documents left out of date and before `Not covered:`. It names first each check that the edits of the run made fail, then each check that the change breaks or that the run did not compare, then the other checks that did not pass at some point of the run, each with what happened to it in a few words, and last the checks that passed. So a cut of the line keeps the checks that need the person. When each check passed, the line says so. When no check ran after the fixes, because no fix changed a file, the line says that too. A kind of check that the run has no command for is named as missing. The line has at most 200 characters and is cut at a word, as the other lines. A run that only reviews has no such line. The short form then has at most 23 lines, one more than R13 of the brief of a run and PD2 of the questions in the chat allow today. Invented examples:
 
 ```text
 Checks: each passed before and after the fixes
@@ -140,7 +140,7 @@ Checks: each passed before the fixes; no check ran after them, since no fix chan
 
 ### R7: What deep-review changed says how the fixers validated the fixes
 
-The part "What deep-review changed" of a fix run gets one sentence on the validation that the fixers reported for the fixes that they applied. It counts the fixes that a test validated: the test failed on the code before the fix, or a mutation of the fix made it fail. It names the other fixes by the weaker kind of validation of each: the tests that already exist, a reading of the source, a limit that the fixer named, or none. The sentence says that the fixers report it. The short form does not get it. An invented example:
+The part "What deep-review changed" of a fix run gets one sentence on the validation that the fixers reported for the fixes that they applied. It counts the fixes that a test validated: the test failed on the code before the fix, or a mutation of the fix made it fail. It names the other fixes by the weaker kind of validation of each: the tests that already exist, a check of the source, a limit that the fixer named, or none. The sentence says that the fixers report it. The short form does not get it. An invented example:
 
 ```text
 The fixers report that a test validated 5 of the 6 fixes: it fails on the code before the fix, or on a mutation of the fix. TESTS-3 rests on the tests that already exist.

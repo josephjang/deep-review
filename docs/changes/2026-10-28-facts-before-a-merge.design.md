@@ -44,7 +44,7 @@ Verified at `4c764a7`. No uncommitted change was used.
 
 `phases` in `src/review/vocabulary.ts` orders the fix pass as `baseline-checks`, `fixes`, `documentation`, `checks`, `repair`, `repair-checks`, and an answer pass as `answer`, `answer-checks`. `checkPhases` holds the four phases that run checks and no worker. `nextStep` in `src/review/steps.ts` returns `run-check` for a check phase while `dueCheck` names a kind, and `finish-phase` when it names none. `dueCheck` takes the first kind, in the order `build`, `typecheck`, `lint`, `test`, whose `runStanding` is not null. When the last current run of `build` did not pass, it skips each later kind with a reason. Each phase has its own gate: `checks` runs only after a revision of `fixes` or `documentation`, and `repair-checks` only after a revision of `repair`.
 
-`runDueCheck` in `src/review/controller.ts` appends `check.started@1`, takes a manifest of the tracked files of the reviewed worktree, calls `runCheck` and appends `check.ran@3`. It records a `tree.revised` when the check wrote files, and a `tree.restored@1` with a write back when a stop cut it. `runCheck` in `src/review/checks/run.ts` runs the command through the platform shell with `cwd` set to the reviewed worktree, under a guard that kills the tree of the process at the timeout. Its environment is `checkEnvironment`: the environment of the engine with the build server and non-interactive pins. It freezes stdout and stderr in the evidence store and takes the outcome from the exit: `passed`, `failed`, `timeout`, `cut` or `not-started`. The planner alone sets `skipped`. The timeout is the pinned `checks.timeoutMs`, 20 minutes by default in `roles/policy.json`.
+`runDueCheck` in `src/review/controller.ts` appends `check.started@1`, takes a manifest of the tracked files of the reviewed worktree, calls `runCheck` and appends `check.ran@3`. It records a `tree.revised` when the check wrote files, and a `tree.restored@1` with a write back when a stop cut it. `runCheck` in `src/review/checks/run.ts` runs the command through the platform shell with `cwd` set to the reviewed worktree, under a guard that kills the tree of the process at the timeout. Its environment is `checkEnvironment`: the environment of the engine with the build server and non-interactive pins. It freezes stdout and stderr in the evidence store and takes the outcome from the exit: `passed`, `failed`, `timeout`, `cut` or `not-started`. Today the planner alone sets `skipped`. The timeout is the pinned `checks.timeoutMs`, 20 minutes by default in `roles/policy.json`.
 
 When an attempt of a check phase starts with a drift that a check cut short in an earlier attempt explains, `restoreStep` in `steps.ts` writes the expected bytes back and records `tree.restored@1`, whose `phase` names the four check phases. `cutShortChecks` and `cutShortBefore` in `fix-state.ts` find such a check: a run that a kill ended, or a start with no run after it (R7 of resumable runs).
 
@@ -162,7 +162,7 @@ A row that reads the base holds only for a kind that the phase took. A kind that
 
 The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since `baseKinds` is empty for it (R10). It gets `edits` as each run does.
 
-The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, "Nothing needs you" ends with `, and its edits made no check fail`.
+The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, the sentence "Nothing needs you" names the checks too: `Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.`
 
 `fixGaps` gives a gap of the kind `check` for each check with the fault `change-breaks`, `change-adds` or `not-compared`, with the words of R5. The gap of `change-adds`, the sentence of the checks and each clause that rests on a reading of the repair say that it is the repair's reading, as the brief marks the account of the triage. A base that passed needs no such mark: the engine reads it from the exit of the check. The words name the base by its name and its first 8 characters, as the `Scope:` line does.
 
@@ -190,11 +190,11 @@ When each kind passed at each run, the line is `Checks: each passed before and a
 
 ### The validation (R7)
 
-For each fix that "What deep-review changed" counts as applied, the brief takes the `validation` of the answer that applied it, and the strongest method of it: a test (`old-code` or `mutation`), then `existing`, `static` and `limited`, and none when the answer gave no entry (TD12). The sentence counts the fixes that a test validated, and names each other fix under its method, with at most 8 ids shown for each method and the others counted. A fix run that applied no fix gets no sentence.
+For each fix that "What deep-review changed" counts as applied, the brief takes the `validation` of the answer that applied it, and the strongest method of it: a test (`old-code` or `mutation`), then `existing`, `static` and `limited`, and none when the answer gave no entry (TD12). The sentence calls `static` a check of the source, since such a check can run a source assertion as well as read the source. The sentence counts the fixes that a test validated, and names each other fix under its method, with at most 8 ids shown for each method and the others counted. A fix run that applied no fix gets no sentence.
 
 ### The report (R8)
 
-`phaseTitles` gets `'base-checks': 'On the base'`, so the Checks table gets a column for the runs on the base. Its cell is that of each other column, followed by the reading of the repair and its words. The notes under the table name the base by its name and commit. They also say why no check ran on the base, or why a kind did not run there.
+`phaseTitles` gets `'base-checks': 'On the base'`, so the Checks table gets a column for the runs on the base. Its cell is that of each other column, followed by the reading of the repair and its words, but with no mark "(failing before the fix pass)", which each kind on the base would carry. `status` shows the phase only when a kind ran there, so a fix run whose checks pass shows no line for it. The notes under the table name the base by its name and commit. They also say why no check ran on the base, or why a kind did not run there.
 
 ### The JSON form (R9)
 
@@ -232,6 +232,10 @@ The contract test gets a repository whose `typecheck` fails before and after the
 ### The golden fixture
 
 A change of the event kinds needs a new fixture: `npm run golden -- --output test/fixtures/checkpoints/schema-1-16`. Its fix run has a check that fails before and after the fixes, so the fixture holds `review.configured@8`, a run on the base and a repair answer with a comparison. The older fixtures must still open and fold.
+
+### Where the code goes
+
+The facts of the checks for the brief go to a module of their own, `src/review/brief-checks.ts`: `BriefCheck`, the table of `fault`, the clauses of the line `Checks:` and the sentence on the validation. `brief.ts` has 1001 lines today, and it calls that module. The worktree of the base and the environment of a run on the base go to `src/review/checks/base.ts`, with the list of the repository variables of git. `runDueCheck` calls it for the phase, so the controller, 1677 lines today, gains a call and not the steps.
 
 ### The skills and the README
 
@@ -291,13 +295,13 @@ A change of the shape is a new version (TD8 of the brief of a run). Version 4 re
 
 The design first kept `after` beside `last`. The review showed that no reader gains from it: the schema of version 3 holds its version and refuses a field that it does not know, so a program of version 3 must change to read version 4 in any case. And `after` is the name that #78 showed to mislead.
 
-### TD11: The repository variables are removed for the worktree of the base
+### TD11: The repository variables and the paths into the reviewed tree are removed for the base
 
 A variable such as `GIT_DIR` or `GIT_WORK_TREE` in the environment of the engine makes git act on the repository it names, not on the worktree of the base. The phase removes them from its git calls and from the environment of its checks. In the same way, a path into the reviewed worktree in `PATH`, `PYTHONPATH`, `NODE_PATH` or `VIRTUAL_ENV` can make a check on the base load the code of the change, which would read as the same failures on the base. The phase removes such paths from the environment of its checks. The list moves from `test/helpers/git.ts` to `src/`, and the test helper imports it. The other checks and the other git calls of the engine keep their environment (#27).
 
 ### TD12: The strongest method of a fix counts
 
-A fixer can give more than one entry for a fix. The sentence takes the strongest: a test that failed on the code before the fix or on a mutation of the fix, then the tests that already exist, then a reading of the source, then a named limit. This follows the order of `roles/fragments/fixer-validation.md`, which prefers an executed red run.
+A fixer can give more than one entry for a fix. The sentence takes the strongest: a test that failed on the code before the fix or on a mutation of the fix, then the tests that already exist, then a check of the source, then a named limit. `roles/fragments/fixer-validation.md` prefers an executed red run, which is the first of these, and sets no order among the others. This design orders them by how much of the behavior each runs: the tests that exist run the code, a check of the source proves only the invariant that it names, and a limit says what could not run.
 
 ### TD13: The comparison reads the change as submitted
 
@@ -399,4 +403,4 @@ On Windows, the git calls of the engine stop after 60 seconds (`runGitSync`). A 
 
 ### What the checkout of the base runs
 
-The hooks are off, but a filter of the repository, such as the smudge filter of Git LFS, runs at the checkout and can download. A submodule is not checked out, so a check that needs one fails on the base, and the brief says that the run did not compare it.
+The hooks are off, and `GIT_LFS_SKIP_SMUDGE=1` keeps Git LFS from a download. A check that reads a large file of Git LFS then sees its pointer on the base and can fail there for it, and the repair reads that it cannot compare. Another filter of the repository still runs at the checkout. Capture refuses a repository with a submodule (`refuseUnsupportedState` in `src/scope/capture.ts`), so no base has one.
