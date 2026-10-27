@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -76,10 +76,16 @@ describe('lostClaimWords', () => {
 });
 
 describe('the phases', () => {
-  it('are the survey, the read-only phases, the decision, the six of the fix pass, the two of the answer pass, then the report', () => {
-    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'documentation', 'checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
-    assert.deepEqual(fixPhases, phases.slice(10, 16));
-    assert.deepEqual(answerPhases, phases.slice(16, 18));
+  it('are the survey, the read-only phases, the decision, the seven of the fix pass, the two of the answer pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(10, 17));
+    assert.deepEqual(answerPhases, phases.slice(17, 19));
+  });
+
+  it('put the checks on the base after the checks after the fixes and before the repair, which reads them (R1, TD1 of the facts before a merge)', () => {
+    assert.equal(phases.indexOf('base-checks'), phases.indexOf('checks') + 1);
+    assert.equal(phases.indexOf('base-checks'), phases.indexOf('repair') - 1);
+    assert.deepEqual(phases.filter(isTreeCheckPhase), checkPhases.filter((phase) => phase !== 'base-checks'), 'every check phase but the base runs in the reviewed worktree');
   });
 
   it('put the documentation step after every fixer of the fixes and before their checks, with one unit named after it (R1 of the documentation step)', () => {
@@ -96,7 +102,7 @@ describe('the phases', () => {
 
   it('split the fix pass and the answer pass into the phases that run checks and the phases that edit', () => {
     assert.deepEqual([...checkPhases, ...editingPhases].sort(), [...fixPhases, ...answerPhases].sort());
-    assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'repair-checks', 'answer-checks']);
+    assert.deepEqual(phases.filter(isCheckPhase), ['baseline-checks', 'checks', 'base-checks', 'repair-checks', 'answer-checks']);
     assert.deepEqual(phases.filter(isEditingPhase), ['fixes', 'documentation', 'repair', 'answer']);
     assert.deepEqual([...editingPhases], phases.filter(isEditingPhase), 'in the order of the phases');
   });

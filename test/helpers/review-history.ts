@@ -110,8 +110,8 @@ export const changeReading = {
 /** The lowest version of `phase.started` and `worktree.checked` that can name a phase: 5 for the answer pass's, 4 for the decision, 3 for the survey, 2 for a phase of the fix pass, 1 for the rest. */
 const phaseVersion = (phase: string): 1 | 2 | 3 | 4 | 5 => ((answerPhases as readonly string[]).includes(phase) ? 5 : phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 
-/** The lowest version of `phase.finished` that can name a phase: 7 for the documentation step's, 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
-const finishVersion = (phase: string): number => (phase === 'documentation' ? 7 : (answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
+/** The lowest version of `phase.finished` that can name a phase: 8 for the checks on the base, 7 for the documentation step's, 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
+const finishVersion = (phase: string): number => (phase === 'base-checks' ? 8 : phase === 'documentation' ? 7 : (answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -130,8 +130,9 @@ export class History {
    * check lists that nobody accounts for, which version 1 never records.
    */
   start(phase: string, attempt = 1, strays: readonly string[] = []): this {
-    // The documentation phase is the one phase whose start and check need versions apart, 6 and 7, the only ones that name it.
+    // The documentation phase and the checks on the base are the phases whose start and check need versions apart, the only ones that name each.
     if (phase === 'documentation') return this.add('phase.started', { phase, attempt }, 6).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 7);
+    if (phase === 'base-checks') return this.add('phase.started', { phase, attempt }, 7).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 8);
     const version = phaseVersion(phase);
     if (version === 1) return this.add('phase.started', { phase, attempt }).add('worktree.checked', { phase, attempt, drifted: false, files: [] });
     return this.add('phase.started', { phase, attempt }, version).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, version);
@@ -755,6 +756,27 @@ export function withDocumentationStep(history: History, step: ((history: History
     if (step !== null && event.kind === 'phase.finished' && finished.phase === 'fixes' && finished.outcome !== 'blocked') step(result);
   }
   return result;
+}
+
+/**
+ * The same history with the checks on the base (TD8 of the facts before a
+ * merge): its configuration, recorded at version 7 with the documentation
+ * step (`withDocumentationStep`), recorded at version 8 instead, whose
+ * payload is the same.
+ */
+export function withBaseChecks(history: History): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'review.configured') assert.equal(event.version, 7, 'a run with the checks on the base has the documentation step');
+    result.add(event.kind, event.payload, event.kind === 'review.configured' ? 8 : event.version);
+  }
+  return result;
+}
+
+/** A run on the base at versions 2 and 4: its start, then its run with the outcome given, and the run it replaces, if any. */
+export function ranOnBase(history: History, kind: string, outcome = 'failed', attempt = 1, replaces: Record<string, unknown> | null = null, change: Record<string, unknown> = {}): History {
+  const command = plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';
+  return history.add('check.started', { phase: 'base-checks', attempt, kind, command }, 2).add('check.ran', { ...checkRun('base-checks', kind, outcome, attempt), replaces, ...change }, 4);
 }
 
 /** The documentation step as a run with it records it, its worker answering each item with the status `items` gives and the fields `change` gives, such as its own `drift`. */

@@ -175,6 +175,15 @@ describe('golden checkpoints', () => {
             assert.equal(review.phases.documentation.status, 'skipped', `${name} run ${String(index)} documentation phase`);
             if (review.fix !== null) assert.equal(review.fix.documentation, null, `${name} run ${String(index)} fix.documentation`);
           }
+          // A review recorded before the checks on the base existed reads as one without them: the phase skipped, no run on the base and no comparison with it (R10 of the facts before a merge).
+          if (review !== null && !('baseChecksStep' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.baseChecksStep, false, `${name} run ${String(index)} baseChecksStep`);
+            assert.equal(review.phases['base-checks'].status, 'skipped', `${name} run ${String(index)} base-checks phase`);
+            if (review.fix !== null) {
+              assert.deepEqual(review.fix.checks.runs['base-checks'], [], `${name} run ${String(index)} runs on the base`);
+              for (const answer of Object.values(review.fix.answers).flatMap((ofPhase) => Object.values(ofPhase))) assert.deepEqual(answer.comparisons, [], `${name} run ${String(index)} ${answer.phase}:${answer.key} comparisons`);
+            }
+          }
           // A review recorded before the triage's account of the change reads as one whose account is unrecorded (R18 of the brief of a run).
           if (review !== null && !('change' in ((recorded as { review?: object | null }).review ?? {}))) {
             assert.deepEqual(review.change, { kind: 'unrecorded' }, `${name} run ${String(index)} change`);
@@ -297,7 +306,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on records that its triage gave none; every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, and the compared run of every fixture from schema-1-16 on, record that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -311,9 +320,9 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      const documented = runs.find((candidate) => candidate.worktree === '/fixture/documented');
-      if (documented !== undefined) assert.deepEqual(documented.review?.change, { kind: 'none' });
-      for (const run of runs.filter((candidate) => candidate !== resumed && candidate !== documented && candidate.review !== null && candidate.review.leads !== null)) {
+      const gaveNone = runs.filter((candidate) => candidate.worktree === '/fixture/documented' || candidate.worktree === '/fixture/compared');
+      for (const run of gaveNone) assert.deepEqual(run.review?.change, { kind: 'none' }, run.worktree);
+      for (const run of runs.filter((candidate) => candidate !== resumed && !gaveNone.includes(candidate) && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
       }
     });
@@ -334,6 +343,28 @@ describe('golden checkpoints', () => {
       assert.deepEqual(documented.fix.answers.documentation.documentation?.findings.map((finding) => [finding.id, finding.status]), [['doc-1', 'applied'], ['search', 'already-applied']]);
       assert.deepEqual(documented.fix.revisions.map((revision) => [revision.phase, revision.change.findings]), [['fixes', ['SCAN-1']], ['documentation', ['doc-1']]]);
       assert.equal(documented.report?.patches.length, 2);
+    });
+  }
+
+  // The run with the checks on the base, which every fixture from schema-1-16 on holds (R1, R2, R10 of the facts before a merge).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 16)) {
+    it(`folds ${name}'s compared run: a build and the typecheck on the base, after the checks after the fixes and before the repair, whose answer reads the typecheck's failures as the base's`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const compared = runs.find((candidate) => candidate.worktree === '/fixture/compared')?.review;
+      assert.ok(compared !== null && compared !== undefined && compared.fix !== null, 'the fixture holds the compared run');
+      assert.equal(compared.baseChecksStep, true);
+      assert.deepEqual(compared.phases['base-checks'], { status: 'completed', attempt: 1 });
+      assert.deepEqual(compared.fix.checks.runs['base-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['typecheck', 'failed']]);
+      assert.deepEqual(compared.fix.answers.repair.repair?.comparisons.map((comparison) => [comparison.kind, comparison.reading]), [['typecheck', 'same']]);
+      assert.deepEqual(compared.fix.answers.fixes['c1-1']?.comparisons, [], 'only the repair compares');
+      assert.ok(compared.report?.statistics.phases.some((row) => row.phase === 'base-checks'), 'the report has the row of the checks on the base');
+      const documented = runs.find((candidate) => candidate.worktree === '/fixture/documented')?.review;
+      assert.equal(documented?.baseChecksStep, false, 'a run configured at version 7 has no checks on the base');
+      assert.equal(documented?.phases['base-checks'].status, 'skipped');
     });
   }
 

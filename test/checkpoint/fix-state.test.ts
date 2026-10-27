@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { FixRecorded, TreeRevised } from '../../src/checkpoint/events.ts';
+import type { FixRecordedV4, TreeRevised } from '../../src/checkpoint/events.ts';
 import { cutShortBefore, cutShortChecks, documentationItemsOf, documentationReadiness, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
-import { checkPhases, type CheckKind, type CheckPhase } from '../../src/review/vocabulary.ts';
+import { checkPhases, type CheckKind, type CheckPhase, type TreeCheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
 const revision = (phase: TreeRevised['phase'], source: TreeRevised['source']): TreeRevised => ({
@@ -169,7 +169,7 @@ describe('the second cut of a kind in one attempt (R4 of resumable runs)', () =>
 });
 
 describe('the last write back of an attempt (R7 of resumable runs)', () => {
-  const restoration = (phase: CheckPhase, attempt: number, checksBefore: number): RestorationState => ({ phase, attempt, check: { kind: 'test', attempt: attempt - 1 }, files: [], checksBefore });
+  const restoration = (phase: TreeCheckPhase, attempt: number, checksBefore: number): RestorationState => ({ phase, attempt, check: { kind: 'test', attempt: attempt - 1 }, files: [], checksBefore });
 
   it('reads the checks before the attempt\'s last write back, leaving out another attempt\'s and another phase\'s', () => {
     const fix = { ...emptyFixState(), restorations: [restoration('baseline-checks', 2, 1), restoration('baseline-checks', 2, 3), restoration('baseline-checks', 3, 5), restoration('checks', 2, 7)] };
@@ -184,7 +184,7 @@ describe('the last write back of an attempt (R7 of resumable runs)', () => {
 
 // R2, R9, TD8 and TD9 of the documentation step.
 describe('the items of the documentation step', () => {
-  const answerOf = (key: string, drift: readonly { readonly file: string; readonly what: string }[]): FixRecorded => ({ phase: 'fixes', key, workerId: worker, findings: [], drift: [...drift], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] });
+  const answerOf = (key: string, drift: readonly { readonly file: string; readonly what: string }[]): FixRecordedV4 => ({ phase: 'fixes', key, workerId: worker, findings: [], drift: [...drift], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [], comparisons: [] });
   const batch = (key: string): PlannedBatch => ({ key, cluster: key.split('-')[0]!, findingIds: [`RIPPLE-${key.split('-')[1]!}`] });
   /** A fix state with batches c1-1 and c2-1 in launch order, each answered with its `drift` lines, the second round's c3-1 too when given. */
   const fixWith = (first: readonly { readonly file: string; readonly what: string }[], second: readonly { readonly file: string; readonly what: string }[], third: readonly { readonly file: string; readonly what: string }[] | null = null): FixState => ({

@@ -26,6 +26,7 @@ import {
   fixPassEditingPhases,
   isBudgetDegradingPhase,
   isCheckPhase,
+  isTreeCheckPhase,
   isEditingPhase,
   maxRecordedTextLength,
   repairUnitKey,
@@ -36,6 +37,7 @@ import {
   unitName,
   type CheckKind,
   type CheckPhase,
+  type TreeCheckPhase,
   type EditingPhase,
   type Phase,
   type ReviewRole,
@@ -103,7 +105,7 @@ export type Step =
   | { readonly kind: 'plan-checks'; readonly checks: readonly PlannedCheckV3[]; readonly without: string | null }
   | { readonly kind: 'run-check'; readonly phase: CheckPhase; readonly attempt: number; readonly check: DueCheck }
   /** Write back the files the run expects that a check a kill cut short in an earlier attempt left changed, instead of the drift block (R7, TD7 of resumable runs). */
-  | { readonly kind: 'restore-tree'; readonly phase: CheckPhase; readonly attempt: number; readonly check: CutShortCheck; readonly files: readonly WorktreeCheckState['files'][number][] }
+  | { readonly kind: 'restore-tree'; readonly phase: TreeCheckPhase; readonly attempt: number; readonly check: CutShortCheck; readonly files: readonly WorktreeCheckState['files'][number][] }
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
   | { readonly kind: 'degrade'; readonly phase: Phase; readonly degradations: readonly Degradation[] }
@@ -177,6 +179,7 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     }
     case 'baseline-checks':
     case 'checks':
+    case 'base-checks':
     case 'repair-checks':
     case 'answer-checks':
     case 'report':
@@ -278,6 +281,7 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'decision':
     case 'baseline-checks':
     case 'checks':
+    case 'base-checks':
     case 'repair-checks':
     case 'answer':
     case 'answer-checks':
@@ -456,7 +460,7 @@ export function claimsLostBlocker(directory: string): Blocker {
  * large to keep cannot be written back, and blocks as before.
  */
 function restoreStep(review: ReviewState, phase: CheckPhase, attempt: number, drift: WorktreeCheckState): Step | null {
-  if (review.fix === null || drift.moment !== 'start' || drift.head !== null) return null;
+  if (review.fix === null || !isTreeCheckPhase(phase) || drift.moment !== 'start' || drift.head !== null) return null;
   const check = cutShortBefore({ ...review, fix: review.fix }, phase);
   if (check === null) return null;
   const writable = drift.files.every((file) => file.expected === null || (file.expected !== undefined && 'blob' in file.expected));

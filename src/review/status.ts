@@ -181,8 +181,8 @@ function fixStatus(state: RunState, review: ReviewState): { lines: string[]; jso
   const held = (fix.plan?.routes ?? []).filter((route) => route.route === 'held').map((route) => route.id);
   // A run with the decision step keeps a finding from every fixer by its decision; one configured before it held a finding for the author by verdict and angle.
   const heldWords = review.phases.decision.status === 'skipped' ? 'held for the author' : 'no fixer sees, as decided';
-  // The answer pass's checks are named once the run has had an answer pass, which alone runs them (R5 of answers).
-  const shown = checkPhases.filter((phase) => phase !== 'answer-checks' || review.answerPasses.length > 0);
+  // The answer pass's checks are named once the run has had an answer pass, which alone runs them (R5 of answers), and the checks on the base once a kind ran there (R8 of the facts before a merge).
+  const shown = checkPhases.filter((phase) => (phase !== 'answer-checks' || review.answerPasses.length > 0) && (phase !== 'base-checks' || fix.checks.runs['base-checks'].length > 0));
   const checks = (fix.checks.planned?.checks ?? []).map((check) => ({
     kind: check.kind,
     command: check.command,

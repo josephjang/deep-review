@@ -8,10 +8,10 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, reviewVocabularyV6, type RecordedCandidate, type ReviewConfigurationV1, type ScopeStateV1, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, reviewVocabularyV6, reviewVocabularyV8, reviewVocabularyV9, type RecordedCandidate, type ReviewConfigurationV1, type ScopeStateV1, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
-import { finderAngles, phases, type Angle, type Phase } from '../src/review/vocabulary.ts';
+import { finderAngles, type Angle, type Phase } from '../src/review/vocabulary.ts';
 
 const { values } = parseArgs({ options: { output: { type: 'string' } }, strict: true });
 if (values.output === undefined) throw new Error('--output DIRECTORY is required');
@@ -76,8 +76,17 @@ class ReviewHistory {
 
   /** One check's start and its run at version 3 (R3, R4, R7 of resumable runs), at the phase's current attempt: what it ended as and the run it replaces, if any. */
   checkV3(phase: 'baseline-checks' | 'checks' | 'repair-checks' | 'answer-checks', kind: string, command: string, outcome: 'passed' | 'failed' | 'cut' | 'timeout', replaces: { attempt: number; outcome: string } | null = null): void {
+    this.#startAndRun(phase, kind, command, outcome, replaces, 1, 3);
+  }
+
+  /** One check's start and its run on the base, at versions 2 and 4, the only ones that name the checks on the base (TD7 of the facts before a merge). */
+  checkOnBase(kind: string, command: string, outcome: 'passed' | 'failed' | 'timeout'): void {
+    this.#startAndRun('base-checks', kind, command, outcome, null, 2, 4);
+  }
+
+  #startAndRun(phase: Phase, kind: string, command: string, outcome: 'passed' | 'failed' | 'cut' | 'timeout', replaces: { attempt: number; outcome: string } | null, startedVersion: number, ranVersion: number): void {
     const attempt = this.#attempts[phase] ?? 1;
-    this.add('check.started', { phase, attempt, kind, command });
+    this.add('check.started', { phase, attempt, kind, command }, startedVersion);
     const ended = {
       passed: { exitCode: 0, signal: null, termination: 'exited' },
       failed: { exitCode: 1, signal: null, termination: 'exited' },
@@ -88,7 +97,7 @@ class ReviewHistory {
       phase, attempt, kind, command, outcome, ...ended,
       startedAt: '2026-10-19T02:00:00.000Z', endedAt: '2026-10-19T02:00:04.000Z',
       stdout: this.#checkpoint.evidence.put(`${kind} ${outcome}\n`), stderr: this.#checkpoint.evidence.put(''), error: null, replaces,
-    }, 3);
+    }, ranVersion);
   }
 
   /** Start a phase at its next attempt with a clean worktree check at version 2, as the fix pass's engine wrote them, run `body`, and finish it. */
@@ -131,6 +140,22 @@ class ReviewHistory {
     body();
     this.add('worktree.checked', check('end'), 7);
     this.add('phase.finished', { phase: 'documentation', attempt, outcome: 'completed', blocker: null }, 7);
+  }
+
+  /**
+   * The checks on the base at their next attempt as the engine now writes
+   * them: started at version 7, checked at their start and finished at
+   * version 8, the only versions that name the phase (TD7 of the facts
+   * before a merge), with `body` between. A run on the base never edits
+   * the reviewed worktree, so the phase has no end check.
+   */
+  basePhase(body: () => void): void {
+    const attempt = (this.#attempts['base-checks'] ?? 0) + 1;
+    this.#attempts['base-checks'] = attempt;
+    this.add('phase.started', { phase: 'base-checks', attempt }, 7);
+    this.add('worktree.checked', { phase: 'base-checks', attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 8);
+    body();
+    this.add('phase.finished', { phase: 'base-checks', attempt, outcome: 'completed', blocker: null }, 8);
   }
 
   /** Start a phase at its next attempt at version 3 with a clean check and finish it blocked, as a survey that blocks does. */
@@ -1857,7 +1882,7 @@ try {
   const documentedRun = checkpoint.createRun({ worktree: '/fixture/documented' });
   const documented = new ReviewHistory(checkpoint, documentedRun.id, checkpoint.append(documentedRun.id, documentedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
   const documentedChecks = { build: 'npm run build', test: 'npm test' };
-  documented.add('review.configured', {
+  const documentedConfiguration = {
     runtime: 'claude',
     executable: '/fixture/bin/claude',
     executableArgs: [],
@@ -1884,7 +1909,8 @@ try {
       notFollowed: [],
       ignored: [],
     },
-  }, 7);
+  };
+  documented.add('review.configured', documentedConfiguration, 7);
   documented.phaseV6('survey', () => {
     documented.launch('b01', 'surveyor survey:survey');
     documented.finishWorker('b01');
@@ -1991,12 +2017,140 @@ try {
   documented.phaseV6('report', () => {
     documented.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run with the documentation step\n'),
-      statistics: { phases: phases.filter((phase) => phase !== 'answer' && phase !== 'answer-checks').map((phase) => ({ phase, ...documentedSpend(documentedWorkers[phase] ?? 0) })), total: documentedSpend(17), budgetApplied: true },
+      statistics: { phases: reviewVocabularyV8.phases.filter((phase) => phase !== 'answer' && phase !== 'answer-checks').map((phase) => ({ phase, ...documentedSpend(documentedWorkers[phase] ?? 0) })), total: documentedSpend(17), budgetApplied: true },
       patches: [
         checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Keep the bytes in changed()\n\n---\n'),
         checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] docs(testing): Say the echo keeps the bytes\n\n---\n'),
       ],
     }, 6);
+  });
+  // A sixteenth run, a fix run configured at version 8, with the checks on
+  // the base (R1, R2, TD8 of the facts before a merge). Its typecheck fails
+  // before the fixes and after them, so it runs on the base after a build
+  // there, which the typecheck reads, and fails there too. The fixer
+  // applies SCAN-1; the documentation step's search finds nothing; the
+  // repair defers the typecheck, whose failures were all there before the
+  // fixes, and reads them as the base's, recorded at version 4. The report
+  // has the row of the checks on the base, so it is written at version 7.
+  const comparedRun = checkpoint.createRun({ worktree: '/fixture/compared' });
+  const compared = new ReviewHistory(checkpoint, comparedRun.id, checkpoint.append(comparedRun.id, comparedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
+  const comparedChecks = { build: 'npm run build', typecheck: 'npm run typecheck', test: 'npm test' };
+  compared.add('review.configured', documentedConfiguration, 8);
+  compared.phaseV6('survey', () => {
+    compared.launch('c01', 'surveyor survey:survey');
+    compared.finishWorker('c01');
+    compared.add('survey.recorded', {
+      workerId: compared.id('c01'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: comparedChecks.build, basis: 'stated', source: { path: 'package.json', quote: '"build"' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: comparedChecks.typecheck, basis: 'stated', source: { path: 'package.json', quote: '"typecheck"' }, missingTool: null, reason: null },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: comparedChecks.test, basis: 'stated', source: { path: 'package.json', quote: '"test"' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    compared.add('checks.planned', { checks: [
+      { kind: 'build', command: comparedChecks.build, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"build"', basis: 'stated' } },
+      { kind: 'typecheck', command: comparedChecks.typecheck, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"typecheck"', basis: 'stated' } },
+      { kind: 'lint', command: null, origin: 'none', layer: null, reason: 'the project has no linter', source: null },
+      { kind: 'test', command: comparedChecks.test, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"test"', basis: 'stated' } },
+    ] }, 3);
+  });
+  compared.phaseV6('triage', () => {
+    compared.launch('c02', 'triage triage:SCAN');
+    compared.finishWorker('c02');
+    compared.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: compared.id('c02'), candidates: [compared.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+  });
+  compared.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `c${String(10 + finderAngles.indexOf(angle))}`;
+      compared.launch(tag, `finder-${angle} finders:${angle}`);
+      compared.finishWorker(tag);
+      compared.add('candidates.recorded', { phase: 'finders', key: angle, workerId: compared.id(tag), candidates: [], leads: null, change: null }, 2);
+    }
+  });
+  compared.phaseV6('deduplication', () => {});
+  compared.phaseV6('verification', () => {
+    compared.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] });
+    compared.launch('c31', 'verifier verification:g1');
+    compared.finishWorker('c31');
+    compared.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: compared.id('c31'), verdicts: [{ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 echoes the bytes it was told to keep' }] });
+  });
+  compared.phaseV6('sweep', () => {
+    compared.launch('c32', 'sweep sweep:sweep');
+    compared.finishWorker('c32');
+    compared.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: compared.id('c32'), candidates: [], leads: null, change: null }, 2);
+  });
+  compared.phaseV6('sweep-deduplication', () => {});
+  compared.phaseV6('sweep-verification', () => compared.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  compared.phaseV6('merge-rank', () => {
+    compared.launch('c33', 'merge-rank merge-rank:merge-rank');
+    compared.finishWorker('c33');
+    compared.add('ranking.recorded', { workerId: compared.id('c33'), findings: [{ id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() removes the bytes it was told to keep', reason: 'the output differs from the input' }] });
+  });
+  compared.phaseV6('decision', () => {
+    compared.launch('c34', 'decider decision:decision');
+    compared.finishWorker('c34');
+    compared.add('decisions.recorded', { workerId: compared.id('c34'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'the commit says the bytes are kept', fix: { approach: 'keep the bytes in changed()', rejected: [] }, leave: null, ask: null, departure: null },
+    ] });
+  });
+  compared.phaseV6('baseline-checks', () => {
+    compared.checkV3('baseline-checks', 'build', comparedChecks.build, 'passed');
+    compared.checkV3('baseline-checks', 'typecheck', comparedChecks.typecheck, 'failed');
+    compared.checkV3('baseline-checks', 'test', comparedChecks.test, 'passed');
+  });
+  compared.phaseV6('fixes', () => {
+    compared.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+    });
+    compared.launch('c40', 'fixer fixes:c1-1');
+    compared.finishWorker('c40');
+    compared.add('fix.recorded', { phase: 'fixes', key: 'c1-1', workerId: compared.id('c40'), findings: [finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Keep the bytes in changed()')], drift: [], tests: [], suite: { result: 'pass', command: comparedChecks.test, failures: '' }, violations: [] }, 2);
+    compared.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: compared.id('c40') }, change: { findings: ['SCAN-1'], message: message('fix: Keep the bytes in changed()') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: compared.frozen('after\n'), beforeSymlink: false, symlink: false, after: compared.frozen('after; // the bytes kept\n') },
+    ] }, 2);
+    compared.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  }, 'completed', { end: true });
+  compared.documentationPhase(() => {
+    compared.add('documentation.planned', { items: [{ id: 'search', file: null, path: null, drift: [] }] });
+    compared.launch('c50', 'documentation documentation:documentation');
+    compared.finishWorker('c50');
+    compared.add('fix.recorded', { phase: 'documentation', key: 'documentation', workerId: compared.id('c50'), findings: [
+      { ...finding('search', 'already-applied', [], null), file: 'docs', note: 'no document states the behavior the fix changed' },
+    ], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] }, 3);
+  });
+  compared.phaseV6('checks', () => {
+    compared.checkV3('checks', 'build', comparedChecks.build, 'passed');
+    compared.checkV3('checks', 'typecheck', comparedChecks.typecheck, 'failed');
+    compared.checkV3('checks', 'test', comparedChecks.test, 'passed');
+  });
+  compared.basePhase(() => {
+    compared.checkOnBase('build', comparedChecks.build, 'passed');
+    compared.checkOnBase('typecheck', comparedChecks.typecheck, 'failed');
+  });
+  compared.phaseV6('repair', () => {
+    compared.launch('c60', 'fixer repair:repair');
+    compared.finishWorker('c60');
+    compared.add('fix.recorded', {
+      phase: 'repair', key: 'repair', workerId: compared.id('c60'),
+      findings: [{ ...finding('typecheck', 'deferred', [], null), file: 'src/types.ts', note: 'every failure of the typecheck was there before the fixes' }],
+      drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [],
+      comparisons: [{ kind: 'typecheck', reading: 'same', words: 'the same two errors in src/types.ts before the fixes and on the base' }],
+    }, 4);
+  }, 'completed', { end: true });
+  compared.phaseV6('repair-checks', () => {});
+  const comparedWorkers: Partial<Record<Phase, number>> = { ...documentedWorkers, repair: 1 };
+  compared.phaseV6('report', () => {
+    compared.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a fix run with the checks on the base\n'),
+      statistics: { phases: reviewVocabularyV9.phases.filter((phase) => phase !== 'answer' && phase !== 'answer-checks').map((phase) => ({ phase, ...documentedSpend(comparedWorkers[phase] ?? 0) })), total: documentedSpend(18), budgetApplied: true },
+      patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Keep the bytes in changed()\n\n---\n')],
+    }, 7);
   });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };

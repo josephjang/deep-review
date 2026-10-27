@@ -344,7 +344,7 @@ function fixesSection(review: ReviewState, fix: FixState): string[] {
   return lines.filter((line, index) => line !== '' || lines[index - 1] !== '');
 }
 
-const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'repair-checks': 'After the repair', 'answer-checks': 'After answers' };
+const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'base-checks': 'On the base', 'repair-checks': 'After the repair', 'answer-checks': 'After answers' };
 
 /** Whose revision changed the tree a run checked, as the note under the Checks table names it. */
 const revisionOwners: Readonly<Record<EditingPhase, string>> = { fixes: 'the fixes', documentation: 'the documentation step', repair: 'the repair', answer: 'an answer pass' };

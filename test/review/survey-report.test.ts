@@ -261,7 +261,7 @@ describe('the limitation of a survey that failed', () => {
   const failedWith = (layers: readonly (string | null)[]): Parameters<typeof surveyLimitations>[0] => {
     const review = reported().fold().review!;
     const checks = (['build', 'typecheck', 'lint', 'test'] as const).map((kind, index) => ({ kind, command: `make ${kind}`, origin: 'setting' as const, layer: layers[index] as never, reason: null, source: null }));
-    return { ...review, survey: { answers: [], failure: { reason: 'the surveyor failed twice', conventions: [], userRules: [] }, lastBlock: null }, fix: { ...emptyFixState(), checks: { ...emptyFixState().checks, planned: { checks, manager: null }, runs: { 'baseline-checks': [], checks: [], 'repair-checks': [], 'answer-checks': [] } } } };
+    return { ...review, survey: { answers: [], failure: { reason: 'the surveyor failed twice', conventions: [], userRules: [] }, lastBlock: null }, fix: { ...emptyFixState(), checks: { ...emptyFixState().checks, planned: { checks, manager: null }, runs: { 'baseline-checks': [], checks: [], 'base-checks': [], 'repair-checks': [], 'answer-checks': [] } } } };
   };
 
   it('says every check was the flags\' when flags settled them, and a setting\'s when a configuration file settled one (R11 of the configuration)', () => {

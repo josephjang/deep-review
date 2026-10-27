@@ -554,6 +554,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       return answerTaskOf(unit, review, requireEditing(), evidence);
     case 'baseline-checks':
     case 'checks':
+    case 'base-checks':
     case 'repair-checks':
     case 'answer-checks':
       throw new Error(`The ${unit.phase} phase runs checks, not workers`);
@@ -781,6 +782,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       throw new Error(`An answer of ${unit.phase} is recorded with the revisions it made, by fixAnswerEvents`);
     case 'baseline-checks':
     case 'checks':
+    case 'base-checks':
     case 'repair-checks':
     case 'answer-checks':
     case 'report':

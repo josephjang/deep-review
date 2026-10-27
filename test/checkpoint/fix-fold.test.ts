@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { budgetStoppedUnits, clusterClaims, committedRevisions, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import { baseKinds, budgetStoppedUnits, clusterClaims, committedRevisions, comparableKinds, cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, lastRecordedRun, openStart, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
 import type { DocumentationItem, TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
@@ -25,6 +25,7 @@ import {
   decidedOf,
   decisions,
   documentationAnswer,
+  documentationAnswered,
   documentationItems,
   endCheck,
   fixAnswer,
@@ -41,12 +42,14 @@ import {
   plannedChecks,
   quietPlannedChecks,
   quietSurvey,
+  ranOnBase,
   ranked,
   readOnlyReported,
   reference,
   reported,
   statistics,
   surveyAnswer,
+  withBaseChecks,
   withDecisions,
   withDocumentationStep,
   withFixPass,
@@ -59,13 +62,15 @@ const commit = (fill: string): string => fill.repeat(40);
 const launchOf = (workerId: string): Record<string, unknown> => launch(workerId, 'fixer fixes:c1-1');
 
 describe('the fix fold', () => {
-  it('starts a run configured with the fix pass with an empty fix state, its five phases pending, the documentation step skipped before it existed, and its checks pinned', () => {
+  it('starts a run configured with the fix pass with an empty fix state, its five phases pending, the documentation step and the checks on the base skipped before they existed, and its checks pinned', () => {
     const review = withFixPass(configured()).review();
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(review.configuration.checks, { timeoutMs: 600_000 });
-    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
+    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation' && candidate !== 'base-checks')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 });
     assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 });
+    assert.deepEqual(review.phases['base-checks'], { status: 'skipped', attempt: 0 });
     assert.equal(review.documentationStep, false);
+    assert.equal(review.baseChecksStep, false);
     assert.equal(review.fix?.documentation, null);
     // A version 1 plan names no source; the fold gives each of its checks a null one, as a version 2 plan's flag does, and its flag reads as a setting of the flag layer.
     assert.deepEqual(review.fix?.checks.planned, { ...plannedChecks, checks: foldedChecks(plannedChecks.checks) });
@@ -83,7 +88,7 @@ describe('the fix fold', () => {
     assert.equal(lastFreshRun(fix, 'checks', 'typecheck'), null, 'a kind with no command never runs');
     assert.deepEqual(repairTargets(fix), ['test'], 'passed before the fixes, failed after');
     assert.equal(isAnswered(review, 'fixes', 'c1-1'), true);
-    assert.deepEqual(fix.answers.fixes['c1-1'], fixAnswer(worker(50)));
+    assert.deepEqual(fix.answers.fixes['c1-1'], { ...fixAnswer(worker(50)), comparisons: [] }, 'an answer before version 4 holds no comparison with the base');
     assert.deepEqual(fix.revisions, [fixRevision(worker(50))]);
     assert.deepEqual(fixesRevisedPaths(fix), ['src/a.ts']);
     assert.deepEqual(ownedFiles(review, 'fixes', 'c1-1'), ['src/a.ts']);
@@ -603,8 +608,9 @@ describe('the continuation into the fix pass', () => {
     const review = run.review!;
     assert.deepEqual(review.configuration, { ...before.configuration, fix: true, checks: { timeoutMs: 300_000 }, fixes: { batchSize: 4 } }, 'the configuration reads as a fix run\'s');
     assert.equal((history.events.find((event) => event.kind === 'review.configured')!.payload as { fix: boolean }).fix, false, 'the recorded configuration is unchanged');
-    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 }, phase);
+    for (const phase of fixPhases.filter((candidate) => candidate !== 'documentation' && candidate !== 'base-checks')) assert.deepEqual(review.phases[phase], { status: 'pending', attempt: 0 }, phase);
     assert.deepEqual(review.phases.documentation, { status: 'skipped', attempt: 0 }, 'a run configured before the documentation step does not get it (R11 of the documentation step)');
+    assert.deepEqual(review.phases['base-checks'], { status: 'skipped', attempt: 0 }, 'nor the checks on the base (R10 of the facts before a merge)');
     assert.deepEqual(review.phases.report, { status: 'pending', attempt: 1 }, 'the report is pending at its attempt, so its next start is the second');
     assert.deepEqual(review.phases.survey, { status: 'pending', attempt: 1 }, 'the survey is asked for the checks');
     assert.deepEqual(review.phases.decision, before.phases.decision, 'the read-only phases stay as they finished');
@@ -766,7 +772,7 @@ describe('the records of resumable runs', () => {
     assert.deepEqual(fix.checks.runs['baseline-checks'].map((run) => [run.kind, run.outcome, run.replaces, run.revisionsBefore]), [['build', 'passed', null, 0]]);
     const after = fixed().review().fix!;
     assert.deepEqual(after.checks.runs['baseline-checks'].map((run) => [run.replaces, run.revisionsBefore, run.replacedAt]), [[null, 0, null], [null, 0, null], [null, 0, null]], 'a version 2 run replaces nothing');
-    assert.deepEqual(after.checks.finished, { 'baseline-checks': 1, checks: 0, 'repair-checks': 0, 'answer-checks': 0 }, 'the baseline finished its first attempt');
+    assert.deepEqual(after.checks.finished, { 'baseline-checks': 1, checks: 0, 'base-checks': 0, 'repair-checks': 0, 'answer-checks': 0 }, 'the baseline finished its first attempt');
   });
 
   it('refuses a version 3 run with no start of its own, a start of a kind that ran, and a second start with no run between (R7)', () => {
@@ -1070,5 +1076,169 @@ describe('the documentation step in the fix state', () => {
     assert.equal(unknown === null ? null : `${unknown.kind}@${String(unknown.version)}`, 'review.configured@7', 'the configuration comes first');
     assert.equal(firstUnknownEvent(fixed().events, older), null);
     assert.equal(firstUnknownEvent(decidedFixRun().events, older), null);
+  });
+});
+
+// R1, R2, R10, R11, TD4, TD5, TD6, TD14 and TD15 of the facts before a merge.
+describe('the checks on the base in the fix state', () => {
+  const refused = (history: History, message: RegExp): void => {
+    assert.throws(() => history.fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), message.source);
+  };
+  const withFix = (history: History): ReviewState & { readonly fix: FixState } => {
+    const review = history.review();
+    return { ...review, fix: review.fix! };
+  };
+  const startOnBase = (kind: string, attempt = 1): Record<string, unknown> => ({ phase: 'base-checks', attempt, kind, command: plannedChecks.checks.find((check) => check.kind === kind)!.command });
+  /** The documentation step with its unit left by the run budget, as `withDocumentationStep` takes a step. */
+  const budgetStopped = (history: History): History => {
+    history.start('documentation');
+    return history.add('documentation.planned', { items: documentationItems(history) })
+      .add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2)
+      .add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded');
+  };
+  /**
+   * A decided fix run with the documentation step, configured at version 8
+   * with the checks on the base unless `compared` is false, through its
+   * fixes, where c1-1 applies RIPPLE-1, and its documentation step as
+   * `step` records it, with the checks before the fixes as `before` gives.
+   */
+  const throughFixes = (before: Readonly<Record<string, string>> = { lint: 'failed' }, compared = true, step: (history: History) => History = documentationAnswered): History => {
+    const atBaseline = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', before), null);
+    const history = (compared ? withBaseChecks(atBaseline) : atBaseline)
+      .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50)))
+      .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+    return step(history);
+  };
+  /** The same run through the checks after its fixes, as `after` gives, and the start of its checks on the base. */
+  const onBase = (before: Readonly<Record<string, string>> = { lint: 'failed' }, after: Readonly<Record<string, string>> = { lint: 'failed' }): History => checksPhase(throughFixes(before), 'checks', after).start('base-checks');
+  /** The repair's answer, each kind it takes deferred, at version 4 with `comparisons`, or as earlier versions record it when they are null. */
+  const repairAnswer = (kinds: readonly string[], comparisons: readonly Record<string, unknown>[] | null): Record<string, unknown> => ({
+    ...fixAnswer(worker(60)), phase: 'repair', key: 'repair',
+    findings: kinds.map((id) => ({ id, status: 'deferred', file: 'src/a.ts', line: null, note: 'every failure was there before the fixes', message: null, files: [], corrections: [], validation: [], requiredFiles: [] })),
+    ...(comparisons === null ? {} : { comparisons }),
+  });
+  const same = { kind: 'lint', reading: 'same', words: 'the same two lint errors as on the base' };
+
+  it('is pending in a run configured at version 8, and skipped in one at version 7, whose repair follows its checks (R10)', () => {
+    const compared = throughFixes().review();
+    assert.equal(compared.baseChecksStep, true);
+    assert.deepEqual(compared.phases['base-checks'], { status: 'pending', attempt: 0 });
+    refused(checksPhase(throughFixes(), 'checks', { lint: 'failed' }).start('repair'), /starts phase repair while phase base-checks is pending/);
+    const older = checksPhase(throughFixes({ lint: 'failed' }, false), 'checks', { lint: 'failed' });
+    assert.equal(older.review().baseChecksStep, false);
+    assert.deepEqual(older.review().phases['base-checks'], { status: 'skipped', attempt: 0 });
+    refused(older.clone().start('base-checks'), /starts phase base-checks, which this run skips: it was configured before the checks on the base existed/);
+    assert.doesNotThrow(() => older.clone().start('repair').fold());
+  });
+
+  it('takes on the base the kinds that failed before the fixes and after them, and build while another of them is due (R1, TD4)', () => {
+    const history = onBase({ lint: 'failed' }, { lint: 'failed', test: 'failed' });
+    const fix = history.review().fix!;
+    assert.deepEqual(repairTargets(fix), ['lint', 'test']);
+    assert.deepEqual(baseKinds(fix), ['lint'], 'test passed before the fixes, so no base can say the change broke it');
+    assert.equal(takenOnBase(withFix(history), 'build'), true, 'lint reads what build produces');
+    refused(history.clone().add('check.started', startOnBase('test'), 2), /starts the test check on the base, which takes only \[lint\], and build while another of them is due/);
+    refused(history.clone().add('check.ran', { ...checkRun('base-checks', 'test', 'skipped'), replaces: null }, 4), /runs the test check on the base, which takes only \[lint\]/);
+    refused(history.clone().add('check.started', startOnBase('lint'), 1), /payload its schema rejects/);
+    const done = ranOnBase(ranOnBase(history.clone(), 'build', 'passed'), 'lint', 'failed');
+    assert.deepEqual(done.review().fix!.checks.runs['base-checks'].map((run) => [run.kind, run.outcome]), [['build', 'passed'], ['lint', 'failed']]);
+    assert.equal(takenOnBase(withFix(done), 'build'), false, 'no kind is due once lint has its result');
+    refused(done.clone().add('check.started', startOnBase('build'), 2), /starts the build check on the base, which takes only \[lint\]/);
+    const unbuilt = ranOnBase(history.clone(), 'build', 'failed').add('check.ran', { ...checkRun('base-checks', 'lint', 'skipped'), replaces: null }, 4);
+    assert.equal(lastFreshRun(unbuilt.review().fix!, 'base-checks', 'lint')?.outcome, 'skipped', 'a failed build on the base skips lint there');
+  });
+
+  it('takes a timeout on the base as its result, and runs a cut run, or a failure in a cut attempt, again (PD11, TD15)', () => {
+    const built = ranOnBase(onBase(), 'build', 'passed');
+    const timedOut = ranOnBase(built.clone(), 'lint', 'timeout');
+    assert.equal(runStanding(withFix(timedOut), 'base-checks', 'lint'), null, 'no second run after a timeout on the base');
+    refused(ranOnBase(timedOut.clone(), 'lint', 'failed', 1, { attempt: 1, outcome: 'timeout' }), /starts the lint check in base-checks, whose last current run is its result/);
+    const cut = ranOnBase(built.clone(), 'lint', 'cut', 1, null, { exitCode: 143 });
+    assert.equal(runStanding(withFix(cut), 'base-checks', 'lint')?.kind, 'again');
+    assert.doesNotThrow(() => ranOnBase(cut.clone(), 'lint', 'failed', 1, { attempt: 1, outcome: 'cut' }).fold());
+    const stopped = ranOnBase(built.clone(), 'lint', 'failed').start('base-checks', 2);
+    const standing = runStanding(withFix(stopped), 'base-checks', 'lint');
+    assert.equal(standing?.kind === 'again' ? standing.why : null, 'cut-attempt', 'a stop says nothing of the check');
+  });
+
+  it('never names a run or a start on the base as cut short, so a drift after a stop there blocks and nothing is written back (TD14)', () => {
+    const stopped = ranOnBase(onBase(), 'build', 'passed').add('check.started', startOnBase('lint'), 2).start('base-checks', 2);
+    const review = withFix(stopped);
+    assert.notEqual(openStart(review.fix, 'base-checks', 'lint', 1), null, 'the stop left a start with no run');
+    assert.deepEqual(cutShortChecks(review.fix, 'base-checks'), []);
+    assert.equal(cutShortBefore(review, 'base-checks'), null);
+    const killed = ranOnBase(ranOnBase(onBase(), 'build', 'passed'), 'lint', 'timeout').start('base-checks', 2);
+    assert.deepEqual(cutShortChecks(withFix(killed).fix, 'base-checks'), [], 'a run killed at its timeout on the base wrote nothing the run expects');
+    assert.equal(cutShortBefore(withFix(killed), 'base-checks'), null);
+    refused(stopped.clone().add('tree.restored', { phase: 'base-checks', attempt: 2, check: { kind: 'lint', attempt: 1 }, files: [] }), /payload its schema rejects/);
+  });
+
+  it('keeps the repair\'s comparisons with its answer, of a kind that failed or timed out on the base, once each (R2, TD6)', () => {
+    // lint and test failed before the fixes and after them; on the base build passes, lint fails and test passes.
+    const base = ranOnBase(ranOnBase(ranOnBase(onBase({ lint: 'failed', test: 'failed' }, { lint: 'failed', test: 'failed' }), 'build', 'passed'), 'lint', 'failed'), 'test', 'passed')
+      .finish('base-checks').start('repair').worker(60, 'fixer repair:repair');
+    const fix = base.review().fix!;
+    assert.deepEqual(baseKinds(fix), ['lint', 'test']);
+    assert.deepEqual(comparableKinds(fix), ['lint'], 'test passes on the base, which needs no reading');
+    assert.deepEqual(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], [same]), 4).review().fix?.answers.repair.repair?.comparisons, [same]);
+    assert.deepEqual(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], []), 4).review().fix?.answers.repair.repair?.comparisons, [], 'a repair that gave none');
+    assert.deepEqual(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], null), 2).review().fix?.answers.repair.repair?.comparisons, [], 'an answer before version 4 holds none');
+    refused(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], [{ ...same, kind: 'test' }]), 4), /compares the test check with the base, where it did not fail or time out/);
+    refused(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], [{ ...same, kind: 'build' }]), 4), /compares the build check with the base, where it did not fail or time out/);
+    refused(base.clone().add('fix.recorded', repairAnswer(['lint', 'test'], [same, { ...same, reading: 'adds' }]), 4), /compares the lint check with the base twice/);
+    const timedOut = ranOnBase(ranOnBase(onBase(), 'build', 'passed'), 'lint', 'timeout').finish('base-checks').start('repair').worker(60, 'fixer repair:repair');
+    assert.deepEqual(comparableKinds(timedOut.review().fix!), ['lint'], 'a timeout on the base is compared as a failure is');
+    const atFixes = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', { lint: 'failed' }), null)).start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1');
+    refused(atFixes.add('fix.recorded', { ...fixAnswer(worker(50)), comparisons: [same] }, 4), /compares checks with the base in fixes:c1-1, which only the repair does/);
+  });
+
+  it('keeps a run on the base as its kind\'s run whatever the run revises after it (TD5)', () => {
+    const applied = { id: 'lint', status: 'applied', file: 'src/a.ts', line: 4, note: 'formatted the guard', message: { subject: 'style: Format the guard', body: 'Why.' }, files: ['src/a.ts'], corrections: [], validation: [], requiredFiles: [] };
+    const repaired = ranOnBase(ranOnBase(onBase(), 'build', 'passed'), 'lint', 'failed').finish('base-checks').start('repair').worker(60, 'fixer repair:repair')
+      .add('fix.recorded', { ...repairAnswer(['lint'], [same]), findings: [applied] }, 4)
+      .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['lint'], message: applied.message }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('8') } }] }, 2);
+    const fix = repaired.review().fix!;
+    const run = lastRecordedRun(fix, 'base-checks', 'lint')!;
+    assert.equal(isOldRun(fix, 'base-checks', run), false);
+    assert.equal(lastFreshRun(fix, 'base-checks', 'lint'), run);
+    assert.equal(earlierTreeEdit(fix, 'base-checks', run), null, 'the Checks table marks no run on the base as of an earlier tree');
+  });
+
+  it('stays skipped when a run configured before it continues into the fix pass, and is pending when one at version 8 does (R10)', () => {
+    const older = withDocumentationStep(readOnlyReported()).add('fix.pinned', pin()).review();
+    assert.deepEqual(older.phases['base-checks'], { status: 'skipped', attempt: 0 });
+    assert.deepEqual(older.phases.documentation, { status: 'pending', attempt: 0 });
+    const newer = withBaseChecks(withDocumentationStep(readOnlyReported())).add('fix.pinned', pin()).review();
+    assert.equal(newer.baseChecksStep, true);
+    assert.deepEqual(newer.phases['base-checks'], { status: 'pending', attempt: 0 });
+  });
+
+  it('reopens with the checks after the fixes in a run configured at version 8, and runs there only a kind the reopened pass adds (R10, TD5)', () => {
+    // lint and test fail before the fixes; after them lint fails and test passes, so only lint runs on the base; the run budget left the documentation step's unit.
+    const toReport = (compared: boolean): History => {
+      const checked = checksPhase(throughFixes({ lint: 'failed', test: 'failed' }, compared, budgetStopped), 'checks', { lint: 'failed' });
+      const based = compared ? ranOnBase(ranOnBase(checked.start('base-checks'), 'build', 'passed'), 'lint', 'failed').finish('base-checks') : checked;
+      return based.start('repair').worker(60, 'fixer repair:repair').add('fix.recorded', repairAnswer(['lint'], compared ? [same] : null), compared ? 4 : 2).add('worktree.checked', endCheck('repair'), 2).finish('repair')
+        .start('repair-checks').finish('repair-checks')
+        .start('report').add('report.written', { report: reference('e', 2048), statistics, patches: [reference('1')] }, 2).finish('report');
+    };
+    const reopen = { units: [{ phase: 'documentation', key: 'documentation' }] };
+    assert.deepEqual(toReport(false).add('fix.reopened', reopen, 2).review().phases['base-checks'], { status: 'skipped', attempt: 0 });
+    const reopened = toReport(true).add('fix.reopened', reopen, 2);
+    assert.deepEqual(reopened.review().phases['base-checks'], { status: 'pending', attempt: 1 });
+    // The step revises a document, so the checks after it run again, and now test fails too.
+    reopened.start('documentation', 2).worker(56, 'documentation documentation:documentation')
+      .add('fix.recorded', documentationAnswer(worker(56), [['search', 'applied']]), 3)
+      .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(56) }, change: { findings: ['search'], message: { subject: 'docs: Bring search in line', body: 'The fixes changed the behavior it states.' } }, files: [{ path: 'docs/testing.md', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] }, 3)
+      .add('worktree.checked', endCheck('documentation', 2), 7).finish('documentation', 'completed', 2)
+      .start('checks', 2);
+    for (const kind of ['build', 'lint', 'test']) reopened.add('check.ran', checkRun('checks', kind, kind === 'build' ? 'passed' : 'failed', 2));
+    reopened.finish('checks', 'completed', 2).start('base-checks', 2);
+    const review = withFix(reopened);
+    assert.deepEqual(baseKinds(review.fix), ['lint', 'test']);
+    assert.equal(runStanding(review, 'base-checks', 'lint'), null, 'lint\'s run on the base stands');
+    assert.deepEqual(runStanding(review, 'base-checks', 'test'), { kind: 'first' });
+    refused(reopened.clone().add('check.started', startOnBase('lint', 2), 2), /starts the lint check in base-checks, whose last current run is its result/);
+    assert.deepEqual(ranOnBase(reopened.clone(), 'test', 'failed', 2).review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['test', 2, 'failed']]);
   });
 });
