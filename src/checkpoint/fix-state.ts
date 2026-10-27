@@ -407,6 +407,12 @@ export function failedAtBaseline(fix: FixState, kind: CheckKind): boolean {
   return ['failed', 'timeout'].includes(lastFreshRun(fix, 'baseline-checks', kind)?.outcome ?? '');
 }
 
+/** A kind's last baseline run when it failed or timed out (`failedAtBaseline`), whose output the repair compares with the output after the fixes; null for none. */
+export function failingBaselineRun(fix: FixState, kind: CheckKind): CheckRunState | null {
+  const run = lastFreshRun(fix, 'baseline-checks', kind);
+  return run !== null && failedOrTimedOut(run.outcome) ? run : null;
+}
+
 /**
  * The kinds the repair takes (R10, R11, R24 of the fix pass): those whose
  * check failed or timed out after the fixes, having passed before any

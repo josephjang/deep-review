@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -401,7 +401,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   const onBase = kindsTakenToBase({ ...review, fix });
   const checks = repairTargets(fix).map((kind): RepairTaskCheck => {
     const run = lastFreshRun(fix, 'checks', kind)!;
-    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, 'baseline-checks', kind)! : null;
+    const before = failingBaselineRun(fix, kind);
     return {
       kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, signal: run.signal, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
