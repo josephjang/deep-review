@@ -116,6 +116,20 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'unknown' }] }), [gap('the repair could not compare the outputs')]);
   });
 
+  it('says how a check not compared with the base ended before and after the fixes, a timeout as timed out, in its gap, its clause and the sentence alike', () => {
+    const ran: [ChecksOfRun, string][] = [
+      [{ before: { lint: 'timeout' }, after: { lint: 'timeout' } }, 'timed out before and after the fixes'],
+      [{ before: { lint: 'failed' }, after: { lint: 'timeout' } }, 'failed before the fixes and timed out after them'],
+    ];
+    for (const [outcomes, words] of ran) {
+      const brief = briefOf(run({ ...outcomes, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }));
+      assert.equal(check(brief, 'lint').fault, 'not-compared', words);
+      assert.deepEqual(checkGaps(brief).filter((gap) => gap.includes('could not compare')), [`The lint check ${words}, and the run could not compare it with the base, ${where}: the repair gave no comparison.`]);
+      assert.equal(briefShortForm(brief).find((line) => line.startsWith('Checks:')), `Checks: lint ${words}, not compared with the base; no typecheck check; build and test passed`);
+      assert.ok(sentence(brief).includes(`lint ${words}, and the run could not compare it with the base, ${where}, since the repair gave no comparison; `), sentence(brief));
+    }
+  });
+
   it('gives the build that only prepares the base no fault and no gap of its own', () => {
     const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build failed on the base']] }));
     assert.deepEqual([check(brief, 'build').base, check(brief, 'build').fault], [null, null]);

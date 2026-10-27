@@ -279,7 +279,7 @@ const clauses: Readonly<Record<ClauseRow, (check: BriefCheck) => string | null>>
   edits: ({ kind, fault, last, earlier }) => (fault === 'edits' && last !== null && earlier.passed !== null ? `${kind} ${outcomeVerbs[last.outcome]} ${lastWords[last.when]}, and passed ${earlierWords[earlier.passed]}` : null),
   'change-breaks': ({ kind, fault, base }) => (fault === 'change-breaks' && base !== null ? `${kind} fails on the change and passes on the base (${commitWords(base.commit)})` : null),
   'change-adds': ({ kind, fault, base }) => (fault === 'change-adds' && base !== null ? `${kind} fails on the change with failures that the base (${commitWords(base.commit)}) does not have, by the repair's reading` : null),
-  'not-compared': ({ kind, fault }) => (fault === 'not-compared' ? `${kind} failed before and after the fixes, not compared with the base` : null),
+  'not-compared': (check) => (check.fault === 'not-compared' ? `${check.kind} ${ranWords(check)}, not compared with the base` : null),
   'base-has': ({ kind, fault, base }) => (fault === 'base-has' && base !== null ? `${kind} failed, as it does on the base (${commitWords(base.commit)}), by the repair's reading` : null),
   // A check whose last run failed with no fault: one that never passed, in a run configured before the checks on the base or of a kind the run did not take there.
   failing: (check) => (check.last?.outcome === 'failed' ? `${check.kind} ${ranWords(check)}` : null),
@@ -331,7 +331,8 @@ export function checksLine(checks: readonly BriefCheck[], noCommand: readonly Ch
  * headline counts a check the edits of the run made fail and the run
  * covered a check whose base has the same failures.
  */
-export function checkGap({ kind, base, fault }: BriefCheck): string | null {
+export function checkGap(check: BriefCheck): string | null {
+  const { kind, base, fault } = check;
   if (base === null) return null;
   const where = baseWords(base);
   switch (fault) {
@@ -340,7 +341,7 @@ export function checkGap({ kind, base, fault }: BriefCheck): string | null {
     case 'change-adds':
       return `The ${kind} check fails on the change with failures that its base, ${where}, does not have, by the repair's reading. No step of the run fixes a failure that the change brings.`;
     case 'not-compared':
-      return base.reason === null ? null : `The ${kind} check failed before and after the fixes, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
+      return base.reason === null ? null : `The ${kind} check ${ranWords(check)}, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
     default:
       return null;
   }
