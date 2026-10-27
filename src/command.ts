@@ -915,7 +915,7 @@ function reportFormOf(values: Values): ReportForm {
  * line for each fix (R6) in place of the short form, with `--brief` the
  * brief as a chat shows it, and with `--finding <id>` its block of one
  * question or fix that goes against a written rule (R7); or with `--json`
- * version 3 of the JSON form, which names those runs in `notShown`. A
+ * version 4 of the JSON form, which names those runs in `notShown`. A
  * worktree with no run is refused with exit 2, naming `status`; one whose
  * runs have no report with the state of the newest, naming `status --all`;
  * and a run `--run` names with no current report with its state (R9),
