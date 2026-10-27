@@ -24,7 +24,7 @@ No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.
 
 ## What deep-review changed
 
-deep-review applied 1 fix ([RIPPLE-1](#finding-ripple-1)). Its 3 patches are not committed: `deep-review commit` commits them. It left 1 finding: [SWEEP-1](#finding-sweep-1). The checks: build passed before and after the fixes; lint passed before and after the fixes; test failed before and after the fixes.
+deep-review applied 1 fix ([RIPPLE-1](#finding-ripple-1)). Its 3 patches are not committed: `deep-review commit` commits them. It left 1 finding: [SWEEP-1](#finding-sweep-1). The fixers report that a test validated the fix: it fails on the code before the fix, or on a mutation of the fix. The checks: build passed before and after the fixes; lint passed before and after the fixes; test failed before and after the fixes.
 
 ---
 

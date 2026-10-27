@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { beforeEditsSentence, briefBlock, briefFates, briefMarkdown, howToAnswer, howToAnswerInChat, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type GapKind } from '../../src/review/brief.ts';
+import { beforeEditsSentence, briefBlock, briefFates, briefMarkdown, howToAnswer, howToAnswerInChat, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
@@ -354,6 +354,63 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       // With no current run, the run that checked the newest tree stands.
       const stale = { ...reopened, revisions: [...reopened.revisions, fixes] };
       assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).changed.checks.find((check) => check.kind === 'test')?.after, 'failed');
+    });
+
+    describe('the validation of the fixes (R7 of the facts before a merge)', () => {
+      /** The decided fix run, its fixer reporting RIPPLE-1 applied with a validation entry of each method given. */
+      const validated = (methods: readonly string[]): RunState => {
+        const state = decidedFixRun().fold();
+        const fix = state.review!.fix!;
+        const answer = fix.answers.fixes['c1-1']!;
+        const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran' })) }));
+        return { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState;
+      };
+      const sentence = (brief: Brief): string => briefMarkdown(brief, 'chat').at(-1)!;
+      const tested = 'The fixers report that a test validated the fix: it fails on the code before the fix, or on a mutation of the fix.';
+
+      it('says a test validated a fix whose test fails on the code before it or on a mutation of it', () => {
+        for (const method of ['old-code', 'mutation']) {
+          const brief = briefOf(validated([method]));
+          assert.deepEqual(brief.changed.validation, { test: ['RIPPLE-1'], existing: [], static: [], limited: [], none: [] }, method);
+          assert.ok(sentence(brief).includes(`commits it. ${tested} The checks`), sentence(brief));
+        }
+      });
+
+      it('names a fix no test validated by what it rests on, and one with no entry as one with no validation', () => {
+        const words: [string[], string][] = [
+          [['existing'], 'RIPPLE-1 rests on the tests that already exist.'],
+          [['static'], 'RIPPLE-1 rests on a check of the source.'],
+          [['limited'], 'RIPPLE-1 rests on a limit that its fixer named.'],
+          [[], 'RIPPLE-1 has no validation that its fixer reported.'],
+        ];
+        for (const [methods, rest] of words) assert.ok(sentence(briefOf(validated(methods))).includes(`The fixers report that no test validated the fix. ${rest}`), JSON.stringify(methods));
+      });
+
+      it('takes the strongest method of a fix that gives several', () => {
+        assert.deepEqual(briefOf(validated(['limited', 'existing', 'mutation'])).changed.validation.test, ['RIPPLE-1']);
+        assert.deepEqual(briefOf(validated(['limited', 'static', 'existing'])).changed.validation.existing, ['RIPPLE-1']);
+        assert.deepEqual(briefOf(validated(['limited', 'static'])).changed.validation.static, ['RIPPLE-1']);
+      });
+
+      it('counts the fixes a test validated, and names at most 8 of the others under each method, counting the rest', () => {
+        const brief = briefOf(validated(['old-code']));
+        const ids = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, index) => `${prefix}-${String(index + 1)}`);
+        const many = { ...brief, changed: { ...brief.changed, validation: { test: ids('FIX', 5), existing: ['TESTS-3'], static: [], limited: [], none: [] } } };
+        assert.ok(sentence(many).includes('The fixers report that a test validated 5 of the 6 fixes: it fails on the code before the fix, or on a mutation of the fix. TESTS-3 rests on the tests that already exist.'), sentence(many));
+        const more = { ...brief, changed: { ...brief.changed, validation: { test: [], existing: [], static: ids('SRC', 10), limited: ['A-1', 'B-1'], none: [] } } };
+        assert.ok(sentence(more).includes('The fixers report that a test validated none of the 12 fixes. SRC-1, SRC-2, SRC-3, SRC-4, SRC-5, SRC-6, SRC-7, SRC-8 and 2 more rest on a check of the source. A-1 and B-1 rest on limits that their fixers named.'), sentence(more));
+        const each = { ...brief, changed: { ...brief.changed, validation: { test: ids('FIX', 3), existing: [], static: [], limited: [], none: [] } } };
+        assert.ok(sentence(each).includes('The fixers report that a test validated each of the 3 fixes: it fails on the code before the fix, or on a mutation of the fix. The checks'), sentence(each));
+      });
+
+      it('links each id in the report form', () => {
+        assert.ok(briefMarkdown(briefOf(validated(['existing'])), 'report').at(-1)!.includes('[RIPPLE-1](#finding-ripple-1) rests on the tests that already exist.'));
+      });
+
+      it('says nothing of the validation in a run that applied no fix, in a run that only reviewed, or in the short form', () => {
+        for (const state of [decidedFixRun(answerableDecisions(), 'deferred').fold(), readOnlyReported().fold()]) assert.doesNotMatch(briefMarkdown(briefOf(state)).join('\n'), /The fixers report/);
+        assert.doesNotMatch(briefShortForm(briefOf(validated(['old-code']))).join('\n'), /validated|fixers report/);
+      });
     });
 
     it('names the commits that hold the edits once deep-review commit made them', () => {
