@@ -152,13 +152,15 @@ interface BriefCheck {
 | `fault` | When |
 |---|---|
 | `edits` | `last` failed or timed out, and an earlier run of the kind in this run passed: the baseline, or a run after the fixes, the repair or an earlier answer pass, in the order of the ledger |
-| `change-breaks` | The kind ran on the base, and the base passed |
-| `change-adds` | The kind failed or timed out on the base, and the repair read `adds` |
-| `base-has` | The kind failed or timed out on the base, and the repair read `same` |
-| `not-compared` | The run is configured with the phase, the kind is in `baseKinds`, and none of the rows above holds |
+| `change-breaks` | `last` failed or timed out, the kind ran on the base, and the base passed |
+| `change-adds` | `last` failed or timed out, the kind failed or timed out on the base, and the repair read `adds` |
+| `base-has` | `last` failed or timed out, the kind failed or timed out on the base, and the repair read `same` |
+| `not-compared` | `last` failed or timed out, the run is configured with the phase, the kind is in `baseKinds`, and none of the rows above holds |
 | null | Every other case |
 
 A row that reads the base holds only for a kind that the phase took. A kind that the planner skipped after a failed `build`, or that did not start for a missing tool, never had a run on the base, so it gets no fault from the base and keeps the gap of today: a check that did not finish.
+
+A row that reads the base also holds only while `last` failed or timed out. The merge question is about the tree now, and a check that a later run made pass, such as one that the repair or an answer pass fixed, no longer has the failure that the base explains. It gets no fault from the base, so no gap and no clause of the base: the line `Checks:` gives it the row of a check that failed before the fixes and passes now, and the brief does not say that no step of the run fixed its failure. The comparison stays a fact of the change as submitted (TD13), so the sentence of the checks and the report keep it. A check whose last run was skipped or did not start gets no fault from the base either, and keeps the gap of a check that did not finish, since the run does not know if it fails now.
 
 The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since it never had the phase, although the fold gives it `baseKinds` as for each run (R10). It gets `edits` as each run does.
 
@@ -351,7 +353,7 @@ A test of the task holds its paragraph for each case of the base. A test of the 
 
 ### R3, R4 and R5: The checks of the brief
 
-Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault` and their order, a check whose last run timed out after a pass, a check that failed before the fixes, passed after them and failed after an answer pass, the headline and its clause, and the words of each gap with each reason of `not-compared`. A test holds that a kind skipped after a failed `build` gets no fault from the base and one gap only.
+Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault` and their order, a check whose last run timed out after a pass, a check that failed before the fixes, passed after them and failed after an answer pass, the headline and its clause, and the words of each gap with each reason of `not-compared`. A test holds that a kind skipped after a failed `build` gets no fault from the base and one gap only. A test holds that a kind that failed before and after the fixes, whose base passed or has the same failures, and that an answer pass made pass gets no fault, no gap and the clause of a check that passes now.
 
 ### R6: The short form
 
