@@ -92,7 +92,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     box.checks({ lint: 'fail' });
     reportText(await box.fix('claude'));
     const state = box.run();
-    assert.deepEqual(state.review!.fix!.checks.runs['base-checks'].map((run) => [run.kind, run.outcome, run.error]), [['build', 'skipped', baseSkipReasons.emptyTree], ['lint', 'skipped', baseSkipReasons.emptyTree]]);
+    assert.deepEqual(state.review!.fix!.checks.runs['base-checks'].map((run) => [run.kind, run.outcome, run.error]), [['build', 'skipped', baseSkipReasons['empty-tree']], ['lint', 'skipped', baseSkipReasons['empty-tree']]]);
     assert.equal(box.checkPlaces().filter((place) => !place.cwd.startsWith(box.repo)).length, 0);
     assert.equal(worktrees(box.repo).length, 1);
   });
@@ -105,7 +105,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     reportText(await box.fix('claude'));
     const runs = box.run().review!.fix!.checks.runs['base-checks'];
     assert.deepEqual(runs.map((run) => [run.kind, run.outcome]), [['build', 'skipped'], ['lint', 'skipped']]);
-    for (const run of runs) assert.match(run.error ?? '', new RegExp(`^${baseSkipReasons.noWorktree}: \\S[^\\n]*$`));
+    for (const run of runs) assert.match(run.error ?? '', new RegExp(`^${baseSkipReasons['no-worktree']}: \\S[^\\n]*$`));
     assert.equal(box.checkPlaces().filter((place) => !place.cwd.startsWith(box.repo)).length, 0);
   });
 
@@ -203,7 +203,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     box.checks({ lint: 'fail', build: ['pass', 'pass', 'fail', 'pass'], typecheck: ['fail', 'pass', 'fail'] });
     reportText(await box.fix('claude', { flags: { budgetUsd: 1 } }));
     const stopped = box.run().review!.fix!.checks.runs['base-checks'];
-    assert.deepEqual(stopped.map((run) => [run.kind, run.outcome, run.error]), [['build', 'failed', null], ['lint', 'skipped', baseSkipReasons.buildFailed]]);
+    assert.deepEqual(stopped.map((run) => [run.kind, run.outcome, run.error]), [['build', 'failed', null], ['lint', 'skipped', baseSkipReasons['build-failed']]]);
     const placesBefore = box.checkPlaces().length;
     // Git can make no worktree from here on, so a checkout the reopened phase tried would give its reason in place of the build's.
     writeFileSync(join(box.repo, '.git', 'worktrees'), '');
@@ -211,7 +211,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     const state = box.run();
     assert.equal(state.review!.fix!.reopenings.length, 1);
     const reopened = state.review!.fix!.checks.runs['base-checks'].filter((run) => run.attempt === state.review!.phases['base-checks'].attempt && run.attempt > 1);
-    assert.deepEqual(reopened.map((run) => [run.kind, run.outcome, run.error]), [['typecheck', 'skipped', baseSkipReasons.buildFailed]], 'the build that failed on the base stays its result');
+    assert.deepEqual(reopened.map((run) => [run.kind, run.outcome, run.error]), [['typecheck', 'skipped', baseSkipReasons['build-failed']]], 'the build that failed on the base stays its result');
     assert.ok(box.checkPlaces().slice(placesBefore).every((place) => place.cwd.startsWith(box.repo)), 'no check ran on the base after the reopen');
     assert.ok(!box.logs.some((line) => line.includes('no worktree of the base could be made')), box.logs.join('\n'));
   });

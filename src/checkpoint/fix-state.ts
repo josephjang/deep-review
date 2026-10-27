@@ -290,7 +290,7 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   if (phase !== 'base-checks' && last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
   if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
   // A build on the base is skipped only for a worktree its attempt could not have, which says nothing of the build; but no attempt has one of the empty tree, so its skip stands.
-  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || (last.outcome === 'skipped' && last.error !== baseSkipReasons.emptyTree)) && last.attempt < current;
+  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || (last.outcome === 'skipped' && last.error !== baseSkipReasons['empty-tree'])) && last.attempt < current;
   if (unbuilt && baseKinds(review.fix).some((other) => other !== 'build' && runStanding(review, phase, other) !== null)) return { kind: 'again', run: last, why: 'earlier-worktree' };
   return null;
 }
