@@ -1161,6 +1161,25 @@ describe('the checks on the base in the fix state', () => {
     assert.equal(standing?.kind === 'again' ? standing.why : null, 'cut-attempt', 'a stop says nothing of the check');
   });
 
+  it('builds the base again in a later attempt while another kind is due there, since each attempt makes its worktree anew (TD16)', () => {
+    const stopped = ranOnBase(onBase(), 'build', 'passed').start('base-checks', 2);
+    const standing = runStanding(withFix(stopped), 'base-checks', 'build');
+    assert.deepEqual(standing?.kind === 'again' ? [standing.why, standing.run.attempt, standing.run.outcome] : null, ['earlier-worktree', 1, 'passed'], 'lint has not run, and the worktree that build prepared is gone');
+    refused(ranOnBase(stopped.clone(), 'build', 'passed', 2), /runs the build check in base-checks as its first, when it has a current run there/);
+    const rebuilt = ranOnBase(stopped.clone(), 'build', 'passed', 2, { attempt: 1, outcome: 'passed' });
+    assert.deepEqual(rebuilt.review().fix!.checks.runs['base-checks'].map((run) => [run.kind, run.attempt, run.replacedAt]), [['build', 1, null], ['build', 2, 0]]);
+    assert.equal(runStanding(withFix(rebuilt), 'base-checks', 'build'), null, 'built in this attempt');
+    const done = ranOnBase(rebuilt.clone(), 'lint', 'failed', 2);
+    assert.equal(takenOnBase(withFix(done), 'build'), false, 'nothing more is due once both ran in the attempt');
+    refused(done.clone().add('check.started', startOnBase('build', 2), 2), /starts the build check on the base, which takes only \[lint\]/);
+    const bothRan = ranOnBase(ranOnBase(onBase(), 'build', 'passed'), 'lint', 'passed').start('base-checks', 2);
+    assert.equal(runStanding(withFix(bothRan), 'base-checks', 'build'), null, 'no kind is due in the new attempt, so nothing needs a build');
+    const lintAgain = runStanding(withFix(ranOnBase(ranOnBase(onBase(), 'build', 'passed'), 'lint', 'failed').start('base-checks', 2)), 'base-checks', 'build');
+    assert.equal(lintAgain?.kind === 'again' ? lintAgain.why : null, 'earlier-worktree', 'lint failed in the attempt the stop cut, so it runs again, and build before it');
+    const failedBuild = ranOnBase(onBase(), 'build', 'failed').add('check.ran', { ...checkRun('base-checks', 'lint', 'skipped'), replaces: null }, 4).finish('base-checks');
+    assert.equal(runStanding(withFix(failedBuild), 'base-checks', 'build'), null, 'a build that failed on the base in a finished attempt is its result');
+  });
+
   it('never names a run or a start on the base as cut short, so a drift after a stop there blocks and nothing is written back (TD14)', () => {
     const stopped = ranOnBase(onBase(), 'build', 'passed').add('check.started', startOnBase('lint'), 2).start('base-checks', 2);
     const review = withFix(stopped);
@@ -1215,30 +1234,41 @@ describe('the checks on the base in the fix state', () => {
 
   it('reopens with the checks after the fixes in a run configured at version 8, and runs there only a kind the reopened pass adds (R10, TD5)', () => {
     // lint and test fail before the fixes; after them lint fails and test passes, so only lint runs on the base; the run budget left the documentation step's unit.
-    const toReport = (compared: boolean): History => {
+    /** The run through its report, with the runs on the base that `based` records and the repair's comparisons, unless configured before the phase. */
+    const toReport = (compared: boolean, based: (history: History) => History = (history) => ranOnBase(ranOnBase(history, 'build', 'passed'), 'lint', 'failed'), comparisons = [same]): History => {
       const checked = checksPhase(throughFixes({ lint: 'failed', test: 'failed' }, compared, budgetStopped), 'checks', { lint: 'failed' });
-      const based = compared ? ranOnBase(ranOnBase(checked.start('base-checks'), 'build', 'passed'), 'lint', 'failed').finish('base-checks') : checked;
-      return based.start('repair').worker(60, 'fixer repair:repair').add('fix.recorded', repairAnswer(['lint'], compared ? [same] : null), compared ? 4 : 2).add('worktree.checked', endCheck('repair'), 2).finish('repair')
+      return (compared ? based(checked.start('base-checks')).finish('base-checks') : checked)
+        .start('repair').worker(60, 'fixer repair:repair').add('fix.recorded', repairAnswer(['lint'], compared ? comparisons : null), compared ? 4 : 2).add('worktree.checked', endCheck('repair'), 2).finish('repair')
         .start('repair-checks').finish('repair-checks')
         .start('report').add('report.written', { report: reference('e', 2048), statistics, patches: [reference('1')] }, 2).finish('report');
     };
     const reopen = { units: [{ phase: 'documentation', key: 'documentation' }] };
+    /** The fix pass of a run through its report reopened, its documentation step revising a document, so the checks after it run again and now test fails too, and its checks on the base started again. */
+    const reopenedOf = (history: History): History => {
+      history.add('fix.reopened', reopen, 2).start('documentation', 2).worker(56, 'documentation documentation:documentation')
+        .add('fix.recorded', documentationAnswer(worker(56), [['search', 'applied']]), 3)
+        .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(56) }, change: { findings: ['search'], message: { subject: 'docs: Bring search in line', body: 'The fixes changed the behavior it states.' } }, files: [{ path: 'docs/testing.md', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] }, 3)
+        .add('worktree.checked', endCheck('documentation', 2), 7).finish('documentation', 'completed', 2)
+        .start('checks', 2);
+      for (const kind of ['build', 'lint', 'test']) history.add('check.ran', checkRun('checks', kind, kind === 'build' ? 'passed' : 'failed', 2));
+      return history.finish('checks', 'completed', 2).start('base-checks', 2);
+    };
     assert.deepEqual(toReport(false).add('fix.reopened', reopen, 2).review().phases['base-checks'], { status: 'skipped', attempt: 0 });
-    const reopened = toReport(true).add('fix.reopened', reopen, 2);
-    assert.deepEqual(reopened.review().phases['base-checks'], { status: 'pending', attempt: 1 });
-    // The step revises a document, so the checks after it run again, and now test fails too.
-    reopened.start('documentation', 2).worker(56, 'documentation documentation:documentation')
-      .add('fix.recorded', documentationAnswer(worker(56), [['search', 'applied']]), 3)
-      .add('tree.revised', { phase: 'documentation', source: { kind: 'fix', key: 'documentation', workerId: worker(56) }, change: { findings: ['search'], message: { subject: 'docs: Bring search in line', body: 'The fixes changed the behavior it states.' } }, files: [{ path: 'docs/testing.md', status: 'modified', before: { blob: reference('a') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] }, 3)
-      .add('worktree.checked', endCheck('documentation', 2), 7).finish('documentation', 'completed', 2)
-      .start('checks', 2);
-    for (const kind of ['build', 'lint', 'test']) reopened.add('check.ran', checkRun('checks', kind, kind === 'build' ? 'passed' : 'failed', 2));
-    reopened.finish('checks', 'completed', 2).start('base-checks', 2);
+    assert.deepEqual(toReport(true).add('fix.reopened', reopen, 2).review().phases['base-checks'], { status: 'pending', attempt: 1 });
+    const reopened = reopenedOf(toReport(true));
     const review = withFix(reopened);
     assert.deepEqual(baseKinds(review.fix), ['lint', 'test']);
     assert.equal(runStanding(review, 'base-checks', 'lint'), null, 'lint\'s run on the base stands');
     assert.deepEqual(runStanding(review, 'base-checks', 'test'), { kind: 'first' });
+    const rebuild = runStanding(review, 'base-checks', 'build');
+    assert.equal(rebuild?.kind === 'again' ? rebuild.why : null, 'earlier-worktree', 'test reads what build produces, and the worktree of attempt 1 is gone (TD16)');
     refused(reopened.clone().add('check.started', startOnBase('lint', 2), 2), /starts the lint check in base-checks, whose last current run is its result/);
-    assert.deepEqual(ranOnBase(reopened.clone(), 'test', 'failed', 2).review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['test', 2, 'failed']]);
+    const rebuilt = ranOnBase(ranOnBase(reopened.clone(), 'build', 'passed', 2, { attempt: 1, outcome: 'passed' }), 'test', 'failed', 2);
+    assert.deepEqual(rebuilt.review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['build', 2, 'passed'], ['test', 2, 'failed']]);
+    // Attempt 1 could make no worktree, so build and lint were skipped there, and the reopened attempt tries again for test.
+    const noWorktree = (kind: string) => (history: History): History => history.add('check.ran', { ...checkRun('base-checks', kind, 'skipped'), error: 'no worktree of the base could be made: fatal: x', replaces: null }, 4);
+    const unmade = withFix(reopenedOf(toReport(true, (history) => noWorktree('lint')(noWorktree('build')(history)), [])));
+    const again = runStanding(unmade, 'base-checks', 'build');
+    assert.deepEqual(again?.kind === 'again' ? [again.why, again.run.outcome] : null, ['earlier-worktree', 'skipped'], 'a build skipped for want of a worktree runs once a worktree can be made');
   });
 });

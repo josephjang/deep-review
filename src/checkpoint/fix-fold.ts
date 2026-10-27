@@ -277,8 +277,9 @@ const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) =>
  * A version 3 run of a check (R3, R4, R7 of resumable runs): one that
  * replaces nothing when the kind has no current run in its phase, or one
  * that names the last current run when that run was cut, is the first
- * timeout of the kind in the current attempt, or did not pass in a cut
- * attempt (`runStanding`). A run that ran has the start of its kind in its
+ * timeout of the kind in the current attempt, did not pass in a cut
+ * attempt, or on the base is a `build` that passed in the worktree of an
+ * earlier attempt or was skipped in one with none (`runStanding`). A run that ran has the start of its kind in its
  * attempt, with no run after that start; a skipped one has none. The
  * second cut of a kind in one attempt is a failure, so a cut run never
  * replaces a cut run of its own attempt.
