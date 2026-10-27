@@ -30,6 +30,15 @@ const crashingOnBase = (box: ReviewSandbox): Checkpoint => appending(box.checkpo
   if (events.some((event) => event.kind === 'check.ran' && (event.payload as { phase: string; kind: string }).phase === 'base-checks' && (event.payload as { kind: string }).kind === 'lint')) throw new Error('the engine stopped');
 });
 
+/** Leave a worktree of the base of the run `runId` where the phase makes it, as an engine a kill stopped during the phase leaves it, since a throw removes its own; its entry in `git worktree list`. */
+const leftByKill = (box: ReviewSandbox, runId: string): string[] => {
+  const tree = makeBaseTree({ runId, worktree: box.repo, scratch: join(box.scratchRoot, checkpointScratchKey(box.checkpoint)), checkpointRoot: box.checkpoint.root, environment: process.env, log: () => {} }, box.run().scope!.base);
+  assert.equal(tree.kind, 'made');
+  const [left] = baseTreesOf(box.repo, runId);
+  assert.ok(left !== undefined, 'the kill left the worktree of the base');
+  return left;
+};
+
 describe('the checks on the base (R1, R11 of the facts before a merge)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
   it('runs build and each kind that failed before the fixes and after them once in a worktree of the base, with no hook of the repository, and removes it', async (t) => {
     const box = ReviewSandbox.forTest(t, script);
@@ -111,13 +120,24 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     assert.equal(worktrees(victim).length, 1, 'git made the worktree of the base in the reviewed repository');
   });
 
+  it('removes the worktree it made when the command ends with a throw in the phase', async (t) => {
+    const box = ReviewSandbox.forTest(t, script);
+    box.checks({ lint: 'fail' });
+    await assert.rejects(box.fix('claude', { checkpoint: crashingOnBase(box) }), /the engine stopped/);
+    const runId = box.run().id;
+    assert.equal(box.checkPlaces().filter((place) => !place.cwd.startsWith(box.repo)).length, 2, 'build and lint ran in a worktree of the base before the throw');
+    assert.deepEqual(baseTreesOf(box.repo, runId), []);
+    assert.equal(worktrees(box.repo).length, 1);
+    assert.deepEqual(readdirSync(join(box.scratchRoot, checkpointScratchKey(box.checkpoint))).filter((name) => name.startsWith(`${runId}-base-`)), []);
+    assert.ok(box.logs.some((line) => line.startsWith('phase base-checks: removed the worktree of the base at ')), box.logs.join('\n'));
+  });
+
   it('removes the worktree a crash left at the next command of the run, under another scratch directory, and touches no other worktree', async (t) => {
     const box = ReviewSandbox.forTest(t, script);
     box.checks({ lint: 'fail' });
     await assert.rejects(box.fix('claude', { checkpoint: crashingOnBase(box) }), /the engine stopped/);
     const runId = box.run().id;
-    const [left] = baseTreesOf(box.repo, runId);
-    assert.ok(left !== undefined, 'the crash left the worktree of the base');
+    const left = leftByKill(box, runId);
     // Worktrees of the person: one in place, and one on a disk that is not mounted.
     git(box.repo, 'worktree', 'add', '-q', '--detach', join(box.directory, 'person'), 'HEAD');
     git(box.repo, 'worktree', 'add', '-q', '--detach', join(box.directory, 'unmounted'), 'HEAD');
@@ -136,6 +156,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     box.checks({ lint: 'fail' });
     await assert.rejects(box.fix('claude', { checkpoint: crashingOnBase(box) }), /the engine stopped/);
     const runId = box.run().id;
+    leftByKill(box, runId);
     assert.equal(baseTreesOf(box.repo, runId).length, 1);
     // Another run's worktree of the base, which the abandon of this run leaves.
     const other = makeBaseTree({ runId: 'another-run', worktree: box.repo, scratch: join(box.directory, 'other'), checkpointRoot: box.checkpoint.root, environment: process.env, log: () => {} }, box.run().scope!.base);
@@ -153,6 +174,7 @@ describe('the checks on the base (R1, R11 of the facts before a merge)', { timeo
     box.checks({ lint: 'fail' });
     await assert.rejects(box.fix('claude', { checkpoint: crashingOnBase(box) }), /the engine stopped/);
     const runId = box.run().id;
+    leftByKill(box, runId);
     const edited = `${readFileSync(join(box.repo, 'src', 'a.ts'), 'utf8')}// a person's edit\n`;
     writeFileSync(join(box.repo, 'src', 'a.ts'), edited);
     const outcome = await box.fix('claude');
