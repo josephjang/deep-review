@@ -155,6 +155,8 @@ describe('baseEnvironment', () => {
       GIT_DIR: join(reviewed, '.git'),
       GIT_CONFIG_COUNT: '1',
       HOME: reviewed,
+      PWD: reviewed,
+      CLAUDE_PROJECT_DIR: reviewed,
     }, reviewed, [join(reviewed, 'tools')]);
     assert.equal(environment.PATH, [outside, 'bin'].join(delimiter), 'a tools.path directory inside the reviewed worktree goes too, and a relative entry stays');
     assert.equal(environment.PYTHONPATH, outside);
@@ -163,6 +165,7 @@ describe('baseEnvironment', () => {
     assert.equal(environment.GIT_DIR, undefined);
     assert.equal(environment.GIT_CONFIG_COUNT, undefined);
     assert.equal(environment.HOME, reviewed, 'a variable that lists no directory a check loads from stays');
+    assert.deepEqual([environment.PWD, environment.CLAUDE_PROJECT_DIR], [reviewed, reviewed], 'as the README and the module say, a path into the reviewed worktree outside the lists stays');
     assert.equal(environment.CI, 'true', 'the pins of every check hold');
     assert.deepEqual([...changed].sort(), [
       'GIT_CONFIG_COUNT',
