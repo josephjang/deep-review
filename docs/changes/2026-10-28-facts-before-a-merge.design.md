@@ -179,7 +179,7 @@ The headline gets `checks`, the count of the checks with the fault `edits`, and 
 | `edits` | `<kind> failed after <the fixes / the repair / your answers>, and passed <before the fixes / after the fixes / after the repair / after earlier answers>`, with `timed out` for a timeout and the last pass before it |
 | `change-breaks` | `<kind> fails on the change and passes on the base (<commit>)` |
 | `change-adds` | `<kind> fails on the change with failures that the base (<commit>) does not have, by the repair's reading` |
-| `not-compared` | `<kind> failed before and after the fixes, not compared with the base` |
+| `not-compared` | `<kind> failed before and after the fixes, not compared with the base`, with `timed out` for a timeout, as the sentence of the checks says it |
 | `base-has` | `<kind> failed, as it does on the base (<commit>), by the repair's reading` |
 | Failed before the fixes, passed at its last run | `<kind> failed before the fixes and passes now` |
 | Failed after the fixes, passed at its last run | `<kind> failed after the fixes and passed after <the repair / your answers>` |
