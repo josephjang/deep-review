@@ -73,7 +73,7 @@ const baseGit = (context: BaseTreeContext, args: readonly string[], timeout?: nu
  * the rest of the run's (`removeBaseTrees`).
  */
 export function makeBaseTree(context: BaseTreeContext, base: string): BaseTree {
-  if (isEmptyTree(base)) return { kind: 'none', reason: baseSkipReasons.emptyTree };
+  if (isEmptyTree(base)) return { kind: 'none', reason: baseSkipReasons['empty-tree'] };
   try {
     requireOutsideRun('worktree of the base', context.scratch, { worktree: context.worktree }, { root: context.checkpointRoot });
     mkdirSync(context.scratch, { recursive: true });
@@ -84,7 +84,7 @@ export function makeBaseTree(context: BaseTreeContext, base: string): BaseTree {
   } catch (error) {
     const detail = gitFailureDetail(error, baseCheckoutTimeoutMs);
     context.log(`no worktree of the base ${base.slice(0, 8)} could be made: ${detail}`);
-    return { kind: 'none', reason: `${baseSkipReasons.noWorktree}: ${detail.split(/\r?\n/)[0] ?? ''}` };
+    return { kind: 'none', reason: `${baseSkipReasons['no-worktree']}: ${detail.split(/\r?\n/)[0] ?? ''}` };
   }
 }
 

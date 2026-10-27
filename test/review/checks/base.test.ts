@@ -49,7 +49,7 @@ describe('makeBaseTree', () => {
 
   it('makes none for the empty tree, the base of a root commit, and runs no git', (t) => {
     const { directory, repo, context } = sandbox(t);
-    assert.deepEqual(makeBaseTree(context(), '4b825dc642cb6eb9a060e54bf8d69288fbee4904'), { kind: 'none', reason: baseSkipReasons.emptyTree });
+    assert.deepEqual(makeBaseTree(context(), '4b825dc642cb6eb9a060e54bf8d69288fbee4904'), { kind: 'none', reason: baseSkipReasons['empty-tree'] });
     assert.equal(existsSync(join(directory, 'scratch')), false);
     assert.equal(entries(repo).length, 1);
   });
@@ -59,7 +59,7 @@ describe('makeBaseTree', () => {
     const tree = makeBaseTree(context(), 'f'.repeat(40));
     assert.equal(tree.kind, 'none');
     const reason = tree.kind === 'none' ? tree.reason : '';
-    assert.ok(reason.startsWith(`${baseSkipReasons.noWorktree}: `), reason);
+    assert.ok(reason.startsWith(`${baseSkipReasons['no-worktree']}: `), reason);
     assert.match(reason, /invalid reference/);
     assert.doesNotMatch(reason, /\n/);
     assert.ok(logs.some((line) => line.startsWith('no worktree of the base ffffffff could be made: ')), logs.join('\n'));

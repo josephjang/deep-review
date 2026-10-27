@@ -377,14 +377,15 @@ export type BaseReading = z.infer<typeof baseReadingSchema>;
 
 /**
  * Why a kind got a `skipped` run on the base, in the fixed words the
- * brief gives (R5 of the facts before a merge). A run on the base records
- * one as its error; a worktree git could not make adds the error of git
- * after a colon, which names local paths and so stays out of the brief.
+ * brief gives, keyed by the reason it is not compared for (R5 of the facts
+ * before a merge). A run on the base records one as its error; a worktree
+ * git could not make adds the error of git after a colon, which names
+ * local paths and so stays out of the brief.
  */
 export const baseSkipReasons = {
-  emptyTree: 'the base of the change is the empty tree',
-  noWorktree: 'no worktree of the base could be made',
-  buildFailed: 'the build did not pass on the base',
+  'empty-tree': 'the base of the change is the empty tree',
+  'no-worktree': 'no worktree of the base could be made',
+  'build-failed': 'the build did not pass on the base',
 } as const;
 export type BaseSkipReason = keyof typeof baseSkipReasons;
 

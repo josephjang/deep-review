@@ -374,13 +374,18 @@ const readingWords: Readonly<Record<BaseReading, string>> = {
   unknown: 'the outputs cannot be compared',
 };
 
-/** Why a kind the run took to the base did not run there, as a note under the Checks table says it (R8 of the facts before a merge); a run there that ended has its cell. */
-const notRunOnBase: Readonly<Partial<Record<NotComparedReason, (kinds: string) => string>>> = {
-  'empty-tree': (kinds) => `${kinds} did not run there, since the base of the change is the empty tree.`,
-  'no-worktree': (kinds) => `${kinds} did not run there, since no worktree of the base could be made; the facts of the run give the error of git.`,
-  'build-failed': (kinds) => `${kinds} did not run there, since the build did not pass on the base.`,
-  'not-run': (kinds) => `${kinds} did not run there.`,
-};
+/**
+ * Why a kind the run took to the base did not run there, as a note under
+ * the Checks table says it (R8 of the facts before a merge): for a reason
+ * a run there records skipped, in the words of the brief, with the error of
+ * git left to the facts of the run; null for a run there that ended, which
+ * has its cell.
+ */
+function notRunOnBase(reason: NotComparedReason, kinds: string): string | null {
+  if (reason === 'not-run') return `${kinds} did not run there.`;
+  if (!Object.hasOwn(baseSkipReasons, reason)) return null;
+  return `${kinds} did not run there, since ${notComparedWords[reason]}${reason === 'no-worktree' ? '; the facts of the run give the error of git' : ''}.`;
+}
 
 /**
  * The notes under the Checks table of a run configured with the checks on
@@ -397,8 +402,8 @@ function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefChe
   if (taken.length === 0 && fix.checks.runs['base-checks'].length === 0) return fix.checks.runs.checks.length === 0 ? [] : [`- ${title}: not run, since no check failed before and after the fixes.`];
   const notRun = notComparedReasons.flatMap((reason) => {
     const kinds = taken.filter((entry) => entry.reason === reason).map((entry) => entry.kind);
-    const words = notRunOnBase[reason];
-    return kinds.length === 0 || words === undefined ? [] : [`- ${title}: ${words(listed(kinds))}`];
+    const words = kinds.length === 0 ? null : notRunOnBase(reason, listed(kinds));
+    return words === null ? [] : [`- ${title}: ${words}`];
   });
   return [`- ${title}: the base of the change is ${baseWords({ commit: scope.base, name: baseNameOf(scope.mode, scope.request) })}.`, ...notRun];
 }
@@ -409,7 +414,7 @@ function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefChe
  * local path (R5 of the facts before a merge; R15 of the brief of a run).
  */
 export function baseWorktreeLines(review: ReviewState): string[] {
-  const prefix = `${baseSkipReasons.noWorktree}: `;
+  const prefix = `${baseSkipReasons['no-worktree']}: `;
   const errors = new Set((review.fix?.checks.runs['base-checks'] ?? []).flatMap((run) => (run.outcome === 'skipped' && run.error?.startsWith(prefix) === true ? [run.error.slice(prefix.length)] : [])));
   return [...errors].map((error) => `Worktree of the base: git could not make it: ${inlineText(error)}`);
 }
