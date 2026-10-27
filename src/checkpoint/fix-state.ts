@@ -443,6 +443,17 @@ export function baseKinds(fix: FixState, read: 'current' | 'recorded' = 'current
 }
 
 /**
+ * The kinds a run takes to the base (R1, R10 of the facts before a merge):
+ * those of `baseKinds` in a run configured with the checks on the base,
+ * none in a run configured before them, which never runs them. Each caller
+ * that hands kinds to the base or reads them from it reads this, so none
+ * takes an old run's kinds there.
+ */
+export function kindsTakenToBase(review: Pick<ReviewState, 'baseChecksStep'> & { readonly fix: FixState }, read: 'current' | 'recorded' = 'current'): CheckKind[] {
+  return review.baseChecksStep ? baseKinds(review.fix, read) : [];
+}
+
+/**
  * Whether `base-checks` takes a kind now (R1, TD4 of the facts before a
  * merge): a kind of `baseKinds`, or `build`, which the other kinds read,
  * while another kind of `baseKinds` is due there (`runStanding`). The fold
