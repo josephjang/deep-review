@@ -6,7 +6,7 @@ Technical part: [2026-10-28-facts-before-a-merge.design.md](2026-10-28-facts-bef
 
 After a fix run, a person asks one question first: can this change merge? The report [`2026-10-23-skill-ux.md`](../reports/2026-10-23-skill-ux.md) shows that the brief does not give the facts for that question (U3). It does not say if a check that fails also fails on the base of the change. It can say that a check failed after the fixes when it failed after the answers (#78). The short form in the chat has no line for the checks. And only the end of the report says how the fixers validated the fixes. So the hosts did the work of the report: Claude Code made a worktree of `main` and ran the typecheck there, and Codex took a failure that `main` also has as a reason to wait.
 
-This proposal gives the brief those facts. A check that fails before the fixes and after them runs once more on the base of the change, in a temporary worktree. The repair worker compares the failures of the change as submitted with those on the base. Then the brief says if the base has the same failures, if the change causes the failure, or that the run could not compare. Each check says when its last run failed: after the fixes, after the repair or after the answers. The headline counts a check that the edits of the run made fail. A check that the change itself breaks goes to "What the review did not cover". The short form of a fix run gets a line `Checks:`. "What deep-review changed" gets one sentence on how the fixers validated the fixes.
+This proposal gives the brief those facts. A check that fails before the fixes and after them runs once more on the base of the change, in a temporary worktree. The repair worker compares the failures of the change as submitted with those on the base. Then the brief says if the base has the same failures, as the repair reads them, if the change causes the failure, or that the run could not compare. Each check says when its last run failed: after the fixes, after the repair or after the answers. The headline counts a check that the edits of the run made fail. A check that the change itself breaks goes to "What the review did not cover". The short form of a fix run gets a line `Checks:`. "What deep-review changed" gets one sentence on how the fixers validated the fixes.
 
 The core of the change stays what it is: the account of the change as it was submitted for review.
 
@@ -99,7 +99,7 @@ When the check is not the build and the run has a build command, the build runs 
 
 ### R2: The repair compares the failures with the base
 
-The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The base shows the same failures. The change adds failures to those of the base. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
+The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The change has no failure that the base does not have. The change has a failure that the base does not have. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
 
 When the check passed on the base, the engine knows without the worker that the change breaks the check. When no answer of the repair says it, because the run budget stopped the repair, its worker failed or its answer left the check out, a check that failed on the base reads as not compared. A comparison that the repair gets wrong or leaves out never costs the repair its edits. The repair still fixes only the failures that the fixes added (PD8).
 
@@ -119,7 +119,7 @@ A check that failed before the fixes and has not passed since does not count, wh
 
 ### R5: What the review did not cover names a check that the change breaks or that the run did not compare
 
-"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Invented examples:
+"What the review did not cover" lists each check that the change itself breaks: the check passes on the base, or the repair says that the change adds failures to those of the base. It also lists each check that the run took to the base and did not compare, with the reason: the base is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start or did not run there, the repair gave no comparison, or the repair could not compare the outputs. A check that the run did not take to the base, such as a check that did not run after a failed build, keeps the gap of today. A check whose base shows the same failures is not listed. The run covered it, and R6 says what it found. Each fact of the brief that rests on the comparison says that it is the reading of the repair, as the brief marks the account of the triage. Invented examples:
 
 ```text
 The typecheck check fails on the change and passes on its base, the merge base with origin/main (2247b35e). No step of the run fixes a failure that the change brings.
@@ -132,7 +132,7 @@ The short form of a fix run gets a line `Checks:`, after the line of the documen
 
 ```text
 Checks: each passed before and after the fixes
-Checks: typecheck failed, as it does on the base (2247b35e), with the same failures; build, lint and test passed
+Checks: typecheck failed, as it does on the base (2247b35e), by the repair's reading; build, lint and test passed
 Checks: test failed after your answers, and passed after the fixes; typecheck fails on the change and passes on the base (2247b35e); build and lint passed
 Checks: typecheck failed before and after the fixes, not compared with the base; build, lint and test passed
 Checks: each passed before the fixes; no check ran after them, since no fix changed a file
@@ -248,7 +248,7 @@ A check that timed out runs again once in its attempt (PD7 of resumable runs). T
 
 ### Principle 1, evidence, not trust
 
-The output of each check on the base is kept as evidence, and the report names it. The comparison is the reading of the repair worker, and the report keeps its words beside both outputs. The sentence on the validation says that the fixers report it, and the evidence of the report keeps each line of it.
+The output of each check on the base is kept as evidence, and the report names it. The comparison is the reading of the repair worker, and the report keeps its words beside both outputs. The brief and the line `Checks:` say so wherever a fact rests on it, as the brief marks the account of the triage that no verifier examined. The sentence on the validation says that the fixers report it, and the evidence of the report keeps each line of it.
 
 ### Principle 2, record before action
 
@@ -296,7 +296,7 @@ A check can fail on the base for a missing tool. The repair worker reads the out
 
 ### The repair worker reads the comparison wrong
 
-The comparison is a reading of a model. The line `Checks:` gives it as a fact of the run, and the report names the outputs that it rests on.
+The comparison is a reading of a model. The line `Checks:` and the brief say that it is the reading of the repair, and the report names the outputs that it rests on.
 
 ### A failure that the fixes add to a check that already failed
 

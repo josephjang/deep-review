@@ -123,7 +123,7 @@ The phase runs the planned command of the kind through `runCheck`, with three di
 - The base was skipped: the reason follows, and the worker gives no entry.
 - The base run did not start: the error of the start follows, and the worker gives no entry.
 
-The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
+The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the change has no failure that the base does not have, `adds` when the change has a failure that the base does not have, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
 
 `invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The schema holds `kind` to the check kinds. The engine refuses no answer of the repair for its comparisons, since the comparison is a second product of the repair and must not cost the repair its edits. It drops an entry for a kind that did not fail or time out on the base, and a second entry for one kind, and logs each. A kind whose base run failed or timed out and that has no entry reads as not compared, with the reason that the repair gave no comparison (R5).
 
@@ -164,7 +164,7 @@ The reason of `not-compared` comes from where the comparison stopped, in fixed w
 
 The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, "Nothing needs you" ends with `, and its edits made no check fail`.
 
-`fixGaps` gives a gap of the kind `check` for each check with the fault `change-breaks`, `change-adds` or `not-compared`, with the words of R5. The words name the base by its name and its first 8 characters, as the `Scope:` line does.
+`fixGaps` gives a gap of the kind `check` for each check with the fault `change-breaks`, `change-adds` or `not-compared`, with the words of R5. The gap of `change-adds`, the sentence of the checks and each clause that rests on a reading of the repair say that it is the repair's reading, as the brief marks the account of the triage. A base that passed needs no such mark: the engine reads it from the exit of the check. The words name the base by its name and its first 8 characters, as the `Scope:` line does.
 
 `checksWords`, the sentence of the checks in "What deep-review changed", gives each check its outcome before the fixes and its last outcome with `when`. It adds the base for a check that ran there, with the words of the repair as its reading.
 
@@ -176,9 +176,9 @@ The headline gets `checks`, the count of the checks with the fault `edits`, and 
 |---|---|
 | `edits` | `<kind> failed after <the fixes / the repair / your answers>, and passed <before the fixes / after the fixes / after the repair / after earlier answers>`, with `timed out` for a timeout and the last pass before it |
 | `change-breaks` | `<kind> fails on the change and passes on the base (<commit>)` |
-| `change-adds` | `<kind> fails on the change with more failures than on the base (<commit>)` |
+| `change-adds` | `<kind> fails on the change with failures that the base (<commit>) does not have, by the repair's reading` |
 | `not-compared` | `<kind> failed before and after the fixes, not compared with the base` |
-| `base-has` | `<kind> failed, as it does on the base (<commit>), with the same failures` |
+| `base-has` | `<kind> failed, as it does on the base (<commit>), by the repair's reading` |
 | Failed before the fixes, passed at its last run | `<kind> failed before the fixes and passes now` |
 | Failed after the fixes, passed at its last run | `<kind> failed after the fixes and passed after <the repair / your answers>` |
 | Failed before the fixes, and no check ran after them | `<kind> failed before the fixes and did not run again` |
