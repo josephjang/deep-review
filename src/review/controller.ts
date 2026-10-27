@@ -560,6 +560,21 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     // The round's directory is prepared again at once, not at the next launch: a late claim just recorded holds its file there too, and a cluster that has just settled holds nothing more, before any sibling's next claim (R1, TD2 of commit series integrity). A directory found gone is lost, as at a launch.
     if (phase === 'fixes' && directories.lost() === null) directories.prepare(settled.unit.key);
   };
+  /** What makes and removes the run's worktrees of the base, with its lines in the log of the phase (R1, R11 of the facts before a merge). */
+  const baseTrees: BaseTreeContext = { runId, worktree: options.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
+  /**
+   * Where the checks of an attempt of `base-checks` run: the worktree of
+   * the base, or why there is none, and the environment of its checks,
+   * made at the attempt's first due check, since each attempt makes its
+   * own (TD16 of the facts before a merge); null until then, and once the
+   * phase removed its worktrees.
+   */
+  let onBase: { readonly attempt: number; readonly tree: BaseTree; readonly environment: NodeJS.ProcessEnv } | null = null;
+  /** Remove every worktree of the base the run has (TD3 of the facts before a merge). */
+  const removeBase = (): void => {
+    removeBaseTrees(baseTrees);
+    onBase = null;
+  };
   try {
     if (capture !== null) {
       // At the base the configuration was read at, which the capture holds it to (R4 of the configuration).
@@ -674,16 +689,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         log(reason === undefined ? `check ${check.kind} (${phase}): wrote back ${file.path}, ${changed}; the bytes before are ${bytes}` : `check ${check.kind} (${phase}): did not write back ${file.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
       }
     };
-    /** What makes and removes the run's worktrees of the base, with its lines in the log of the phase (R1, R11 of the facts before a merge). */
-    const baseTrees: BaseTreeContext = { runId, worktree: options.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
-    /**
-     * Where the checks of an attempt of `base-checks` run: the worktree of
-     * the base, or why there is none, and the environment of its checks,
-     * made at the attempt's first due check, since each attempt makes its
-     * own (TD16 of the facts before a merge); null until then, and once the
-     * phase removed its worktrees.
-     */
-    let onBase: { readonly attempt: number; readonly tree: BaseTree; readonly environment: NodeJS.ProcessEnv } | null = null;
     const baseOf = (attempt: number): { readonly tree: BaseTree; readonly environment: NodeJS.ProcessEnv } => {
       if (onBase?.attempt === attempt) return onBase;
       const tree = makeBaseTree(baseTrees, scope.base);
@@ -692,11 +697,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (tree.kind === 'made' && base.changed.length > 0) log(`phase base-checks: its checks run without ${base.changed.join('; ')}`);
       onBase = { attempt, tree, environment: base.environment };
       return onBase;
-    };
-    /** Remove every worktree of the base the run has (TD3 of the facts before a merge). */
-    const removeBase = (): void => {
-      removeBaseTrees(baseTrees);
-      onBase = null;
     };
     /**
      * Run one due check, or record it skipped, and append what it did: its
@@ -955,6 +955,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         log(`worker ${settled.unit.role} ${unitName(settled.unit.phase, settled.unit.key)}: not recorded: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    // A throw in base-checks leaves no locked worktree of the base in the person's repository until a later command; the removal logs each failure and never throws, so the error that ended the loop still surfaces (R11 of the facts before a merge).
+    if (onBase !== null) removeBase();
     release();
   }
 }
