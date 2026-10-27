@@ -4,7 +4,7 @@ Product part: [2026-10-28-facts-before-a-merge.requirements.md](2026-10-28-facts
 
 ## Summary
 
-A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. The worktree has a path that the run fixes, and the phase removes it when it ends, when an attempt starts again and when the run is abandoned.
+A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, after the build of the base as each check phase builds first, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. The worktree has a path that the run fixes, and the phase removes it when it ends, when an attempt starts again and when the run is abandoned.
 
 The repair task gets the output on the base beside the outputs before and after the fixes. The repair compares the output before the fixes with the output on the base, and answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
 
@@ -88,7 +88,9 @@ Each fixer reports `validation` for each finding, with a `method` among `old-cod
 
 `base-checks` comes after `checks` and before `repair` in `phases` and `fixPhases`, and it joins `checkPhases`. It is a check phase: it runs checks and no worker, and the planner walks it as it walks the others.
 
-The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it, with one difference: in this phase a timeout is a result, and a kind that timed out on the base does not run there again (PD11, TD15). A cut run still runs again, as in each check phase. The rule that skips each kind after a failed `build` does not hold in this phase (TD4). With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
+The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it, with one difference: in this phase a timeout is a result, and a kind that timed out on the base does not run there again (PD11, TD15). A cut run still runs again, as in each check phase.
+
+When a kind of `baseKinds` other than `build` is due and the run has a command for `build`, the phase runs `build` on the base first, also when `build` passed before and after the fixes, because the other kinds read what it produces (TD4). The rule of the other check phases that skips each later kind after a failed `build` holds here too. When the build fails on the base, the other kinds get a `skipped` run there, and each of them is not compared, with the reason that the build failed on the base. A `build` that runs only to prepare the base is recorded as each run on the base, and the brief gives it no fault and no clause of its own. With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
 
 `stalingPhases['base-checks']` and `markingPhases['base-checks']` are empty: a run on the base never grows old, since no edit of the run changes the base (TD5).
 
@@ -156,7 +158,7 @@ interface BriefCheck {
 
 A row that reads the base holds only for a kind that the phase took. A kind that the planner skipped after a failed `build`, or that did not start for a missing tool, never had a run on the base, so it gets no fault from the base and keeps the gap of today: a check that did not finish.
 
-The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since `baseKinds` is empty for it (R10). It gets `edits` as each run does.
+The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since `baseKinds` is empty for it (R10). It gets `edits` as each run does.
 
 The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, "Nothing needs you" ends with `, and its edits made no check fail`.
 
@@ -251,9 +253,11 @@ The design rejects two other ways. A copy of the tree, with `git archive` or a c
 
 The path follows from the scratch directory of the checkpoint and the id of the run. Each attempt of the phase, its end and `abandon` remove what is there. An event that records the worktree would hold nothing that the fold needs.
 
-### TD4: Each kind that the repair takes and that failed before the fixes, with no skip after a failed build
+### TD4: The kinds that need a fact of the base, after a build of the base
 
-Only these kinds need a fact of the base (PD1). Each of them runs, also after a failed `build` on the base, because the repair reads each kind, and a failed build on the base is a fact to compare.
+Only the kinds that the repair takes and that failed before the fixes need a fact of the base (PD1). The other kinds read what `build` produces (`checkKinds` in `src/review/vocabulary.ts`), so a fresh checkout of the base needs its build first, as each other check phase runs `build` first in its tree. The phase also keeps the rule that skips the later kinds after a failed `build`: a kind that runs after a failed build fails for a reason that is not its own, and its output would mislead the comparison.
+
+The design first ran only these kinds, with no build of the base and no skip. The review showed that a typecheck or a test that reads generated code then fails on the base for a missing build, and reads as a failure of the base.
 
 ### TD5: A run on the base never grows old
 
@@ -323,7 +327,7 @@ A long path on Windows, or a file that another program holds when the phase remo
 
 ### R1: The run on the base
 
-A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, each of them after a failed `build`, and none when no kind failed before and after the fixes. It also holds that a kind that times out on the base runs once, and that a cut run there runs again. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
+A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, after a run of `build` on the base when another kind is due and `build` has a command, that it skips the other kinds after a failed `build` there, and that it takes none when no kind failed before and after the fixes. It also holds that a kind that times out on the base runs once, and that a cut run there runs again. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
 
 ### R2: The comparison
 
