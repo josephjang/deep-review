@@ -16,7 +16,7 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
+import { failedOrTimedOut, finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -930,7 +930,7 @@ function baseLines(base: RepairTaskBase): string[] {
 
 /** What the repair task says of `comparisons` once for the whole answer, in a run with the checks on the base, whose schema asks for the field (TD6 of the facts before a merge). */
 function comparisonsRule(checks: readonly RepairTaskCheck[]): string {
-  const compared = checks.some((check) => check.base?.outcome === 'failed' || check.base?.outcome === 'timeout');
+  const compared = checks.some((check) => failedOrTimedOut(check.base?.outcome));
   return compared
     ? ' Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other.'
     : ' Return `comparisons` empty: no check above failed or timed out on the base of the change.';

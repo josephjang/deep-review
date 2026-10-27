@@ -10,7 +10,7 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { baseSkipReasons, budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { baseSkipReasons, budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, failedOrTimedOut, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecordedV4, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
@@ -466,7 +466,7 @@ export function takenOnBase(review: Pick<ReviewState, 'answerPasses' | 'phases'>
 
 /** Whether a kind failed or timed out on the base, by its last run there, which never grows old. */
 export function failedOnBase(fix: FixState, kind: CheckKind): boolean {
-  return ['failed', 'timeout'].includes(lastFreshRun(fix, 'base-checks', kind)?.outcome ?? '');
+  return failedOrTimedOut(lastFreshRun(fix, 'base-checks', kind)?.outcome);
 }
 
 /**
