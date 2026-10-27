@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type SpelledHolder } from '../checkpoint/fix-state.ts';
+import { allBatches, baseKinds, clusterClaims, exactPath, failedAtBaseline, fixPassRevisedPaths, heldByOthers, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
@@ -53,7 +53,7 @@ import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey
 import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, type ReportFinding, type Resolved } from './state.ts';
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
-import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskDecided, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
+import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskDecided, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskBase, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
@@ -373,22 +373,45 @@ function tailOf(evidence: Pick<EvidenceStore, 'read' | 'pathOf'>, reference: Art
   return { tail: bytes.subarray(Math.max(0, bytes.length - repairTailBytes)), path: evidence.pathOf(reference) };
 }
 
-/** The repair worker's task: the checks failing after the fixes and the documentation step with their output, and their output before for one that failed then too (R24), everything the fixes and the step changed (R9 of the documentation step), and what each fixer and the step did. */
+/**
+ * A kind's run on the base as the repair task gives it (R2 of the facts
+ * before a merge), or null when it has none: its outcome, with the tail of
+ * its output when it failed or timed out there, or why it did not run.
+ */
+function baseRunOf(evidence: Pick<EvidenceStore, 'read' | 'pathOf'>, run: CheckRunState | null): RepairTaskBase | null {
+  if (run === null) return null;
+  switch (run.outcome) {
+    case 'passed':
+      return { outcome: 'passed' };
+    case 'failed':
+    case 'timeout':
+      return { outcome: run.outcome, exitCode: run.exitCode, signal: run.signal, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr) };
+    case 'skipped':
+    case 'not-started':
+      return { outcome: run.outcome, reason: run.error ?? 'no reason recorded' };
+    case 'cut':
+      throw new Error(`The ${run.kind} check was cut short on the base and is due there again, so the repair cannot start before it runs`);
+  }
+}
+
+/** The repair worker's task: the checks failing after the fixes and the documentation step with their output, their output before for one that failed then too (R24), and in a run with the checks on the base its run there (R2 of the facts before a merge), everything the fixes and the step changed (R9 of the documentation step), and what each fixer and the step did. */
 function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: Pick<EvidenceStore, 'read' | 'pathOf'>): string {
   const fix = review.fix;
   if (fix === null) throw new Error('The repair runs only in a run with the fix pass');
+  const onBase = review.baseChecksStep ? baseKinds(fix) : [];
   const checks = repairTargets(fix).map((kind): RepairTaskCheck => {
     const run = lastFreshRun(fix, 'checks', kind)!;
     const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, 'baseline-checks', kind)! : null;
     return {
       kind, command: run.command, outcome: run.outcome === 'timeout' ? 'timeout' : 'failed', exitCode: run.exitCode, signal: run.signal, stdout: tailOf(evidence, run.stdout), stderr: tailOf(evidence, run.stderr),
       baseline: before === null ? null : { stdout: tailOf(evidence, before.stdout), stderr: tailOf(evidence, before.stderr) },
+      base: onBase.includes(kind) ? baseRunOf(evidence, lastFreshRun(fix, 'base-checks', kind)) : null,
     };
   });
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
-  return repairTask({ checks, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
+  return repairTask({ checks, baseChecks: review.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
 }
 
 /**

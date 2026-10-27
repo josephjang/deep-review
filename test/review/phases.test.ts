@@ -19,7 +19,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { deciderAnswer, fixerAnswer } from '../helpers/fake-runtime.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
-import { answer, askDecision, baselined, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, baselined, checkRun, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -512,9 +512,11 @@ describe('the documentation step\'s task', () => {
   });
 });
 
-// R2 and TD6 of the facts before a merge.
+// R2, TD6 and TD13 of the facts before a merge.
 describe('the repair of a run with the checks on the base', () => {
-  const evidence = { read: () => Buffer.from('output\n'), pathOf: (artifact: { readonly sha256: string }) => `/store/artifacts/${artifact.sha256.slice(0, 4)}` };
+  const editing = { snapshotCommand: 'snapshot', claimCommand: null, unelevatedSandbox: false };
+  const onBaseOutput = { sha256: '9'.repeat(64), bytes: 1 };
+  const evidence = { read: (artifact: { readonly sha256: string }) => Buffer.from(artifact.sha256 === onBaseOutput.sha256 ? '3 lint errors on the base\n' : 'output\n'), pathOf: (artifact: { readonly sha256: string }) => `/store/artifacts/${artifact.sha256.slice(0, 4)}` };
   /** A decided fix run with the documentation step, lint failing before the fixes, through its checks after them, where lint and test fail; with the checks on the base unless `compared` is false. */
   const checked = (compared = true): History => {
     const atBaseline = withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', { lint: 'failed' }), null);
@@ -522,6 +524,9 @@ describe('the repair of a run with the checks on the base', () => {
       .add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50))).add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
     return checksPhase(documentationAnswered(fixed), 'checks', { lint: 'failed', test: 'failed' });
   };
+  /** The same run with build passing on the base and lint as `onBase` records it, at the start of its repair. */
+  const repairing = (onBase: (history: History) => History): ReviewState => onBase(ranOnBase(checked().start('base-checks'), 'build', 'passed')).finish('base-checks').start('repair').review();
+  const task = (review: ReviewState): string => taskFor(unit('repair', 'repair', 'fixer'), review, { editing, evidence });
   const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
   const context = (state: RunState): PhaseContext => ({
     state, worktree: '/w', roles,
@@ -533,6 +538,28 @@ describe('the repair of a run with the checks on the base', () => {
   });
   /** The invocation of the repair of the run with lint failing on the base too. */
   const comparingRepair = () => invocationFor(unit('repair', 'repair', 'fixer'), context(ranOnBase(ranOnBase(checked().start('base-checks'), 'build', 'passed'), 'lint', 'failed').finish('base-checks').start('repair').fold()));
+
+  it('gives each check that failed before the fixes its run on the base, and no other check, with its output when it failed there', () => {
+    const text = task(repairing((history) => ranOnBase(history, 'lint', 'failed', 1, null, { stdout: onBaseOutput })));
+    assert.match(text, /^Repair: 2 checks, numbered \[0\] to \[1\]/);
+    assert.match(text, /^\[0\] lint: npm run lint\n[\s\S]*? {4}It failed before any fixer edited the tree too[\s\S]*? {4}It exited with code 1 on the base of the change, [^\n]*\n {4}stdout, its last 26 bytes \(the whole is at \/store\/artifacts\/9999\):\n```text\n3 lint errors on the base\n```\n {4}stderr, [\s\S]*?\n\[1\] test: /m);
+    assert.match(text, /^\[1\] test: npm run test\n[\s\S]*?\n {4}It passed before any fixer edited the tree\.\n\n/m, 'test passed before the fixes, so it has no run on the base');
+    assert.doesNotMatch(text, /^\[\d\] build:/m, 'build ran on the base only to prepare it, and is no check of the repair');
+    assert.match(text, / Return `comparisons` once for the whole answer/);
+  });
+
+  it('gives a base that passed, one skipped after a failed build there, and one that did not start, with why', () => {
+    assert.match(task(repairing((history) => ranOnBase(history, 'lint', 'passed'))), /^ {4}It passes on the base of the change, /m);
+    const skipped = ranOnBase(checked().start('base-checks'), 'build', 'failed').add('check.ran', { ...checkRun('base-checks', 'lint', 'skipped'), replaces: null }, 4);
+    assert.match(task(skipped.finish('base-checks').start('repair').review()), /^ {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: build failed$/m);
+    assert.match(task(repairing((history) => ranOnBase(history, 'lint', 'not-started'))), /^ {4}It did not start on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: spawn ENOENT$/m);
+  });
+
+  it('says nothing of the base or of comparisons in a run configured before the checks on the base', () => {
+    const text = task(checked(false).start('repair').review());
+    assert.match(text, /^\[0\] lint: npm run lint\n/m);
+    assert.doesNotMatch(text, /base of the change|comparisons/);
+  });
 
   it('is answered in the repair\'s own schema, while the fixers of the same run and the repair of an older run keep the fixer\'s', () => {
     assert.equal(comparingRepair().outputSchema, repairOutputSchema);
@@ -568,6 +595,15 @@ describe('the repair of a run with the checks on the base', () => {
       assert.match(without.error ?? '', /does not match the output schema[\s\S]*comparisons/);
       const fixer = await box.run(box.claude({ outputSchema: fixerOutputSchema }), { FAKE_OUTPUT: answer([same]) });
       assert.equal(fixer.outcome, 'failed', 'a fixer\'s schema has no comparisons');
+    });
+
+    it('takes the fake worker\'s default answer to the repair\'s task, which compares nothing', async () => {
+      const script = join(box.directory, 'script.json');
+      writeFileSync(script, '{}');
+      const invocation = comparingRepair();
+      const receipt = await box.run(box.codex({ prompt: invocation.prompt, outputSchema: invocation.outputSchema }), { FAKE_SCRIPT: script });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      assert.deepEqual((receipt.output as { comparisons: unknown }).comparisons, []);
     });
   });
 });
