@@ -176,6 +176,10 @@ In each host, after the fix run, the person asks if the change can merge. The ga
 
 The count of checks, in the gate runs, that failed before and after the fixes and whose brief does not say if the base has the same failures, if the change breaks the check, or why the run did not compare. Today it is each such check. Target: 0.
 
+### Checks not compared
+
+The count of checks, in the gate runs, that the run took to the base and did not compare, with the reason of each. The metric above counts a check that is not compared as a fact of the base, so this count keeps a brief that never compares from meeting it. Target: none in the runs on pallets/click #3878, whose typecheck makes its own environment on the base. A check that a missing install leaves not compared is counted apart, as evidence for #83.
+
 ### The time of the run on the base
 
 The wall time of the runs on the base as a part of the wall time of each gate run. Target: less than 10 percent. This target is an estimate before the gate, and the gate measures it. A tool that makes its own environment, such as `tox`, downloads it in the new worktree.
