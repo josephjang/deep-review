@@ -734,12 +734,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
       state = append(checkpoint, state, [{ kind: 'check.started', version: writtenVersion('check.started', [phase]), payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
       const manifest = base === null ? prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree) : null;
+      // Where the check runs, chosen once: the reviewed worktree with the engine's environment, or the worktree of the base, whose environment has the directories of tools.path already, less those inside the reviewed worktree.
+      const site = base?.tree.kind === 'made' ? { worktree: base.tree.path, environment: base.environment, toolsPath: [] } : { worktree: options.worktree, environment, toolsPath };
       const result = await runCheck(checkpoint.evidence, {
         command: due.command,
-        worktree: base?.tree.kind === 'made' ? base.tree.path : options.worktree,
-        environment: base?.environment ?? environment,
-        // The environment of a check on the base has the directories of tools.path already, less those inside the reviewed worktree.
-        toolsPath: base === null ? toolsPath : [],
+        ...site,
         timeoutMs,
         ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`),
         ...(options.runProcess === undefined ? {} : { runProcess: options.runProcess }),
