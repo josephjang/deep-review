@@ -50,7 +50,8 @@ import { caseInsensitiveFileSystem } from './claims.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
-import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, worktreeCheckVersion, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
+import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
+import { writtenVersion } from './event-versions.ts';
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
@@ -524,7 +525,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         if (drifted(found)) {
           log(`worker ${settled.unit.role} ${name}: answer set aside: the worktree drifted from what the run expects: ${driftList(found)}`);
           const check = worktreeChecked(state, options.worktree, phase, attempt, 'answer', found).payload;
-          return [{ kind: 'worktree.checked', version: worktreeCheckVersion(check), payload: check }];
+          return [{ kind: 'worktree.checked', version: writtenVersion('worktree.checked', [check.phase], { moment: check.moment }), payload: check }];
         }
       }
       const settling = phase === 'fixes' ? directories.settleReading(settled.unit.key) : { access: claims, lost: false };
@@ -689,14 +690,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
         const now = new Date().toISOString();
         const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip, replaces };
-        state = append(checkpoint, state, [{ kind: 'check.ran', version: 3, payload: skipped }]);
+        state = append(checkpoint, state, [{ kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: skipped }]);
         return;
       }
       if (due.replaces !== null) log(`check ${due.kind} (${phase}): running again; ${rerunWords(due.replaces)}`);
       log(`check ${due.kind} (${phase}): ${due.command}`);
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
-      state = append(checkpoint, state, [{ kind: 'check.started', version: 1, payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
+      state = append(checkpoint, state, [{ kind: 'check.started', version: writtenVersion('check.started', [phase]), payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
       const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
       const result = await runCheck(checkpoint.evidence, {
         command: due.command,
@@ -714,7 +715,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error === null ? '' : `: ${error}`}`);
       if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces };
-      const recorded: NewEvent = { kind: 'check.ran', version: 3, payload: ran };
+      const recorded: NewEvent = { kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: ran };
       // A run a kill ended, the engine's at the timeout or one from outside with a kill mark or no result from its guard, a second cut recorded failed among them, records no revision: what it wrote is written back instead. The run as recorded decides it, through the predicate the replay reads (`killedRun`), so the write back here and the one after a stop cannot disagree on a kill.
       if (killedRun(ran)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options.worktree, content.match, checkpoint.evidence), [recorded]);
@@ -747,15 +748,14 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
-          // Only the documentation phase needs version 6, so a run configured before the step holds no event an older engine cannot read (TD5 of the documentation step).
-          state = append(checkpoint, state, [{ kind: 'phase.started', version: step.phase === 'documentation' ? 6 : 5, payload: { phase: step.phase, attempt: step.attempt } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.started', version: writtenVersion('phase.started', [step.phase]), payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree ${step.moment === 'restored' ? 'still differs from what the run expects after the write back' : 'drifted from what the run expects'}: ${driftList(check)}`);
           if (check.strays.length > 0) log(`phase ${step.phase}: files no worker accounts for: ${check.strays.join(', ')}${unlisted === 0 ? '' : `, and ${String(unlisted)} more the check does not list`}`);
-          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: worktreeCheckVersion(check), payload: check }]);
+          state = append(checkpoint, state, [{ kind: 'worktree.checked', version: writtenVersion('worktree.checked', [check.phase], { moment: check.moment }), payload: check }]);
           break;
         }
         case 'restore-tree': {
@@ -814,7 +814,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
               case 'unit.unattempted':
                 degraded(`${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`, degradation.reason);
                 // What failed workers left is already recorded, with each failure (R20 of the fix pass).
-                return { kind: 'unit.unattempted', version: degradation.phase === 'documentation' ? 2 : 1, payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+                return { kind: 'unit.unattempted', version: writtenVersion('unit.unattempted', [degradation.phase]), payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
             }
           }));
           break;
@@ -865,7 +865,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         case 'finish-phase':
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
-          state = append(checkpoint, state, [{ kind: 'phase.finished', version: step.phase === 'documentation' ? 7 : 6, payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
+          state = append(checkpoint, state, [{ kind: 'phase.finished', version: writtenVersion('phase.finished', [step.phase]), payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
         case 'write-report': {
           // One patch per revision of the run (R13 of the fix pass).
@@ -879,9 +879,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           const text = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options.home ?? homedir(), ...fix });
           const report = checkpoint.evidence.put(text);
           state = append(checkpoint, state, [
-            // Only statistics with the documentation phase's row need version 6: a run configured before the step skips the phase and has none (TD5 of the documentation step).
-            { kind: 'report.written', version: statistics.phases.some((row) => row.phase === 'documentation') ? 6 : 5, payload: { report, statistics, patches } },
-            { kind: 'phase.finished', version: 6, payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
+            // A run that skips a phase has no row of it, so it needs no version that names it.
+            { kind: 'report.written', version: writtenVersion('report.written', statistics.phases.map((row) => row.phase)), payload: { report, statistics, patches } },
+            { kind: 'phase.finished', version: writtenVersion('phase.finished', ['report']), payload: { phase: 'report', attempt: state.review!.phases.report.attempt, outcome: 'completed', blocker: null } },
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report)}${patches.length === 0 ? '' : `, with ${String(patches.length)} patch${patches.length === 1 ? '' : 'es'}`}`);
           // The copy is the string the store holds, after the record, so the copy that review writes equals its record (R14 of the brief of a run).
@@ -1362,7 +1362,7 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     const current = run.review!.limits;
     const changed = current.concurrency !== limits.concurrency || current.runBudgetUsd !== limits.runBudgetUsd;
     const unstaged = settle !== null && settle.kind === 'complete' ? resetSettledIndex(run, settle.series, context.worktree) : [];
-    const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: units.some((unit) => unit.phase === 'documentation') ? 2 : 1, payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
+    const state = append(checkpoint, run, [...settling, { kind: 'fix.reopened', version: writtenVersion('fix.reopened', units.map((unit) => unit.phase)), payload: { units } satisfies FixReopened }, ...(changed ? [{ kind: 'limits.changed', version: 1, payload: limits }] : [])]);
     if (settle !== null && settle.kind !== 'elsewhere') log(settle.line);
     if (unstaged.length > 0) log(unstagedLine(run.id, unstaged));
     log(`run ${run.id}: reopened its fix pass, which the run budget stopped, for ${units.map((unit) => attemptOwner(unit.phase, unit.key)).join(', ')}; ${spendWords(budgetSpendOf(run, context.adapter).usd, limits.runBudgetUsd)}`);
@@ -1657,7 +1657,7 @@ function recordLostWorkers(checkpoint: Checkpoint, state: RunState, context: Pic
   for (const worker of Object.values(state.workers).filter((candidate) => candidate.status === 'running')) {
     const unit = parseUnitLabel(worker.launch.label);
     log(`worker ${worker.launch.label ?? worker.launch.workerId}: lost with the previous engine`);
-    const lost: NewEvent = { kind: 'worker.lost', version: unit?.phase === 'documentation' ? 6 : 5, payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
+    const lost: NewEvent = { kind: 'worker.lost', version: writtenVersion('worker.lost', unit === null ? [] : [unit.phase]), payload: { workerId: worker.launch.workerId, phase: unit?.phase ?? null, key: unit?.key ?? null, reason } };
     const edits = unit !== null && isEditingPhase(unit.phase) ? attemptRevisionEvents({ ...context, state, evidence: checkpoint.evidence }, unit.phase, unit.key, worker.launch.workerId, reason, 'lost') : { claims: [], revisions: [] };
     for (const line of edits.claims.flatMap(claimLines)) log(line);
     if (edits.revisions.length > 0) log(`worker ${worker.launch.label ?? worker.launch.workerId}: its edits recorded in ${String(edits.revisions.length)} revision${edits.revisions.length === 1 ? '' : 's'}`);
@@ -1673,5 +1673,5 @@ function reenterPhase(checkpoint: Checkpoint, state: RunState, adapter: Pick<Run
   if (phase === null) return state;
   const attempt = review.phases[phase].attempt + 1;
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review.blocker === null ? '' : `, clearing the ${review.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
-  return append(checkpoint, state, [{ kind: 'phase.started', version: phase === 'documentation' ? 6 : 5, payload: { phase, attempt } }]);
+  return append(checkpoint, state, [{ kind: 'phase.started', version: writtenVersion('phase.started', [phase]), payload: { phase, attempt } }]);
 }

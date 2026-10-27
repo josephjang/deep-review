@@ -22,6 +22,7 @@ import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
+import { writtenVersion } from './event-versions.ts';
 import { attemptRevisionEvents, fixAnswerEvents, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
@@ -605,8 +606,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
 function failed(unit: Unit, receipt: WorkerReceipt, reason: string, fault: AttemptFault): NewEvent {
-  // The faults version 6 records stay at version 6, which an engine before resumable runs reads; `cut` and `limit` need version 7, and the documentation phase version 8, whatever the fault (TD5 of the documentation step).
-  return { kind: 'attempt.failed', version: unit.phase === 'documentation' ? 8 : fault === 'cut' || fault === 'limit' ? 7 : 6, payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
+  return { kind: 'attempt.failed', version: writtenVersion('attempt.failed', [unit.phase], { fault }), payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
 }
 
 /** Candidates as a candidate phase's unit returned them, located against the scope and the worktree and given ids from 1 in the worker's order, under the unit's id prefix. */
