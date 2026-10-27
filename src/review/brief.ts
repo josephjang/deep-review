@@ -18,13 +18,13 @@ import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../che
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
-import { briefChecksOf, checkGap, checksSentence, validationOf, validationSentence, type BriefCheck, type BriefValidation } from './brief-checks.ts';
+import { briefChecksOf, checkGap, checksLine, checksSentence, validationOf, validationSentence, type BriefCheck, type BriefValidation } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { shortRunId } from './runs.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import { documentationUnitKey } from './vocabulary.ts';
+import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -161,6 +161,8 @@ export interface BriefChanged {
   readonly left: readonly string[];
   /** Each check with a command: its outcome before the fixes, its last run with when it ran, what its base says, and its fault (R3 to R5 of the facts before a merge); none in a run that only reviewed. */
   readonly checks: readonly BriefCheck[];
+  /** The kinds of check the run has no command for, which the line `Checks:` names (R6 of the facts before a merge); none in a run that only reviewed. */
+  readonly noCommand: readonly CheckKind[];
   /** What the documentation step did, as one sentence, or null in a run that only reviewed or that an engine before the step configured (R10 of the documentation step). */
   readonly documentation: string | null;
   /** The applied fixes under the strongest validation the answer that applied each reported (R7 of the facts before a merge); each list empty in a run that only reviewed. */
@@ -451,7 +453,7 @@ function changedOf(context: BriefContext): BriefChanged {
   const left = decisionsOf(context, 'leave').map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, 'fix').map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null, validation: validationOf([]) };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], noCommand: [], documentation: null, validation: validationOf([]) };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit) => commit.sha));
   const applied = withOutcome(context, 'applied');
@@ -469,6 +471,7 @@ function changedOf(context: BriefContext): BriefChanged {
     // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
     left: [...left, ...withOutcome(context, 'held for the author')],
     checks: context.checks,
+    noCommand: (fix.checks.planned?.checks ?? []).filter((check) => check.command === null).map((check) => check.kind),
     documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null,
     // The answer that gave each fix its last outcome applied it: the fix pass's, or an answer pass's.
     validation: validationOf(applied.map((id) => ({ id, methods: (lastFixAnswer(context.review, fix, id).answer?.validation ?? []).map((entry) => entry.method) }))),
@@ -938,15 +941,16 @@ const moreLine = (ids: readonly string[], one: string, many: string): string[] =
 
 /**
  * The short form of the brief (R13, PD12 of the brief of a run): seven
- * lines, whatever the number of findings, and an eighth for a fix run, the
- * documents it left out of date (R7 of the documentation step), each
- * naming its subject in its first words so it keeps its sense when a model
- * rewords it; a list shows at most `shownIds` ids and counts the rest, and
- * a line with nothing to say says so. Under the line `Questions:` come
- * the lines of each open question, at most `shownQuestions`, and under
- * `Against a written rule:` the line of each open departure, at most
+ * lines, whatever the number of findings, and two more for a fix run, the
+ * documents it left out of date (R7 of the documentation step) and how its
+ * checks ended (R6, PD5 of the facts before a merge), each naming its
+ * subject in its first words so it keeps its sense when a model rewords
+ * it; a list shows at most `shownIds` ids and counts the rest, and a line
+ * with nothing to say says so. Under the line `Questions:` come the lines
+ * of each open question, at most `shownQuestions`, and under `Against a
+ * written rule:` the line of each open departure, at most
  * `shownDepartures`, each list with one more line that counts the others
- * (R1, R2 of the questions in the chat): at most 22 lines in all. A line
+ * (R1, R2 of the questions in the chat): at most 23 lines in all. A line
  * has at most `shortLineLimit` characters, but the lines of a question, an
  * option and a departure, which give the words of the decider whole, and
  * the line of the change, which gives the first sentence of the account
@@ -975,7 +979,10 @@ export function briefShortForm(brief: Brief): string[] {
     cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}`),
     ...openDepartures.slice(0, shownDepartures).map(departureLine),
     ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), 'more fix', 'more fixes').map(cut),
-    ...(brief.changed.fixed ? [cut(brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`)] : []),
+    ...(brief.changed.fixed ? [
+      cut(brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`),
+      cut(checksLine(brief.changed.checks, brief.changed.noCommand)),
+    ] : []),
     cut(`Not covered: ${notCovered}`),
     cut(`Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`),
     cut(`Changed: ${changedWords(brief.changed)}`),

@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { briefMarkdown, briefOf, briefShortForm, type Brief } from '../../src/review/brief.ts';
+import { briefMarkdown, briefOf, briefShortForm, shortLineLimit, type Brief } from '../../src/review/brief.ts';
+import type { BriefCheck } from '../../src/review/brief-checks.ts';
 import { briefJson } from '../../src/review/brief-json.ts';
-import { answeredRun, checkedRun, onBranch, type ChecksOfRun } from '../helpers/base-checks-history.ts';
-import { answer } from '../helpers/review-history.ts';
+import { answeredRun, checkedRun, mergeBase, onBranch, type ChecksOfRun } from '../helpers/base-checks-history.ts';
+import { answer, answerableDecisions, decidedFixRun, readOnlyReported } from '../helpers/review-history.ts';
 
-/** The run whose checks end as `checks` says, its scope a branch's, and its question answered unless `open`, so the headline counts the checks alone. */
-const run = (checks: ChecksOfRun = {}, then: (history: ReturnType<typeof checkedRun>) => ReturnType<typeof checkedRun> = (history) => history.add('answer.recorded', answer('SWEEP-1', 0))): RunState => onBranch(then(checkedRun(checks)));
+/** The run whose checks end as `checks` says, its scope a branch's, and its question answered, so the headline counts the checks alone. */
+const run = (checks: ChecksOfRun = {}): RunState => onBranch(checkedRun(checks).add('answer.recorded', answer('SWEEP-1', 0)));
 const check = (brief: Brief, kind: string) => brief.changed.checks.find((entry) => entry.kind === kind)!;
 // The checks of these runs have no typecheck command, which gives a gap of its own in each.
 const checkGaps = (brief: Brief): string[] => brief.notCovered.filter((gap) => gap.kind === 'check' && !gap.text.startsWith('No typecheck check ran')).map((gap) => gap.text);
@@ -150,5 +151,83 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     for (const text of [briefMarkdown(brief, 'report').join('\n'), briefMarkdown(brief, 'chat').join('\n'), briefShortForm(brief).join('\n'), JSON.stringify(json)]) {
       assert.doesNotMatch(text, /\/home\/me|Permission denied|fatal/);
     }
+  });
+});
+
+describe('the line Checks: of the short form (R6, PD5 of the facts before a merge)', () => {
+  /** The run with only the kinds that have a command, so no line names a kind with none. */
+  const commanded = (state: RunState): RunState => {
+    const fix = state.review!.fix!;
+    const planned = fix.checks.planned!;
+    return { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.filter((entry) => entry.command !== null) } } } } };
+  };
+  const lineOf = (brief: Brief): string => briefShortForm(brief).find((entry) => entry.startsWith('Checks:'))!;
+  const line = (state: RunState): string => lineOf(briefOf(state));
+  /** The decided fix run whose fixer deferred RIPPLE-1, so no fix changed a file and no check ran after the fixes, with lint before the fixes as `lint` says. */
+  const unchanged = (lint: 'passed' | 'failed' = 'passed'): RunState => {
+    const state = decidedFixRun(answerableDecisions(), 'deferred').fold();
+    const fix = state.review!.fix!;
+    const runs = fix.checks.runs['baseline-checks'].map((entry) => (entry.kind === 'lint' ? { ...entry, outcome: lint } : entry));
+    return { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'baseline-checks': runs } } } } };
+  };
+
+  it('says each example of the proposal, with lint where it names typecheck', () => {
+    assert.equal(line(commanded(run())), 'Checks: each passed before and after the fixes');
+    assert.equal(line(commanded(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }))), 'Checks: lint failed, as it does on the base (2247b35e), by the repair\'s reading; build and test passed');
+    assert.equal(line(commanded(onBranch(answeredRun(checkedRun({ ...failing, base: [['build', 'passed'], ['lint', 'passed']] }), { test: 'failed' })))), 'Checks: test failed after your answers, and passed after the fixes; lint fails on the change and passes on the base (2247b35e); build passed');
+    assert.equal(line(commanded(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']] }))), 'Checks: lint failed before and after the fixes, not compared with the base; build and test passed');
+    assert.equal(line(commanded(unchanged())), 'Checks: each passed before the fixes; no check ran after them, since no fix changed a file');
+  });
+
+  it('gives each other row its clause', () => {
+    const clauses: [ChecksOfRun, string][] = [
+      [{ after: { lint: 'timeout' } }, 'Checks: lint timed out after the fixes, and passed before the fixes; build and test passed'],
+      [{ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds' }] }, 'Checks: lint fails on the change with failures that the base (2247b35e) does not have, by the repair\'s reading; build and test passed'],
+      [{ before: { lint: 'failed' } }, 'Checks: lint failed before the fixes and passes now; build and test passed'],
+      [{ after: { lint: 'failed' }, repaired: {} }, 'Checks: lint failed after the fixes and passed after the repair; build and test passed'],
+      [{ before: { lint: 'failed' }, after: { build: 'failed', lint: 'skipped' } }, 'Checks: build failed after the fixes, and passed before the fixes; lint did not finish; test passed'],
+      [{ ...failing, compared: false }, 'Checks: lint failed before and after the fixes; build and test passed'],
+    ];
+    for (const [checks, expected] of clauses) assert.equal(line(commanded(run(checks))), expected, JSON.stringify(checks));
+    assert.equal(line(commanded(unchanged('failed'))), 'Checks: lint failed before the fixes and did not run again; build and test passed; no check ran after the fixes, since no fix changed a file');
+  });
+
+  it('names the kinds in the order of the rows, two kinds of one row in the order of the kinds, and a kind with no command before the kinds that passed', () => {
+    assert.equal(line(run({ before: { lint: 'failed' }, after: { build: 'failed', lint: 'failed' }, base: [['build', 'passed'], ['lint', 'passed']] })), 'Checks: build failed after the fixes, and passed before the fixes; lint fails on the change and passes on the base (2247b35e); no typecheck check; test passed');
+    assert.equal(line(run({ after: { test: 'failed', build: 'failed' } })), 'Checks: build failed after the fixes, and passed before the fixes; test failed after the fixes, and passed before the fixes; no typecheck check; lint passed');
+    assert.equal(line(run()), 'Checks: no typecheck check; build, lint and test passed');
+  });
+
+  it('gives a kind that two rows match the clause of the first: the edits of the run over what the base says', () => {
+    const state = commanded(onBranch(answeredRun(checkedRun({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same], repaired: {} }), { lint: 'failed' })));
+    assert.equal(line(state), 'Checks: lint failed after your answers, and passed after the repair; build and test passed');
+  });
+
+  it('says so of a run with no check command', () => {
+    const state = run();
+    const fix = state.review!.fix!;
+    const planned = fix.checks.planned!;
+    const none = { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.map((entry) => ({ ...entry, command: null })) } } } } };
+    assert.equal(line(none), 'Checks: none, since the run has no check command');
+  });
+
+  it('comes after the line of the documents and before Not covered, in a fix run alone', () => {
+    const lines = briefShortForm(briefOf(run()));
+    const at = lines.findIndex((entry) => entry.startsWith('Checks:'));
+    assert.ok(lines[at - 1]!.startsWith('Documents left out of date: ') && lines[at + 1]!.startsWith('Not covered: '), lines.join('\n'));
+    assert.ok(!briefShortForm(briefOf(readOnlyReported().fold())).some((entry) => entry.startsWith('Checks:')), 'a run that only reviews has no such line');
+  });
+
+  it('is cut at a word at 200 characters, and the cut keeps the kinds that need the person', () => {
+    const brief = briefOf(run());
+    const base = { commit: mergeBase, name: 'the merge base with origin/main', outcome: 'failed', reading: 'adds', reason: null } as const;
+    const checks: BriefCheck[] = [
+      { kind: 'build', before: 'failed', last: { outcome: 'failed', when: 'repair' }, earlier: { passed: null, failed: 'fixes' }, base: { ...base, reading: null, reason: 'no-comparison' }, fault: 'not-compared' },
+      { kind: 'lint', before: 'failed', last: { outcome: 'failed', when: 'repair' }, earlier: { passed: null, failed: 'fixes' }, base, fault: 'change-adds' },
+      { kind: 'test', before: 'passed', last: { outcome: 'timeout', when: 'answers' }, earlier: { passed: 'answers', failed: null }, base: null, fault: 'edits' },
+    ];
+    const cut = lineOf({ ...brief, changed: { ...brief.changed, checks } });
+    assert.ok(cut.length <= shortLineLimit && cut.endsWith('...'), cut);
+    assert.ok(cut.startsWith('Checks: test timed out after your answers, and passed after earlier answers; lint fails on the change with failures that the base (2247b35e) does not have'), cut);
   });
 });

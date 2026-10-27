@@ -13,7 +13,8 @@ import { baseKinds, lastCurrentRun, lastRecordedRun, type CheckRunState, type Fi
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isEmptyTree } from '../scope/git.ts';
 import { baseNameOf, commitWords } from '../scope/scope-line.ts';
-import { baseSkipReasons, repairUnitKey, treeCheckPhases, type BaseReading, type BaseSkipReason, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
+import { listed } from './markdown.ts';
+import { baseSkipReasons, checkKinds, repairUnitKey, treeCheckPhases, type BaseReading, type BaseSkipReason, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
 
 /** When a run of a check ran, by its phase (R3 of the facts before a merge): before the fixes, after them, after the repair, or after an answer pass. */
 export const checkMoments = ['before', 'fixes', 'repair', 'answers'] as const;
@@ -97,7 +98,7 @@ export interface BriefCheck {
   readonly fault: CheckFault | null;
 }
 
-const failedOrTimedOut = (outcome: CheckOutcome | null): boolean => outcome === 'failed' || outcome === 'timeout';
+const failedOrTimedOut = (outcome: CheckOutcome | null): outcome is 'failed' | 'timeout' => outcome === 'failed' || outcome === 'timeout';
 
 /**
  * Whether each fault holds of a check (R4, R5; the table of the design).
@@ -240,6 +241,75 @@ export function checksSentence(checks: readonly BriefCheck[]): string {
   if (checks.length === 0) return 'No check ran.';
   if (checks.every((check) => check.before === 'passed' && check.last?.outcome === 'passed' && check.earlier.failed === null)) return 'The checks passed before and after the fixes.';
   return `The checks: ${checks.map((check) => `${check.kind} ${ranWords(check)}${check.base === null ? '' : baseFactWords(check.base)}`).join('; ')}.`;
+}
+
+/**
+ * The rows of the line `Checks:` (R6, PD5 of the facts before a merge;
+ * the table of the short form of the design), in the order the line
+ * names them: each fault, a check that still fails with none, the other
+ * ways a check did not pass at some point of the run, a kind with no
+ * command, and last the kinds that passed at each run. A kind takes the
+ * first row that holds, so the kinds that need the person come first and
+ * a cut of the line drops the kinds that passed first.
+ */
+export const lineRows = [...checkFaults, 'failing', 'passes-now', 'repaired', 'not-rerun', 'unfinished', 'no-command', 'passed'] as const;
+export type LineRow = (typeof lineRows)[number];
+type ClauseRow = Exclude<LineRow, 'no-command' | 'passed'>;
+
+/** When an earlier run of a check ran, before its last, as the words after its verb: an answer pass before the last run is an earlier one. */
+const earlierWords: Readonly<Record<CheckMoment, string>> = { before: 'before the fixes', fixes: 'after the fixes', repair: 'after the repair', answers: 'after earlier answers' };
+
+/** How a check that did not finish ended last: it timed out, was skipped, did not start, or was cut short, or it never ran. */
+const unfinished = (outcome: CheckOutcome | null): boolean => outcome === null || ['timeout', 'skipped', 'not-started', 'cut'].includes(outcome);
+
+/** The clause of each row for a check, in a few words, when the row holds for it, else null; a clause that rests on the repair's reading says so (principle 1). */
+const clauses: Readonly<Record<ClauseRow, (check: BriefCheck) => string | null>> = {
+  edits: ({ kind, fault, last, earlier }) => (fault === 'edits' && last !== null && earlier.passed !== null ? `${kind} ${outcomeVerbs[last.outcome]} ${lastWords[last.when]}, and passed ${earlierWords[earlier.passed]}` : null),
+  'change-breaks': ({ kind, fault, base }) => (fault === 'change-breaks' && base !== null ? `${kind} fails on the change and passes on the base (${commitWords(base.commit)})` : null),
+  'change-adds': ({ kind, fault, base }) => (fault === 'change-adds' && base !== null ? `${kind} fails on the change with failures that the base (${commitWords(base.commit)}) does not have, by the repair's reading` : null),
+  'not-compared': ({ kind, fault }) => (fault === 'not-compared' ? `${kind} failed before and after the fixes, not compared with the base` : null),
+  'base-has': ({ kind, fault, base }) => (fault === 'base-has' && base !== null ? `${kind} failed, as it does on the base (${commitWords(base.commit)}), by the repair's reading` : null),
+  // A check whose last run failed with no fault: one that never passed, in a run configured before the checks on the base or of a kind the run did not take there.
+  failing: (check) => (check.last?.outcome === 'failed' ? `${check.kind} ${ranWords(check)}` : null),
+  'passes-now': ({ kind, before, last }) => (failedOrTimedOut(before) && last?.outcome === 'passed' ? `${kind} ${outcomeVerbs[before]} before the fixes and passes now` : null),
+  repaired: ({ kind, earlier, last }) => (earlier.failed !== null && last?.outcome === 'passed' ? `${kind} failed ${earlierWords[earlier.failed]} and passed ${lastWords[last.when]}` : null),
+  'not-rerun': ({ kind, before, last }) => (failedOrTimedOut(before) && last === null ? `${kind} ${outcomeVerbs[before]} before the fixes and did not run again` : null),
+  unfinished: ({ kind, before, last }) => (unfinished(last?.outcome ?? before) ? `${kind} did not finish` : null),
+};
+
+const clauseRows = lineRows.filter((row): row is ClauseRow => row !== 'no-command' && row !== 'passed');
+
+/** A kind as the line names it: its row, and its clause, or for one that passed at each run its kind alone, which the line names with the others that did. */
+function lineEntry(check: BriefCheck): { readonly kind: CheckKind; readonly row: LineRow; readonly clause: string } {
+  for (const row of clauseRows) {
+    const clause = clauses[row](check);
+    if (clause !== null) return { kind: check.kind, row, clause };
+  }
+  return { kind: check.kind, row: 'passed', clause: check.kind };
+}
+
+/**
+ * The line `Checks:` of the short form of a fix run (R6, PD5 of the facts
+ * before a merge), uncut: each kind by the first row of `lineRows` that
+ * holds for it, the rows in order and the kinds of one row in the order
+ * of the kinds, the kinds that passed at each run named together; or one
+ * line that each passed, before and after the fixes or before them alone
+ * when no fix changed a file, or that the run has no check command.
+ */
+export function checksLine(checks: readonly BriefCheck[], noCommand: readonly CheckKind[]): string {
+  if (checks.length === 0) return 'Checks: none, since the run has no check command';
+  const entries = [...checks.map(lineEntry), ...noCommand.map((kind) => ({ kind, row: 'no-command' as const, clause: `no ${kind} check` }))]
+    .sort((a, b) => lineRows.indexOf(a.row) - lineRows.indexOf(b.row) || checkKinds.indexOf(a.kind) - checkKinds.indexOf(b.kind));
+  // No check runs after the fixes when no fix changed a file.
+  const ranAfter = checks.some((check) => check.last !== null);
+  const passed = entries.filter((entry) => entry.row === 'passed').map((entry) => entry.kind);
+  if (passed.length === entries.length) return ranAfter ? 'Checks: each passed before and after the fixes' : 'Checks: each passed before the fixes; no check ran after them, since no fix changed a file';
+  const parts = [
+    ...entries.filter((entry) => entry.row !== 'passed').map((entry) => entry.clause),
+    ...(passed.length === 0 ? [] : [`${listed(passed)} passed`]),
+    ...(ranAfter ? [] : ['no check ran after the fixes, since no fix changed a file']),
+  ];
+  return `Checks: ${parts.join('; ')}`;
 }
 
 /**

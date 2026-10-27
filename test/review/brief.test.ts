@@ -522,7 +522,7 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     for (const status of ['applied', 'deferred']) assert.equal(questionsLine(fixed(status)).includes('in place'), briefOf(fixed(status)).headline.text.endsWith('default in place.'), status);
   });
 
-  it('names at most 3 open questions and 3 open fixes against a rule with their words, counts the others with at most 8 ids, and keeps at most 22 lines however many findings the run has (PD2 of the questions in the chat)', () => {
+  it('names at most 3 open questions and 3 open fixes against a rule with their words, counts the others with at most 8 ids, and keeps at most 23 lines however many findings the run has (PD2 of the questions in the chat; R6 of the facts before a merge)', () => {
     const brief = briefOf(answerable());
     const question = brief.questions[0]!;
     const departing = brief.departures[0]!;
@@ -546,9 +546,9 @@ describe('briefShortForm (R13 of the brief of a run)', () => {
     const whole = /^ {2}(SWEEP|RIPPLE)-\d+(:| in place now| deep-review's choice| would go against)/;
     for (const line of lines) assert.ok(line.length <= shortLineLimit || whole.test(line), line);
     assert.ok(lines.some((line) => line.length > 400), 'a line of the decider is not cut');
-    // A fix run with the line of the documents: the 8 lines and 14 more, the most there are.
+    // A fix run with the lines of the documents and of the checks: the 9 lines and 14 more, the most there are.
     const fixed = briefOf(leftDocuments());
-    assert.equal(briefShortForm({ ...many, documents: fixed.documents, changed: fixed.changed }).length, 22);
+    assert.equal(briefShortForm({ ...many, documents: fixed.documents, changed: fixed.changed }).length, 23);
   });
 
   it('gives each line of a question its id first, the option in place now and deep-review\'s choice on two lines, or on one when they are one option (R1 of the questions in the chat)', () => {
@@ -746,8 +746,8 @@ describe('the documents a run left out of date in the brief', () => {
 
   it('gives a fix run an eighth line of the short form, after the departures, naming at most eight files and counting the rest', () => {
     const short = briefShortForm(briefOf(leftOne()));
-    // The 8 lines, and the 3 lines of the open question and the line of the open departure.
-    assert.equal(short.length, 12);
+    // The 9 lines of a fix run, and the 3 lines of the open question and the line of the open departure.
+    assert.equal(short.length, 13);
     const documents = short.findIndex((entry) => entry.startsWith('Documents left out of date: '));
     assert.equal(short[documents], 'Documents left out of date: 1: docs/a.md');
     assert.ok(short[documents - 1]!.startsWith('  RIPPLE-1 goes against a rule in '), 'after the lines of the departures');
@@ -817,7 +817,7 @@ describe('the documents a run left out of date in the brief', () => {
     const fix = state.review!.fix!;
     const broken = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, drift: [line('docs/a\r\nb.md', 'stale')] } } } } } } as RunState;
     const short = briefShortForm(briefOf(broken));
-    assert.equal(short.length, 12);
+    assert.equal(short.length, 13);
     assert.ok(short.every((entry) => !/[\r\n]/.test(entry)), JSON.stringify(short));
     assert.ok(short.includes('Documents left out of date: 1: docs/a b.md'), JSON.stringify(short));
   });
