@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CheckRunState, type CutShortCheck, type FixState } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CutShortCheck, type FixState, type RunStanding } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -88,7 +88,7 @@ export interface DueCheck {
   readonly kind: CheckKind;
   readonly command: string;
   readonly skip: string | null;
-  readonly replaces: { readonly run: CheckRunState; readonly why: 'cut' | 'timeout' | 'cut-attempt' } | null;
+  readonly replaces: Omit<Extract<RunStanding, { readonly kind: 'again' }>, 'kind'> | null;
 }
 
 export type Step =

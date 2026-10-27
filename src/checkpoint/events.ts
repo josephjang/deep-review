@@ -2249,7 +2249,7 @@ export const checkStartedV2 = z.strictObject({
 });
 export type CheckStarted = z.infer<typeof checkStartedV2>;
 
-/** `check.ran` over the five check phases, so a run on the base can name its phase. */
+/** `check.ran` over the five check phases, so a run on the base can name its phase; there `replaces` can also name a `build` that passed in the worktree of an earlier attempt, or was skipped in one that had none, since each attempt makes its worktree anew (TD16 of the facts before a merge). */
 export const checkRanV4 = z.strictObject({
   ...checkRanV3.shape,
   phase: checkPhaseSchemaV9,

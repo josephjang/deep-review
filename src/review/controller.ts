@@ -276,6 +276,8 @@ function rerunWords(replaces: NonNullable<DueCheck['replaces']>): string {
       return `it timed out after ${took} at its first run in this attempt`;
     case 'cut':
       return `its run of attempt ${String(run.attempt)} was cut after ${took}, with no result of its own`;
+    case 'earlier-worktree':
+      return run.outcome === 'skipped' ? `attempt ${String(run.attempt)} had no worktree of the base to build it in, and this attempt makes one` : `it passed in ${took} in the worktree of the base of attempt ${String(run.attempt)}, and this attempt makes a new one`;
   }
 }
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);

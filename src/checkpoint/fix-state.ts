@@ -268,12 +268,15 @@ export function isCutAttempt(review: Pick<ReviewState, 'phases'> & { readonly fi
  * `first` when the kind has no current run; `again` with that run and why
  * when it was cut, when it is the first timeout of the kind in the current
  * attempt, except on the base (TD15 of the facts before a merge), or when
- * it did not pass in a cut attempt; null when the kind may not run again,
- * since its last current run is its result.
+ * it did not pass in a cut attempt; on the base also for a `build` that
+ * passed in the worktree of an earlier attempt, or was skipped in one that
+ * had no worktree, while another kind of `baseKinds` is due there, since
+ * each attempt makes its worktree anew (TD16); null when the kind may not
+ * run again, since its last current run is its result.
  */
 export type RunStanding =
   | { readonly kind: 'first' }
-  | { readonly kind: 'again'; readonly run: CheckRunState; readonly why: 'cut' | 'timeout' | 'cut-attempt' }
+  | { readonly kind: 'again'; readonly run: CheckRunState; readonly why: 'cut' | 'timeout' | 'cut-attempt' | 'earlier-worktree' }
   | null;
 
 export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'> & { readonly fix: FixState }, phase: CheckPhase, kind: CheckKind): RunStanding {
@@ -285,6 +288,9 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   // A timeout on the base is its result (PD11, TD15 of the facts before a merge): the kind timed out or failed twice on the change already.
   if (phase !== 'base-checks' && last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
   if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
+  // A build on the base is skipped only for a worktree its attempt could not have, which says nothing of the build.
+  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || last.outcome === 'skipped') && last.attempt < current;
+  if (unbuilt && baseKinds(review.fix).some((other) => other !== 'build' && runStanding(review, phase, other) !== null)) return { kind: 'again', run: last, why: 'earlier-worktree' };
   return null;
 }
 
