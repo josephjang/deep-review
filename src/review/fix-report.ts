@@ -428,7 +428,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   // The last baseline run, which never grows old, with not-started among the failures the mark names.
-  const failedAtBaseline = (kind: CheckKind): boolean => ['failed', 'timeout', 'not-started'].includes(lastFreshRun(fix, 'baseline-checks', kind)?.outcome ?? '');
+  const failingBeforeFixes = (kind: CheckKind): boolean => ['failed', 'timeout', 'not-started'].includes(lastFreshRun(fix, 'baseline-checks', kind)?.outcome ?? '');
   const sourceCell = (check: (typeof planned)[number]): string[] => (survey === null ? [] : [checkSourceCell(survey, check)]);
   // Each column shows the last run of each kind, and is marked when a later edit changed the tree its runs checked.
   const shown = (phase: CheckPhase, kind: CheckKind): CheckRunState | null => lastRecordedRun(fix, phase, kind);
@@ -443,7 +443,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   };
   const note = (phase: CheckPhase, kind: CheckKind): string => {
     if (phase === 'base-checks') return baseNote(kind);
-    return phase !== 'baseline-checks' && failedAtBaseline(kind) ? ' (failing before the fix pass)' : '';
+    return phase !== 'baseline-checks' && failingBeforeFixes(kind) ? ' (failing before the fix pass)' : '';
   };
   const rows = planned.map((check) => {
     if (check.command === null) return `| ${[check.kind, unavailableCell(survey, check), ...sourceCell(check), ...ran.map(() => '-')].join(' | ')} |`;
