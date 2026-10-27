@@ -614,7 +614,10 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
     assert.match(report, /^Worktree of the base: git could not make it: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
     assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## The run\n'), 'the path is in the facts of the run alone');
     assert.equal(report.split('/home/me/.cache/x').length, 2, 'once');
-    assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build failed on the base']] }), /^- On the base: lint did not run there, since the build failed on the base\.$/m);
+    assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }), /^- On the base: lint did not run there, since the build did not pass on the base\.$/m);
+    const timedOut = checksOf({ ...failing, base: [['build', 'timeout'], ['lint', 'skipped', 'the build did not pass on the base']] });
+    assert.match(timedOut, /^\| build \| .* \| timeout, 4\.0 s; [^|]* \|$/m);
+    assert.match(timedOut, /^\| lint \| .* \| skipped: the build did not pass on the base \|$/m, 'words true of a build that timed out on the base');
     assert.match(checksOf({ ...failing, base: [] }), /^- On the base: lint did not run there\.$/m);
   });
 
