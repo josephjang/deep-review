@@ -17,7 +17,7 @@ const leftStale = (): RunState => {
 };
 
 /** A run whose lint failed before and after the fixes and passes on the base, and whose test failed after an answer pass. */
-const onTheBase = (): RunState => onBranch(answeredRun(checkedRun({ before: { lint: 'failed' }, after: { lint: 'failed' }, base: [['build', 'passed'], ['lint', 'passed']] }), { test: 'failed' }));
+const onTheBase = (): RunState => onBranch(answeredRun(checkedRun({ before: { lint: 'failed' }, after: { lint: 'failed' }, base: [['build', 'passed'], ['lint', 'passed']] }), { test: 'failed', lint: 'failed' }));
 
 /** Runs of each shape the brief covers: read-only with a question and a departure, answered, fixed, deferred, with the triage's account, with a document left out of date, and with a check on the base. */
 const runs = (): [string, RunState][] => {
@@ -73,7 +73,7 @@ describe('briefJson (R16, TD8 of the brief of a run; R7, TD7 of the documentatio
     const json = briefJson(briefOf(onTheBase()), local, []);
     for (const check of json.changed.checks) assert.deepEqual(Object.keys(check), ['kind', 'before', 'last', 'base', 'fault'], check.kind);
     assert.deepEqual(json.changed.checks.find((check) => check.kind === 'lint'), {
-      kind: 'lint', before: 'failed', last: { outcome: 'passed', when: 'answers' },
+      kind: 'lint', before: 'failed', last: { outcome: 'failed', when: 'answers' },
       base: { commit: `2247b35e${'0'.repeat(32)}`, name: 'the merge base with origin/main', outcome: 'passed', reading: null, reason: null },
       fault: 'change-breaks',
     });
