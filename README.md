@@ -322,9 +322,10 @@ the phase as skipped and reads as it did. See
 
 ## The fix pass
 
-`deep-review review --fix` runs six more phases between the decision
-and the report: baseline checks, fixes, documentation, checks, repair
-and repair checks. A run without `--fix` records them as skipped and is the
+`deep-review review --fix` runs seven more phases between the decision
+and the report: baseline checks, fixes, documentation, checks, checks on
+the base, repair and repair checks. A run without `--fix` records them as
+skipped and is the
 read-only review exactly. Whether a run fixes is pinned when it is
 configured, and which checks it runs when its survey completes; a
 resumed run keeps both and says when the command asks otherwise.
@@ -338,7 +339,7 @@ holding what the run froze, compared as git would store it, and `HEAD`
 at its head. The run
 pins the fix pass, asks its surveyor only for the checks the flags leave
 unsettled, the convention sources its review recorded standing, runs the
-six phases on the findings and decisions it holds, and writes a second
+seven phases on the findings and decisions it holds, and writes a second
 report whose header names the first. No finder, verifier or decider
 runs again, and the run budget is the run's over both passes. A run
 whose decisions send no finding to a fixer is refused, and so is one
@@ -466,7 +467,17 @@ goes to one repair worker: one the baseline passed to make it pass
 again, and one that failed before any fix too with both outputs, to fix
 only the failures the baseline's does not show. Every fixer is told
 which checks failed before any fix and where their output is. Which
-failures are new is the worker's reading; the engine parses no output. In the fixes and repair
+failures are new is the worker's reading; the engine parses no output.
+A check that failed before any fix and fails after the fixes too first
+runs once more on the commit the change starts from, `build` before it,
+in a temporary git worktree that git keeps locked with the run's id and
+the engine removes. Nothing is installed there, the hooks of the
+repository are off, and no path into the reviewed tree is left in its
+environment. The repair worker also gets that output and says whether
+the change as submitted has a failure the base does not have; the brief
+gives that as the repair's reading. See
+`docs/changes/2026-10-28-facts-before-a-merge.requirements.md` and its
+design. In the fixes and repair
 phases the run budget stops new launches instead of blocking the run:
 what was not launched is reported not attempted, and the run still
 reaches its report.
