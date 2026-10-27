@@ -69,13 +69,13 @@ const patchesOf = (history: History): ReturnType<typeof reference>[] => history.
 
 /**
  * The same run after an answer pass, numbered `n`: a person answers
- * SWEEP-1, the pass's fixer applies it and revises src/a.ts, its checks
- * end as `outcomes` says, passed for a kind not named, and the next
- * report is written.
+ * SWEEP-1, with its other option at each pass, the pass's fixer applies
+ * it and revises src/a.ts, its checks end as `outcomes` says, passed for
+ * a kind not named, and the next report is written.
  */
 export function answeredRun(history: History, outcomes: Readonly<Record<string, string>> = {}, n = 1): History {
   const workerId = worker(70 + n);
-  if (n === 1) history.add('answer.recorded', answer('SWEEP-1', 1));
+  history.add('answer.recorded', answer('SWEEP-1', n % 2));
   history.add('answer.pass', { ids: ['SWEEP-1'] });
   history.start('answer', n).worker(70 + n, `fixer answer:pass-${String(n)}`).add('fix.recorded', passAnswer(workerId, n, [['SWEEP-1', 'applied']]), 2)
     .add('tree.revised', passRevision(workerId, n, 'SWEEP-1', reference(String(5 + n))), 2)
