@@ -359,11 +359,11 @@ A test holds that `briefJson` passes `briefJsonV4`, with `after` equal to the ou
 
 ### R10: Older runs and older engines
 
-The fixture `schema-1-16` holds a run with the phase, and every older fixture still opens and folds. A test holds that a run configured with version 7 skips the phase and gets no `not-compared`. Tests of `fix.pinned` and `fix.reopened` hold the phase on runs configured with versions 7 and 8, and that a reopened phase runs only a kind that the reopened pass added.
+The fixture `schema-1-16` holds a run with the phase, and every older fixture still opens and folds. A test resumes a fix run configured with version 7 under this engine and holds that it writes no event at a version that this change adds (TD7). A test holds that a run configured with version 7 skips the phase and gets no `not-compared`. Tests of `fix.pinned` and `fix.reopened` hold the phase on runs configured with versions 7 and 8, and that a reopened phase runs only a kind that the reopened pass added.
 
 ### R11: A stop in the phase
 
-The contract test holds the five parts at each stop point of the phase, and `npm run resume-test` breaks at none. The part "no orphan" holds that no worktree of the base is left. A test of the planner holds that a stop during a run on the base, then an edit of the reviewed worktree, blocks at the next command with the drift blocker and writes nothing back.
+The contract test holds the five parts at each stop point of the phase, and `npm run resume-test` breaks at none. Its stop points include the moments before and after `git worktree add` and `git worktree remove`, which the test preload wraps as it wraps `update-ref` today, and a stop just before `phase.finished`. Its part "no orphan" also reads `git worktree list --porcelain` and holds that no entry locked with the reason of the run is left after the run completes, as it holds that no process is left. A test of the planner holds that a stop during a run on the base, then an edit of the reviewed worktree, blocks at the next command with the drift blocker and writes nothing back.
 
 ### R12: The gate
 
