@@ -147,7 +147,7 @@ interface BriefCheck {
 
 | `fault` | When |
 |---|---|
-| `edits` | `last` failed, and an earlier run of the kind in this run passed: the baseline, or a run after the fixes, the repair or an earlier answer pass, in the order of the ledger |
+| `edits` | `last` failed or timed out, and an earlier run of the kind in this run passed: the baseline, or a run after the fixes, the repair or an earlier answer pass, in the order of the ledger |
 | `change-breaks` | The kind ran on the base, and the base passed |
 | `change-adds` | The kind failed or timed out on the base, and the repair read `adds` |
 | `base-has` | The kind failed or timed out on the base, and the repair read `same` |
@@ -324,7 +324,7 @@ A test of the task holds its paragraph for each case of the base. A test of the 
 
 ### R3, R4 and R5: The checks of the brief
 
-Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault` and their order, the headline and its clause, and the words of each gap with each reason of `not-compared`. A test holds that a kind skipped after a failed `build` gets no fault from the base and one gap only.
+Tests of the brief hold `when` for each phase of the last run, the case of #78 (a test that fails after an answer pass reads as failed after your answers), each row of the table of `fault` and their order, a check whose last run timed out after a pass, a check that failed before the fixes, passed after them and failed after an answer pass, the headline and its clause, and the words of each gap with each reason of `not-compared`. A test holds that a kind skipped after a failed `build` gets no fault from the base and one gap only.
 
 ### R6: The short form
 

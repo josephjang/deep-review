@@ -15,9 +15,9 @@ flowchart TD
     A[A check of a fix run] --> B{Before the fixes}
     B -->|passed| C{Its last run}
     C -->|passed| C1[Nothing to say]
-    C -->|failed| C2[The edits of the run made it fail:<br/>the headline counts it]
+    C -->|failed or timed out| C2[The edits of the run made it fail:<br/>the headline counts it]
     B -->|failed| D{After the fixes}
-    D -->|passed| D1[The fixes made it pass]
+    D -->|passed| D1[The fixes made it pass.<br/>A later failure is one<br/>that the edits made]
     D -->|failed| E[It runs once more on the base,<br/>and the repair compares the failures]
     E -->|the base passes| E1[The change breaks it:<br/>What the review did not cover]
     E -->|the base has the same failures| E2[The base has it too:<br/>the line Checks says so]
@@ -107,13 +107,13 @@ The brief gives each check its outcome before the fixes, and the outcome of its 
 
 ### R4: The headline counts a check that the edits of the run made fail
 
-A check whose last run failed, after an earlier run in the same fix run passed, counts in the headline as a thing that needs the person. The earlier run is the run before the fixes, after the fixes or after the repair. The edits of the run made it fail, and the run knows it, as for a document that it left out of date (PD4). An invented example:
+A check whose last run failed or timed out, after an earlier run in the same fix run passed, counts in the headline as a thing that needs the person. The earlier run is the run before the fixes, after the fixes, after the repair or after an earlier answer pass. A timeout counts as a failure here, as the repair counts it. The edits of the run made it fail, and the run knows it, as for a document that it left out of date (PD4). An invented example:
 
 ```text
 1 thing needs you: 1 check that the edits of the run made fail. Nothing waits for you: the run went on as it decided.
 ```
 
-A check that failed before the fixes does not count, whatever the base says. On a fix run, the sentence "Nothing needs you" also says that the edits of the run made no check fail.
+A check that failed before the fixes and has not passed since does not count, whatever the base says. On a fix run, the sentence "Nothing needs you" also says that the edits of the run made no check fail.
 
 ### R5: What the review did not cover names a check that the change breaks or that the run did not compare
 
