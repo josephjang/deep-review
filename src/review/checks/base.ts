@@ -179,8 +179,9 @@ function insideReviewed(reviewed: string, directory: string): boolean {
  * the directories of `tools.path` first on PATH, as every check has it,
  * then without the repository variables of git, without each entry of
  * PATH, PYTHONPATH, NODE_PATH, PERL5LIB, PERLLIB, RUBYLIB, GEM_PATH and
- * CLASSPATH inside the reviewed worktree, and without VIRTUAL_ENV when it
- * is inside it. A relative entry stays: it names a directory of the
+ * CLASSPATH inside the reviewed worktree, without such a variable when no
+ * entry is left, and without VIRTUAL_ENV when it is inside it. A relative
+ * entry stays: it names a directory of the
  * check's working directory, the worktree of the base. A variable that
  * names one path or holds options, such as HOME, TMPDIR or NODE_OPTIONS,
  * stays as it is.
@@ -204,8 +205,14 @@ export function baseEnvironment(environment: NodeJS.ProcessEnv, reviewed: string
       const entries = value.split(delimiter);
       const removed = entries.filter(inside);
       if (removed.length > 0) {
+        const rest = entries.filter((entry) => !inside(entry)).join(delimiter);
+        // An empty PATH searches the working directory alone, so a list left with no entry goes.
+        if (rest === '') {
+          changed.push(`${name}, every entry inside the reviewed worktree: ${removed.join(', ')}`);
+          continue;
+        }
         changed.push(`the entries of ${name} inside the reviewed worktree: ${removed.join(', ')}`);
-        kept.push([name, entries.filter((entry) => !inside(entry)).join(delimiter)]);
+        kept.push([name, rest]);
         continue;
       }
     }

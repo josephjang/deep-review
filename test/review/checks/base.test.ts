@@ -187,6 +187,19 @@ describe('baseEnvironment', () => {
     });
   }
 
+  it('leaves out a variable whose every entry is inside the reviewed worktree, rather than setting it empty', (t) => {
+    const reviewed = createRepository(join(temporaryDirectory(t, 'deep-review-base-env-'), 'repo'));
+    const bin = join(reviewed, 'node_modules', '.bin');
+    const tools = join(reviewed, 'tools');
+    const { environment, changed } = baseEnvironment({ PATH: bin, PYTHONPATH: [join(reviewed, 'src'), ''].join(delimiter) }, reviewed, [tools]);
+    assert.equal(Object.hasOwn(environment, 'PATH'), false, 'an empty PATH would search the working directory alone');
+    assert.equal(Object.hasOwn(environment, 'PYTHONPATH'), false, 'an empty entry left alone is no entry');
+    assert.deepEqual([...changed].sort(), [
+      `PATH, every entry inside the reviewed worktree: ${tools}, ${bin}`,
+      `PYTHONPATH, every entry inside the reviewed worktree: ${join(reviewed, 'src')}`,
+    ].sort());
+  });
+
   it('judges an entry under a directory it cannot search as written, keeping it outside the reviewed worktree and leaving it out inside', { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'POSIX file modes, which root ignores' }, (t) => {
     const directory = temporaryDirectory(t, 'deep-review-base-env-');
     const reviewed = createRepository(join(directory, 'repo'));
