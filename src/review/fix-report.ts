@@ -10,7 +10,7 @@
  */
 import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type ScopeState, type TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isCutAttempt, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
@@ -184,8 +184,9 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
  * What a stop did to the checks and to the tree, and what the resumed run
  * did about it (R15 of resumable runs), as bare sentences that the notes
  * of the run and `status` each prefix, in the order of the checks phases: each run that replaced one, with both
- * outcomes, by why it ran again (a cut, a first timeout, or a stop of its
- * attempt); each start with no end on record; each file written back,
+ * outcomes, by why it ran again (a cut, a first timeout, a stop of its
+ * attempt, or, for a build on the base, the worktree its attempt makes
+ * anew, with no stop at all); each start with no end on record; each file written back,
  * with where the bytes it overwrote are; and a series of commits a stop
  * left open, or that was dropped, by the next command or by a refused move
  * of the branch.
@@ -200,7 +201,11 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
       if (run.replacedAt === null) continue;
       const replaced = runs[run.replacedAt]!;
       const now = `${run.outcome} in ${runSeconds(run)}`;
-      if (replaced.outcome === 'cut') lines.push(`Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
+      // A build on the base runs again in an attempt that makes its own worktree, stop or none (TD16 of the facts before a merge): `runStanding` gives a cut attempt only a build that did not pass.
+      const rebuilt = phase === 'base-checks' && run.kind === 'build' && (replaced.outcome === 'passed' || (replaced.outcome === 'skipped' && !isCutAttempt({ ...review, fix }, phase, replaced.attempt)));
+      if (rebuilt && replaced.outcome === 'passed') lines.push(`Built again on the base: ${run.kind} in ${phase} passed in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, and ${now} at attempt ${String(run.attempt)}, since each attempt makes its own worktree of the base.`);
+      else if (rebuilt) lines.push(`Built again on the base: ${run.kind} in ${phase} was skipped at attempt ${String(replaced.attempt)}, which had no worktree of the base, and ${now} at attempt ${String(run.attempt)}, since each attempt makes its own worktree of the base.`);
+      else if (replaced.outcome === 'cut') lines.push(`Cut: ${run.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
       else if (replaced.outcome === 'timeout') lines.push(`Ran again after a timeout: ${run.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
       else lines.push(`Ran again after a stop: ${run.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run.attempt)}.`);
     }
