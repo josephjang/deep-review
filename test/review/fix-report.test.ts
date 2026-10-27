@@ -356,6 +356,18 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     ]);
   });
 
+  it('names a build on the base that ran again in the new worktree of its attempt with no stop, and one skipped in a cut attempt as after a stop (TD16 of the facts before a merge)', () => {
+    const onBase = (fields: Partial<typeof first>, seconds: number): typeof first => run({ phase: 'base-checks', kind: 'build', ...fields }, seconds);
+    const base = (runs: (typeof first)[], finished: number): string[] => stopLimitations({ ...review, phases: { ...review.phases, 'base-checks': { status: 'running', attempt: 2 } }, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'base-checks': runs }, finished: { ...fix.checks.finished, 'base-checks': finished } } } }, evidencePath);
+    // A plain reopening started attempt 2 after attempt 1 finished, so no stop came between them.
+    const passed = [onBase({ attempt: 1, outcome: 'passed', exitCode: 0 }, 4), onBase({ attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'passed' }, replacedAt: 0 }, 3.5)];
+    assert.deepEqual(base(passed, 1), ['Built again on the base: build in base-checks passed in 4.0 s at attempt 1, and passed in 3.5 s at attempt 2, since each attempt makes its own worktree of the base.']);
+    const skipped = [onBase({ attempt: 1, outcome: 'skipped', exitCode: null, error: 'no worktree of the base could be made: fatal: x' }, 0), onBase({ attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'skipped' }, replacedAt: 0 }, 3.5)];
+    assert.deepEqual(base(skipped, 1), ['Built again on the base: build in base-checks was skipped at attempt 1, which had no worktree of the base, and passed in 3.5 s at attempt 2, since each attempt makes its own worktree of the base.']);
+    // A stop cut attempt 1 before its `phase.finished`, so the skipped build runs again for the stop.
+    assert.deepEqual(base(skipped, 0), ['Ran again after a stop: build in base-checks, skipped in 0.0 s at attempt 1, passed in 3.5 s at attempt 2.']);
+  });
+
   it('names each file written back, and where the bytes it overwrote are, or that there were none', () => {
     const blob = reference('7');
     const restorations = [{ phase: 'checks' as const, attempt: 2, check: { kind: 'test' as const, attempt: 1 }, checksBefore: 0, files: [{ path: 'src/a.ts', before: { blob }, beforeSymlink: false, expected: null, expectedSymlink: false }, { path: 'src/new.ts', before: null, beforeSymlink: false, expected: null, expectedSymlink: false }] }];
