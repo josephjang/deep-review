@@ -20,6 +20,7 @@ import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { batchOfUnit, foldedWith, holderSpelled, isPending, lateClaim, requireFix, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
 import { pathKey } from './claims.ts';
 import { expectedTreeOf } from './drift.ts';
+import { writtenVersion } from './event-versions.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup, type RepoLookup } from './locations.ts';
 import { checkFixerAnswer, type FixerOutput } from './schemas.ts';
@@ -214,11 +215,10 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Rev
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    // Only the documentation step's answer and revisions need version 3 (TD5 of the documentation step).
-    { kind: 'fix.recorded', version: phase === 'documentation' ? 3 : 2, payload: recorded },
+    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase]), payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
-      version: phase === 'documentation' ? 3 : 2,
+      version: writtenVersion('tree.revised', [phase]),
       payload: { phase, source: { kind: 'fix', key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] } satisfies TreeRevised,
     })),
   ];
@@ -322,7 +322,7 @@ export function attemptRevisionEvents(context: RevisionContext, phase: EditingPh
       ? { subject: `chore: keep the partial edits of ${who}`, body: truncated(`An attempt of ${who} ended without an answer: ${why}\n\nThe files are recorded as it left them after its last snapshot; no finding accounts for them.`, bodyLength) }
       : { subject: truncated(`chore: keep the edits an unfinished attempt made for ${id}`, subjectLength), body: truncated(`An attempt of ${who} ended without an answer after snapshotting ${id}: ${why}\n\nThe files are recorded as its snapshot of ${id} held them.`, bodyLength) };
     const payload: TreeRevised = { phase, source: { kind: 'attempt', key, workerId }, change: { findings: [...revision.findings], message }, files: [...revision.files] };
-    return { kind: 'tree.revised', version: phase === 'documentation' ? 3 : 2, payload };
+    return { kind: 'tree.revised', version: writtenVersion('tree.revised', [phase]), payload };
   }) };
 }
 
@@ -364,5 +364,5 @@ export function checkRevision(context: RevisionContext, phase: CheckPhase, kind:
     change: { findings: [], message: { subject: `chore: apply the ${kind} check's rewrite`, body: truncated(`The ${kind} check, \`${command}\`, rewrote these files when run ${state.id} ran it in ${phase}.`, bodyLength) } },
     files,
   };
-  return { kind: 'tree.revised', version: 2, payload };
+  return { kind: 'tree.revised', version: writtenVersion('tree.revised', [phase]), payload };
 }

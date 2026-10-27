@@ -58,17 +58,7 @@ export function findDrift(state: RunState, worktree: string, match: ExpectedMatc
 
 export const drifted = (found: DriftFound): boolean => found.files.length > 0 || found.head !== null;
 
-/**
- * The version a worktree check is written at: version 7 for a check of the
- * documentation phase, the one version that names it (TD5 of the
- * documentation step); version 6 for a check after a write back, the one
- * version before it that records the moment `restored` (R7 of resumable
- * runs); and version 5 for every other, which an engine before resumable
- * runs reads.
- */
-export const worktreeCheckVersion = (check: Pick<WorktreeCheckV7, 'phase' | 'moment'>): 5 | 6 | 7 => (check.phase === 'documentation' ? 7 : check.moment === 'restored' ? 6 : 5);
-
-/** A check to record: its `worktree.checked` payload, written at `worktreeCheckVersion`, and how many strays past `maxStraysPerCheck` the payload leaves out. */
+/** A check to record: its `worktree.checked` payload, written at the version `writtenVersion` gives it, and how many strays past `maxStraysPerCheck` the payload leaves out. */
 export interface WorktreeCheck {
   readonly payload: WorktreeCheckV7;
   readonly unlisted: number;
