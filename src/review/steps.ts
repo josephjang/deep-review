@@ -538,7 +538,7 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * a merge).
  */
 function skipAfterBuild(phase: CheckPhase, build: CheckRunState): string {
-  if (phase === 'base-checks') return build.outcome === 'skipped' && build.error !== null ? build.error : baseSkipReasons.buildFailed;
+  if (phase === 'base-checks') return build.outcome === 'skipped' && build.error !== null ? build.error : baseSkipReasons['build-failed'];
   return `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}`;
 }
 

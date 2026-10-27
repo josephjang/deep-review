@@ -486,12 +486,12 @@ describe('nextStep in the checks on the base (R1, R11, TD4, TD14, TD16 of the fa
   it('skips each later kind once build did not pass on the base, in the fixed words of the brief', () => {
     for (const outcome of ['failed', 'timeout', 'not-started'] as const) {
       const history = ranOnBase(onBase(), 'build', outcome);
-      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: baseSkipReasons.buildFailed }, outcome);
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: baseSkipReasons['build-failed'] }, outcome);
     }
   });
 
   it('skips each later kind with the reason of a build skipped on the base, which never ran there', () => {
-    for (const error of [baseSkipReasons.emptyTree, `${baseSkipReasons.noWorktree}: fatal: no room`]) {
+    for (const error of [baseSkipReasons['empty-tree'], `${baseSkipReasons['no-worktree']}: fatal: no room`]) {
       const history = ranOnBase(onBase(), 'build', 'skipped', 1, null, { error });
       assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: error }, error);
     }

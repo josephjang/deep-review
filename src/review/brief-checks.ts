@@ -43,17 +43,12 @@ export type NotComparedReason = (typeof notComparedReasons)[number];
 
 /** Each reason in the fixed words the brief gives; the error of git and the words of the repair stay in the report, since they can name local paths (R5). */
 export const notComparedWords: Readonly<Record<NotComparedReason, string>> = {
-  'empty-tree': baseSkipReasons.emptyTree,
-  'no-worktree': baseSkipReasons.noWorktree,
-  'build-failed': baseSkipReasons.buildFailed,
+  ...baseSkipReasons,
   'not-started': 'the check did not start on the base',
   'not-run': 'the check did not run on the base',
   'no-comparison': 'the repair gave no comparison',
   unknown: 'the repair could not compare the outputs',
 };
-
-/** The reason of each fixed phrase that the error of a `skipped` run on the base starts with. */
-const skippedReasons: Readonly<Record<BaseSkipReason, NotComparedReason>> = { emptyTree: 'empty-tree', noWorktree: 'no-worktree', buildFailed: 'build-failed' };
 
 /**
  * What the base says of a check that the run took there (R1, R2, R5 of
@@ -166,8 +161,7 @@ function earlierOf(fix: FixState, kind: CheckKind, last: LastRun | null): BriefC
  * of git after one stays in the facts of the run.
  */
 export function skippedReason(error: string | null): NotComparedReason {
-  const reason = (Object.keys(skippedReasons) as BaseSkipReason[]).find((key) => error?.startsWith(baseSkipReasons[key]) === true);
-  return reason === undefined ? 'not-run' : skippedReasons[reason];
+  return (Object.keys(baseSkipReasons) as BaseSkipReason[]).find((reason) => error?.startsWith(baseSkipReasons[reason]) === true) ?? 'not-run';
 }
 
 /** Why a kind's run on the base left it not compared, by how the run ended, or null when the run compared it (R5). */
