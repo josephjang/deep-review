@@ -6,7 +6,7 @@ Product part: [2026-10-28-facts-before-a-merge.requirements.md](2026-10-28-facts
 
 A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. The worktree has a path that the run fixes, and the phase removes it when it ends, when an attempt starts again and when the run is abandoned.
 
-The repair task gets the output on the base beside the outputs before and after the fixes. The repair answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
+The repair task gets the output on the base beside the outputs before and after the fixes. The repair compares the output before the fixes with the output on the base, and answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
 
 The brief computes from the fold when the last run of each check ran, which check the edits of the run made fail, and what the base says of each other failure. It records nothing new for that, so R3 and R4 hold for older runs too. The short form gets a line `Checks:`, the headline a count, "What the review did not cover" two kinds of gap, and "What deep-review changed" a sentence on the validation. The JSON form goes to version 4. `review.configured@8` marks a run with the phase, and only the events that name the phase or carry the comparison get a new version.
 
@@ -111,10 +111,12 @@ The phase runs the planned command of the kind through `runCheck`, with three di
 `RepairTaskCheck` gets a `base`: null for a kind that did not run on the base, else the outcome on the base and, for an outcome other than `passed` and `skipped`, the tail of its output with the frozen paths, as for the other outputs. A `skipped` base gets its error. `repairTask` adds one paragraph for each case:
 
 - The base passed: the check passes on the base of the change, so the change brings its failures. They are not the repair's to fix, as the failures before the fixes are not.
-- The base failed or timed out: the output there follows. The worker compares the failures after the fixes with those on the base and gives one entry in `comparisons`.
+- The base failed or timed out: the output there follows. The worker compares the failures before the fixes, on the change as submitted, with those on the base, and gives one entry in `comparisons`.
 - The base was skipped: the reason follows, and the worker gives no entry.
 
-The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. `invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The engine requires one entry for each kind whose base run failed or timed out, and none for another kind. An answer that breaks this is a `StructuralCheckError`, and the attempt fails as for each refused answer of a worker.
+The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
+
+`invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The engine requires one entry for each kind whose base run failed or timed out, and none for another kind. An answer that breaks this is a `StructuralCheckError`, and the attempt fails as for each refused answer of a worker.
 
 The engine records the answer as `fix.recorded@4`: version 3 with `comparisons`. It writes version 4 only for the repair of a run configured with the phase, and version 3 for every other answer (TD7). The fold keeps `comparisons` with the answer of the repair, empty for an earlier version.
 
@@ -276,6 +278,12 @@ A variable such as `GIT_DIR` or `GIT_WORK_TREE` in the environment of the engine
 ### TD12: The strongest method of a fix counts
 
 A fixer can give more than one entry for a fix. The sentence takes the strongest: a test that failed on the code before the fix or on a mutation of the fix, then the tests that already exist, then a reading of the source, then a named limit. This follows the order of `roles/fragments/fixer-validation.md`, which prefers an executed red run.
+
+### TD13: The comparison reads the change as submitted
+
+The worker compares the output before the fixes with the output on the base. Both outputs come from trees that no edit of the run changes, so the reading is a fact about the change and never grows old.
+
+The design rejects a comparison of the output after the fixes with the base. A failure that a fixer added would then read as a failure that the change adds, against PD4, which counts a fault of the run apart from a fault of the change. And the repair edits right after it compares, so the reading would describe a tree that the run has already changed.
 
 ## Open Questions
 
