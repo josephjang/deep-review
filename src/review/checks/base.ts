@@ -85,11 +85,16 @@ export function makeBaseTree(context: BaseTreeContext, base: string): BaseTree {
   }
 }
 
-/** The paths of the worktrees `git worktree list --porcelain -z` gives whose lock reason is `reason`; with `-z` no path or reason is quoted. */
-function lockedWith(listing: string, reason: string): string[] {
+/**
+ * The paths of the worktrees `git worktree list --porcelain` gives whose
+ * lock reason is `reason`, its fields ended by `separator`: NUL with `-z`,
+ * which quotes no path or reason, else a newline, as a git before 2.36
+ * gives them, which has no `-z` and quotes neither.
+ */
+function lockedWith(listing: string, reason: string, separator: '\0' | '\n'): string[] {
   const paths: string[] = [];
   let path: string | null = null;
-  for (const field of listing.split('\0')) {
+  for (const field of listing.split(separator)) {
     if (field.startsWith('worktree ')) path = field.slice('worktree '.length);
     else if (field === `locked ${reason}` && path !== null) paths.push(path);
   }
@@ -102,7 +107,9 @@ function lockedWith(listing: string, reason: string): string[] {
  * `git worktree remove -f -f`, which removes a locked entry, and the entry
  * alone when its directory is gone; then each directory of the run's
  * worktrees of the base under this scratch directory, which a stop before
- * git recorded the entry leaves. It never runs `git worktree prune`, which
+ * git recorded the entry leaves. The entries are listed with `-z` where
+ * git has it, and by line on a git before 2.36, which refuses `-z`, so its
+ * locked entries are removed too. It never runs `git worktree prune`, which
  * would remove the entry of each other worktree whose directory is
  * missing. A removal that fails is logged and left to the next command, so
  * this converges however often it runs and wherever a crash stopped it.
@@ -110,9 +117,14 @@ function lockedWith(listing: string, reason: string): string[] {
 export function removeBaseTrees(context: BaseTreeContext): void {
   let paths: string[] = [];
   try {
-    paths = lockedWith(baseGit(context, ['worktree', 'list', '--porcelain', '-z']), baseLockReason(context.runId));
+    paths = lockedWith(baseGit(context, ['worktree', 'list', '--porcelain', '-z']), baseLockReason(context.runId), '\0');
   } catch (error) {
-    context.log(`could not list the worktrees of the base: ${gitFailureDetail(error)}`);
+    context.log(`could not list the worktrees of the base with -z, listing them by line: ${gitFailureDetail(error)}`);
+    try {
+      paths = lockedWith(baseGit(context, ['worktree', 'list', '--porcelain']), baseLockReason(context.runId), '\n');
+    } catch (lineError) {
+      context.log(`could not list the worktrees of the base: ${gitFailureDetail(lineError)}`);
+    }
   }
   for (const path of paths) {
     try {
