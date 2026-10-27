@@ -718,8 +718,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      */
     const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<void> => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
-      const base = isTreeCheckPhase(phase) ? null : baseOf(attempt);
-      // An attempt with no worktree of the base gives each kind that reason over the planner's: its build was skipped for want of one, not failed (R5 of the facts before a merge).
+      // A kind only to be recorded skipped needs no worktree of the base: the planner gave it the reason already, its build's own when that was skipped (R5 of the facts before a merge).
+      const base = isTreeCheckPhase(phase) || due.skip !== null ? null : baseOf(attempt);
+      // An attempt with no worktree of the base gives each kind it runs that reason (R5 of the facts before a merge).
       const skip = base?.tree.kind === 'none' ? base.tree.reason : due.skip;
       if (skip !== null) {
         log(`check ${due.kind} (${phase}): skipped, ${skip}`);
