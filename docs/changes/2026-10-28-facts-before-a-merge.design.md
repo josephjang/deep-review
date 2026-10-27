@@ -46,6 +46,8 @@ Verified at `4c764a7`. No uncommitted change was used.
 
 `runDueCheck` in `src/review/controller.ts` appends `check.started@1`, takes a manifest of the tracked files of the reviewed worktree, calls `runCheck` and appends `check.ran@3`. It records a `tree.revised` when the check wrote files, and a `tree.restored@1` with a write back when a stop cut it. `runCheck` in `src/review/checks/run.ts` runs the command through the platform shell with `cwd` set to the reviewed worktree, under a guard that kills the tree of the process at the timeout. Its environment is `checkEnvironment`: the environment of the engine with the build server and non-interactive pins. It freezes stdout and stderr in the evidence store and takes the outcome from the exit: `passed`, `failed`, `timeout`, `cut` or `not-started`. The planner alone sets `skipped`. The timeout is the pinned `checks.timeoutMs`, 20 minutes by default in `roles/policy.json`.
 
+When an attempt of a check phase starts with a drift that a check cut short in an earlier attempt explains, `restoreStep` in `steps.ts` writes the expected bytes back and records `tree.restored@1`, whose `phase` names the four check phases. `cutShortChecks` and `cutShortBefore` in `fix-state.ts` find such a check: a run that a kill ended, or a start with no run after it (R7 of resumable runs).
+
 ### The events of a check run, and the fold
 
 `check.started@1`, `check.ran@3` and `tree.restored@1` each fix their `phase` to the four check phases. `refineCheckRan` ties each outcome to its termination: a `skipped` run has no termination and no output, and it records an error. The reducers in `src/checkpoint/fix-fold.ts` keep the runs in `fix.checks.runs[phase]`, each as a `CheckRunState` with its `revisionsBefore`. In `src/checkpoint/fix-state.ts`, `lastFreshRun`, `lastRecordedRun` and `lastCurrentRun` read them. `isOldRun` makes a run old when a later revision belongs to a phase in `stalingPhases[phase]`, a table keyed by every check phase.
@@ -89,6 +91,8 @@ Each fixer reports `validation` for each finding, with a `method` among `old-cod
 The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it. The rule that skips each kind after a failed `build` does not hold in this phase (TD4). With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
 
 `stalingPhases['base-checks']` and `markingPhases['base-checks']` are empty: a run on the base never grows old, since no edit of the run changes the base (TD5).
+
+A run on the base never writes the reviewed worktree, so the write back of a stopped check does not hold in this phase (TD14). `cutShortChecks` gives no run and no start of `base-checks`, so `cutShortBefore` and `restoreStep` never name one. A drift at the start of an attempt of the phase blocks as any drift does.
 
 ### The worktree of the base (R1, R11)
 
@@ -211,7 +215,7 @@ A run that an engine before this change configured skips `base-checks`, and it n
 
 ### A stop in the phase (R11)
 
-The phase appends `check.started@2` before each run, so a stop leaves an open start, as in each check phase. The next command enters the phase again with a new attempt. `runStanding` then gives the kind again, and the phase removes the worktree that the stop left and makes it again. A stop during `git worktree add` can leave a part of a worktree. The removal at the start of the attempt handles it with the same fallback. A run on the base never needs a write back, since it never touches the reviewed worktree.
+The phase appends `check.started@2` before each run, so a stop leaves an open start, as in each check phase. The next command enters the phase again with a new attempt. `runStanding` then gives the kind again, and the phase removes the worktree that the stop left and makes it again. A stop during `git worktree add` can leave a part of a worktree. The removal at the start of the attempt handles it with the same fallback. A run on the base never touches the reviewed worktree, so a drift found when the phase starts again is an edit of a person, and it blocks as any drift does (TD14).
 
 The contract test gets a repository whose `typecheck` fails before and after the fixes. So `base-checks` and the repair with a comparison run there, and the stop points of the phase join the fixed points. Its part "nothing false" compares the outcomes of the runs on the base too. Its part "no orphan" also holds that no worktree of the base is left after the run completes.
 
@@ -285,6 +289,12 @@ The worker compares the output before the fixes with the output on the base. Bot
 
 The design rejects a comparison of the output after the fixes with the base. A failure that a fixer added would then read as a failure that the change adds, against PD4, which counts a fault of the run apart from a fault of the change. And the repair edits right after it compares, so the reading would describe a tree that the run has already changed.
 
+### TD14: The write back of a stopped check leaves the phase out
+
+R7 of resumable runs writes back the writes of a check that a kill cut short, because that check ran in the reviewed worktree. A run on the base runs in another tree. A drift of the reviewed worktree after a stop in this phase can only be an edit of a person, so it blocks.
+
+The design rejects a new version of `tree.restored` that names the phase. The write back would then put the expected bytes over the edit of the person. With no change at all, `restoreStep` would name a run on the base, and the append of `tree.restored@1` would refuse its phase at each resume, so the run could only be abandoned.
+
 ## Open Questions
 
 ### How long does a run on the base take?
@@ -335,7 +345,7 @@ The fixture `schema-1-16` holds a run with the phase, and every older fixture st
 
 ### R11: A stop in the phase
 
-The contract test holds the five parts at each stop point of the phase, and `npm run resume-test` breaks at none. The part "no orphan" holds that no worktree of the base is left.
+The contract test holds the five parts at each stop point of the phase, and `npm run resume-test` breaks at none. The part "no orphan" holds that no worktree of the base is left. A test of the planner holds that a stop during a run on the base, then an edit of the reviewed worktree, blocks at the next command with the drift blocker and writes nothing back.
 
 ### R12: The gate
 
