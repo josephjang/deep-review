@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import type { Answer, Lead, RecordedDecision, SurveyedSources } from '../checkpoint/events.ts';
+import { comparisonWordsLengthV1, type Answer, type Lead, type RecordedDecision, type SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
@@ -834,6 +834,23 @@ export function fixerTask(input: FixerTaskInput): string {
 /** The most bytes of a failing check's stdout and of its stderr a repair task carries inline; the whole is frozen at the path given. */
 export const repairTailBytes = 16 * 1024;
 
+/** One stream of a check's output as a repair task quotes it: its last `repairTailBytes` bytes, and the path of the whole, frozen. */
+export interface RepairTaskOutput {
+  readonly tail: Buffer;
+  readonly path: string;
+}
+
+/**
+ * How a check that failed before the fixes ran on the base of the change
+ * (R2 of the facts before a merge): it passed; it failed or timed out,
+ * with how it ended and its output there; or it was skipped or did not
+ * start, with why.
+ */
+export type RepairTaskBase =
+  | { readonly outcome: 'passed' }
+  | { readonly outcome: 'failed' | 'timeout'; readonly exitCode: number | null; readonly signal: string | null; readonly stdout: RepairTaskOutput; readonly stderr: RepairTaskOutput }
+  | { readonly outcome: 'skipped' | 'not-started'; readonly reason: string };
+
 /** A failing check as the repair worker is told it. */
 export interface RepairTaskCheck {
   readonly kind: CheckKind;
@@ -841,15 +858,18 @@ export interface RepairTaskCheck {
   readonly outcome: 'failed' | 'timeout';
   readonly exitCode: number | null;
   readonly signal: string | null;
-  /** The output's last `repairTailBytes` bytes, and the path of the whole, frozen. */
-  readonly stdout: { readonly tail: Buffer; readonly path: string };
-  readonly stderr: { readonly tail: Buffer; readonly path: string };
+  readonly stdout: RepairTaskOutput;
+  readonly stderr: RepairTaskOutput;
   /** For a check that failed before any fixer edited the tree too, its output then (R24); null for one that passed. */
-  readonly baseline: { readonly stdout: { readonly tail: Buffer; readonly path: string }; readonly stderr: { readonly tail: Buffer; readonly path: string } } | null;
+  readonly baseline: { readonly stdout: RepairTaskOutput; readonly stderr: RepairTaskOutput } | null;
+  /** Its run on the base of the change (R2 of the facts before a merge); null for a check that did not run there. */
+  readonly base: RepairTaskBase | null;
 }
 
 export interface RepairTaskInput {
   readonly checks: readonly RepairTaskCheck[];
+  /** Whether the run has the checks on the base, so the answer carries `comparisons` (TD6 of the facts before a merge). */
+  readonly baseChecks: boolean;
   /** Every file the fixers and the documentation step changed, which the repair owns (R9 of the documentation step). */
   readonly owned: readonly string[];
   /** What each fixer did, one line per finding, under the batch that answered it. */
@@ -874,11 +894,46 @@ function outputTail(name: string, tail: Buffer, path: string): string {
 }
 
 /** How a failing check ended, for its repair: killed at its timeout, ended by a kill mark or a guard that left no result, which only a second cut fails with, or its exit code. */
-function repairCheckEnd(check: RepairTaskCheck): string {
+function repairCheckEnd(check: Pick<RepairTaskCheck, 'outcome' | 'exitCode' | 'signal'>): string {
   if (check.outcome === 'timeout') return 'ran past its timeout and was killed';
   // A failed check exited: a skipped one is no repair target, and one that did not start is not failed.
   const end = { termination: 'exited', exitCode: check.exitCode, signal: check.signal } as const;
   return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check.exitCode)}`;
+}
+
+/**
+ * What the repair task says of a check's run on the base (R2, PD3, PD8,
+ * TD13 of the facts before a merge): a base that passed tells the worker
+ * the change brings the failures, which are not its to fix; a base that
+ * failed or timed out gives its output there and asks for the check's
+ * entry in `comparisons`, read against the output before the fixes; a
+ * base that did not run gives why, and asks for no entry.
+ */
+function baseLines(base: RepairTaskBase): string[] {
+  const where = 'on the base of the change, the Base the scope names';
+  switch (base.outcome) {
+    case 'passed':
+      return [`    It passes ${where}, so the change as submitted brings the failures its output before any fixer edited the tree shows: like every failure there, they are not yours to fix.`];
+    case 'failed':
+    case 'timeout':
+      return [
+        `    It ${repairCheckEnd(base)} ${where}. Compare the failures its output before any fixer edited the tree shows, on the change as submitted, with its failures on the base, and give one entry for this check in \`comparisons\`: its \`reading\` is \`same\` when the change has no failure the base does not have, \`adds\` when it has one, and \`unknown\` when the two outputs cannot be compared, as when the check failed on the base for a missing tool or dependency and not for the code; its \`words\` say why in at most ${String(comparisonWordsLengthV1)} characters and name no path. Its output on the base:`,
+        outputTail('stdout', base.stdout.tail, base.stdout.path),
+        outputTail('stderr', base.stderr.tail, base.stderr.path),
+      ];
+    case 'skipped':
+      return [`    It did not run ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+    case 'not-started':
+      return [`    It did not start ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+  }
+}
+
+/** What the repair task says of `comparisons` once for the whole answer, in a run with the checks on the base, whose schema asks for the field (TD6 of the facts before a merge). */
+function comparisonsRule(checks: readonly RepairTaskCheck[]): string {
+  const compared = checks.some((check) => check.base?.outcome === 'failed' || check.base?.outcome === 'timeout');
+  return compared
+    ? ' Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other.'
+    : ' Return `comparisons` empty: no check above failed or timed out on the base of the change.';
 }
 
 /** The repair worker's task (R11, R24 of the fix pass): every check failing after the fixes and the documentation step with its output, and its output before them when it failed then too, the files it owns, what each fixer and the step did, and the same answer as a fixer's with the checks as its findings. */
@@ -898,6 +953,7 @@ export function repairTask(input: RepairTaskInput): string {
           outputTail('stdout', check.baseline.stdout.tail, check.baseline.stdout.path),
           outputTail('stderr', check.baseline.stderr.tail, check.baseline.stderr.path),
         ]),
+    ...(check.base === null ? [] : baseLines(check.base)),
   ].join('\n'));
   return [
     `Repair: ${String(count)} check${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], fail${count === 1 ? 's' : ''} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
@@ -915,7 +971,7 @@ export function repairTask(input: RepairTaskInput): string {
     ...(step ? ['What the documentation step did:', input.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join('\n'), ''] : []),
     checksBlock(input.allChecks),
     '',
-    ...editingTail(input, 'check', ' The message in an applied check\'s `edits` describes what the repair changed.'),
+    ...editingTail(input, 'check', ` The message in an applied check's \`edits\` describes what the repair changed.${input.baseChecks ? comparisonsRule(input.checks) : ''}`),
   ].join('\n');
 }
 

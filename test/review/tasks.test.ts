@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
 import type { RecordedDecision } from '../../src/checkpoint/events.ts';
 import { changeLineLimit } from '../../src/review/brief.ts';
-import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskDecided, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type SurveyTaskInput } from '../../src/review/tasks.ts';
+import { accountLimits, claimPathPlaceholder, commitMessagesLimitBytes, commitMessagesSection, commitSubjectsLimitBytes, deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTask, snapshotIndexPlaceholder, surveyTask, sweepTask, triageTask, unelevatedSandboxRule, verifierTask, type AnsweredFinding, type AnswerPassTaskInput, type ChangeMessages, type DocumentationTaskDecided, type DocumentationTaskInput, type FixerBatchTaskInput, type FixerDecision, type FixerTaskFinding, type RepairTaskBase, type RepairTaskCheck, type SurveyTaskInput } from '../../src/review/tasks.ts';
 import type { CommitMessage } from '../../src/scope/git.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
@@ -657,10 +657,12 @@ describe('the repair task', () => {
     stdout: { tail: Buffer.from('```\n1 failing\n'), path: '/evidence/out' },
     stderr: { tail: Buffer.alloc(0), path: '/evidence/err' },
     baseline: null,
+    base: null,
   };
 
   it('numbers the failing checks with their exit, fenced output and logs, and lists the files and what each fixer did', () => {
     const task = repairTask({
+      baseChecks: false,
       checks: [failing, { ...failing, kind: 'lint', command: 'npm run lint', outcome: 'timeout', exitCode: null }],
       owned: ['src/a.ts', 'test/a.test.ts'],
       answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
@@ -687,6 +689,7 @@ describe('the repair task', () => {
 
   it('names the documentation step\'s edits beside the fixers\' and lists what it did, item by item, once it answered (R9 of the documentation step)', () => {
     const task = repairTask({
+      baseChecks: false,
       checks: [failing],
       owned: ['README.md', 'src/a.ts'],
       answers: [{ batch: 'c1-1', id: 'RIPPLE-1', status: 'applied', note: 'guarded the null' }],
@@ -705,6 +708,7 @@ describe('the repair task', () => {
 
   it('says how a check cut twice ended: no result from its guard, a signal or an exit code with a kill mark (R8 of resumable runs)', () => {
     const task = repairTask({
+      baseChecks: false,
       checks: [{ ...failing, exitCode: null }, { ...failing, kind: 'lint', exitCode: null, signal: 'SIGTERM' }, { ...failing, kind: 'build', exitCode: 143 }],
       owned: ['src/a.ts'],
       answers: [],
@@ -724,6 +728,7 @@ describe('the repair task', () => {
   it('gives a check that failed before the fixes too its output then, and tells the worker to fix only the failures it does not show (R24)', () => {
     const before = { stdout: { tail: Buffer.from('2 failing\n'), path: '/evidence/before-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/before-err' } };
     const task = repairTask({
+      baseChecks: false,
       checks: [{ ...failing, baseline: before }],
       owned: ['src/a.ts'],
       answers: [],
@@ -740,7 +745,7 @@ describe('the repair task', () => {
 
   it('asks for no `blocked` answer, which the engine refuses from the repair, and for `deferred` with the reason when a check needs a file outside the repository', () => {
     // A repair alone in the tree may edit every file of the repository, and the engine refuses a blocked answer from it (`checkFixerAnswer`), so the task says no check is blocked, over the fixer's role prompt it shares.
-    const task = repairTask({ checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    const task = repairTask({ baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
     assert.deepEqual(task.match(/[^.]*blocked[^.]*\./g)?.map((sentence) => sentence.trim()), ['No check is `blocked`: nothing holds a file from you.']);
     assert.match(task, /`deferred` with the reason when it cannot be made to pass here, as when it needs a file outside the repository/);
     assert.match(task, /`status` \(`applied`, `already-applied` or `deferred`\)/);
@@ -748,10 +753,58 @@ describe('the repair task', () => {
   });
 
   it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
-    const repair = { checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
+    const repair = { baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
     const plain = repairTask({ ...repair, unelevatedSandbox: false });
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));
+  });
+
+  // R2, PD3, PD8 and TD13 of the facts before a merge.
+  describe('with the checks on the base', () => {
+    const before = { stdout: { tail: Buffer.from('2 failing\n'), path: '/evidence/before-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/before-err' } };
+    const onBase = { stdout: { tail: Buffer.from('3 failing\n'), path: '/evidence/base-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/base-err' } };
+    const task = (checks: readonly RepairTaskCheck[], baseChecks = true): string => repairTask({ baseChecks, checks, owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    const onBaseOf = (base: RepairTaskBase): RepairTaskCheck => ({ ...failing, baseline: before, base });
+    const fixOnly = 'fix only the failures its output then does not show';
+
+    it('says a base that passes brings the change\'s failures, which are not the repair\'s to fix, and asks for no comparison', () => {
+      const text = task([onBaseOf({ outcome: 'passed' })]);
+      assert.match(text, /\n {4}It passes on the base of the change, the Base the scope names, so the change as submitted brings the failures its output before any fixer edited the tree shows: like every failure there, they are not yours to fix\.\n\nFiles you own/, 'after the output before the fixes, which it speaks of');
+      assert.ok(text.includes(fixOnly), 'the repair keeps its scope (PD8)');
+      assert.doesNotMatch(text, /give one entry/);
+      assert.match(text, / Return `comparisons` empty: no check above failed or timed out on the base of the change\.$/m);
+    });
+
+    it('gives the output of a base that failed or timed out and asks to compare it with the output before the fixes, in one entry with words that name no path', () => {
+      const failed = task([onBaseOf({ outcome: 'failed', exitCode: 2, signal: null, ...onBase })]);
+      assert.match(failed, /\n {4}It exited with code 2 on the base of the change, the Base the scope names\. Compare the failures its output before any fixer edited the tree shows, on the change as submitted, with its failures on the base, and give one entry for this check in `comparisons`: its `reading` is `same` when the change has no failure the base does not have, `adds` when it has one, and `unknown` when the two outputs cannot be compared, as when the check failed on the base for a missing tool or dependency and not for the code; its `words` say why in at most 400 characters and name no path\. Its output on the base:\n {4}stdout, its last 10 bytes \(the whole is at \/evidence\/base-out\):\n```text\n3 failing\n```\n {4}stderr: empty \(frozen at \/evidence\/base-err\)\n\nFiles you own/);
+      assert.ok(failed.indexOf('/evidence/before-out') < failed.indexOf('/evidence/base-out'), 'the output before the fixes comes first');
+      assert.ok(failed.includes(fixOnly), 'the repair keeps its scope (PD8)');
+      assert.match(failed, / Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other\.$/m);
+      const timedOut = task([onBaseOf({ outcome: 'timeout', exitCode: null, signal: 'SIGKILL', ...onBase })]);
+      assert.match(timedOut, /\n {4}It ran past its timeout and was killed on the base of the change, the Base the scope names\. Compare the failures [^\n]* Its output on the base:\n {4}stdout, its last 10 bytes \(the whole is at \/evidence\/base-out\)/);
+      assert.match(timedOut, / Return `comparisons` once for the whole answer/);
+    });
+
+    it('gives why a check did not run or start on the base, and asks for no entry for it', () => {
+      const skipped = task([onBaseOf({ outcome: 'skipped', reason: 'the build failed on the base' })]);
+      assert.match(skipped, /\n {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: the build failed on the base\n\nFiles you own/);
+      const unstarted = task([onBaseOf({ outcome: 'not-started', reason: 'spawn npm ENOENT' })]);
+      assert.match(unstarted, /\n {4}It did not start on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: spawn npm ENOENT\n\nFiles you own/);
+      for (const text of [skipped, unstarted]) assert.match(text, / Return `comparisons` empty: no check above failed or timed out on the base of the change\.$/m);
+    });
+
+    it('asks for one entry for each check whose base failed among several, and says nothing of the base for a check that did not run there', () => {
+      const text = task([{ ...failing, kind: 'lint', base: null }, onBaseOf({ outcome: 'failed', exitCode: 1, signal: null, ...onBase })]);
+      assert.match(text, /^\[0\] lint: npm run test\n[\s\S]*?\n {4}It passed before any fixer edited the tree\.\n\[1\] test: /m, 'a check that passed before the fixes has no base');
+      assert.match(text, /^\[1\] test: [\s\S]*? {4}It exited with code 1 on the base of the change/m);
+      assert.match(text, / Return `comparisons` once for the whole answer/);
+    });
+
+    it('says nothing of the base or of comparisons in a run without the checks on the base', () => {
+      const text = task([{ ...failing, baseline: before }], false);
+      assert.doesNotMatch(text, /base of the change|comparisons/);
+    });
   });
 });
 

@@ -107,7 +107,11 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'verifier') return { verdicts: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]` })) };
   if (role === 'merge-rank') return { findings: Array.from({ length: numberedCount(prompt) }, (_, index) => ({ primary: index, members: [], severity: 'minor', summary: `fake finding [${String(index)}]`, reason: 'fake reason' })) };
   if (role === 'decider') return deciderAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
-  if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
+  if (role === 'fixer') {
+    const answer = fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
+    // The repair of a run with the checks on the base answers in a schema with `comparisons`, which its task names; the fake compares nothing unless a script says it does.
+    return prompt.includes('Return `comparisons`') ? { ...(answer as object), comparisons: [] } : answer;
+  }
   // The documentation worker finds every document already in line, so it edits nothing unless a script says it does.
   if (role === 'documentation') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({ status: 'already-applied' as const })));
   return { answer: 'ok' };
