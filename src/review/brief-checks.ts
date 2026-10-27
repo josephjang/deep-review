@@ -154,16 +154,22 @@ function earlierOf(fix: FixState, kind: CheckKind, last: LastRun | null): BriefC
   return { passed: latest((outcome) => outcome === 'passed'), failed: latest(failedOrTimedOut) };
 }
 
+/**
+ * Why a run on the base was skipped, from its error, which starts with
+ * one of the fixed phrases the run records (`baseSkipReasons`); the error
+ * of git after one stays in the facts of the run.
+ */
+export function skippedReason(error: string | null): NotComparedReason {
+  const reason = (Object.keys(skippedReasons) as BaseSkipReason[]).find((key) => error?.startsWith(baseSkipReasons[key]) === true);
+  return reason === undefined ? 'not-run' : skippedReasons[reason];
+}
+
 /** Why a kind's run on the base left it not compared, by how the run ended, or null when the run compared it (R5). */
 const reasonOf: Readonly<Record<CheckOutcome, (run: CheckRunState, reading: BaseReading | null) => NotComparedReason | null>> = {
   passed: () => null,
   failed: (_run, reading) => (reading === null ? 'no-comparison' : reading === 'unknown' ? 'unknown' : null),
   timeout: (run, reading) => reasonOf.failed(run, reading),
-  // A run on the base records why it was skipped as an error that starts with one of the fixed phrases; the error of git after one stays in the report.
-  skipped: (run) => {
-    const reason = (Object.keys(skippedReasons) as BaseSkipReason[]).find((key) => run.error?.startsWith(baseSkipReasons[key]) === true);
-    return reason === undefined ? 'not-run' : skippedReasons[reason];
-  },
+  skipped: (run) => skippedReason(run.error),
   'not-started': () => 'not-started',
   cut: () => 'not-run',
 };
