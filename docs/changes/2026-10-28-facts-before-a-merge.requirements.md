@@ -126,13 +126,14 @@ The typecheck check failed before and after the fixes, and the run could not com
 
 ### R6: The short form of a fix run has a line `Checks:`
 
-The short form of a fix run gets a line `Checks:`, after the line of the documents left out of date and before `Not covered:`. It names each check that did not pass at some point of the run, with what happened to it in a few words, and then the checks that passed. When each check passed, the line says so. The line has at most 200 characters and is cut at a word, as the other lines. A run that only reviews has no such line. The short form then has at most 23 lines, one more than R13 of the brief of a run and PD12 of the questions in the chat allow today. Invented examples:
+The short form of a fix run gets a line `Checks:`, after the line of the documents left out of date and before `Not covered:`. It names first each check that the edits of the run made fail, then each check that the change breaks or that the run did not compare, then the other checks that did not pass at some point of the run, each with what happened to it in a few words, and last the checks that passed. So a cut of the line keeps the checks that need the person. When each check passed, the line says so. When no check ran after the fixes, because no fix changed a file, the line says that too. A kind of check that the run has no command for is named as missing. The line has at most 200 characters and is cut at a word, as the other lines. A run that only reviews has no such line. The short form then has at most 23 lines, one more than R13 of the brief of a run and PD12 of the questions in the chat allow today. Invented examples:
 
 ```text
 Checks: each passed before and after the fixes
 Checks: typecheck failed, as it does on the base (2247b35e), with the same failures; build, lint and test passed
-Checks: test failed after your answers and passed before; typecheck fails on the change and passes on the base (2247b35e); build and lint passed
+Checks: test failed after your answers, and passed after the fixes; typecheck fails on the change and passes on the base (2247b35e); build and lint passed
 Checks: typecheck failed before and after the fixes, not compared with the base; build, lint and test passed
+Checks: each passed before the fixes; no check ran after them, since no fix changed a file
 ```
 
 ### R7: What deep-review changed says how the fixers validated the fixes

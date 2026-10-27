@@ -166,20 +166,23 @@ The headline gets `checks`, the count of the checks with the fault `edits`, and 
 
 ### The short form (R6)
 
-`briefShortForm` gives a fix run the line `Checks:` after the line of the documents left out of date. It names the kinds that did not pass at some point of the run, in the order of the kinds, each with a clause, and then the kinds that passed:
+`briefShortForm` gives a fix run the line `Checks:` after the line of the documents left out of date. A kind takes the first row of the table that holds for it. The line names the kinds in the order of the rows, and two kinds of one row in the order of the kinds, so the kinds that need the person come first and a cut drops the kinds that passed first:
 
 | Case | Clause |
 |---|---|
-| `edits` | `<kind> failed after <the fixes / the repair / your answers> and passed before` |
-| `base-has` | `<kind> failed, as it does on the base (<commit>), with the same failures` |
+| `edits` | `<kind> failed after <the fixes / the repair / your answers>, and passed <before the fixes / after the fixes / after the repair / after earlier answers>`, with `timed out` for a timeout and the last pass before it |
 | `change-breaks` | `<kind> fails on the change and passes on the base (<commit>)` |
 | `change-adds` | `<kind> fails on the change with more failures than on the base (<commit>)` |
 | `not-compared` | `<kind> failed before and after the fixes, not compared with the base` |
+| `base-has` | `<kind> failed, as it does on the base (<commit>), with the same failures` |
 | Failed before the fixes, passed at its last run | `<kind> failed before the fixes and passes now` |
+| Failed after the fixes, passed at its last run | `<kind> failed after the fixes and passed after <the repair / your answers>` |
 | Failed before the fixes, and no check ran after them | `<kind> failed before the fixes and did not run again` |
 | Its last run timed out, was skipped or did not start | `<kind> did not finish` |
+| No command | `no <kind> check` |
+| Passed at each run | the kinds, then `passed` |
 
-When each kind passed, the line is `Checks: each passed before and after the fixes`. A kind with no command is not named, as today. The line is cut at a word at 200 characters, so the short form has at most 23 lines.
+When each kind passed at each run, the line is `Checks: each passed before and after the fixes`. When no check ran after the fixes, because no fix changed a file, the line ends with `no check ran after the fixes, since no fix changed a file`, and a line whose kinds all passed before the fixes is `Checks: each passed before the fixes; no check ran after them, since no fix changed a file`. A run with no check command at all gets `Checks: none, since the run has no check command`. The line is cut at a word at 200 characters, so the short form has at most 23 lines.
 
 ### The validation (R7)
 
@@ -328,7 +331,7 @@ Tests of the brief hold `when` for each phase of the last run, the case of #78 (
 
 ### R6: The short form
 
-Tests hold each clause, the line when each kind passed, the cut at 200 characters, a run that only reviews with no line, and a short form of at most 23 lines.
+Tests hold each clause and the order of the rows, a kind that two rows match, the line when each kind passed, when no check ran after the fixes and when a kind has no command, a cut at 200 characters that keeps a kind with the fault `edits`, a run that only reviews with no line, and a short form of at most 23 lines.
 
 ### R7: The validation
 
