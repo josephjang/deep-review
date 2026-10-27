@@ -157,7 +157,7 @@ A run that an engine before this change configured has no run on the base. Its b
 
 ### R11: A stop at any point of the run on the base is resumable
 
-A stop during the run on the base is resumable, as the contract of resumable runs asks for each phase. A worktree that a stop left behind is removed when the run resumes. The run on the base never blocks the run: a worktree that cannot be made, or a check that cannot start there, gives a check that the run did not compare, with the reason (R5).
+A stop during the run on the base is resumable, as the contract of resumable runs asks for each phase. A worktree that a stop left behind is removed when the run resumes. No run on the base touches the reviewed worktree, so a change of that tree while the run was stopped in this phase is an edit of a person, and the run blocks on it as on any such edit. The run on the base never blocks the run: a worktree that cannot be made, or a check that cannot start there, gives a check that the run did not compare, with the reason (R5).
 
 ### R12: The gate
 
