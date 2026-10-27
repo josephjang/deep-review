@@ -4,7 +4,7 @@ Product part: [2026-10-28-facts-before-a-merge.requirements.md](2026-10-28-facts
 
 ## Summary
 
-A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, after the build of the base as each check phase builds first, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. Git holds the record of the worktree: it is locked with a reason that names the run, and the phase removes it when an attempt starts, before the phase ends and when the run is abandoned.
+A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, after the build of the base as each check phase builds first, made with the hooks of the repository turned off, and with the repository variables of git and each path into the reviewed tree removed from the environment. It freezes the output as each check does. Git holds the record of the worktree: it is locked with a reason that names the run, and the phase removes it when an attempt starts, before the phase ends and when the run is abandoned.
 
 The repair task gets the output on the base beside the outputs before and after the fixes. The repair compares the output before the fixes with the output on the base, and answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
 
@@ -18,7 +18,7 @@ The phase runs the planned command as it is, in a tree where nothing is installe
 
 ### No change to the checks in the reviewed worktree
 
-The checks of `baseline-checks`, `checks`, `repair-checks` and `answer-checks` run where and as they run today. Only the run on the base removes the repository variables of git from its environment (TD11). The same fault for the other checks and for the git calls of the engine stays with #27.
+The checks of `baseline-checks`, `checks`, `repair-checks` and `answer-checks` run where and as they run today. Only the run on the base removes the repository variables of git and the paths into the reviewed tree from its environment (TD11). The same fault for the other checks and for the git calls of the engine stays with #27.
 
 ### No change to the role prompts
 
@@ -86,7 +86,7 @@ Each fixer reports `validation` for each finding, with a `method` among `old-cod
 
 ### The phase (R1, R11)
 
-`base-checks` comes after `checks` and before `repair` in `phases` and `fixPhases`, and it joins `checkPhases`. It is a check phase: it runs checks and no worker, and the planner walks it as it walks the others.
+`base-checks` comes after `checks` and before `repair` in `phases` and `fixPhases`, and it joins `checkPhases`. It is a check phase: it runs checks and no worker, and the planner walks it as it walks the others, with the differences that this section names.
 
 The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it, with one difference: in this phase a timeout is a result, and a kind that timed out on the base does not run there again (PD11, TD15). A cut run still runs again, as in each check phase.
 
@@ -155,12 +155,12 @@ interface BriefCheck {
 | `change-breaks` | The kind ran on the base, and the base passed |
 | `change-adds` | The kind failed or timed out on the base, and the repair read `adds` |
 | `base-has` | The kind failed or timed out on the base, and the repair read `same` |
-| `not-compared` | The kind is in `baseKinds`, and none of the rows above holds |
+| `not-compared` | The run is configured with the phase, the kind is in `baseKinds`, and none of the rows above holds |
 | null | Every other case |
 
 A row that reads the base holds only for a kind that the phase took. A kind that the planner skipped after a failed `build`, or that did not start for a missing tool, never had a run on the base, so it gets no fault from the base and keeps the gap of today: a check that did not finish.
 
-The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since `baseKinds` is empty for it (R10). It gets `edits` as each run does.
+The reason of `not-compared` comes from where the comparison stopped, in fixed words: the base of the change is the empty tree, no worktree of the base could be made, the build failed on the base, the check did not start on the base, the check did not run on the base, the repair gave no comparison, or the repair could not compare the outputs. A run that this change did not configure gets no `not-compared`, since it never had the phase, although the fold gives it `baseKinds` as for each run (R10). It gets `edits` as each run does.
 
 The headline gets `checks`, the count of the checks with the fault `edits`, and its sentence names them as `N check(s) that the edits of the run made fail`, after the documents. On a fix run, the sentence "Nothing needs you" names the checks too: `Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.`
 
@@ -217,7 +217,7 @@ The vocabulary freezes as `reviewVocabularyV9`, with 20 phases and 5 check phase
 
 `tree.restored` gets no new version, because no run on the base is restored. The phase has no unit, so `attempt.failed` and `unit.unattempted` get none either.
 
-In the fold, `ConfiguredSteps` gets `compared`, true from `review.configured@8`. `configure` skips `base-checks` in a run without it, with a reason in `skipReason`, as it skips `documentation` before version 7. `configuredPhases` in `fix-fold.ts` keeps the phase skipped when a fix pass is pinned or reopened in such a run. In a run configured with the phase, `fixReopened` reopens `base-checks` after `checks`, beside `repair`, `repair-checks` and `report`. A run on the base never grows old, so the reopened phase runs only the kinds that the reopened pass added to `baseKinds`, and each comparison made before stays. A kind added in this way that the repair of the reopened pass does not compare reads as not compared, with the reason that the repair gave no comparison. The reducers of `check.started` and `check.ran` take the new versions. The reducer of `check.ran@4` holds a run on the base to a kind of `baseKinds`, or to `build` when another kind of `baseKinds` is due. The reducer of `fix.recorded@4` holds `comparisons` to the kinds whose base run failed or timed out, at most once each, since the engine drops the other entries before it records the answer. The fold holds recorded data to such rules elsewhere too, as the reducer of the answer of a fixer holds its ids to its batch. `status` and the statistics of a run get the phase as each other phase.
+In the fold, `ConfiguredSteps` gets `compared`, true from `review.configured@8`. `configure` skips `base-checks` in a run without it, with a reason in `skipReason`, as it skips `documentation` before version 7. `configuredPhases` in `fix-fold.ts` keeps the phase skipped when a fix pass is pinned or reopened in such a run. In a run configured with the phase, `fixReopened` reopens `base-checks` after `checks`, beside `repair`, `repair-checks` and `report`. A run on the base never grows old, so the reopened phase runs only the kinds that the reopened pass added to `baseKinds`, and each comparison made before stays. A kind added in this way that the repair of the reopened pass does not compare reads as not compared, with the reason that the repair gave no comparison. The reducers of `check.started` and `check.ran` take the new versions. The reducer of `check.ran@4` holds a run on the base to a kind of `baseKinds`, or to `build` when another kind of `baseKinds` is due. The reducer of `fix.recorded@4` holds `comparisons` to the kinds whose base run failed or timed out, at most once each, since the engine drops the other entries before it records the answer. The fold holds recorded data to such rules elsewhere too, as the reducer of the answer of a fixer holds its ids to its batch. The statistics of a run get the phase as each other phase, and `status` shows it only when a kind ran there (R8).
 
 ### Older runs and older engines (R10)
 
