@@ -4,9 +4,12 @@
  * of the base, made with the hooks of the repository off, which git
  * records locked with a reason that names the run, so any later command of
  * the run finds it whatever its temporary directory; and the environment of
- * a check there, which names neither the repository nor a path into the
- * reviewed worktree, so the check reads the code of the base and not the
- * change's.
+ * a check there, which loses git's repository variables, a `VIRTUAL_ENV`
+ * inside the reviewed worktree and the entries inside it of the directory
+ * lists (`directoryLists`), so the check finds neither the repository nor
+ * the programs and modules of the change through them. Every other
+ * variable, such as `PWD`, `HOME` or `CLAUDE_PROJECT_DIR`, is inherited as
+ * it is, and may still name the reviewed worktree.
  */
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
