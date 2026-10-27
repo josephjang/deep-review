@@ -237,7 +237,7 @@ A change of the event kinds needs a new fixture: `npm run golden -- --output tes
 
 ### Where the code goes
 
-The facts of the checks for the brief go to a module of their own, `src/review/brief-checks.ts`: `BriefCheck`, the table of `fault`, the clauses of the line `Checks:` and the sentence on the validation. `brief.ts` has 1001 lines today, and it calls that module. The worktree of the base and the environment of a run on the base go to `src/review/checks/base.ts`, with the list of the repository variables of git. `runDueCheck` calls it for the phase, so the controller, 1677 lines today, gains a call and not the steps.
+The facts of the checks for the brief go to a module of their own, `src/review/brief-checks.ts`: `BriefCheck`, the table of `fault`, the clauses of the line `Checks:` and the sentence on the validation. `brief.ts` has 1001 lines today, and it calls that module. The worktree of the base and the environment of a run on the base go to `src/review/checks/base.ts`. The list of the repository variables of git goes to `src/runtime/git-sync.ts`, which every git call of the engine and every test process already loads. `runDueCheck` calls it for the phase, so the controller, 1677 lines today, gains a call and not the steps.
 
 ### The skills and the README
 
