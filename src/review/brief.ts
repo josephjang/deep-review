@@ -18,7 +18,8 @@ import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../che
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
-import { findingOutcomes, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
+import { validationOf, validationSentence, type BriefValidation } from './brief-checks.ts';
+import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { shortRunId } from './runs.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
@@ -171,6 +172,8 @@ export interface BriefChanged {
   readonly checks: readonly BriefCheck[];
   /** What the documentation step did, as one sentence, or null in a run that only reviewed or that an engine before the step configured (R10 of the documentation step). */
   readonly documentation: string | null;
+  /** The applied fixes under the strongest validation the answer that applied each reported (R7 of the facts before a merge); each list empty in a run that only reviewed. */
+  readonly validation: BriefValidation;
 }
 
 /** A document the edits of the run left out of date (R7 of the documentation step), as `leftDocumentsOf` gives it. */
@@ -465,13 +468,14 @@ function changedOf(context: BriefContext): BriefChanged {
   const left = decisionsOf(context, 'leave').map((decision) => decision.id);
   if (fix === null) {
     const toFix = decisionsOf(context, 'fix').map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null };
+    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], documentation: null, validation: validationOf([]) };
   }
   const shas = fix.commits.flatMap((series) => series.commits.map((commit) => commit.sha));
+  const applied = withOutcome(context, 'applied');
   return {
     fixed: true,
     decided: context.review.decisions !== null,
-    applied: withOutcome(context, 'applied'),
+    applied,
     alreadyInTree: withOutcome(context, 'already applied'),
     deferred: withOutcome(context, 'deferred'),
     blocked: withOutcome(context, 'blocked'),
@@ -483,6 +487,8 @@ function changedOf(context: BriefContext): BriefChanged {
     left: [...left, ...withOutcome(context, 'held for the author')],
     checks: checksOf({ answerPasses: context.review.answerPasses, fix }),
     documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null,
+    // The answer that gave each fix its last outcome applied it: the fix pass's, or an answer pass's.
+    validation: validationOf(applied.map((id) => ({ id, methods: (lastFixAnswer(context.review, fix, id).answer?.validation ?? []).map((entry) => entry.method) }))),
   };
 }
 
@@ -781,7 +787,8 @@ function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
     : changed.commits === null
       ? (changed.patches === 1 ? 'Its patch is not committed: `deep-review commit` commits it.' : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.`)
       : `They are in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, and ${counted(changed.commits.uncommittedPatches, 'later patch is', 'later patches are')} not committed yet`}.`;
-  return [...lines, `${outcomes.join('; ')}. ${commits}${leftSentence(changed, link)} ${checksWords(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
+  const validation = validationSentence(changed.validation, (ids) => idWords(ids, link));
+  return [...lines, `${outcomes.join('; ')}. ${commits}${leftSentence(changed, link)}${validation === null ? '' : ` ${validation}`} ${checksWords(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
 }
 
 /**
