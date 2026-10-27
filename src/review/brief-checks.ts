@@ -399,7 +399,7 @@ export function validationSentence(validation: BriefValidation, list: (ids: read
   const lead = tested === 0 && total === 1
     ? 'The fixers report that no test validated the fix.'
     : `The fixers report that a test validated ${fixes}${tested === 0 ? '.' : ': it fails on the code before the fix, or on a mutation of the fix.'}`;
-  const rest = (['existing', 'static', 'limited', 'none'] as const).flatMap((strength) => {
+  const rest = validationStrengths.filter((strength): strength is Exclude<ValidationStrength, 'test'> => strength !== 'test').flatMap((strength) => {
     const ids = validation[strength];
     return ids.length === 0 ? [] : [`${list(ids)} ${restsOn[strength][ids.length === 1 ? 0 : 1]}.`];
   });
