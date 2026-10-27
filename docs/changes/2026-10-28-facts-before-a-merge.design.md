@@ -125,7 +125,7 @@ The phase runs the planned command of the kind through `runCheck`, with three di
 
 The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the base shows the same failures, `adds` when the change adds failures to those of the base, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
 
-`invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The engine requires one entry for each kind whose base run failed or timed out, and none for another kind. An answer that breaks this is a `StructuralCheckError`, and the attempt fails as for each refused answer of a worker.
+`invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The schema holds `kind` to the check kinds. The engine refuses no answer of the repair for its comparisons, since the comparison is a second product of the repair and must not cost the repair its edits. It drops an entry for a kind that did not fail or time out on the base, and a second entry for one kind, and logs each. A kind whose base run failed or timed out and that has no entry reads as not compared, with the reason that the repair gave no comparison (R5).
 
 The engine records the answer as `fix.recorded@4`: version 3 with `comparisons`. It writes version 4 only for the repair of a run configured with the phase, and version 3 for every other answer (TD7). The fold keeps `comparisons` with the answer of the repair, empty for an earlier version.
 
@@ -269,7 +269,7 @@ No edit of the run changes the base, so `stalingPhases['base-checks']` is empty.
 
 ### TD6: The comparison is a field of the answer of the repair, in a schema of the repair alone
 
-The reading is the reading of the worker, so it comes in its answer. A schema of the repair alone, chosen by the unit, keeps the other fixers from a field that they must leave empty. The engine requires an entry for each kind whose base failed, so a comparison is never missing in silence. The instruction is in the task text, and neither is in the digest of the roles, so no role prompt changes. A run that started before this change can resume and take answers under the new engine.
+The reading is the reading of the worker, so it comes in its answer. A schema of the repair alone, chosen by the unit, keeps the other fixers from a field that they must leave empty. A missing entry is never silent: the brief reads its kind as not compared, with the reason that the repair gave no comparison. The engine does not refuse the answer for it, so a fault in the comparison never costs the repair its edits. The instruction is in the task text, and neither is in the digest of the roles, so no role prompt changes. A run that started before this change can resume and take answers under the new engine.
 
 The design rejects two other ways. The note of the finding is free text, so the brief cannot classify it. An event that the engine writes from its own reading of the outputs reads paths and lines as different (PD3).
 
@@ -335,7 +335,7 @@ A test of the planner holds that `base-checks` takes only the kinds of `baseKind
 
 ### R2: The comparison
 
-A test of the task holds its paragraph for each case of the base. A test of the answer holds that a missing entry, an extra entry or an entry for a passed base is refused, and that a valid answer is recorded as `fix.recorded@4` with its comparisons. A run whose repair the budget stopped reads each failed base as not compared.
+A test of the task holds its paragraph for each case of the base. A test of the answer holds that a valid answer is recorded as `fix.recorded@4` with its comparisons. It also holds that an answer with a missing entry is recorded and its kind reads as not compared, that an entry for a kind whose base passed and a second entry for one kind are dropped with a log line, and that the edits of the answer count in each case. A run whose repair the budget stopped reads each failed base as not compared.
 
 ### R3, R4 and R5: The checks of the brief
 
