@@ -9,7 +9,7 @@
  * applied.
  */
 import type { ScopeState } from '../checkpoint/events.ts';
-import { baseKinds, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
+import { kindsTakenToBase, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isEmptyTree } from '../scope/git.ts';
 import { baseNameOf, commitWords } from '../scope/scope-line.ts';
@@ -158,7 +158,7 @@ function earlierOf(fix: FixState, kind: CheckKind, last: LastRun | null): BriefC
 /**
  * Why a run on the base was skipped, from its error, which starts with
  * one of the fixed phrases the run records (`baseSkipReasons`); the error
- * of git after one stays in the facts of the run.
+ * after one stays in the facts of the run.
  */
 export function skippedReason(error: string | null): NotComparedReason {
   return (Object.keys(baseSkipReasons) as BaseSkipReason[]).find((reason) => error?.startsWith(baseSkipReasons[reason]) === true) ?? 'not-run';
@@ -194,7 +194,7 @@ function baseOf(fix: FixState, kind: CheckKind, base: Pick<BriefBase, 'commit' |
  */
 export function briefChecksOf(review: Pick<ReviewState, 'answerPasses' | 'baseChecksStep'> & { readonly fix: FixState }, scope: Pick<ScopeState, 'base' | 'mode' | 'request'>): BriefCheck[] {
   const { fix } = review;
-  const taken = review.baseChecksStep ? baseKinds(fix, 'recorded') : [];
+  const taken = kindsTakenToBase(review, 'recorded');
   const base = { commit: scope.base, name: baseNameOf(scope.mode, scope.request) };
   return (fix.checks.planned?.checks ?? []).filter((check) => check.command !== null).map((check) => {
     const last = lastRunOf(review, check.kind);

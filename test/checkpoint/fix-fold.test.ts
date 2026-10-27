@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { baseKinds, budgetStoppedUnits, clusterClaims, committedRevisions, comparableKinds, cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, lastRecordedRun, openStart, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import { baseKinds, budgetStoppedUnits, clusterClaims, committedRevisions, comparableKinds, cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, lastRecordedRun, openStart, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
 import type { DocumentationItem, TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
@@ -1129,6 +1129,9 @@ describe('the checks on the base in the fix state', () => {
     assert.deepEqual(older.review().phases['base-checks'], { status: 'skipped', attempt: 0 });
     refused(older.clone().start('base-checks'), /starts phase base-checks, which this run skips: it was configured before the checks on the base existed/);
     assert.doesNotThrow(() => older.clone().start('repair').fold());
+    assert.deepEqual(baseKinds(withFix(older).fix), ['lint'], 'the fold gives every run its kinds');
+    assert.deepEqual(kindsTakenToBase(withFix(older)), [], 'a run configured before the phase takes none to the base');
+    assert.deepEqual(kindsTakenToBase(withFix(checksPhase(throughFixes(), 'checks', { lint: 'failed' }))), ['lint']);
   });
 
   it('takes on the base the kinds that failed before the fixes and after them, and build while another of them is due (R1, TD4)', () => {
