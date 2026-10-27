@@ -13,16 +13,22 @@
  * of c1 names a document its edit made stale, which the documentation
  * step writes, so a stop can meet the step with a revision; and the
  * change has a file no finding names, src/c.ts, which a person edits at
- * one point while the engine is down.
+ * one point while the engine is down. The scenario of the base adds a
+ * typecheck that fails before the fixes, after them and on the base, so
+ * the phase `base-checks` makes a worktree of the base, runs build and
+ * typecheck there and removes it, and the repair compares the failures
+ * (R11 of the facts before a merge).
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { baseLockReason } from '../../src/review/checks/base.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
-import { checkKinds } from '../../src/review/vocabulary.ts';
+import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
+import { checkKinds, repairUnitKey } from '../../src/review/vocabulary.ts';
 import { fixerAnswer, type Script } from './fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from './fix-pass-fixture.ts';
 import { git } from './git.ts';
@@ -46,10 +52,12 @@ export type StopWay = (typeof stopWays)[number];
 export const appendWays: readonly StopWay[] = ['signal', 'kill', 'tree'];
 
 /**
- * A point of the work: an append by its name (as stop-preload.ts names
- * it), a child while it runs by the name and count of its start (`child
- * <name>#<n>`, as the fakes count their starts), or `commit` before or
- * after it moves the branch.
+ * A point of the work: a step of the review by its name, as stop-preload.ts
+ * names it (an append after it is written, `before` and an append's name
+ * before it is written, or a git call that makes or removes a worktree of
+ * the base, before or after it), a child while it runs by the name and
+ * count of its start (`child <name>#<n>`, as the fakes count their
+ * starts), or `commit` before or after it moves the branch.
  */
 export type Point =
   | { readonly kind: 'append'; readonly name: string }
@@ -105,6 +113,34 @@ export const contractScript: Script = {
 /** The rules of the stand-in checks: lint removes the line c1's fixer leaves, and every check passes. */
 export const contractChecks = { lint: { replace: { 'src/a.ts': { from: unformatted, to: '' } } } };
 
+/** A run of the contract: the script of the fakes and the rules of the stand-in checks. */
+export interface Scenario {
+  readonly name: string;
+  readonly script: Script;
+  readonly checks: Readonly<Record<string, unknown>>;
+}
+
+/** The scenario of the fix pass: every check passes before the fixes, so no check runs on the base. */
+export const fixScenario: Scenario = { name: 'fixes', script: contractScript, checks: contractChecks };
+
+/**
+ * The scenario of the base (R11 of the facts before a merge): typecheck
+ * fails before the fixes, after them and on the base, so `base-checks`
+ * runs build and typecheck in a worktree of the base, and the repair,
+ * which defers typecheck, compares its failures with those on the base.
+ */
+export const baseScenario: Scenario = {
+  name: 'base',
+  script: {
+    ...contractScript,
+    'fixer:repair:repair': { output: { ...(fixerAnswer([{ status: 'deferred', note: 'every failure was there before the fixes' }]) as object), comparisons: [{ kind: 'typecheck', reading: 'same', words: 'the same failure as on the base' }] } },
+  },
+  checks: { ...contractChecks, typecheck: 'fail' },
+};
+
+/** The scenarios the contract runs, each with its own run with no stop. */
+export const scenarios: readonly Scenario[] = [fixScenario, baseScenario];
+
 /** What a command the helper ran did. */
 export interface Ran {
   readonly status: number | null;
@@ -127,11 +163,15 @@ export interface Outcome {
   readonly checks: readonly string[];
   /** The units the run degraded or left not attempted, as their events name them. */
   readonly degraded: readonly string[];
+  /** The repair's reading of each check it compared with the base, as `<kind> <reading>`. */
+  readonly comparisons: readonly string[];
+  /** The worktrees of the base the run left: each entry git lists locked with the run's reason, and each directory of one under the scratch directory. */
+  readonly baseTrees: readonly string[];
   /** The bytes of each file of the change and of each file a fixer writes. */
   readonly files: Readonly<Record<string, string | null>>;
 }
 
-/** The sandbox of one run of the contract: a ReviewSandbox with the change, the script and the checks above, and the directories of the helper. */
+/** The sandbox of one run of the contract: a ReviewSandbox with the change, the script and the checks of its scenario, and the directories of the helper. */
 export class ContractSandbox {
   readonly box: ReviewSandbox;
   /** Where the preload writes its `stopped` marker. */
@@ -141,14 +181,14 @@ export class ContractSandbox {
   /** The temporary directory of the engine, so its scratch lives and is removed with the sandbox. */
   readonly temporary: string;
 
-  constructor() {
+  constructor(scenario: Scenario) {
     this.box = new ReviewSandbox();
     // A file of the change no finding names, so no cluster owns it.
     write(this.box.repo, personFile, personFileText);
     git(this.box.repo, 'add', '-A');
     git(this.box.repo, 'commit', '-q', '--amend', '-m', 'the change under review');
-    this.box.script(contractScript);
-    this.box.checks(contractChecks);
+    this.box.script(scenario.script);
+    this.box.checks(scenario.checks);
     this.stopDirectory = join(this.box.directory, 'stop');
     this.startDirectory = join(this.box.directory, 'start');
     this.temporary = join(this.box.directory, 'tmp');
@@ -222,7 +262,16 @@ export class ContractSandbox {
       const file = join(this.box.repo, ...path.split('/'));
       return [path, existsSync(file) ? readFileSync(file, 'utf8') : null];
     }));
-    return { ran, state, events, report, revised, checks, degraded, files };
+    const comparisons = fix?.answers.repair[repairUnitKey]?.comparisons.map((comparison) => `${comparison.kind} ${comparison.reading}`) ?? [];
+    return { ran, state, events, report, revised, checks, degraded, comparisons, baseTrees: this.baseTrees(state.id), files };
+  }
+
+  /** The worktrees of the base the run `runId` left: the entries of `git worktree list` locked with its reason, and the directories of its worktrees of the base under the engine's scratch directory. */
+  baseTrees(runId: string): string[] {
+    const entries = git(this.box.repo, 'worktree', 'list', '--porcelain').split(/\n\n/).filter((entry) => entry.split('\n').includes(`locked ${baseLockReason(runId)}`));
+    const scratch = join(this.temporary, 'deep-review-scratch', checkpointScratchKey(this.box.checkpoint));
+    const directories = existsSync(scratch) ? readdirSync(scratch).filter((name) => name.startsWith(`${runId}-base-`)) : [];
+    return [...entries.map((entry) => entry.split('\n')[0]!), ...directories.map((name) => `directory ${name}`)];
   }
 }
 
@@ -368,8 +417,8 @@ const commandTimeoutMs = 300_000;
  * next command blocks, the person restores it and runs the command once
  * more.
  */
-export async function stopAndResume(point: Point, way: StopWay): Promise<Stopped> {
-  const sandbox = new ContractSandbox();
+export async function stopAndResume(point: Point, way: StopWay, scenario: Scenario = fixScenario): Promise<Stopped> {
+  const sandbox = new ContractSandbox(scenario);
   try {
     const review = sandbox.reviewArgs();
     if (point.kind === 'commit') {
@@ -433,18 +482,19 @@ export async function stopAndResume(point: Point, way: StopWay): Promise<Stopped
   }
 }
 
-/** The reference: the same run with no stop, the names of its appends and of its children's starts in order, and its `commit`. */
+/** The reference: the same run with no stop, the names of its steps and of its children's starts in order, and its `commit`. */
 export interface Reference {
   readonly outcome: Outcome;
-  readonly appends: readonly string[];
+  /** The names of its appends and of the moments around its git calls that a point can name, in the order of the first of each. */
+  readonly steps: readonly string[];
   readonly children: readonly string[];
   /** The subjects of the commits `commit` made after the run. */
   readonly commits: readonly string[];
 }
 
-/** Run the reference in a new sandbox: the run with no stop, recording its appends, then `commit`. */
-export async function reference(): Promise<Reference> {
-  const sandbox = new ContractSandbox();
+/** Run the reference of a scenario in a new sandbox: the run with no stop, recording its steps, then `commit`. */
+export async function reference(scenario: Scenario = fixScenario): Promise<Reference> {
+  const sandbox = new ContractSandbox(scenario);
   try {
     const record = join(sandbox.box.directory, 'appends');
     writeFileSync(join(sandbox.startDirectory, 'release'), '');
@@ -452,7 +502,7 @@ export async function reference(): Promise<Reference> {
     const ran = await finished(engine);
     assert.equal(ran.status, 0, ran.stderr);
     const outcome = sandbox.outcome(ran);
-    const appends = readFileSync(record, 'utf8').split('\n').filter((line) => line !== '');
+    const steps = readFileSync(record, 'utf8').split('\n').filter((line) => line !== '');
     const counts = new Map<string, number>();
     const children = readFileSync(join(sandbox.startDirectory, 'starts'), 'utf8').split('\n').filter((line) => line !== '').map((name) => {
       const count = (counts.get(name) ?? 0) + 1;
@@ -465,7 +515,7 @@ export async function reference(): Promise<Reference> {
     const revisions = outcome.state.review!.fix!.revisions.length;
     const commits = git(sandbox.box.repo, 'log', '--format=%s', `-${String(revisions)}`).split('\n');
     assert.equal(commits.length, revisions, 'commit made a commit per revision');
-    return { outcome, appends: [...new Set(appends)], children, commits };
+    return { outcome, steps: [...new Set(steps)], children, commits };
   } finally {
     sandbox.close();
   }
@@ -505,6 +555,8 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   if (checks.length > 0) falsehoods.push(`check runs ${checks.join(', ')}`);
   const degraded = outcome.degraded.filter((unit) => !expected.outcome.degraded.includes(unit));
   if (degraded.length > 0) falsehoods.push(`degraded ${degraded.join(', ')}`);
+  const comparisons = outcome.comparisons.filter((comparison) => !expected.outcome.comparisons.includes(comparison));
+  if (comparisons.length > 0) falsehoods.push(`comparisons with the base ${comparisons.join(', ')}`);
   const fix = outcome.state.review?.fix ?? null;
   for (const revision of fix?.revisions ?? []) {
     const source = revision.source.kind === 'check' ? `check ${revision.source.check}` : revision.source.key;
@@ -520,8 +572,9 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   if (otherwise.length > 0) differences.push(`patches change ${otherwise.join(', ')} otherwise`);
   for (const [path, text] of Object.entries(expected.outcome.files)) if (outcome.files[path] !== text) differences.push(`file ${path}`);
   if (differences.length > 0) broken.set('report', differences.join('; '));
-  // Fifth: no process of the stopped engine outlives it.
-  if (stopped.orphans.length > 0) broken.set('no orphan', `alive after the stop: ${stopped.orphans.join(', ')}`);
+  // Fifth: no process of the stopped engine outlives it, and no worktree of the base outlives the run (R11 of the facts before a merge).
+  const orphans = [...(stopped.orphans.length === 0 ? [] : [`alive after the stop: ${stopped.orphans.join(', ')}`]), ...(outcome.baseTrees.length === 0 ? [] : [`worktrees of the base left: ${outcome.baseTrees.join(', ')}`])];
+  if (orphans.length > 0) broken.set('no orphan', orphans.join('; '));
   return broken;
 }
 
@@ -545,12 +598,19 @@ function firstDifference(actual: string, expected: string): string {
 }
 
 /**
- * Every point of the reference: each append in the order of its first
+ * Every point of the reference: each step in the order of its first
  * record, each child start, and the two points of `commit`. The append of
  * the report is not one: the run is complete after it, and a stop there
- * cuts no work (Risks of resumable runs).
+ * cuts no work (Risks of resumable runs). A point just before an append is
+ * not one either: the point after the step before it stands for it, as
+ * `worktree remove after` stands for the point just before the end of
+ * `base-checks`, which the fixed set of the contract names.
  */
 export function everyPoint(expected: Reference): Point[] {
-  return [...expected.appends.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), pointOf('update-ref before'), pointOf('update-ref after')];
+  return [...expected.steps.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), pointOf('update-ref before'), pointOf('update-ref after')];
 }
+
+/** Whether the reference has the point `name`: a step, a child's start, or a point of `commit`, and a point before an append when it has that append. */
+export const hasPoint = (expected: Reference, name: string): boolean =>
+  [...expected.steps, ...expected.children, 'update-ref before', 'update-ref after'].includes(name.startsWith('before ') ? name.slice('before '.length) : name);
 
