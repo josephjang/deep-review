@@ -4,7 +4,7 @@
  * agent, or a check a pull request must pass. Its shape is a contract, so
  * `briefJsonV1` states it as a schema with a version, and a change of the
  * shape is a new version, as for an event of the ledger, and the engine
- * writes the newest alone, version 3 since the questions in the chat.
+ * writes the newest alone, version 4 since the facts before a merge.
  * Beside the brief it carries the local facts of the run, which the brief
  * itself never names: the paths of the copy and of the record, the
  * repository, the evidence store, and the command that continues a
@@ -12,9 +12,10 @@
  */
 import { z } from 'zod';
 import { briefFates, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
+import { checkFaults, lastMoments, notComparedReasons, validationStrengths, type ValidationStrength } from './brief-checks.ts';
 import { leftReasonKinds } from './documents.ts';
 import type { PassedOver } from './report-choice.ts';
-import { checkKinds } from './vocabulary.ts';
+import { baseReadings, checkKinds } from './vocabulary.ts';
 
 const text = z.string();
 const ids = z.array(z.string());
@@ -121,16 +122,42 @@ export const briefJsonV3 = z.strictObject({
 });
 export type BriefJsonV3 = z.infer<typeof briefJsonV3>;
 
+/**
+ * Version 4 of the JSON form of the brief (R9, TD10 of the facts before a
+ * merge): version 3 with the count of the checks the edits of the run
+ * made fail in the headline; each check with `last`, its last run and
+ * when it ran, in place of `after`, which read a failure after the
+ * answers as one after the fixes (#78), with what its base says and its
+ * fault; and the applied fixes under the strongest validation of each.
+ */
+export const briefJsonV4 = z.strictObject({
+  ...briefJsonV3.shape,
+  version: z.literal(4),
+  headline: z.strictObject({ text, questions: z.number().int().min(0), departures: z.number().int().min(0), documents: z.number().int().min(0), checks: z.number().int().min(0) }),
+  changed: z.strictObject({
+    ...briefJsonV3.shape.changed.shape,
+    checks: z.array(z.strictObject({
+      kind: z.enum(checkKinds),
+      before: text.nullable(),
+      last: z.strictObject({ outcome: text, when: z.enum(lastMoments) }).nullable(),
+      base: z.strictObject({ commit: text, name: text, outcome: text.nullable(), reading: z.enum(baseReadings).nullable(), reason: z.enum(notComparedReasons).nullable() }).nullable(),
+      fault: z.enum(checkFaults).nullable(),
+    })),
+    validation: z.strictObject(Object.fromEntries(validationStrengths.map((strength) => [strength, ids])) as Record<ValidationStrength, typeof ids>),
+  }),
+});
+export type BriefJsonV4 = z.infer<typeof briefJsonV4>;
+
 /** The local facts the JSON form carries beside the brief: the copy's path, or null when it could not be written, the record's, the repository, the store and the continue command or null. */
-export type BriefLocal = BriefJsonV3['local'];
+export type BriefLocal = BriefJsonV4['local'];
 
-const answerJson = (given: BriefAnswer | null): BriefJsonV3['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
+const answerJson = (given: BriefAnswer | null): BriefJsonV4['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
 
-/** The brief as version 3 of its JSON form, with the run's local facts and the later runs `report` passed over; the sentence on the documentation step is the Markdown's, and the documents say what it left. */
-export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly PassedOver[]): BriefJsonV3 {
+/** The brief as version 4 of its JSON form, with the run's local facts and the later runs `report` passed over; the sentences on the documentation step and on the validation are the Markdown's, and the documents and the validation's lists say what they say. */
+export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly PassedOver[]): BriefJsonV4 {
   const { change, changed } = brief;
   return {
-    version: 3,
+    version: 4,
     run: brief.run,
     title: brief.title,
     headline: { ...brief.headline },
@@ -165,7 +192,9 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
       commits: brief.changed.commits === null ? null : { shas: [...brief.changed.commits.shas], uncommittedPatches: brief.changed.commits.uncommittedPatches },
       patches: changed.patches,
       left: [...brief.changed.left],
-      checks: brief.changed.checks.map((check) => ({ ...check })),
+      // When a check passed and failed before its last run is for the words of the brief; its fault says what a program needs of it.
+      checks: changed.checks.map((check) => ({ kind: check.kind, before: check.before, last: check.last === null ? null : { ...check.last }, base: check.base === null ? null : { ...check.base }, fault: check.fault })),
+      validation: Object.fromEntries(validationStrengths.map((strength) => [strength, [...changed.validation[strength]]])) as Record<ValidationStrength, string[]>,
     },
     local: { ...local },
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state })),
