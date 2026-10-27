@@ -101,7 +101,7 @@ When the check is not the build and the run has a build command, the build runs 
 
 The repair worker gets the output of the check on the base beside its output before and after the fixes. For each check that ran on the base and failed there, the worker compares the failures before the fixes, on the change as submitted, with the failures on the base. The comparison is about the change, not about the edits of the run, so no repair and no answer pass makes it old. The worker says one of three things. The base shows the same failures. The change adds failures to those of the base. Or the outputs cannot be compared, for example because the check failed on the base for a missing tool or dependency and not for the code. The worker says it in a few words, and the report keeps them.
 
-When the check passed on the base, the engine knows without the worker that the change breaks the check. When no answer of the repair says it, because the run budget stopped the repair or its worker failed, a check that failed on the base reads as not compared. The repair still fixes only the failures that the fixes added (PD8).
+When the check passed on the base, the engine knows without the worker that the change breaks the check. When no answer of the repair says it, because the run budget stopped the repair, its worker failed or its answer left the check out, a check that failed on the base reads as not compared. A comparison that the repair gets wrong or leaves out never costs the repair its edits. The repair still fixes only the failures that the fixes added (PD8).
 
 ### R3: Each check says when its last run ended so
 
