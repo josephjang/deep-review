@@ -6,7 +6,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { Checkpoint, isUnreadable } from '../src/checkpoint/checkpoint.ts';
 import { locateCheckpoint } from '../src/checkpoint/locate.ts';
-import { briefJsonV3 } from '../src/review/brief-json.ts';
+import { briefJsonV4 } from '../src/review/brief-json.ts';
 import { acquireRunLock, acquireStartLock } from '../src/review/lock.ts';
 import { shortRunId } from '../src/review/runs.ts';
 import { maxConcurrency, policyFileName } from '../src/review/policy.ts';
@@ -285,12 +285,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       release();
     }
 
-    // --run names an older run, by the first 8 characters of its id (R11 of the questions in the chat); --json gives version 3 of the JSON form, the one it writes since the questions in the chat, with the local facts.
+    // --run names an older run, by the first 8 characters of its id (R11 of the questions in the chat); --json gives version 4 of the JSON form, the one it writes since the facts before a merge, with the local facts.
     const named = await run(box, 'report', '--run', shortRunId(firstId), '--json');
     assert.equal(named.status, 0, named.stderr);
-    const json = briefJsonV3.parse(JSON.parse(named.stdout));
+    const json = briefJsonV4.parse(JSON.parse(named.stdout));
     assert.equal(json.run, firstId);
-    assert.equal(json.version, 3);
+    assert.equal(json.version, 4);
     assert.deepEqual(json.notShown, [], 'a run --run names passes no run over');
 
     // --brief prints the brief as a chat shows it, from its title, and then the path of the copy (R7 of the questions in the chat).
@@ -339,7 +339,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       // With --json, stdout holds the JSON form alone, which names the later run in notShown.
       const pastJson = await run(box, 'report', '--json');
       assert.equal(pastJson.status, 0, pastJson.stderr);
-      const parsed = briefJsonV3.parse(JSON.parse(pastJson.stdout));
+      const parsed = briefJsonV4.parse(JSON.parse(pastJson.stdout));
       assert.equal(parsed.run, secondId);
       assert.deepEqual(parsed.notShown, [{ run: active.id, state: 'never started its review' }]);
 
@@ -382,7 +382,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(fallback.status, 0, fallback.stderr);
     assert.match(fallback.stdout.trim().split('\n').at(-1)!, /[\\/]artifacts[\\/][0-9a-f]{64}$/);
     assert.match(fallback.stderr, new RegExp(`run ${firstId}: could not write the copy of the report to `));
-    const fallbackJson = briefJsonV3.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
+    const fallbackJson = briefJsonV4.parse(JSON.parse((await run(box, 'report', '--run', firstId, '--json')).stdout));
     assert.equal(fallbackJson.local.copy, null);
   });
 

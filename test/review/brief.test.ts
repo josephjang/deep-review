@@ -332,7 +332,8 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
       const applied = briefOf(decidedFixRun().fold()).changed;
       assert.deepEqual([applied.fixed, applied.applied, applied.deferred, applied.patches, applied.commits], [true, ['RIPPLE-1'], [], 1, null]);
-      assert.deepEqual(applied.checks, [{ kind: 'build', before: 'passed', after: 'passed' }, { kind: 'lint', before: 'passed', after: 'passed' }, { kind: 'test', before: 'passed', after: 'passed' }]);
+      const passed = (kind: string): unknown => ({ kind, before: 'passed', last: { outcome: 'passed', when: 'fixes' }, earlier: { passed: 'before', failed: null }, base: null, fault: null });
+      assert.deepEqual(applied.checks, [passed('build'), passed('lint'), passed('test')]);
       assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold()).changed.deferred, ['RIPPLE-1']);
       assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'blocked').fold()).changed.blocked, ['RIPPLE-1']);
     });
@@ -350,10 +351,10 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: [{ ...ran, outcome: 'failed' as const, revisionsBefore: 1 }, { ...ran, attempt: 2, outcome: 'failed' as const, revisionsBefore: 3 }], 'repair-checks': [{ ...ran, phase: 'repair-checks' as const, revisionsBefore: 2 }] } },
       };
       const brief = briefOf({ ...state, review: { ...review, fix: reopened } });
-      assert.deepEqual(brief.changed.checks.find((check) => check.kind === 'test'), { kind: 'test', before: 'passed', after: 'failed' });
+      assert.deepEqual(brief.changed.checks.find((check) => check.kind === 'test')?.last, { outcome: 'failed', when: 'fixes' });
       // With no current run, the run that checked the newest tree stands.
       const stale = { ...reopened, revisions: [...reopened.revisions, fixes] };
-      assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).changed.checks.find((check) => check.kind === 'test')?.after, 'failed');
+      assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).changed.checks.find((check) => check.kind === 'test')?.last?.outcome, 'failed');
     });
 
     describe('the validation of the fixes (R7 of the facts before a merge)', () => {
@@ -721,7 +722,7 @@ describe('the documents a run left out of date in the brief', () => {
     assert.equal(briefOf(leftOne()).headline.text, '3 things need you: 1 question, 1 fix that goes against a written rule and 1 document that the edits of the run left out of date. Nothing waits for you: the question has a default in place.');
     assert.equal(briefOf(leftOne()).headline.documents, 1);
     const clean = documentedFixRun([], undefined, decisions).fold();
-    assert.equal(briefOf(clean).headline.text, 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, and the run left no document out of date that it knows of.');
+    assert.equal(briefOf(clean).headline.text, 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.');
     assert.equal(briefOf(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']]), decisions).fold()).headline.text, '1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.');
   });
 
