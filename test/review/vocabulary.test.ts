@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -126,5 +126,13 @@ describe('the phases', () => {
     for (const id of ['c1', 'c12']) assert.ok(clusterIdSchema.safeParse(id).success, id);
     for (const id of ['c0', 'c', 'C1', 'g1', 'c01']) assert.ok(!clusterIdSchema.safeParse(id).success, id);
     assert.deepEqual(checkKinds, ['build', 'typecheck', 'lint', 'test']);
+  });
+});
+
+describe('the outcomes of a check', () => {
+  it('count failed and timeout as failing, and no other outcome nor a missing run', () => {
+    assert.deepEqual(checkOutcomes.filter((outcome) => failedOrTimedOut(outcome)), ['failed', 'timeout']);
+    assert.equal(failedOrTimedOut(null), false);
+    assert.equal(failedOrTimedOut(undefined), false);
   });
 });
