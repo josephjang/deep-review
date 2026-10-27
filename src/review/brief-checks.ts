@@ -14,7 +14,7 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isEmptyTree } from '../scope/git.ts';
 import { baseNameOf, commitWords } from '../scope/scope-line.ts';
 import { listed } from './markdown.ts';
-import { baseSkipReasons, checkKinds, repairUnitKey, treeCheckPhases, type BaseReading, type BaseSkipReason, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
+import { baseSkipReasons, checkKinds, failedOrTimedOut, repairUnitKey, treeCheckPhases, type BaseReading, type BaseSkipReason, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
 
 /** When a run of a check ran, by its phase (R3 of the facts before a merge): before the fixes, after them, after the repair, or after an answer pass. */
 export const checkMoments = ['before', 'fixes', 'repair', 'answers'] as const;
@@ -92,8 +92,6 @@ export interface BriefCheck {
   /** Its fault, or null for none. */
   readonly fault: CheckFault | null;
 }
-
-const failedOrTimedOut = (outcome: CheckOutcome | null): outcome is 'failed' | 'timeout' => outcome === 'failed' || outcome === 'timeout';
 
 type FaultFacts = Omit<BriefCheck, 'fault'>;
 

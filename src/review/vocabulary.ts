@@ -182,6 +182,9 @@ export const checkOutcomes = ['passed', 'failed', 'timeout', 'not-started', 'ski
 export const checkOutcomeSchema = z.enum(checkOutcomes);
 export type CheckOutcome = z.infer<typeof checkOutcomeSchema>;
 
+/** Whether a run of a check failed or timed out, the outcomes that count as failing, as the repair and the base count them; false for no run. */
+export const failedOrTimedOut = (outcome: CheckOutcome | null | undefined): outcome is 'failed' | 'timeout' => outcome === 'failed' || outcome === 'timeout';
+
 /** The phases whose workers return candidates. */
 export const candidatePhases = ['triage', 'finders', 'sweep'] as const;
 export const candidatePhaseSchema = z.enum(candidatePhases);
