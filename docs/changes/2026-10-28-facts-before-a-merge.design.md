@@ -217,7 +217,7 @@ The vocabulary freezes as `reviewVocabularyV9`, with 20 phases and 5 check phase
 
 `tree.restored` gets no new version, because no run on the base is restored. The phase has no unit, so `attempt.failed` and `unit.unattempted` get none either.
 
-In the fold, `ConfiguredSteps` gets `compared`, true from `review.configured@8`. `configure` skips `base-checks` in a run without it, with a reason in `skipReason`, as it skips `documentation` before version 7. `configuredPhases` in `fix-fold.ts` keeps the phase skipped when a fix pass is pinned or reopened in such a run. The reducers of `check.started` and `check.ran` take the new versions. `status` and the statistics of a run get the phase as each other phase.
+In the fold, `ConfiguredSteps` gets `compared`, true from `review.configured@8`. `configure` skips `base-checks` in a run without it, with a reason in `skipReason`, as it skips `documentation` before version 7. `configuredPhases` in `fix-fold.ts` keeps the phase skipped when a fix pass is pinned or reopened in such a run. In a run configured with the phase, `fixReopened` reopens `base-checks` after `checks`, beside `repair`, `repair-checks` and `report`. A run on the base never grows old, so the reopened phase runs only the kinds that the reopened pass added to `baseKinds`, and each comparison made before stays. A kind added in this way that the repair of the reopened pass does not compare reads as not compared, with the reason that the repair gave no comparison. The reducers of `check.started` and `check.ran` take the new versions. `status` and the statistics of a run get the phase as each other phase.
 
 ### Older runs and older engines (R10)
 
@@ -359,7 +359,7 @@ A test holds that `briefJson` passes `briefJsonV4`, with `after` equal to the ou
 
 ### R10: Older runs and older engines
 
-The fixture `schema-1-16` holds a run with the phase, and every older fixture still opens and folds. A test holds that a run configured with version 7 skips the phase and gets no `not-compared`.
+The fixture `schema-1-16` holds a run with the phase, and every older fixture still opens and folds. A test holds that a run configured with version 7 skips the phase and gets no `not-compared`. Tests of `fix.pinned` and `fix.reopened` hold the phase on runs configured with versions 7 and 8, and that a reopened phase runs only a kind that the reopened pass added.
 
 ### R11: A stop in the phase
 
