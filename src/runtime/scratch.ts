@@ -58,8 +58,10 @@ export function chooseShared(checkpoint: Checkpoint, state: RunState, invocation
  * A directory a worker may write, held outside the run: one inside the
  * reviewed tree would be a stray file in the review, and one inside the
  * checkpoint sits in a git directory a sandboxed runtime keeps read-only.
+ * The worktree of the base is held to it too (R1 of the facts before a
+ * merge).
  */
-function requireOutsideRun(what: string, directory: string, state: RunState, checkpoint: Checkpoint): string {
+export function requireOutsideRun(what: string, directory: string, state: Pick<RunState, 'worktree'>, checkpoint: Pick<Checkpoint, 'root'>): string {
   if (isInside(state.worktree, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the reviewed tree ${state.worktree}`);
   if (isInside(checkpoint.root, directory)) throw new InvalidInvocationError(`The ${what} ${directory} is inside the checkpoint ${checkpoint.root}`);
   return directory;
