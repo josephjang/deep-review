@@ -222,12 +222,17 @@ the notes of the run. The facts of the run come last: its repository,
 commits, engine, runtime, models and settings, the one section that
 names a local path. The command prints the short form of the brief,
 seven lines that each name their subject first, and in a fix run an
-eighth that counts the documents it left out of date, then the copy's
-path as the last line of stdout, and exits 0. Under its line, each open
-question gets its words, the option in place now and deep-review's
-choice, and each fix that goes against a written rule gets where the
-rule is written and the rule, the words of the decider whole, for at
-most three of each; the short form has at most 22 lines. The line of
+eighth that counts the documents it left out of date and a ninth,
+`Checks:`, that says how each check ended and when, and for a check
+that failed before and after the fixes whether its base fails too, then
+the copy's path as the last line of stdout, and exits 0. Under its
+line, each open question gets its words, the option in place now and
+deep-review's choice, and each fix that goes against a written rule
+gets where the rule is written and the rule, the words of the decider
+whole, for at most three of each; the short form has at most 23 lines.
+The headline of a fix run counts a check that the edits of the run
+made fail, and "What deep-review changed" says how the fixers validated
+the fixes. The line of
 the change gives the first sentence of the triage's account whole, and
 in a run whose fixes or answers changed the code it reads
 `The change before the fixes:`, since the account was written before
@@ -235,14 +240,16 @@ them. `deep-review report` shows the brief of the run of this worktree
 with a report whose last event is the latest, after a `Not shown:`
 line for each later run it passed over that says why that run has no
 report; `--run` names another run by its id or its first eight
-characters. With `--json` it prints the JSON form, version 3, which
-names those runs in `notShown` and marks an account written before the
-fixes with `beforeEdits` in `change`; with `--brief`, the whole brief as a
-chat shows it; with `--finding <id>`, the block of one question or one
-fix that goes against a written rule; and with `--fixes`, a line for
-each fix with the subject of its commit message. See
-`docs/changes/2026-10-20-run-brief.requirements.md` and its design, and
-`docs/changes/2026-10-24-questions-in-the-chat.md`.
+characters. With `--json` it prints the JSON form, version 4, which
+names those runs in `notShown`, marks an account written before the
+fixes with `beforeEdits` in `change`, and gives each check its last run
+and when it ran, what its base says and its fault; with `--brief`, the
+whole brief as a chat shows it; with `--finding <id>`, the block of one
+question or one fix that goes against a written rule; and with
+`--fixes`, a line for each fix with the subject of its commit message.
+See `docs/changes/2026-10-20-run-brief.requirements.md` and its design,
+`docs/changes/2026-10-24-questions-in-the-chat.md` and
+`docs/changes/2026-10-28-facts-before-a-merge.requirements.md`.
 A finding's location is matched to a file of the
 repository: one the change touches, or an unchanged file such as a
 caller, marked outside the change; a location that names no such file
