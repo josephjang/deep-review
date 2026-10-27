@@ -365,8 +365,8 @@ function changeInFull(review: ReviewState): string[] {
  * The last section, the facts of the run (R12, R15 of the brief of a
  * run): its repository, its commits, its engine, its runtime, its models,
  * the digest of its roles and its settings, the earlier reports by their
- * names in the store, the counts, the error of git for a worktree of the
- * base it could not make (R5 of the facts before a merge), where the
+ * names in the store, the counts, the error for a worktree of the base
+ * that could not be made (R5 of the facts before a merge), where the
  * evidence store is, how a
  * person at a terminal types a command of the report, and the command that
  * continues a fix pass the run budget stopped. It is the one section that
