@@ -10,7 +10,7 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { baseSkipReasons, budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecordedV4, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
@@ -271,7 +271,8 @@ export function isCutAttempt(review: Pick<ReviewState, 'phases'> & { readonly fi
  * it did not pass in a cut attempt; on the base also for a `build` that
  * passed in the worktree of an earlier attempt, or was skipped in one that
  * had no worktree, while another kind of `baseKinds` is due there, since
- * each attempt makes its worktree anew (TD16); null when the kind may not
+ * each attempt makes its worktree anew (TD16), but not one skipped for the
+ * empty tree, of which no attempt makes one; null when the kind may not
  * run again, since its last current run is its result.
  */
 export type RunStanding =
@@ -288,8 +289,8 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   // A timeout on the base is its result (PD11, TD15 of the facts before a merge): the kind timed out or failed twice on the change already.
   if (phase !== 'base-checks' && last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
   if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
-  // A build on the base is skipped only for a worktree its attempt could not have, which says nothing of the build.
-  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || last.outcome === 'skipped') && last.attempt < current;
+  // A build on the base is skipped only for a worktree its attempt could not have, which says nothing of the build; but no attempt has one of the empty tree, so its skip stands.
+  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || (last.outcome === 'skipped' && last.error !== baseSkipReasons.emptyTree)) && last.attempt < current;
   if (unbuilt && baseKinds(review.fix).some((other) => other !== 'build' && runStanding(review, phase, other) !== null)) return { kind: 'again', run: last, why: 'earlier-worktree' };
   return null;
 }
