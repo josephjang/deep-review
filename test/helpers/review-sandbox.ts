@@ -18,7 +18,7 @@ import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
-import { fakeCheck, fakeCheckCommand } from './fake-check.ts';
+import { fakeCheck, fakeCheckCommand, type CheckPlace } from './fake-check.ts';
 import type { Script } from './fake-runtime.ts';
 import { inProcessRunProbe, inProcessRunProcess } from './in-process-runner.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from './launcher.ts';
@@ -284,6 +284,12 @@ export class ReviewSandbox {
   checkRuns(): string[] {
     const file = `${this.checksFile}.runs`;
     return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((line) => line.length > 0) : [];
+  }
+
+  /** Where each run of the stand-in checks ran, in order, since the rules were last written. */
+  checkPlaces(): CheckPlace[] {
+    const file = `${this.checksFile}.places`;
+    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line) as CheckPlace) : [];
   }
 
   /** The flags of a fix run whose four checks are the stand-in's, named with `--check` so no package manager starts. */
