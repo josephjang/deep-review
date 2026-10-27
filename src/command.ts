@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { sessionStartOutput, storePowerShellWarning } from './runtime/claude-powershell.ts';
+import { checkpointScratchKey, defaultScratchRoot } from './runtime/scratch.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
 import { answerWords } from './checkpoint/answer-state.ts';
 import { answerNoteLengthV1, type Answer } from './checkpoint/events.ts';
@@ -46,6 +47,7 @@ import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
 import { reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
+import { removeBaseTrees } from './review/checks/base.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
@@ -369,7 +371,7 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
     case 'report':
       return report(values, io, location.root, location.worktree);
     default:
-      return abandon(values, io, location.root);
+      return abandon(values, io, location.root, location.worktree);
   }
 }
 
@@ -971,7 +973,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
   }
 }
 
-function abandon(values: Values, io: CommandIo, root: string): number {
+function abandon(values: Values, io: CommandIo, root: string, worktree: string): number {
   if (values.reason === undefined || values.reason.trim() === '') throw new UsageError('--reason <text> is required');
   const checkpoint = openCheckpoint(root, false);
   if (checkpoint === null) throw new UsageError('this repository has no checkpoint, so there is no run to abandon');
@@ -989,6 +991,8 @@ function abandon(values: Values, io: CommandIo, root: string): number {
         // A complete run keeps its report and its status; the ledger could still take the event, since a review run is never closed.
         if (status === 'complete' || status === 'abandoned') throw new UsageError(`run ${state.id} is ${status}; only an active or blocked run can be abandoned`);
         checkpoint.append(state.id, state.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: values.reason } }]);
+        // The run never resumes, so no later command of it removes the worktrees of the base a stop or a crash left (R1, R11 of the facts before a merge).
+        removeBaseTrees({ runId: state.id, worktree, scratch: join(defaultScratchRoot(), checkpointScratchKey(checkpoint)), checkpointRoot: checkpoint.root, environment: io.environment, log: (line) => io.stderr(`run ${state.id}: ${line}\n`) });
       } finally {
         release();
       }

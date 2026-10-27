@@ -51,7 +51,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(review.configuration.fix, true);
     assert.deepEqual(Object.fromEntries(Object.entries(review.phases).map(([phase, value]) => [phase, value.status])), {
       survey: 'completed', triage: 'completed', finders: 'completed', deduplication: 'completed', verification: 'completed', sweep: 'completed', 'sweep-deduplication': 'completed', 'sweep-verification': 'completed', 'merge-rank': 'completed',
-      decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', documentation: 'completed', checks: 'completed', 'base-checks': 'skipped', repair: 'completed', 'repair-checks': 'completed', answer: 'skipped', 'answer-checks': 'skipped', report: 'completed',
+      decision: 'completed', 'baseline-checks': 'completed', fixes: 'completed', documentation: 'completed', checks: 'completed', 'base-checks': 'completed', repair: 'completed', 'repair-checks': 'completed', answer: 'skipped', 'answer-checks': 'skipped', report: 'completed',
     });
     // A run with the documentation step holds a version the step added only in its configuration, its plan, and the events that name the step (TD5 of the documentation step).
     const added = new Set<string>(documentationStepEntries.filter((entry) => entry !== 'review.configured@7' && entry !== 'documentation.planned@1'));

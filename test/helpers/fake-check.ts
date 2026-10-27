@@ -9,7 +9,10 @@
 //   { "exit": <code> }              exit with the code, as a check a kill ended with a kill mark does
 //   { "replace": { "<path>": { "from": "<text>", "to": "<text>" } } }   rewrite each file that holds `from` with `to` in its place, as a formatter does, then pass
 //   { "failIfContains": { "<path>": "<text>" } }   fail while a file holds the text, pass otherwise
-// Every run appends `<kind>` to `<FAKE_CHECKS>.runs`, so a test sees what ran and in what order.
+// Every run appends `<kind>` to `<FAKE_CHECKS>.runs`, so a test sees what ran and in what order,
+// and a line of JSON to `<FAKE_CHECKS>.places` with where it ran: its working directory, the HEAD
+// git records for it, and the variables of its environment that name a repository or a path a
+// check loads from (see CheckPlace).
 // With FAKE_START_DIR set, every run also appends `check <kind>` to its
 // `starts` file, and the run FAKE_HOLD names holds after the writes of its
 // rule, before it exits (see holdIfNamed in fake-host.ts, the protocol a
@@ -18,10 +21,29 @@
 // does; checkFake runs it on any host (fake-host.ts). It imports nothing of
 // the other helpers but fake-host.ts, and of the engine only a type, so a
 // check starts as fast as a real one.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { CheckKind } from '../../src/review/vocabulary.ts';
 import { holdIfNamed, processHost, type FakeHost } from './fake-host.ts';
+
+/** Where a run of the stand-in check ran: its working directory, what `HEAD` there holds, and the variables `placeVariables` names, null when unset. */
+export interface CheckPlace {
+  readonly kind: string;
+  readonly cwd: string;
+  readonly head: string | null;
+  readonly environment: Readonly<Record<string, string | null>>;
+}
+
+/** The variables a CheckPlace records. */
+const placeVariables = ['GIT_DIR', 'PATH', 'PYTHONPATH'] as const;
+
+/** What `HEAD` holds for the worktree at `cwd`: a commit for a detached one, a ref otherwise; in a linked worktree `.git` is a file that names its git directory. Null where none is. */
+function headAt(cwd: string): string | null {
+  const dotGit = join(cwd, '.git');
+  if (!existsSync(dotGit)) return null;
+  const gitdir = /^gitdir: (.+)$/m.exec(statSync(dotGit).isFile() ? readFileSync(dotGit, 'utf8') : '')?.[1]?.trim();
+  return readFileSync(join(gitdir === undefined ? dotGit : resolve(cwd, gitdir), 'HEAD'), 'utf8').trim();
+}
 
 /** The stand-in check's script, steered by FAKE_CHECKS (see the top of this file). */
 export const fakeCheck = resolve(import.meta.dirname, 'fake-check.ts');
@@ -60,7 +82,13 @@ export function checkStartsGrandchild(environment: NodeJS.ProcessEnv, kind: stri
 export async function checkFake(host: FakeHost): Promise<number> {
   const kind = host.args[0] ?? 'unknown';
   const control = host.environment.FAKE_CHECKS;
-  if (control !== undefined) appendFileSync(`${control}.runs`, `${kind}\n`);
+  if (control !== undefined) {
+    appendFileSync(`${control}.runs`, `${kind}\n`);
+    // Windows takes any spelling of a name for it.
+    const variable = (name: string): string | null => Object.entries(host.environment).find(([key]) => (process.platform === 'win32' ? key.toUpperCase() === name : key === name))?.[1] ?? null;
+    const place: CheckPlace = { kind, cwd: host.cwd, head: headAt(host.cwd), environment: Object.fromEntries(placeVariables.map((name) => [name, variable(name)])) };
+    appendFileSync(`${control}.places`, `${JSON.stringify(place)}\n`);
+  }
   const given = rulesOf(host.environment)[kind] ?? 'pass';
   let rule: Rule;
   if (Array.isArray(given)) {

@@ -47,6 +47,7 @@ import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckSet
 import { claimsDirectories } from './claims-directories.ts';
 import { checkSettingsInForce, checkSettingsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckSettings, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
 import { caseInsensitiveFileSystem } from './claims.ts';
+import { baseEnvironment, makeBaseTree, removeBaseTrees, type BaseTree, type BaseTreeContext } from './checks/base.ts';
 import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
@@ -77,7 +78,7 @@ import { budgetBlocker, nextStep, truncated, type DueCheck, type Live, type Unit
 import { checkSettingWords, resolveChecks, surveyFailure, type SurveyInputs } from './survey.ts';
 import { claimPathPlaceholder, snapshotIndexPlaceholder, type ChangeMessages } from './tasks.ts';
 import type { ExpectedMatch } from './tree.ts';
-import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, isTreeCheckPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type Phase, type PinnedUse, type TreeCheckPhase } from './vocabulary.ts';
+import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, isTreeCheckPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse, type TreeCheckPhase } from './vocabulary.ts';
 
 /**
  * The scope a command asks for. It is resolved when the run it acts on
@@ -568,8 +569,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
-      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 7 says the run has the documentation step (TD4 of the documentation step).
-      state = append(checkpoint, state, [{ kind: 'review.configured', version: 7, payload: configure.payload }]);
+      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 8 says the run has the documentation step (TD4 of the documentation step) and the checks on the base (TD8 of the facts before a merge).
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 8, payload: configure.payload }]);
       const pinnedNow = configure.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure.resolved)) log(line);
@@ -673,9 +674,33 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         log(reason === undefined ? `check ${check.kind} (${phase}): wrote back ${file.path}, ${changed}; the bytes before are ${bytes}` : `check ${check.kind} (${phase}): did not write back ${file.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
       }
     };
+    /** What makes and removes the run's worktrees of the base, with its lines in the log of the phase (R1, R11 of the facts before a merge). */
+    const baseTrees: BaseTreeContext = { runId, worktree: options.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
+    /**
+     * Where the checks of an attempt of `base-checks` run: the worktree of
+     * the base, or why there is none, and the environment of its checks,
+     * made at the attempt's first due check, since each attempt makes its
+     * own (TD16 of the facts before a merge); null until then, and once the
+     * phase removed its worktrees.
+     */
+    let onBase: { readonly attempt: number; readonly tree: BaseTree; readonly environment: NodeJS.ProcessEnv } | null = null;
+    const baseOf = (attempt: number): { readonly tree: BaseTree; readonly environment: NodeJS.ProcessEnv } => {
+      if (onBase?.attempt === attempt) return onBase;
+      const tree = makeBaseTree(baseTrees, scope.base);
+      const base = baseEnvironment(environment, options.worktree, toolsPath);
+      // No event carries the environment of a check, so the log names what the phase changed in it.
+      if (tree.kind === 'made' && base.changed.length > 0) log(`phase base-checks: its checks run without ${base.changed.join('; ')}`);
+      onBase = { attempt, tree, environment: base.environment };
+      return onBase;
+    };
+    /** Remove every worktree of the base the run has (TD3 of the facts before a merge). */
+    const removeBase = (): void => {
+      removeBaseTrees(baseTrees);
+      onBase = null;
+    };
     /**
      * Run one due check, or record it skipped, and append what it did: its
-     * start before it runs (R7 of resumable runs), then its `check.ran@3`,
+     * start before it runs (R7 of resumable runs), then its `check.ran`,
      * which names the run it replaces (R3), and a revision when it wrote
      * to files the run expects or to any other tracked file (R9, TD6 of the
      * fix pass; PD9 of commit series integrity), judged against a manifest
@@ -684,14 +709,22 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
      * writes are no work of a complete check, so the files the run expects
      * are written back in the same step, and the check runs once more. The
      * engine runs at most one check, and no worker, at a time, so it awaits
-     * the check here.
+     * the check here. A check on the base runs in the worktree of the base
+     * of its attempt, with the environment of a check there, and takes no
+     * manifest, records no revision and writes nothing back, since it
+     * never touches the reviewed worktree (R1, TD14 of the facts before a
+     * merge); an attempt with no worktree of the base records each due
+     * kind skipped with the reason.
      */
-    const runDueCheck = async (phase: TreeCheckPhase, attempt: number, due: DueCheck): Promise<void> => {
+    const runDueCheck = async (phase: CheckPhase, attempt: number, due: DueCheck): Promise<void> => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
-      if (due.skip !== null) {
-        log(`check ${due.kind} (${phase}): skipped, ${due.skip}`);
+      const base = isTreeCheckPhase(phase) ? null : baseOf(attempt);
+      // An attempt with no worktree of the base gives each kind that reason over the planner's: its build was skipped for want of one, not failed (R5 of the facts before a merge).
+      const skip = base?.tree.kind === 'none' ? base.tree.reason : due.skip;
+      if (skip !== null) {
+        log(`check ${due.kind} (${phase}): skipped, ${skip}`);
         const now = new Date().toISOString();
-        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: due.skip, replaces };
+        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip, maxRecordedTextLength), replaces };
         state = append(checkpoint, state, [{ kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: skipped }]);
         return;
       }
@@ -700,12 +733,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const timeoutMs = configuration.checks?.timeoutMs;
       if (timeoutMs === undefined) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
       state = append(checkpoint, state, [{ kind: 'check.started', version: writtenVersion('check.started', [phase]), payload: { phase, attempt, kind: due.kind, command: due.command } satisfies CheckStarted }]);
-      const manifest = prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree);
+      const manifest = base === null ? prepareCheckManifest(join(scratchBase, runId, 'checks', `${phase}-${due.kind}`), options.worktree) : null;
       const result = await runCheck(checkpoint.evidence, {
         command: due.command,
-        worktree: options.worktree,
-        environment,
-        toolsPath,
+        worktree: base?.tree.kind === 'made' ? base.tree.path : options.worktree,
+        environment: base?.environment ?? environment,
+        // The environment of a check on the base has the directories of tools.path already, less those inside the reviewed worktree.
+        toolsPath: base === null ? toolsPath : [],
         timeoutMs,
         ioDirectory: join(checkpoint.root, ioDirectoryName, `check-${randomUUID()}`),
         ...(options.runProcess === undefined ? {} : { runProcess: options.runProcess }),
@@ -718,6 +752,11 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
       const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces };
       const recorded: NewEvent = { kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: ran };
+      // A run on the base, which alone takes no manifest, wrote nothing of the reviewed worktree to write back or record as a revision (TD14 of the facts before a merge).
+      if (!isTreeCheckPhase(phase) || manifest === null) {
+        state = append(checkpoint, state, [recorded]);
+        return;
+      }
       // A run a kill ended, the engine's at the timeout or one from outside with a kill mark or no result from its guard, a second cut recorded failed among them, records no revision: what it wrote is written back instead. The run as recorded decides it, through the predicate the replay reads (`killedRun`), so the write back here and the one after a stop cannot disagree on a kill.
       if (killedRun(ran)) {
         restore(phase, attempt, { kind: due.kind, attempt }, restoredFiles(state, options.worktree, content.match, checkpoint.evidence), [recorded]);
@@ -753,6 +792,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           state = append(checkpoint, state, [{ kind: 'phase.started', version: writtenVersion('phase.started', [step.phase]), payload: { phase: step.phase, attempt: step.attempt } }]);
           break;
         case 'check-worktree': {
+          // What a stop or a crash left of the worktrees of the base goes before the attempt checks the reviewed worktree, so a drift block leaves none (R11, TD3 of the facts before a merge).
+          if (step.phase === 'base-checks' && step.moment === 'start') removeBase();
           // A drifted check blocks the attempt at the next step, through the planner's one drift rule.
           const { payload: check, unlisted } = phaseCheck(state, options.worktree, step.phase, step.attempt, step.moment, content.match);
           if (check.drifted) log(`phase ${step.phase}: the worktree ${step.moment === 'restored' ? 'still differs from what the run expects after the write back' : 'drifted from what the run expects'}: ${driftList(check)}`);
@@ -798,8 +839,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           break;
         }
         case 'run-check':
-          // No run this engine configures has the checks on the base, which run in a worktree of their own (R1 of the facts before a merge).
-          if (!isTreeCheckPhase(step.phase)) throw new Error(`Run ${runId} has a check due on the base, which this engine does not run`);
           await runDueCheck(step.phase, step.attempt, step.check);
           break;
         case 'degrade': {
@@ -868,6 +907,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           await recordSettled(inFlight, record);
           break;
         case 'finish-phase':
+          // Before the phase's end, so no crash after it leaves a worktree of the base that no later attempt removes (TD3 of the facts before a merge).
+          if (step.phase === 'base-checks') removeBase();
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? '' : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
           state = append(checkpoint, state, [{ kind: 'phase.finished', version: writtenVersion('phase.finished', [step.phase]), payload: { phase: step.phase, attempt: step.attempt, outcome: step.outcome, blocker: step.blocker } }]);
           break;
