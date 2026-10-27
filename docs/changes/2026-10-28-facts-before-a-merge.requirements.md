@@ -91,7 +91,7 @@ A fix that the fixer could not validate well does not become a condition of "Whe
 
 ### R1: A check that failed before the fixes and after them runs once more on the base
 
-In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree after the check. The output is kept as evidence, as for each other run of a check.
+In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree after the check. The output is kept as evidence, as for each other run of a check. A check that times out on the base does not run there again (PD11).
 
 The run installs nothing in the worktree (PD2). When the base is the empty tree, the check does not run there, and the brief says why. A check that passed before the fixes, or that passed after them, does not run on the base. The base runs before the repair, once in each fix run.
 
@@ -237,6 +237,10 @@ As for the brief of a run, the documentation step and the questions in the chat,
 ### PD10: A gate run with a check that the change breaks
 
 The gate runs on pallets/click #3878 show a check whose base has the same failures. No natural run shows a check that the change breaks, which is the case that PD4 sends away from the headline. A run with a check command given by `--check`, which passes on the base and fails on the change, shows that case with real output. On 2026-10-28, the author asked for this run.
+
+### PD11: A timeout on the base is its result
+
+A check that timed out runs again once in its attempt (PD7 of resumable runs). The author chose that on 2026-10-19, because a second run tells a slow moment of the machine from a real hang. This proposal departs from that choice for the run on the base. A kind runs on the base only after it failed or timed out both before and after the fixes, and each of those runs could already run again after a timeout. One more run on the base costs up to the timeout again, 20 minutes by default, and the metric of the time allows less than a tenth of the run. Thus a timeout on the base is its result. The repair reads its output as it reads a failure there, and it says so when it cannot compare. The next note, or a later proposal, can bring back the second run if a gate shows a timeout on the base from a slow moment.
 
 ## Against the vision note
 

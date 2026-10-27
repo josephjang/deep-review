@@ -88,7 +88,7 @@ Each fixer reports `validation` for each finding, with a `method` among `old-cod
 
 `base-checks` comes after `checks` and before `repair` in `phases` and `fixPhases`, and it joins `checkPhases`. It is a check phase: it runs checks and no worker, and the planner walks it as it walks the others.
 
-The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it. The rule that skips each kind after a failed `build` does not hold in this phase (TD4). With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
+The kinds due in the phase are `baseKinds(fix)`: the kinds of `repairTargets(fix)` for which `failedAtBaseline(fix, kind)` holds. A kind is due while `runStanding` of the phase is not null for it, with one difference: in this phase a timeout is a result, and a kind that timed out on the base does not run there again (PD11, TD15). A cut run still runs again, as in each check phase. The rule that skips each kind after a failed `build` does not hold in this phase (TD4). With no kind due, the phase finishes as completed at once, as `checks` does when no fix changed a file.
 
 `stalingPhases['base-checks']` and `markingPhases['base-checks']` are empty: a run on the base never grows old, since no edit of the run changes the base (TD5).
 
@@ -301,6 +301,10 @@ R7 of resumable runs writes back the writes of a check that a kill cut short, be
 
 The design rejects a new version of `tree.restored` that names the phase. The write back would then put the expected bytes over the edit of the person. With no change at all, `restoreStep` would name a run on the base, and the append of `tree.restored@1` would refuse its phase at each resume, so the run could only be abandoned.
 
+### TD15: `runStanding` gives no second run after a timeout in the phase
+
+`runStanding` takes the phase and gives `again` for a first timeout only in the other check phases. The other reasons to run again, a cut run and a cut attempt, hold in this phase too, since a stop says nothing of the check. This is the mechanism of PD11.
+
 ## Open Questions
 
 ### How long does a run on the base take?
@@ -319,7 +323,7 @@ A long path on Windows, or a file that another program holds when the phase remo
 
 ### R1: The run on the base
 
-A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, each of them after a failed `build`, and none when no kind failed before and after the fixes. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
+A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, each of them after a failed `build`, and none when no kind failed before and after the fixes. It also holds that a kind that times out on the base runs once, and that a cut run there runs again. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
 
 ### R2: The comparison
 
