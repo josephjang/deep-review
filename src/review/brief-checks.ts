@@ -100,21 +100,27 @@ export interface BriefCheck {
 
 const failedOrTimedOut = (outcome: CheckOutcome | null): outcome is 'failed' | 'timeout' => outcome === 'failed' || outcome === 'timeout';
 
+type FaultFacts = Omit<BriefCheck, 'fault'>;
+
+// A timeout counts as a failure, as the repair counts it (R4).
+const failsNow = ({ last }: FaultFacts): boolean => last !== null && failedOrTimedOut(last.outcome);
+
+/** A fault read from the base: it holds for a kind the run took there, and only while its last run fails, since the merge question is about the tree now (R5). */
+const fromBase = (holds: (base: BriefBase) => boolean) => (check: FaultFacts): boolean => failsNow(check) && check.base !== null && holds(check.base);
+
 /**
  * Whether each fault holds of a check (R4, R5; the table of the design).
- * A check takes the first fault of `checkFaults` that holds. A fault that
- * reads the base holds only for a kind the run took there. `base-has` and
- * `not-compared` never both hold, so this order, the order the line
+ * A check takes the first fault of `checkFaults` that holds. `base-has`
+ * and `not-compared` never both hold, so this order, the order the line
  * `Checks:` names them in, gives each check the fault of the design's
  * table, which lists `base-has` first.
  */
-const faultHolds: Readonly<Record<CheckFault, (check: Omit<BriefCheck, 'fault'>) => boolean>> = {
-  // A timeout counts as a failure, as the repair counts it (R4).
-  edits: ({ last, earlier }) => last !== null && failedOrTimedOut(last.outcome) && earlier.passed !== null,
-  'change-breaks': ({ base }) => base?.outcome === 'passed',
-  'change-adds': ({ base }) => base?.reading === 'adds',
-  'not-compared': ({ base }) => base !== null && base.reason !== null,
-  'base-has': ({ base }) => base?.reading === 'same',
+const faultHolds: Readonly<Record<CheckFault, (check: FaultFacts) => boolean>> = {
+  edits: (check) => failsNow(check) && check.earlier.passed !== null,
+  'change-breaks': fromBase((base) => base.outcome === 'passed'),
+  'change-adds': fromBase((base) => base.reading === 'adds'),
+  'not-compared': fromBase((base) => base.reason !== null),
+  'base-has': fromBase((base) => base.reading === 'same'),
 };
 
 /** A run of a check after the fixes, with its phase. */
