@@ -115,6 +115,26 @@ describe('removeBaseTrees', () => {
     assert.deepEqual(entries(repo), others, 'a second removal changes nothing');
   });
 
+  it('lists the worktrees by line, and removes the run\'s, on a git before 2.36 that refuses -z', { skip: process.platform === 'win32' && 'a POSIX shell script stands in for git' }, (t) => {
+    const { directory, repo, base, context, logs } = sandbox(t);
+    const here = makeBaseTree(context(), base);
+    const gone = makeBaseTree(context(), base);
+    assert.ok(here.kind === 'made' && gone.kind === 'made');
+    rmSync(gone.path, { recursive: true, force: true });
+    git(repo, 'worktree', 'add', '--detach', join(directory, 'person'), base);
+    const others = entries(repo).filter((entry) => entry[0] !== `worktree ${here.path}` && entry[0] !== `worktree ${gone.path}`);
+    // git 2.32 to 2.35 has `worktree add --lock --reason` but no `worktree list -z`.
+    const bin = join(directory, 'old-git');
+    write(bin, 'git', `#!/bin/sh\nif [ "$1" = worktree ] && [ "$2" = list ]; then for a; do if [ "$a" = -z ]; then echo "error: unknown switch \\\`z'" >&2; exit 129; fi; done; fi\nexec "${join(git(repo, '--exec-path'), 'git')}" "$@"\n`);
+    chmodSync(join(bin, 'git'), 0o755);
+
+    removeBaseTrees(context({ environment: { ...process.env, PATH: [bin, process.env.PATH].join(delimiter) } }));
+    assert.deepEqual(entries(repo), others);
+    assert.equal(existsSync(here.path), false);
+    assert.ok(logs.some((line) => line.startsWith('could not list the worktrees of the base with -z, listing them by line: ')), logs.join('\n'));
+    assert.ok(logs.filter((line) => line.startsWith('removed the worktree of the base at ')).length === 2, logs.join('\n'));
+  });
+
   it('logs what it cannot remove and does not throw', (t) => {
     const { directory, context, logs } = sandbox(t);
     assert.doesNotThrow(() => removeBaseTrees(context({ worktree: join(directory, 'no-repository') })));
