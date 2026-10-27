@@ -385,7 +385,35 @@ The gate records each run of R12: the line `Checks:`, the headline and the gaps,
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The work is in pull request #84, after the proposal and the commits of its review. It came in units: the ledger (one table for the version of each event that names a phase, the phase in the vocabulary, the new event versions, the fold and the golden fixture `schema-1-16`); the fixed reasons a check does not run on the base; the planner, the controller and the worktree of the base; the comparison of the repair; the brief, the short form, the JSON form and the report; then the fixes the joined units needed, the contract test, the README and the build of `dist/`. Each commit passes typecheck and lint alone.
+
+At the head of the work, `npm run check` passed (2988 tests: 2975 passed, 0 failed, 13 skipped), and `npm run verify` passed. `npm run build` changed only the engine bundle of each artifact and its hash: no skill text and no role prompt changed, so the digest of the roles stays (TD6).
+
+`npm run test:contract` passed 85 of 85. A second scenario joins the first: its `typecheck` fails before and after the fixes, so the phase on the base and the comparison of the repair run there. Its stop points include the moments around `git worktree add` and `git worktree remove`, each run on the base, and the moment just before the phase ends. Its part "no orphan" reads `git worktree list --porcelain` too, and it caught the worktree that was left when the removal before the end of the phase was turned off on purpose. `npm run resume-test` ran every stop point of both scenarios, 984 cases, and none broke.
+
+Each rule that the phase adds to the fold was broken once on purpose, and a test failed each time.
+
+### Changes of the proposal during the work
+
+- TD16: each attempt makes the worktree of the base again, so a `build` that passed there in an earlier attempt runs again while another kind is due. The same holds for a `build` skipped in an earlier attempt that had no worktree, which a reopened fix pass can meet.
+- The variables that a check on the base runs without are named in the log of the run, not in the report, since no event carries them.
+- A fault read from the base holds only while the last run of the kind fails or times out. A check that an answer pass made pass reads as passing now, with no gap (R5 and the table of `fault`).
+- The list of the repository variables of git is in `src/runtime/git-sync.ts`, not in `checks/base.ts`.
+
+Choices of the work that the design leaves open:
+
+- The directory of a worktree of the base is named `<run id>-base-` and a random suffix, so that its removal never touches the directory of the run that holds its claims. The hooks path is a sibling of it that nothing creates.
+- `git worktree add` gets 10 minutes, and its removal the same. The worktrees of a run are listed with `git worktree list --porcelain -z`, which needs git 2.36 or later.
+- The base of the empty tree and a worktree that git refuses are both handled where the worktree is made, and their reason holds for the whole attempt.
+- `base` of a check in the brief is set for each kind that the phase took, so that a gap of a kind not compared can name the base.
+- The line `Checks:` has one more row, after `base-has`: a check that failed before and after the fixes with no fault, in a run configured before this change or for a kind the phase did not take, reads `<kind> failed before and after the fixes`.
+- The fold takes comparisons from the repair alone, and only of the kinds that failed or timed out on the base.
+
+### The gate (R12)
+
+Not run yet. The runs on pallets/click #3878 in Claude Code and in Codex, the run there with a check command that passes on the base and fails on the change, and a run of deep-review on this pull request are still to come, and with them the metrics of the requirements. CI has not run on the head of the work yet.
 
 ## Risks & Migration
 
