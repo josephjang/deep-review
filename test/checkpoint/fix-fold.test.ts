@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
-import { baseKinds, budgetStoppedUnits, clusterClaims, committedRevisions, comparableKinds, cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, exactPath, failedAtBaseline, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, lastRecordedRun, openStart, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
+import { baseKinds, budgetStoppedUnits, clusterClaims, committedRevisions, comparableKinds, cutShortBefore, cutShortChecks, earlierTreeEdit, emptyFixState, exactPath, failedAtBaseline, failingBaselineRun, firstRoundHolders, fixesRevisedPaths, heldByAnother, heldByOthers, heldInRoundByOthers, holdersKeyedBy, isCutAttempt, isOldRun, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastCurrentRun, lastFreshRun, lastRecordedRun, openStart, ownedFiles, repairTargets, revisionMessageOf, runHead, runStanding, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type FixState } from '../../src/checkpoint/fix-state.ts';
 import type { DocumentationItem, TreeRevised } from '../../src/checkpoint/events.ts';
 import { standingAnswer } from '../../src/checkpoint/answer-state.ts';
 import { firstUnknownEvent, foldRun } from '../../src/checkpoint/fold.ts';
@@ -1139,6 +1139,9 @@ describe('the checks on the base in the fix state', () => {
     const fix = history.review().fix!;
     assert.deepEqual(repairTargets(fix), ['lint', 'test']);
     assert.deepEqual(baseKinds(fix), ['lint'], 'test passed before the fixes, so no base can say the change broke it');
+    assert.equal(failingBaselineRun(fix, 'lint'), lastFreshRun(fix, 'baseline-checks', 'lint'));
+    assert.equal(failingBaselineRun(fix, 'test'), null, 'test passed before the fixes');
+    assert.equal(failingBaselineRun(onBase({ lint: 'timeout' }).review().fix!, 'lint')?.outcome, 'timeout', 'a timeout fails as the repair counts it');
     assert.equal(takenOnBase(withFix(history), 'build'), true, 'lint reads what build produces');
     refused(history.clone().add('check.started', startOnBase('test'), 2), /starts the test check on the base, which takes only \[lint\], and build while another of them is due/);
     refused(history.clone().add('check.ran', { ...checkRun('base-checks', 'test', 'skipped'), replaces: null }, 4), /runs the test check on the base, which takes only \[lint\]/);
