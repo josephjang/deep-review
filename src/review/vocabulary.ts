@@ -384,7 +384,7 @@ export type BaseReading = z.infer<typeof baseReadingSchema>;
 export const baseSkipReasons = {
   emptyTree: 'the base of the change is the empty tree',
   noWorktree: 'no worktree of the base could be made',
-  buildFailed: 'the build failed on the base',
+  buildFailed: 'the build did not pass on the base',
 } as const;
 export type BaseSkipReason = keyof typeof baseSkipReasons;
 

@@ -378,7 +378,7 @@ const readingWords: Readonly<Record<BaseReading, string>> = {
 const notRunOnBase: Readonly<Partial<Record<NotComparedReason, (kinds: string) => string>>> = {
   'empty-tree': (kinds) => `${kinds} did not run there, since the base of the change is the empty tree.`,
   'no-worktree': (kinds) => `${kinds} did not run there, since no worktree of the base could be made; the facts of the run give the error of git.`,
-  'build-failed': (kinds) => `${kinds} did not run there, since the build failed on the base.`,
+  'build-failed': (kinds) => `${kinds} did not run there, since the build did not pass on the base.`,
   'not-run': (kinds) => `${kinds} did not run there.`,
 };
 

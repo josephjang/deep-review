@@ -787,8 +787,8 @@ describe('the repair task', () => {
     });
 
     it('gives why a check did not run or start on the base, and asks for no entry for it', () => {
-      const skipped = task([onBaseOf({ outcome: 'skipped', reason: 'the build failed on the base' })]);
-      assert.match(skipped, /\n {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: the build failed on the base\n\nFiles you own/);
+      const skipped = task([onBaseOf({ outcome: 'skipped', reason: 'the build did not pass on the base' })]);
+      assert.match(skipped, /\n {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: the build did not pass on the base\n\nFiles you own/);
       const unstarted = task([onBaseOf({ outcome: 'not-started', reason: 'spawn npm ENOENT' })]);
       assert.match(unstarted, /\n {4}It did not start on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: spawn npm ENOENT\n\nFiles you own/);
       for (const text of [skipped, unstarted]) assert.match(text, / Return `comparisons` empty: no check above failed or timed out on the base of the change\.$/m);

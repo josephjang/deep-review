@@ -34,7 +34,7 @@ const momentOf: Readonly<Record<TreeCheckPhase, CheckMoment>> = { 'baseline-chec
 /**
  * Why the run could not compare a check it took to the base (R5 of the
  * facts before a merge): the base is the empty tree, no worktree of it
- * could be made, the build failed there, the check did not start or did
+ * could be made, the build did not pass there, the check did not start or did
  * not run there, the repair gave no comparison, or the repair could not
  * compare the outputs.
  */
