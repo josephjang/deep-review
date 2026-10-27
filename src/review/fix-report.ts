@@ -186,7 +186,7 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
  * of the run and `status` each prefix, in the order of the checks phases: each run that replaced one, with both
  * outcomes, by why it ran again (a cut, a first timeout, a stop of its
  * attempt, or, for a build on the base, the worktree its attempt makes
- * anew, with no stop at all); each start with no end on record; each file written back,
+ * anew, after a stop or with none); each start with no end on record; each file written back,
  * with where the bytes it overwrote are; and a series of commits a stop
  * left open, or that was dropped, by the next command or by a refused move
  * of the branch.
