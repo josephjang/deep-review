@@ -91,7 +91,7 @@ A fix that the fixer could not validate well does not become a condition of "Whe
 
 ### R1: A check that failed before the fixes and after them runs once more on the base
 
-In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree after the check. The output is kept as evidence, as for each other run of a check. A check that times out on the base does not run there again (PD11).
+In a fix run, a check that failed or timed out before the fixes, and again after them, runs once more on the base of the change. The base is the commit that the scope starts from: the merge base for a branch, the parent for the last commit, and `HEAD` for the working tree. The run makes a temporary worktree of that commit and runs the same command there, with the same timeout. It removes the worktree before the phase ends. A later command of the run, or its abandon, removes a worktree that a stop or a crash left, and the run touches no other worktree of the repository. The output is kept as evidence, as for each other run of a check. A check that times out on the base does not run there again (PD11).
 
 The run installs nothing in the worktree (PD2). When the base is the empty tree, the check does not run there, and the brief says why. A check that passed before the fixes, or that passed after them, does not run on the base. The base runs before the repair, once in each fix run.
 
@@ -252,7 +252,7 @@ The output of each check on the base is kept as evidence, and the report names i
 
 ### Principle 2, record before action
 
-A run on the base edits nothing. The repair edits as it does today, and only for the failures that the fixes added (PD8).
+A run on the base edits no file of the reviewed tree. While the phase runs, the git directory of the repository holds one locked entry for its worktree, which the phase removes. The repair edits as it does today, and only for the failures that the fixes added (PD8).
 
 ### Principle 5, the core, the questions, and the departures go to the person
 
@@ -308,7 +308,7 @@ A test that fails under the load of the machine, as in the gate of the questions
 
 ### A worktree stays on the disk
 
-A crash of the engine can leave the worktree of the base. The run removes it when it resumes (R11), and the design says what removes a worktree that no run resumes.
+A crash of the engine can leave the worktree of the base. The next command of the run removes it, and `abandon` removes the worktree of a run that does not resume (R1, R11). Git keeps the record of the worktree with the id of the run, so the run finds it from any later command.
 
 ### A program reads the JSON form
 
