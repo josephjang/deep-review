@@ -108,7 +108,7 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     const emptyTree = (history: ReturnType<typeof checkedRun>): RunState => { const state = onBranch(history); return { ...state, scope: { ...state.scope!, base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' } }; };
     assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'the base of the change is the empty tree']] }, emptyTree), [gap('the base of the change is the empty tree', 'the empty tree')]);
     assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'no worktree of the base could be made: fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] }), [gap('no worktree of the base could be made')]);
-    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'the build failed on the base']] }), [gap('the build failed on the base')]);
+    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }), [gap('the build did not pass on the base')]);
     assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'not-started']] }), [gap('the check did not start on the base')]);
     assert.deepEqual(notCompared({ base: [] }), [gap('the check did not run on the base')]);
     assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), [gap('the repair gave no comparison')]);
@@ -131,7 +131,7 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
   });
 
   it('gives the build that only prepares the base no fault and no gap of its own', () => {
-    const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build failed on the base']] }));
+    const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }));
     assert.deepEqual([check(brief, 'build').base, check(brief, 'build').fault], [null, null]);
     assert.equal(checkGaps(brief).length, 1);
   });
