@@ -21,7 +21,7 @@ import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type C
 import type { ArtifactReference } from '../evidence/store.ts';
 import { briefMarkdown, briefOf, missingAccountWords } from './brief.ts';
 import { answeringLine, decisionLine, decisionsSection } from './decision-report.ts';
-import { fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
+import { baseWorktreeLines, fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { codeSpan, findingAnchor, inlineText, listed, localPathWords, paragraphText, tableCell } from './markdown.ts';
@@ -365,7 +365,9 @@ function changeInFull(review: ReviewState): string[] {
  * The last section, the facts of the run (R12, R15 of the brief of a
  * run): its repository, its commits, its engine, its runtime, its models,
  * the digest of its roles and its settings, the earlier reports by their
- * names in the store, the counts, where the evidence store is, how a
+ * names in the store, the counts, the error of git for a worktree of the
+ * base it could not make (R5 of the facts before a merge), where the
+ * evidence store is, how a
  * person at a terminal types a command of the report, and the command that
  * continues a fix pass the run budget stopped. It is the one section that
  * names a local path the engine writes, so a later publication can leave
@@ -401,6 +403,7 @@ function factsOfRun(state: RunState, scope: ScopeState, review: ReviewState, inp
     ...reopenedLine(review),
     `Findings: ${String(findings.length)} (${String(confirmed)} CONFIRMED, ${String(findings.length - confirmed)} PLAUSIBLE); ${String(refuted(review).length)} refuted at verification`,
     ...[fixHeaderLine(review)].filter((line) => line !== null),
+    ...baseWorktreeLines(review),
     `Evidence store: ${inlineText(input.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is the file <hash> in it.`,
     ...(answering.length === 0 ? [] : ['', ...answering]),
     ...continuing,

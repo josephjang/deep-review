@@ -7,6 +7,7 @@ import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts'
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
+import { checkedRun, onBranch, type ChecksOfRun } from '../helpers/base-checks-history.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, documentationAnswer, documentationItems, documentedFixRun, endCheck, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput, type History } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
@@ -564,5 +565,50 @@ describe('the Documentation section of the report', () => {
     const text = section(repaired);
     assert.match(text, /\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- docs\/api\.md: the check name changed \(the repair\)\n/);
     assert.doesNotMatch(text, /the fixers say/);
+  });
+});
+
+describe('the runs on the base in the Checks section (R8 of the facts before a merge)', () => {
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
+  /** The Checks section of the report of a run whose checks end as `checks` says, its scope a branch's. */
+  const checksOf = (checks: ChecksOfRun): string => {
+    const report = render(onBranch(checkedRun(checks)));
+    return report.slice(report.indexOf('\n## Checks\n'), report.indexOf('\n## Changed files\n'));
+  };
+  const output = 'output artifacts\\/c{64}, artifacts\\/d{64}';
+  const same = { kind: 'lint', reading: 'same', words: 'the same two lint errors as on the base' };
+  const failing = { before: { lint: 'failed' }, after: { lint: 'failed' } } as const;
+  const gitError = 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied';
+
+  it('gives the runs on the base a column after the fixes, each cell with the repair\'s reading and its words and no mark of a failure before the fix pass', () => {
+    const text = checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] });
+    assert.match(text, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| On the base \|$/m);
+    assert.match(text, /^\| build \| npm run build \| [^|]+ \| passed, 4\.0 s \| passed, 4\.0 s \| passed, 4\.0 s \|$/m);
+    assert.match(text, new RegExp(`^\\| lint \\| npm run lint \\| [^|]+ \\| failed, 4\\.0 s; ${output} \\| failed, 4\\.0 s; ${output} \\(failing before the fix pass\\) \\| failed, 4\\.0 s; ${output}; the repair's reading: the change has no failure that the base does not have \\(the same two lint errors as on the base\\) \\|$`, 'm'));
+    assert.match(text, /^\| test \| npm run test \| [^|]+ \| passed, 4\.0 s \| passed, 4\.0 s \| - \|$/m);
+    assert.match(text, /^- On the base: the base of the change is the merge base with origin\/main \(2247b35e\)\.$/m);
+  });
+
+  it('says in each cell what the repair read, or that it gave no comparison', () => {
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds', words: 'two errors the base does not have' }] }), /; the repair's reading: the change has a failure that the base does not have \(two errors the base does not have\) \|$/m);
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'timeout']], comparisons: [{ ...same, reading: 'unknown', words: 'the base lacks the tool' }] }), /^\| lint \| .* \| timeout, 4\.0 s; [^|]*; the repair's reading: the outputs cannot be compared \(the base lacks the tool\) \|$/m);
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), /^\| lint \| .* \| failed, 4\.0 s; [^|]*; the repair gave no comparison \|$/m);
+  });
+
+  it('says why a kind did not run on the base, with the error of git in the facts of the run alone', () => {
+    const report = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', `no worktree of the base could be made: ${gitError}`]] })));
+    assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
+    assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error of git\.$/m);
+    assert.match(report, /^Worktree of the base: git could not make it: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
+    assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## The run\n'), 'the path is in the facts of the run alone');
+    assert.equal(report.split('/home/me/.cache/x').length, 2, 'once');
+    assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build failed on the base']] }), /^- On the base: lint did not run there, since the build failed on the base\.$/m);
+    assert.match(checksOf({ ...failing, base: [] }), /^- On the base: lint did not run there\.$/m);
+  });
+
+  it('says why no check ran on the base, and nothing of the base in a run configured before the checks on the base (R10)', () => {
+    assert.match(checksOf({ after: { lint: 'failed' } }), /^- On the base: not run, since no check failed before and after the fixes\.$/m);
+    assert.doesNotMatch(checksOf({ ...failing, compared: false }), /On the base/);
+    assert.doesNotMatch(checksOf({}).replace('- On the base: not run, since no check failed before and after the fixes.', ''), /On the base/);
   });
 });

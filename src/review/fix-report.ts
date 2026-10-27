@@ -8,20 +8,21 @@
  * commit series integrity), and the lines the notes of the run gain. A
  * run without the fix pass has none of these.
  */
-import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type TreeRevised } from '../checkpoint/events.ts';
+import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type ScopeState, type TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
-import type { SurveyState } from '../checkpoint/survey-state.ts';
+import { baseNameOf } from '../scope/scope-line.ts';
+import { baseWords, briefChecksOf, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
 import { leftAs } from './decision-report.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { capitalized, codeSpan, counted, inlineText, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, counted, inlineText, listed, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
-import { checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
+import { baseSkipReasons, checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type BaseReading, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
 
 /**
  * What became of one ranked finding, as the report names it: a fixer's
@@ -351,22 +352,74 @@ const revisionOwners: Readonly<Record<EditingPhase, string>> = { fixes: 'the fix
 
 const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000).toFixed(1)} s`;
 
-/** One table cell: a run's outcome and seconds, the frozen output's paths for one that did not pass, and the baseline mark. */
-function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: string; bytes: number }) => string, failedBefore: boolean): string {
+/** One table cell: a run's outcome and seconds, the frozen output's paths for one that did not pass, and the note that follows them. */
+function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: string; bytes: number }) => string, note: string): string {
   if (run === null) return '-';
-  if (run.outcome === 'skipped') return tableCell(`skipped: ${run.error ?? 'build did not pass'}`);
+  // A run on the base says why it was skipped in fixed words: the error of git after them names local paths, which the facts of the run alone give (R5 of the facts before a merge).
+  if (run.outcome === 'skipped') return tableCell(`skipped: ${run.phase === 'base-checks' ? notComparedWords[skippedReason(run.error)] : run.error ?? 'build did not pass'}`);
   const output = run.stdout === null || run.stderr === null ? '' : `; output ${evidencePath(run.stdout)}, ${evidencePath(run.stderr)}`;
-  const text = `${run.outcome}, ${runSeconds(run)}${run.outcome === 'passed' ? '' : output}${failedBefore ? ' (failing before the fix pass)' : ''}`;
+  const text = `${run.outcome}, ${runSeconds(run)}${run.outcome === 'passed' ? '' : output}${note}`;
   return tableCell(text);
+}
+
+/** The repair's reading of a comparison with the base, in the words of R2 of the facts before a merge. */
+const readingWords: Readonly<Record<BaseReading, string>> = {
+  same: 'the change has no failure that the base does not have',
+  adds: 'the change has a failure that the base does not have',
+  unknown: 'the outputs cannot be compared',
+};
+
+/** Why a kind the run took to the base did not run there, as a note under the Checks table says it (R8 of the facts before a merge); a run there that ended has its cell. */
+const notRunOnBase: Readonly<Partial<Record<NotComparedReason, (kinds: string) => string>>> = {
+  'empty-tree': (kinds) => `${kinds} did not run there, since the base of the change is the empty tree.`,
+  'no-worktree': (kinds) => `${kinds} did not run there, since no worktree of the base could be made; the facts of the run give the error of git.`,
+  'build-failed': (kinds) => `${kinds} did not run there, since the build failed on the base.`,
+  'not-run': (kinds) => `${kinds} did not run there.`,
+};
+
+/**
+ * The notes under the Checks table of a run configured with the checks on
+ * the base (R8 of the facts before a merge): the base by its name and its
+ * commit, and why a kind the run took there did not run there; or, when
+ * the checks after the fixes ran and no kind failed before and after
+ * them, that none ran there and why. A run configured before the checks
+ * on the base says nothing of the base (R10).
+ */
+function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefCheck[], scope: ScopeState): string[] {
+  if (!review.baseChecksStep) return [];
+  const title = phaseTitles['base-checks'];
+  const taken = checks.flatMap((check) => (check.base === null ? [] : [{ kind: check.kind, reason: check.base.reason }]));
+  if (taken.length === 0 && fix.checks.runs['base-checks'].length === 0) return fix.checks.runs.checks.length === 0 ? [] : [`- ${title}: not run, since no check failed before and after the fixes.`];
+  const notRun = notComparedReasons.flatMap((reason) => {
+    const kinds = taken.filter((entry) => entry.reason === reason).map((entry) => entry.kind);
+    const words = notRunOnBase[reason];
+    return kinds.length === 0 || words === undefined ? [] : [`- ${title}: ${words(listed(kinds))}`];
+  });
+  return [`- ${title}: the base of the change is ${baseWords({ commit: scope.base, name: baseNameOf(scope.mode, scope.request) })}.`, ...notRun];
+}
+
+/**
+ * The error of git for each worktree of the base it could not make, as a
+ * line of the facts of the run, the one part of the report that names a
+ * local path (R5 of the facts before a merge; R15 of the brief of a run).
+ */
+export function baseWorktreeLines(review: ReviewState): string[] {
+  const prefix = `${baseSkipReasons.noWorktree}: `;
+  const errors = new Set((review.fix?.checks.runs['base-checks'] ?? []).flatMap((run) => (run.outcome === 'skipped' && run.error?.startsWith(prefix) === true ? [run.error.slice(prefix.length)] : [])));
+  return [...errors].map((error) => `Worktree of the base: git could not make it: ${inlineText(error)}`);
 }
 
 /**
  * The Checks section: a row per kind and a column per checks phase that
  * ran a check, a kind with no command saying why. A surveyed run's table
  * also says where each command came from (R10, R15 of the repository
- * survey); one configured before the survey renders as it did.
+ * survey); one configured before the survey renders as it did. The column
+ * of the runs on the base gives each cell the repair's reading of it and
+ * its words, and no mark of a failure before the fix pass, which each
+ * kind there has (R8 of the facts before a merge).
  */
-function checksSection(fix: FixState, survey: SurveyState | null, answered: boolean, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
+function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
+  const { survey } = review;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   // The last baseline run, which never grows old, with not-started among the failures the mark names.
@@ -375,11 +428,24 @@ function checksSection(fix: FixState, survey: SurveyState | null, answered: bool
   // Each column shows the last run of each kind, and is marked when a later edit changed the tree its runs checked.
   const shown = (phase: CheckPhase, kind: CheckKind): CheckRunState | null => lastRecordedRun(fix, phase, kind);
   const edits = new Map(ran.map((phase) => [phase, planned.map((check) => shown(phase, check.kind)).flatMap((run) => (run === null ? [] : [earlierTreeEdit(fix, phase, run)])).find((edit) => edit !== null) ?? null]));
+  // What the base says of each kind the run took there, as the brief says it.
+  const checks = briefChecksOf({ ...review, fix }, scope);
+  const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
+  const baseNote = (kind: CheckKind): string => {
+    const comparison = comparisons.find((entry) => entry.kind === kind);
+    if (comparison !== undefined) return `; the repair's reading: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
+    return checks.find((check) => check.kind === kind)?.base?.reason === 'no-comparison' ? `; ${notComparedWords['no-comparison']}` : '';
+  };
+  const note = (phase: CheckPhase, kind: CheckKind): string => {
+    if (phase === 'base-checks') return baseNote(kind);
+    return phase !== 'baseline-checks' && failedAtBaseline(kind) ? ' (failing before the fix pass)' : '';
+  };
   const rows = planned.map((check) => {
     if (check.command === null) return `| ${[check.kind, unavailableCell(survey, check), ...sourceCell(check), ...ran.map(() => '-')].join(' | ')} |`;
-    const cells = ran.map((phase) => checkCell(shown(phase, check.kind), evidencePath, phase !== 'baseline-checks' && failedAtBaseline(check.kind)));
+    const cells = ran.map((phase) => checkCell(shown(phase, check.kind), evidencePath, note(phase, check.kind)));
     return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
   });
+  const answered = review.answerPasses.length > 0;
   // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
   const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? 'the repair was not attempted' : 'the repair changed no file';
   const notRun = planned.every((check) => check.command === null)
@@ -388,6 +454,7 @@ function checksSection(fix: FixState, survey: SurveyState | null, answered: bool
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
         ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the repair: not run, since ${repairWhy}.`] : []),
         ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After answers: not run, since no answer pass changed a file.'] : []),
+        ...baseNotes(review, fix, checks, scope),
       ];
   const earlier = ran.flatMap((phase) => {
     const edit = edits.get(phase) ?? null;
@@ -491,7 +558,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), documentationSection(review, fix), checksSection(fix, review.survey, review.answerPasses.length > 0, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
+  return [fixesSection(review, fix), documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
 }
 
 /**
