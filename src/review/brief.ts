@@ -18,13 +18,13 @@ import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../che
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { answerCommandOf, defaultInPlace } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
-import { briefChecksOf, checkGap, checksLine, checksSentence, validationOf, validationSentence, type BriefCheck, type BriefValidation } from './brief-checks.ts';
+import { briefChecksOf, checkGap, checksLine, checksSentence, outcomeVerbs, validationOf, validationSentence, type BriefCheck, type BriefValidation } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { shortRunId } from './runs.ts';
 import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import { documentationUnitKey, type CheckKind } from './vocabulary.ts';
+import { documentationUnitKey, type CheckKind, type CheckOutcome } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -321,15 +321,11 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
   });
 }
 
-/** What an unfinished check did, in plain words, by its outcome. */
-const unfinishedOutcomeWords: Readonly<Record<string, string>> = {
-  timeout: 'timed out',
-  skipped: 'was skipped',
-  'not-started': 'did not start',
-};
+/** The outcomes of a check that did not finish, which the brief names as a gap. */
+const unfinishedOutcomes: readonly CheckOutcome[] = ['timeout', 'skipped', 'not-started'];
 
-/** What an unfinished check did, in plain words, or null for one that ran to an outcome. */
-const unfinishedWords = (outcome: string | null): string | null => (outcome !== null && Object.hasOwn(unfinishedOutcomeWords, outcome) ? unfinishedOutcomeWords[outcome]! : null);
+/** What an unfinished check did, in the brief's verb for its outcome, or null for one that ran to an outcome. */
+const unfinishedWords = (outcome: CheckOutcome | null): string | null => (outcome !== null && unfinishedOutcomes.includes(outcome) ? outcomeVerbs[outcome] : null);
 
 /**
  * The gaps of a fix run: each check that did not run or finish, each

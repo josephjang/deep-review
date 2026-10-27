@@ -219,7 +219,7 @@ export function briefChecksOf(review: Pick<ReviewState, 'answerPasses' | 'baseCh
 export const baseWords = (base: Pick<BriefBase, 'commit' | 'name'>): string => (isEmptyTree(base.commit) ? 'the empty tree' : `${base.name} (${commitWords(base.commit)})`);
 
 /** How a run ended, as the verb the brief says it with. */
-const outcomeVerbs: Readonly<Record<CheckOutcome, string>> = { passed: 'passed', failed: 'failed', timeout: 'timed out', 'not-started': 'did not start', skipped: 'was skipped', cut: 'was cut short' };
+export const outcomeVerbs: Readonly<Record<CheckOutcome, string>> = { passed: 'passed', failed: 'failed', timeout: 'timed out', 'not-started': 'did not start', skipped: 'was skipped', cut: 'was cut short' };
 
 /** When a check's last run ran, as the words after its verb (R3): an answer pass is the person's. */
 const lastWords: Readonly<Record<LastMoment, string>> = { fixes: 'after the fixes', repair: 'after the repair', answers: 'after your answers' };
