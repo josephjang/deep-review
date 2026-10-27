@@ -127,7 +127,7 @@ The repair of a run configured with the phase answers in `repairOutputSchema`: `
 
 `invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The schema holds `kind` to the check kinds. The engine refuses no answer of the repair for its comparisons, since the comparison is a second product of the repair and must not cost the repair its edits. It drops an entry for a kind that did not fail or time out on the base, and a second entry for one kind, and logs each. A kind whose base run failed or timed out and that has no entry reads as not compared, with the reason that the repair gave no comparison (R5).
 
-The engine records the answer as `fix.recorded@4`: version 3 with `comparisons`. It writes version 4 only for the repair of a run configured with the phase, and version 3 for every other answer (TD7). The fold keeps `comparisons` with the answer of the repair, empty for an earlier version.
+The engine records the answer as `fix.recorded@4`: version 3 with `comparisons`. It writes version 4 only for the repair of a run configured with the phase. Every other answer keeps the version that it is written at today: version 3 for the documentation step, and version 2 for the fixers, the repair of an older run and the answer passes (TD7). The fold keeps `comparisons` with the answer of the repair, empty for an earlier version.
 
 When the run budget stops the repair, or its worker fails twice, no comparison exists. Each kind whose base failed then reads as not compared (R2).
 
