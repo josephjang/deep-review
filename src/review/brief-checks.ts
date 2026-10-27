@@ -41,7 +41,7 @@ const momentOf: Readonly<Record<TreeCheckPhase, CheckMoment>> = { 'baseline-chec
 export const notComparedReasons = ['empty-tree', 'no-worktree', 'build-failed', 'not-started', 'not-run', 'no-comparison', 'unknown'] as const;
 export type NotComparedReason = (typeof notComparedReasons)[number];
 
-/** Each reason in the fixed words the brief gives; the error of git and the words of the repair stay in the report, since they can name local paths (R5). */
+/** Each reason in the fixed words the brief gives; the error of a worktree of the base and the words of the repair stay in the report, since they can name local paths (R5). */
 export const notComparedWords: Readonly<Record<NotComparedReason, string>> = {
   ...baseSkipReasons,
   'not-started': 'the check did not start on the base',
