@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { dueCheck, fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
-import { answer, answerableDecisions, askDecision, decidedFixRun, flagPlan, passAnswer, passRevision, passToReport, pin, readOnlyReported, type History, baselined, checkRun, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { driftBlocker, dueCheck, fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
+import { baseSkipReasons } from '../../src/review/vocabulary.ts';
+import { answer, answerableDecisions, askDecision, decidedFixRun, flagPlan, passAnswer, passRevision, passToReport, pin, readOnlyReported, type History, baselined, checkRun, checkedForBase, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, ranOnBase, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -450,5 +451,60 @@ describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)',
       .add('tree.revised', { phase: 'repair', source: { kind: 'fix', key: 'repair', workerId: worker(60) }, change: { findings: ['test'], message: { subject: 's', body: 'b' } }, files: [{ path: 'src/a.ts', status: 'modified', before: { blob: reference('f') }, beforeSymlink: false, symlink: false, after: { blob: reference('9') } }] })
       .add('worktree.checked', endCheck('repair'), 2).finish('repair').start('repair-checks');
     assert.deepEqual(runCheck(nextStep(applied.review(), idle)), { kind: 'build', replaces: null, skip: null });
+  });
+});
+
+describe('nextStep in the checks on the base (R1, R11, TD4, TD14, TD16 of the facts before a merge)', () => {
+  /** What a step runs: the kind, the run it replaces as `<why> <outcome>@<attempt>`, and why it is skipped. */
+  const runCheck = (step: Step): { kind: string; replaces: string | null; skip: string | null } | null =>
+    step.kind === 'run-check' && step.phase === 'base-checks' ? { kind: step.check.kind, replaces: step.check.replaces === null ? null : `${step.check.replaces.why} ${step.check.replaces.run.outcome}@${String(step.check.replaces.run.attempt)}`, skip: step.check.skip } : null;
+  const finished = (attempt = 1): Step => ({ kind: 'finish-phase', phase: 'base-checks', attempt, outcome: 'completed', blocker: null });
+  /** lint fails before the fixes and after them, test only after them, so lint alone needs a fact of the base. */
+  const onBase = (): History => checkedForBase({ lint: 'failed' }, { lint: 'failed', test: 'failed' }).start('base-checks');
+
+  it('runs build first, then only the kinds that failed before the fixes and after them, and finishes', () => {
+    const history = onBase();
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'build', replaces: null, skip: null }, 'lint reads what build produces, though build passed before and after the fixes');
+    ranOnBase(history, 'build', 'passed');
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: null });
+    ranOnBase(history, 'lint', 'failed');
+    assert.deepEqual(nextStep(history.review(), idle), finished(), 'test passed before the fixes, so the change did not break it');
+  });
+
+  it('finishes at once when no kind failed before the fixes and after them', () => {
+    for (const [before, after] of [[{}, {}], [{}, { lint: 'failed' }], [{ lint: 'failed' }, {}]] as const) {
+      assert.deepEqual(nextStep(checkedForBase(before, after).start('base-checks').review(), idle), finished(), JSON.stringify([before, after]));
+    }
+  });
+
+  it('runs build alone when only build failed before the fixes and after them', () => {
+    const history = checkedForBase({ build: 'failed' }, { build: 'failed' }).start('base-checks');
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'build', replaces: null, skip: null });
+    assert.deepEqual(nextStep(ranOnBase(history, 'build', 'failed').review(), idle), finished());
+  });
+
+  it('skips each later kind once build did not pass on the base, in the fixed words of the brief', () => {
+    for (const outcome of ['failed', 'timeout', 'not-started'] as const) {
+      const history = ranOnBase(onBase(), 'build', outcome);
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: baseSkipReasons.buildFailed }, outcome);
+    }
+  });
+
+  it('builds the base again first after a stop that left a kind due, since the new attempt makes a new worktree, and then nothing more (TD16)', () => {
+    const history = ranOnBase(onBase(), 'build', 'passed').start('base-checks', 2);
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'build', replaces: 'earlier-worktree passed@1', skip: null });
+    ranOnBase(history, 'build', 'passed', 2, { attempt: 1, outcome: 'passed' });
+    assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: null });
+    ranOnBase(history, 'lint', 'failed', 2);
+    assert.deepEqual(nextStep(history.review(), idle), finished(2));
+  });
+
+  it('blocks on a drift after a stop during a run on the base, which never wrote the reviewed worktree, and writes nothing back (TD14)', () => {
+    const drifted = { path: 'src/a.ts', outcome: 'modified' as const, expected: { blob: reference('f') } };
+    const stopped = ranOnBase(onBase(), 'build', 'passed')
+      .add('check.started', { phase: 'base-checks', attempt: 1, kind: 'lint', command: 'npm run lint' }, 2)
+      .add('phase.started', { phase: 'base-checks', attempt: 2 }, 7)
+      .add('worktree.checked', { phase: 'base-checks', attempt: 2, moment: 'start', drifted: true, head: null, files: [drifted], strays: [] }, 8);
+    assert.deepEqual(nextStep(stopped.review(), idle), { kind: 'finish-phase', phase: 'base-checks', attempt: 2, outcome: 'blocked', blocker: driftBlocker({ files: [drifted], head: null }, idle.evidencePath) });
   });
 });

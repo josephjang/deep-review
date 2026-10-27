@@ -773,6 +773,20 @@ export function withBaseChecks(history: History): History {
   return result;
 }
 
+/**
+ * A decided fix run with the documentation step and the checks on the
+ * base, through its checks after the fixes: each check passes before the
+ * fixes and after them unless `before` and `after` say otherwise, so a
+ * kind that fails in both is due on the base. c1-1's fixer applies
+ * RIPPLE-1 and revises src/a.ts.
+ */
+export function checkedForBase(before: Readonly<Record<string, string>>, after: Readonly<Record<string, string>>): History {
+  const fixesDone = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks', before), null))
+    .start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1').add('fix.recorded', fixAnswer(worker(50))).add('tree.revised', fixRevision(worker(50)))
+    .add('fixes.replanned', noSecondRound).add('worktree.checked', endCheck('fixes'), 2).finish('fixes');
+  return checksPhase(documentationAnswered(fixesDone), 'checks', after);
+}
+
 /** A run on the base at versions 2 and 4: its start, then its run with the outcome given, and the run it replaces, if any. */
 export function ranOnBase(history: History, kind: string, outcome = 'failed', attempt = 1, replaces: Record<string, unknown> | null = null, change: Record<string, unknown> = {}): History {
   const command = plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';

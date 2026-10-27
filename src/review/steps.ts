@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, unitRevisions, type CutShortCheck, type FixState, type RunStanding } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, takenOnBase, unitRevisions, type CutShortCheck, type FixState, type RunStanding } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -19,6 +19,7 @@ import { planGroups, type PlannedGroup } from './grouping.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { currentPhase, mergeRankInput, nextPendingPhase, rankedFindings, workingList } from './state.ts';
 import {
+  baseSkipReasons,
   blockerActions,
   continuedCheckUnavailableAction,
   documentationUnitKey,
@@ -80,7 +81,8 @@ export type Degradation = DegradationTarget & { readonly reason: string };
 
 /**
  * A check due in a checks phase: run it, or record it skipped with the
- * reason when `build` did not pass; with the run it replaces, its last
+ * reason when `build` did not pass, in fixed words on the base (R5 of the
+ * facts before a merge); with the run it replaces, its last
  * current run, and why that one runs again, or null for the kind's first
  * current run (R3, R4, R7 of resumable runs).
  */
@@ -499,7 +501,11 @@ const repairRevisedSince = (fix: FixState, kind: CheckKind): boolean => {
  * last one (TD11, `repairRevisedSince`),
  * and `answer-checks` only when the current answer pass changed it, and
  * then every check again, its runs for an earlier pass not counting
- * (`checksFloor`; R5 of answers).
+ * (`checksFloor`; R5 of answers). `base-checks` runs only the kinds it
+ * takes (`takenOnBase`): those that failed before the fixes and after
+ * them, and `build` first while one of them is due, since they read what
+ * it produces (R1, TD4 of the facts before a merge); with none due, the
+ * phase finishes at once.
  */
 export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | null {
   const fix = review.fix;
@@ -513,12 +519,12 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
   }
   const withFix = { ...review, fix };
   for (const check of planned.checks) {
-    if (check.command === null) continue;
+    if (check.command === null || (phase === 'base-checks' && !takenOnBase(withFix, check.kind))) continue;
     const standing = runStanding(withFix, phase, check.kind);
     if (standing === null || (phase === 'repair-checks' && standing.kind === 'first' && !repairRevisedSince(fix, check.kind))) continue;
     // Read now, not before the loop: a build that runs again runs first, and the kinds after it read its new outcome.
     const build = lastCurrentRun(withFix, phase, 'build');
-    const skip = check.kind !== 'build' && build !== null && build.outcome !== 'passed' ? `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` : null;
+    const skip = check.kind === 'build' || build === null || build.outcome === 'passed' ? null : phase === 'base-checks' ? baseSkipReasons.buildFailed : `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}`;
     return { kind: check.kind, command: check.command, skip, replaces: standing.kind === 'first' ? null : { run: standing.run, why: standing.why } };
   }
   return null;
