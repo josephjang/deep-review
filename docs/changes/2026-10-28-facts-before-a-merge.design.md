@@ -108,7 +108,7 @@ A `core.hooksPath` that does not exist turns off the hooks of the repository, su
 
 The worktrees of a run are the entries of `git worktree list --porcelain` whose lock reason is `deep-review <run id>`. The phase removes each with `git worktree remove -f -f <path>`, which removes a locked entry, and its entry also when its directory is gone (checked with git 2.56). It removes them at three moments: when an attempt of the phase starts, before its check of the reviewed worktree, so that a drift block leaves none; before it appends `phase.finished`, so that no crash after the end of the phase leaves one; and in `deep-review abandon`. At the same moments it removes the directories of its earlier attempts that it finds under the scratch directory, since a stop before git made the entry leaves a directory with no entry. A removal that fails is logged and does not stop the run, and the next of these moments tries again. The phase never runs `git worktree prune`, which would remove the entries of other worktrees of the person whose directories are missing.
 
-When `scope.base` is the empty tree, the phase makes no worktree. When git cannot make the worktree, the phase keeps the first line of its error. In both cases each due kind gets a `check.ran@4` with the outcome `skipped` and an error that says why: `the base of the change is the empty tree`, or `could not make a worktree of the base: <error>`.
+When `scope.base` is the empty tree, the phase makes no worktree. When git cannot make the worktree, the phase keeps the first line of its error. In both cases each due kind gets a `check.ran@4` with the outcome `skipped` and an error that says why: `the base of the change is the empty tree`, or `no worktree of the base could be made: <error>`. The error of git names local paths, so the brief gives only the fixed words before the colon, and the report gives the error of git in the facts of the run, the one part that names a local path (R15 of the brief of a run).
 
 ### The run of a check on the base (R1)
 
@@ -123,7 +123,7 @@ The phase runs the planned command of the kind through `runCheck`, with three di
 - The base was skipped: the reason follows, and the worker gives no entry.
 - The base run did not start: the error of the start follows, and the worker gives no entry.
 
-The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the change has no failure that the base does not have, `adds` when the change has a failure that the base does not have, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
+The repair of a run configured with the phase answers in `repairOutputSchema`: `fixerOutputSchema` with `comparisons`, an array of `{kind, reading, words}`. `reading` is `same` when the change has no failure that the base does not have, `adds` when the change has a failure that the base does not have, and `unknown` when the outputs cannot be compared. `words` says why, in at most 400 characters, and the task asks for words with no path. The comparison reads two outputs that no edit of the run changes: the output before any fixer edited the tree, and the output on the base. So it stays true after the repair and after each answer pass. Whether the fixes added failures to a check that failed before them is the reading that the repair makes today, and its answer for the kind keeps it (TD13).
 
 `invocationFor` takes the schema from the unit, not the role, so only the repair of such a run gets it (TD6). The schema holds `kind` to the check kinds. The engine refuses no answer of the repair for its comparisons, since the comparison is a second product of the repair and must not cost the repair its edits. It drops an entry for a kind that did not fail or time out on the base, and a second entry for one kind, and logs each. A kind whose base run failed or timed out and that has no entry reads as not compared, with the reason that the repair gave no comparison (R5).
 
@@ -145,7 +145,7 @@ interface BriefCheck {
 }
 ```
 
-`last` is the run that `after` is today, with `when` taken from its phase: `checks` gives `fixes`, `repair-checks` gives `repair` and `answer-checks` gives `answers`. `afterPhases` keeps its three phases, so a run on the base is never the last run (R3, #78). `base` holds the commit of the base, its name from `baseNameOf`, the outcome there with the error of a `skipped` run, and the reading and the words of the repair. It is null for a kind that did not run on the base.
+`last` is the run that `after` is today, with `when` taken from its phase: `checks` gives `fixes`, `repair-checks` gives `repair` and `answer-checks` gives `answers`. `afterPhases` keeps its three phases, so a run on the base is never the last run (R3, #78). `base` holds the commit of the base, its name from `baseNameOf`, the outcome there with the reason of a `skipped` run in fixed words, and the reading of the repair. It is null for a kind that did not run on the base. The words of the repair stay in the report: the outputs that the worker compares name the paths of two worktrees, and the brief holds no local path that the engine writes.
 
 `fault` follows from the fold. The rows apply in order, and a check takes the first row that holds:
 
@@ -166,7 +166,7 @@ The headline gets `checks`, the count of the checks with the fault `edits`, and 
 
 `fixGaps` gives a gap of the kind `check` for each check with the fault `change-breaks`, `change-adds` or `not-compared`, with the words of R5. The gap of `change-adds`, the sentence of the checks and each clause that rests on a reading of the repair say that it is the repair's reading, as the brief marks the account of the triage. A base that passed needs no such mark: the engine reads it from the exit of the check. The words name the base by its name and its first 8 characters, as the `Scope:` line does.
 
-`checksWords`, the sentence of the checks in "What deep-review changed", gives each check its outcome before the fixes and its last outcome with `when`. It adds the base for a check that ran there, with the words of the repair as its reading.
+`checksWords`, the sentence of the checks in "What deep-review changed", gives each check its outcome before the fixes and its last outcome with `when`. It adds the base for a check that ran there, with the reading of the repair in fixed words.
 
 ### The short form (R6)
 
