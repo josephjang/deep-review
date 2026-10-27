@@ -298,6 +298,10 @@ A check can fail on the base for a missing tool. The repair worker reads the out
 
 The comparison is a reading of a model. The line `Checks:` and the brief say that it is the reading of the repair, and the report names the outputs that it rests on.
 
+### The environment of the engine reaches the base
+
+A check on the base must test the code of the base. A path into the reviewed tree in the environment, such as a virtual environment inside it, could make it load the code of the change, and the base would then seem to have the same failures. The run removes such paths for the base. A virtual environment outside the reviewed tree that holds an editable install of it is not found that way. A check that makes its own environment, such as `tox`, `uv run` or `npm run`, does not use it, and the gate reads each comparison against both outputs.
+
 ### A failure that the fixes add to a check that already failed
 
 A check that failed before the fixes can hold, at its last run, failures that the fixes added and the repair did not remove. The comparison is about the change, so the brief says what the base says of the change. The answer of the repair for the check, in the report, says what the repair did. The headline does not count such a check, because the check never passed in the run.
