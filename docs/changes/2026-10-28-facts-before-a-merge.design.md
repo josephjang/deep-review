@@ -4,7 +4,7 @@ Product part: [2026-10-28-facts-before-a-merge.requirements.md](2026-10-28-facts
 
 ## Summary
 
-A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, after the build of the base as each check phase builds first, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. The worktree has a path that the run fixes, and the phase removes it when it ends, when an attempt starts again and when the run is abandoned.
+A new check phase, `base-checks`, runs between `checks` and `repair`. It takes each kind of check that the repair takes and that failed before the fixes. It runs the planned command of that kind once in a detached linked worktree of `scope.base`, after the build of the base as each check phase builds first, made with the hooks of the repository turned off and the repository variables of git removed from the environment, and it freezes the output as each check does. Git holds the record of the worktree: it is locked with a reason that names the run, and the phase removes it when an attempt starts, before the phase ends and when the run is abandoned.
 
 The repair task gets the output on the base beside the outputs before and after the fixes. The repair compares the output before the fixes with the output on the base, and answers with a comparison for each check that failed on the base, in a schema of the repair alone, and the engine records it in `fix.recorded@4`. The instruction is in the task text, so no role prompt changes and the digest of the roles stays.
 
@@ -98,13 +98,15 @@ A run on the base never writes the reviewed worktree, so the write back of a sto
 
 ### The worktree of the base (R1, R11)
 
-The path of the worktree is `join(scratchBase, runId, 'base')`, so the run knows it with no event (TD3). Before the first due check of an attempt, the phase removes whatever is at that path and makes the worktree:
+Git holds the record of the worktree (TD3). The phase makes it in a new private directory under the scratch directory of the checkpoint, made with `mkdtempSync` with a name that starts with the id of the run, and held outside the reviewed tree and the checkpoint by `requireOutsideRun`:
 
 ```text
-git -c core.hooksPath=<an empty directory> worktree add --detach <path> <scope.base>
+git -c core.hooksPath=<a path that does not exist> worktree add --detach --lock --reason "deep-review <run id>" <path> <scope.base>
 ```
 
-The empty directory turns off the hooks of the repository, such as a `post-checkout` hook, for this call. The call runs with the repository variables of git removed (TD11). The phase removes the worktree when it finishes: `git worktree remove --force <path>`, and when that fails, a removal of the directory and `git worktree prune`. `deep-review abandon` removes it too.
+A `core.hooksPath` that does not exist turns off the hooks of the repository, such as a `post-checkout` hook, for this call. The lock keeps `git worktree prune` from removing the entry while the phase uses it, and its reason names the run. The call runs with the repository variables of git removed (TD11), with `GIT_LFS_SKIP_SMUDGE=1` so that the checkout downloads no large file, with `GIT_TERMINAL_PROMPT=0`, and with a timeout of its own.
+
+The worktrees of a run are the entries of `git worktree list --porcelain` whose lock reason is `deep-review <run id>`. The phase removes each with `git worktree remove -f -f <path>`, which removes a locked entry, and its entry also when its directory is gone (checked with git 2.56). It removes them at three moments: when an attempt of the phase starts, before its check of the reviewed worktree, so that a drift block leaves none; before it appends `phase.finished`, so that no crash after the end of the phase leaves one; and in `deep-review abandon`. At the same moments it removes the directories of its earlier attempts that it finds under the scratch directory, since a stop before git made the entry leaves a directory with no entry. A removal that fails is logged and does not stop the run, and the next of these moments tries again. The phase never runs `git worktree prune`, which would remove the entries of other worktrees of the person whose directories are missing.
 
 When `scope.base` is the empty tree, the phase makes no worktree. When git cannot make the worktree, the phase keeps the first line of its error. In both cases each due kind gets a `check.ran@4` with the outcome `skipped` and an error that says why: `the base of the change is the empty tree`, or `could not make a worktree of the base: <error>`.
 
@@ -223,7 +225,7 @@ A run that an engine before this change configured skips `base-checks`, and it n
 
 ### A stop in the phase (R11)
 
-The phase appends `check.started@2` before each run, so a stop leaves an open start, as in each check phase. The next command enters the phase again with a new attempt. `runStanding` then gives the kind again, and the phase removes the worktree that the stop left and makes it again. A stop during `git worktree add` can leave a part of a worktree. The removal at the start of the attempt handles it with the same fallback. A run on the base never touches the reviewed worktree, so a drift found when the phase starts again is an edit of a person, and it blocks as any drift does (TD14).
+The phase appends `check.started@2` before each run, so a stop leaves an open start, as in each check phase. The next command enters the phase again with a new attempt. `runStanding` then gives the kind again, and the phase removes the worktree that the stop left and makes it again. A stop during `git worktree add` can leave a part of a worktree: an entry locked with the reason of the run, or a directory with no entry. The removal at the start of the next attempt finds both. A run on the base never touches the reviewed worktree, so a drift found when the phase starts again is an edit of a person, and it blocks as any drift does (TD14).
 
 The contract test gets a repository whose `typecheck` fails before and after the fixes. So `base-checks` and the repair with a comparison run there, and the stop points of the phase join the fixed points. Its part "nothing false" compares the outcomes of the runs on the base too. Its part "no orphan" also holds that no worktree of the base is left after the run completes.
 
@@ -249,9 +251,11 @@ The design rejects three other places. In the phase `checks`, a run on the base 
 
 The design rejects two other ways. A copy of the tree, with `git archive` or a checkout into a temporary index, has no git metadata, so such a tool fails on the base for a reason that is not in the code. A clone copies the history and takes longer.
 
-### TD3: A path that the run fixes, and no event for the worktree
+### TD3: Git holds the record of the worktree
 
-The path follows from the scratch directory of the checkpoint and the id of the run. Each attempt of the phase, its end and `abandon` remove what is there. An event that records the worktree would hold nothing that the fold needs.
+The lock reason names the run, so `git worktree list --porcelain` finds the worktrees of a run from any later command, whatever its temporary directory. No event records the worktree, since the fold needs nothing from it. The phase removes only the entries of its own run, with `git worktree remove -f -f`.
+
+The design first fixed the path under the scratch directory of the checkpoint and removed what was there, with `git worktree prune` as a fallback. The review showed three faults. The scratch directory follows `TMPDIR`, so a later command can look in another place. A crash after `phase.finished` left the worktree for good, since the phase never ran again, and `abandon` refuses the run once it completed. And `git worktree prune` removes the entries of each worktree whose directory is missing, also the worktrees of the person on a disk that is not mounted.
 
 ### TD4: The kinds that need a fact of the base, after a build of the base
 
@@ -327,7 +331,7 @@ A long path on Windows, or a file that another program holds when the phase remo
 
 ### R1: The run on the base
 
-A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, after a run of `build` on the base when another kind is due and `build` has a command, that it skips the other kinds after a failed `build` there, and that it takes none when no kind failed before and after the fixes. It also holds that a kind that times out on the base runs once, and that a cut run there runs again. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base.
+A test of the planner holds that `base-checks` takes only the kinds of `baseKinds`, after a run of `build` on the base when another kind is due and `build` has a command, that it skips the other kinds after a failed `build` there, and that it takes none when no kind failed before and after the fixes. It also holds that a kind that times out on the base runs once, and that a cut run there runs again. A test of the fix pass, with fake checks that fail before and after the fixes, holds that each due kind runs once with its `cwd` in a worktree whose `HEAD` is `scope.base`, and that the worktree is gone after the phase. A hook of the repository does not run. A base of the empty tree and a worktree that git refuses each give a `skipped` run with its reason. A test of the environment holds that `GIT_DIR` set for the engine does not reach the run on the base. A test of the worktree holds that a worktree that a crash left, locked with the reason of the run, is removed at the next command of the run and by `abandon`, also when that command runs with another temporary directory, and that no other worktree entry of the repository changes, also one whose directory is missing.
 
 ### R2: The comparison
 
@@ -385,7 +389,11 @@ A program that reads version 3 must read version 4. Version 4 keeps each field o
 
 ### An entry in the git directory
 
-While the worktree lives, the git directory of the person holds an entry for it, and `git worktree list` shows it. A run that crashes and never resumes leaves the entry and the directory until `abandon` or a `git worktree prune` after the directory is gone.
+While the worktree lives, the git directory of the person holds a locked entry for it, and `git worktree list` shows it with the reason `deep-review <run id>`. A run that crashes and is never resumed or abandoned leaves the entry until a person removes it with `git worktree remove -f -f`. A `git worktree prune` does not remove a locked entry.
+
+### A long checkout of the base
+
+On Windows, the git calls of the engine stop after 60 seconds (`runGitSync`). A checkout of a large base can take longer, so `git worktree add` gets a timeout of its own. A partial clone can fetch the blobs of the base over the network during the checkout. A checkout that fails or stops gives a check that the run did not compare.
 
 ### What the checkout of the base runs
 
