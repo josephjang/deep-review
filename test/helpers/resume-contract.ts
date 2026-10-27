@@ -314,7 +314,7 @@ export function normalizedReport(text: string, sandbox: string): string {
     .split('\n')
     .filter((line) => !/^(Repository|Base|Head|Run|Reopened): /.test(line))
     .filter((line) => !/^- (Worktree checks|Run budget|Workers with no reported cost): /.test(line))
-    .filter((line) => !/^- (Ran again after|Cut|Cut by a stop|Lost with the engine|Written back after|The run budget stopped|A stop cut|A stop ended|Dropped: )/.test(line))
+    .filter((line) => !/^- (Ran again after|Built again on the base|Cut|Cut by a stop|Lost with the engine|Written back after|The run budget stopped|A stop cut|A stop ended|Dropped: )/.test(line))
     .filter((line) => !/^The run budget stopped the fix pass: /.test(line))
     .map((line) => line.split(sandbox).join('<sandbox>'))
     .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>').replace(/\bartifacts\/[0-9a-f]{64}\b/g, '<artifact>'))
