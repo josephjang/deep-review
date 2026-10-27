@@ -9,7 +9,7 @@
 import type { ArtifactReference } from '../evidence/store.ts';
 import type { Blocker, FrozenFile, PlannedCheckV3 } from '../checkpoint/events.ts';
 import { currentPass, standingAnswers } from '../checkpoint/answer-state.ts';
-import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, takenOnBase, unitRevisions, type CutShortCheck, type FixState, type RunStanding } from '../checkpoint/fix-state.ts';
+import { claimsOfRound, cutShortBefore, documentationReadiness, earlierBatches, isNotAttempted, lastRestorationAt, roundOf, secondRoundPlannable, lastAnswerOf, lastCurrentRun, lastRecordedRun, repairTargets, runStanding, takenOnBase, unitRevisions, type CheckRunState, type CutShortCheck, type FixState, type RunStanding } from '../checkpoint/fix-state.ts';
 import { isAnswered, isUnverified, poolCandidates, type ReviewState, type UnitState, type WorktreeCheckState } from '../checkpoint/review-fold.ts';
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import { settledByFlagsOnly, unsettledKinds, type CheckSettings } from './checks/discover.ts';
@@ -524,10 +524,22 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
     if (standing === null || (phase === 'repair-checks' && standing.kind === 'first' && !repairRevisedSince(fix, check.kind))) continue;
     // Read now, not before the loop: a build that runs again runs first, and the kinds after it read its new outcome.
     const build = lastCurrentRun(withFix, phase, 'build');
-    const skip = check.kind === 'build' || build === null || build.outcome === 'passed' ? null : phase === 'base-checks' ? baseSkipReasons.buildFailed : `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}`;
+    const skip = check.kind === 'build' || build === null || build.outcome === 'passed' ? null : skipAfterBuild(phase, build);
     return { kind: check.kind, command: check.command, skip, replaces: standing.kind === 'first' ? null : { run: standing.run, why: standing.why } };
   }
   return null;
+}
+
+/**
+ * Why a kind after a `build` that did not pass is skipped: how the build
+ * ended, or on the base the fixed words of the brief, and there the build's
+ * own reason when it was skipped too, for the empty tree or a worktree its
+ * attempt could not make, since then it never ran (R5 of the facts before
+ * a merge).
+ */
+function skipAfterBuild(phase: CheckPhase, build: CheckRunState): string {
+  if (phase === 'base-checks') return build.outcome === 'skipped' && build.error !== null ? build.error : baseSkipReasons.buildFailed;
+  return `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}`;
 }
 
 /**
