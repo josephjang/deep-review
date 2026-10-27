@@ -198,7 +198,7 @@ For each fix that "What deep-review changed" counts as applied, the brief takes 
 
 ### The JSON form (R9)
 
-Version 4 of the JSON form is version 3 with three changes. `headline` gets `checks`. Each entry of `changed.checks` gets `last` with `when`, `base` and `fault`, and it keeps `after` for a program of version 3 that reads a field by its name. `changed` gets `validation`, the ids of the applied fixes under each method. `briefJson` writes version 4 alone.
+Version 4 of the JSON form is version 3 with three changes. `headline` gets `checks`. Each entry of `changed.checks` gets `last` with `when`, `base` and `fault`, and `last` replaces `after`. `changed` gets `validation`, the ids of the applied fixes under each method. `briefJson` writes version 4 alone.
 
 ### The events and the fold (R10)
 
@@ -287,7 +287,9 @@ The version alone marks the run, as version 7 marks the documentation step. The 
 
 ### TD10: Version 4 of the JSON form
 
-A change of the shape is a new version (TD8 of the brief of a run). Version 4 keeps `after` beside `last`, so a program that reads that field by its name reads the same check.
+A change of the shape is a new version (TD8 of the brief of a run). Version 4 replaces `after` with `last`, which says when the last run ran.
+
+The design first kept `after` beside `last`. The review showed that no reader gains from it: the schema of version 3 holds its version and refuses a field that it does not know, so a program of version 3 must change to read version 4 in any case. And `after` is the name that #78 showed to mislead.
 
 ### TD11: The repository variables are removed for the worktree of the base
 
@@ -355,7 +357,7 @@ A test of `checksSection` holds the column, the reading and the notes.
 
 ### R9: The JSON form
 
-A test holds that `briefJson` passes `briefJsonV4`, with `after` equal to the outcome of `last`.
+A test holds that `briefJson` passes `briefJsonV4`, and that no entry of `changed.checks` has `after`.
 
 ### R10: Older runs and older engines
 
@@ -385,7 +387,7 @@ An older engine passes over a run that this engine configured, as for each new v
 
 ### A program that reads the JSON form
 
-A program that reads version 3 must read version 4. Version 4 keeps each field of version 3 that this change does not remove, and it removes none.
+A program that reads version 3 must read version 4. Version 4 keeps each field of version 3 but `after` in each check, which `last` replaces.
 
 ### An entry in the git directory
 
