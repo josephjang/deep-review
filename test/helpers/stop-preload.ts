@@ -6,16 +6,19 @@
  * module graph as the engine, and `execFileSync` of `node:child_process`,
  * through which the engine's git runs. It is steered by variables:
  *   RESUME_STOP_DIR   the directory of its marker files; nothing is stopped or recorded without it
- *   RESUME_STOP_AT    the point: the name of an append (see appendName), `child` while the child
- *                     FAKE_HOLD names holds (the fakes write `started.json` in FAKE_START_DIR),
- *                     `update-ref before` or `update-ref after`
+ *   RESUME_STOP_AT    the point: the name of an append (see appendName), after it is written;
+ *                     `before ` and that name, before it is written; `child` while the child
+ *                     FAKE_HOLD names holds (the fakes write `started.json` in FAKE_START_DIR);
+ *                     or a git call of `gitCalls` and `before` or `after`, such as
+ *                     `update-ref before` or `worktree add after`
  *   RESUME_STOP_WAY   `signal` to stop the process from inside, as a handled signal does; any
  *                     other way leaves the kill to the helper (resume-contract.ts); with
  *                     `child` at the point `child`, the helper kills the held child first, and
  *                     the preload stops the engine at its next step after it recorded the
  *                     child's end: its next append that launches a worker, starts a check or
  *                     finishes a phase
- *   RESUME_RECORD     a file to append the name of every append to, in order, for a run with no stop
+ *   RESUME_RECORD     a file to append the name of every append to, in order, for a run with no stop,
+ *                     and the points before and after each git call of `gitCalls`
  * At the point it writes `stopped` in the directory. For `signal` it then
  * emits SIGINT in the process, which runs the path of `releaseOnExit`
  * (src/review/lock.ts) on every platform, or raises it when nothing
@@ -73,6 +76,16 @@ function stop(at: string): never {
   for (;;) Atomics.wait(pause, 0, 0, 1000);
 }
 
+/** The git calls a point can stop before or after, by the arguments that name each: `commit` moving the branch, and the phase `base-checks` making and removing a worktree of the base. */
+const gitCalls: Readonly<Record<string, (args: readonly string[]) => boolean>> = {
+  'update-ref': (args) => args.includes('update-ref'),
+  'worktree add': (args) => args.includes('worktree') && args.includes('add'),
+  'worktree remove': (args) => args.includes('worktree') && args.includes('remove'),
+};
+
+/** The git call `args` makes, by its name in `gitCalls`, or null for any other. */
+const gitCallOf = (args: unknown): string | null => (Array.isArray(args) ? (Object.keys(gitCalls).find((call) => gitCalls[call]!(args as string[])) ?? null) : null);
+
 /** The kinds of event that begin the engine's next step after the end of a child: a launch, the start of a check, the end of a phase. */
 const nextStepKinds: ReadonlySet<string> = new Set(['worker.launched', 'check.started', 'phase.finished']);
 
@@ -83,6 +96,7 @@ if (directory !== undefined) {
   let childEnded = false;
   const original = Checkpoint.prototype.append;
   Checkpoint.prototype.append = function append(this: Checkpoint, runId: string, expectedLastSequence: number, events: readonly NewEvent[]): RunState {
+    if (point?.startsWith('before ') === true && point === `before ${appendName(events, this.fold(runId))}`) stop(point);
     const state = original.call(this, runId, expectedLastSequence, events);
     const name = appendName(events, state);
     if (record !== undefined) appendFileSync(record, `${name}\n`);
@@ -94,13 +108,20 @@ if (directory !== undefined) {
     return state;
   };
 
-  if (point === 'update-ref before' || point === 'update-ref after') {
+  const atGitCall = point !== undefined && Object.keys(gitCalls).some((call) => point === `${call} before` || point === `${call} after`);
+  if (atGitCall || record !== undefined) {
     const execFileSync = childProcess.execFileSync;
+    /** At the moment around a git call: record its point, and stop there when it is the one asked for. */
+    const around = (call: string | null, moment: 'before' | 'after'): void => {
+      if (call === null) return;
+      if (record !== undefined) appendFileSync(record, `${call} ${moment}\n`);
+      if (point === `${call} ${moment}`) stop(point);
+    };
     const wrapped = ((file: string, args?: readonly string[], options?: unknown) => {
-      const moves = Array.isArray(args) && args.includes('update-ref');
-      if (moves && point === 'update-ref before') stop(point);
+      const call = gitCallOf(args);
+      around(call, 'before');
       const result = (execFileSync as (file: string, args?: readonly string[], options?: unknown) => unknown)(file, args, options);
-      if (moves) stop(point);
+      around(call, 'after');
       return result;
     }) as typeof childProcess.execFileSync;
     childProcess.execFileSync = wrapped;
