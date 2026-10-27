@@ -9,8 +9,8 @@
  * change's.
  */
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
-import { isInside } from '../../paths.ts';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { canonicalPath, isInside } from '../../paths.ts';
 import { comparable, pinVariables } from '../../runtime/environment.ts';
 import { gitFailureDetail, isRepositoryVariable, runGitSync, withoutRepositoryVariables } from '../../runtime/git-sync.ts';
 import { requireOutsideRun } from '../../runtime/scratch.ts';
@@ -147,6 +147,22 @@ export interface BaseEnvironment {
 }
 
 /**
+ * Whether the absolute `directory` is the reviewed worktree or beneath it:
+ * on canonical paths, or, when `directory` cannot be canonical, such as one
+ * under a directory the user cannot search, as written against the
+ * canonical worktree, so one entry the check could not read anyway never
+ * ends the run (R11).
+ */
+function insideReviewed(reviewed: string, directory: string): boolean {
+  try {
+    return isInside(reviewed, directory);
+  } catch {
+    const path = relative(canonicalPath(reviewed), resolve(directory));
+    return path === '' || !(path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path));
+  }
+}
+
+/**
  * The environment of a check on the base (TD11): `checkEnvironment` with
  * the directories of `tools.path` first on PATH, as every check has it,
  * then without the repository variables of git, without each entry of
@@ -155,7 +171,7 @@ export interface BaseEnvironment {
  * directory of the check's working directory, the worktree of the base.
  */
 export function baseEnvironment(environment: NodeJS.ProcessEnv, reviewed: string, toolsPath: readonly string[], platform: NodeJS.Platform = process.platform): BaseEnvironment {
-  const inside = (directory: string): boolean => isAbsolute(directory) && isInside(reviewed, directory);
+  const inside = (directory: string): boolean => isAbsolute(directory) && insideReviewed(reviewed, directory);
   const delimiter = platform === 'win32' ? ';' : ':';
   const lists = new Set(directoryLists.map((name) => comparable(name, platform)));
   const changed: string[] = [];

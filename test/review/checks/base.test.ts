@@ -155,4 +155,23 @@ describe('baseEnvironment', () => {
     assert.deepEqual(outsideOnly.changed, []);
     assert.equal(outsideOnly.environment.VIRTUAL_ENV, join(outside, '.venv'));
   });
+
+  it('judges an entry under a directory it cannot search as written, keeping it outside the reviewed worktree and leaving it out inside', { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'POSIX file modes, which root ignores' }, (t) => {
+    const directory = temporaryDirectory(t, 'deep-review-base-env-');
+    const reviewed = createRepository(join(directory, 'repo'));
+    const lockedOutside = join(directory, 'locked');
+    const lockedInside = join(reviewed, 'locked');
+    for (const locked of [lockedOutside, lockedInside]) {
+      mkdirSync(join(locked, 'bin'), { recursive: true });
+      chmodSync(locked, 0o000);
+    }
+    try {
+      const { environment, changed } = baseEnvironment({ PATH: [join(lockedOutside, 'bin'), join(lockedInside, 'bin'), '/usr/bin'].join(delimiter) }, reviewed, []);
+      assert.equal(environment.PATH, [join(lockedOutside, 'bin'), '/usr/bin'].join(delimiter));
+      assert.deepEqual(changed, [`the entries of PATH inside the reviewed worktree: ${join(lockedInside, 'bin')}`]);
+    } finally {
+      // The temporary directory's removal needs to search each of them.
+      for (const locked of [lockedOutside, lockedInside]) chmodSync(locked, 0o755);
+    }
+  });
 });
