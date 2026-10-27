@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FixRecordedV4, TreeRevised } from '../../src/checkpoint/events.ts';
-import { cutShortBefore, cutShortChecks, documentationItemsOf, documentationReadiness, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
+import { baseKinds, cutShortBefore, cutShortChecks, documentationItemsOf, documentationReadiness, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase, type TreeCheckPhase } from '../../src/review/vocabulary.ts';
 
 /** A revision of `src/a.ts` by `source` in `phase`; its message and bytes play no part in whose it is. */
@@ -90,6 +90,15 @@ describe('the last current run of a check (TD3 of resumable runs)', () => {
     const fix = (revisions: readonly TreeRevised[]): FixState => { const state = withRuns(fixOf(revisions), runs); return { ...state, checks: { ...state.checks, planned } }; };
     assert.deepEqual(repairTargets(fix([fixes])), ['test']);
     assert.deepEqual(repairTargets(fix([fixes, answer])), [], 'the run after the fixes checked a tree the answer pass changed');
+  });
+
+  it('keeps a kind on the base, read as recorded, after an answer pass made the run after the fixes old (R2, TD13 of the facts before a merge)', () => {
+    const runs = { 'baseline-checks': [run('baseline-checks', 'test', 'failed', 1, 0)], checks: [run('checks', 'test', 'failed', 1, 1)] };
+    const planned = { checks: [{ kind: 'test' as const, command: 'npm run test', origin: 'setting' as const, layer: 'flag' as const, reason: null, source: null }], manager: null };
+    const fix = (revisions: readonly TreeRevised[]): FixState => { const state = withRuns(fixOf(revisions), runs); return { ...state, checks: { ...state.checks, planned } }; };
+    assert.deepEqual(baseKinds(fix([fixes])), ['test']);
+    assert.deepEqual(baseKinds(fix([fixes, answer])), [], 'the planner reads the current runs');
+    assert.deepEqual(baseKinds(fix([fixes, answer]), 'recorded'), ['test'], 'what ran on the base stays');
   });
 });
 

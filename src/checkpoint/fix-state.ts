@@ -432,10 +432,13 @@ export function repairTargets(fix: FixState, read: 'current' | 'recorded' = 'cur
  * out before the fixes too (`failedAtBaseline`), where only the base tells
  * whether the change as submitted brought the failure. The fold gives
  * every run its kinds, a run configured before the phase among them, which
- * never runs them.
+ * never runs them. The brief reads the runs after the fixes whatever
+ * revision came later (`recorded`), as the report reads the repair's: an
+ * answer pass makes those runs old, but not what ran on the base, whose
+ * comparison never grows old (R2, TD13).
  */
-export function baseKinds(fix: FixState): CheckKind[] {
-  return repairTargets(fix).filter((kind) => failedAtBaseline(fix, kind));
+export function baseKinds(fix: FixState, read: 'current' | 'recorded' = 'current'): CheckKind[] {
+  return repairTargets(fix, read).filter((kind) => failedAtBaseline(fix, kind));
 }
 
 /**
