@@ -381,7 +381,8 @@ export type BaseReading = z.infer<typeof baseReadingSchema>;
 /**
  * Why a kind got a `skipped` run on the base, in the fixed words the
  * brief gives, keyed by the reason it is not compared for (R5 of the facts
- * before a merge). A run on the base records one as its error; a worktree
+ * before a merge). A run on the base records the key as its `skipReason`,
+ * which every reader branches on, and the words as its error; a worktree
  * that could not be made adds the error after a colon, of git or of the
  * engine's refusal, which names local paths and so stays out of the brief.
  */
@@ -391,6 +392,13 @@ export const baseSkipReasons = {
   'build-failed': 'the build did not pass on the base',
 } as const;
 export type BaseSkipReason = keyof typeof baseSkipReasons;
+export const baseSkipReasonKeys = Object.keys(baseSkipReasons) as [BaseSkipReason, ...BaseSkipReason[]];
+
+/** A skipped run on the base: its reason, and the error it records, the reason's words and for a worktree that could not be made the error after them. */
+export interface BaseSkip {
+  readonly reason: BaseSkipReason;
+  readonly error: string;
+}
 
 /** How a fixer validated a fix (fixer-validation.md): a red run on the old code, a mutation, a static check, existing tests, or a stated limit. */
 export const validationMethods = ['old-code', 'mutation', 'static', 'existing', 'limited'] as const;

@@ -7,7 +7,7 @@ import { documentationItemsOf } from '../../src/checkpoint/fix-state.ts';
 import { foldRun, type DecodedEvent, type RunState } from '../../src/checkpoint/fold.ts';
 import { normalizeFileName } from '../../src/review/locations.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
-import { answerPhases, finderAngles, fixPhases } from '../../src/review/vocabulary.ts';
+import { answerPhases, baseSkipReasons, finderAngles, fixPhases, type BaseSkipReason } from '../../src/review/vocabulary.ts';
 
 export const reference = (fill: string, bytes = 1): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes });
 export const worker = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -306,11 +306,14 @@ export function withFixPass(history: History, batchSize = 4): History {
 export const configuredFixBeforeSurvey = (batchSize = 4): History =>
   new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).add('review.configured', { ...configurationV1, fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize } }, 2);
 
-/** A check's run as `check.ran` records it: passed, failed, timed out, not started, or skipped because build did not pass. */
+/** The fields of a skipped run on the base: its reason and its error, the reason's words and the `detail` after them when given. */
+export const baseSkip = (reason: BaseSkipReason, detail?: string): { skipReason: BaseSkipReason; error: string } => ({ skipReason: reason, error: detail === undefined ? baseSkipReasons[reason] : `${baseSkipReasons[reason]}: ${detail}` });
+
+/** A check's run as `check.ran` records it: passed, failed, timed out, not started, or skipped because build did not pass; on the base with its `skipReason`, as version 4 records it. */
 export function checkRun(phase: string, kind: string, outcome = 'passed', attempt = 1): Record<string, unknown> {
   const command = plannedChecks.checks.find((check) => check.kind === kind)?.command ?? 'none';
   const at = { startedAt: '2026-09-27T01:00:00.000Z', endedAt: '2026-09-27T01:00:04.000Z' };
-  if (outcome === 'skipped') return { phase, attempt, kind, command, outcome, exitCode: null, signal: null, termination: null, ...at, stdout: null, stderr: null, error: 'build failed' };
+  if (outcome === 'skipped') return { phase, attempt, kind, command, outcome, exitCode: null, signal: null, termination: null, ...at, stdout: null, stderr: null, ...(phase === 'base-checks' ? baseSkip('build-failed') : { error: 'build failed' }) };
   return {
     phase, attempt, kind, command, outcome,
     exitCode: outcome === 'passed' ? 0 : outcome === 'failed' ? 1 : null,
@@ -320,6 +323,7 @@ export function checkRun(phase: string, kind: string, outcome = 'passed', attemp
     stdout: reference('c'),
     stderr: reference('d', 0),
     error: outcome === 'not-started' ? 'spawn ENOENT' : null,
+    ...(phase === 'base-checks' ? { skipReason: null } : {}),
   };
 }
 

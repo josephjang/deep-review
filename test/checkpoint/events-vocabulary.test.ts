@@ -108,6 +108,7 @@ import {
   answerPhases,
   attemptFaults,
   baseReadings,
+  baseSkipReasonKeys,
   candidateIdSchema,
   candidatePhases,
   checkBases,
@@ -777,26 +778,28 @@ describe('the review vocabulary frozen by the v8 events', () => {
 describe('the review vocabulary frozen by the v9 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
   const blob = (fill: string): { sha256: string; bytes: number } => ({ sha256: fill.repeat(64), bytes: 1 });
-  const ran = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ phase: 'base-checks', attempt: 1, kind: 'typecheck', command: 'npm run typecheck', outcome: 'failed', exitCode: 2, signal: null, termination: 'exited', startedAt: '2026-10-28T00:00:00.000Z', endedAt: '2026-10-28T00:00:04.000Z', stdout: blob('b'), stderr: blob('c'), error: null, replaces: null, ...change });
+  const ran = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ phase: 'base-checks', attempt: 1, kind: 'typecheck', command: 'npm run typecheck', outcome: 'failed', exitCode: 2, signal: null, termination: 'exited', startedAt: '2026-10-28T00:00:00.000Z', endedAt: '2026-10-28T00:00:04.000Z', stdout: blob('b'), stderr: blob('c'), error: null, replaces: null, skipReason: null, ...change });
   const repaired = { phase: 'repair', key: 'repair', workerId, findings: [], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] };
   const comparison = { kind: 'typecheck', reading: 'same', words: 'the same seven errors in src/core.py' };
 
   it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV9, { phases, checkPhases, baseReadings });
+    assert.deepEqual(reviewVocabularyV9, { phases, checkPhases, baseReadings, baseSkipReasons: baseSkipReasonKeys });
   });
 
   it('refuses the checks on the base in the last version of each of the six kinds that name them, and accepts them in the new one', () => {
     const spend = { workers: 0, seconds: 4, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
-    const cases: [string, z.ZodType, z.ZodType, unknown][] = [
+    // A check's run on the base offered to version 3 without the field version 4 adds, so only its phase can refuse it.
+    const ranBefore = Object.fromEntries(Object.entries(ran()).filter(([key]) => key !== 'skipReason'));
+    const cases: [string, z.ZodType, z.ZodType, unknown, unknown?][] = [
       ['phase.started', phaseStartedV6, phaseStartedV7, { phase: 'base-checks', attempt: 1 }],
       ['phase.finished', phaseFinishedV7, phaseFinishedV8, { phase: 'base-checks', attempt: 1, outcome: 'completed', blocker: null }],
       ['worktree.checked', worktreeCheckedV7, worktreeCheckedV8, { phase: 'base-checks', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }],
       ['check.started', checkStartedV1, checkStartedV2, { phase: 'base-checks', attempt: 1, kind: 'typecheck', command: 'npm run typecheck' }],
-      ['check.ran', checkRanV3, checkRanV4, ran()],
+      ['check.ran', checkRanV3, checkRanV4, ran(), ranBefore],
       ['report.written', reportWrittenV6, reportWrittenV7, { report: blob('a'), statistics: { phases: [{ phase: 'base-checks', ...spend }], total: spend, budgetApplied: false }, patches: [] }],
     ];
-    for (const [kind, older, newer, payload] of cases) {
-      assert.equal(older.safeParse(payload).success, false, `${kind}'s last version refuses the checks on the base`);
+    for (const [kind, older, newer, payload, olderPayload = payload] of cases) {
+      assert.equal(older.safeParse(olderPayload).success, false, `${kind}'s last version refuses the checks on the base`);
       assert.equal(newer.safeParse(payload).success, true, `${kind}'s new version accepts them`);
     }
   });
@@ -811,12 +814,23 @@ describe('the review vocabulary frozen by the v9 events', () => {
 
   it('holds the new versions to the rules of the old: a blocker exactly when blocked, a skipped check with no process, what a run replaces', () => {
     assert.equal(phaseFinishedV8.safeParse({ phase: 'base-checks', attempt: 1, outcome: 'completed', blocker: { code: 'budget', detail: 'd', action: 'a' } }).success, false);
-    assert.equal(checkRanV4.safeParse(ran({ outcome: 'skipped', exitCode: null, termination: 'exited', stdout: null, stderr: null, error: 'the base of the change is the empty tree' })).success, false, 'a skipped check has no termination');
-    assert.equal(checkRanV4.safeParse(ran({ outcome: 'skipped', exitCode: null, termination: null, stdout: null, stderr: null, error: 'the base of the change is the empty tree' })).success, true);
+    assert.equal(checkRanV4.safeParse(ran({ outcome: 'skipped', exitCode: null, termination: 'exited', stdout: null, stderr: null, error: 'the base of the change is the empty tree', skipReason: 'empty-tree' })).success, false, 'a skipped check has no termination');
+    assert.equal(checkRanV4.safeParse(ran({ outcome: 'skipped', exitCode: null, termination: null, stdout: null, stderr: null, error: 'the base of the change is the empty tree', skipReason: 'empty-tree' })).success, true);
     assert.equal(checkRanV4.safeParse(ran({ replaces: { attempt: 1, outcome: 'cut' } })).success, true);
     const noReplaces = Object.fromEntries(Object.entries(ran()).filter(([key]) => key !== 'replaces'));
     assert.equal(checkRanV4.safeParse(noReplaces).success, false, 'it names what it replaces, null for nothing');
     assert.equal(worktreeCheckedV8.safeParse({ phase: 'checks', attempt: 2, moment: 'restored', drifted: false, head: null, files: [], strays: [] }).success, true, 'the moment restored stays');
+  });
+
+  it('records why a run on the base was skipped as its skipReason, and on no other run (R5 of the facts before a merge)', () => {
+    const skipped = (change: Record<string, unknown>): Record<string, unknown> => ran({ outcome: 'skipped', exitCode: null, termination: null, stdout: null, stderr: null, error: 'build failed', ...change });
+    for (const reason of baseSkipReasonKeys) assert.equal(checkRanV4.safeParse(skipped({ skipReason: reason })).success, true, reason);
+    assert.equal(checkRanV4.safeParse(skipped({ skipReason: null })).success, false, 'a skipped run on the base says why');
+    assert.equal(checkRanV4.safeParse(skipped({ skipReason: 'no-room' })).success, false, 'only a reason of the vocabulary');
+    assert.equal(checkRanV4.safeParse(ran({ skipReason: 'build-failed' })).success, false, 'a run on the base that ran was not skipped');
+    assert.equal(checkRanV4.safeParse(skipped({ phase: 'checks', skipReason: 'build-failed' })).success, false, 'a run elsewhere has no reason of the base');
+    assert.equal(checkRanV4.safeParse(skipped({ phase: 'checks', skipReason: null })).success, true);
+    assert.equal(checkRanV4.safeParse(Object.fromEntries(Object.entries(skipped({ skipReason: 'empty-tree' })).filter(([key]) => key !== 'skipReason'))).success, false, 'every run records the field');
   });
 
   it('records the repair\'s comparisons with the base only from version 4 of fix.recorded, each kind with its reading and its words', () => {

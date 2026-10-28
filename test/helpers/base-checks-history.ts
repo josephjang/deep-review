@@ -3,7 +3,8 @@
 // review-history.ts, for the brief, its JSON form and the report.
 import { repairTargets } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { answer, answerableDecisions, checkRun, checksPhase, decidedOf, decisions, documentationAnswered, endCheck, fixAnswer, fixPlan, fixRevision, mergeRanked, noSecondRound, passAnswer, passRevision, ranOnBase, reference, statistics, withBaseChecks, withDocumentationStep, withFixPass, worker, type History } from './review-history.ts';
+import type { BaseSkipReason } from '../../src/review/vocabulary.ts';
+import { answer, answerableDecisions, baseSkip, checkRun, checksPhase, decidedOf, decisions, documentationAnswered, endCheck, fixAnswer, fixPlan, fixRevision, mergeRanked, noSecondRound, passAnswer, passRevision, ranOnBase, reference, statistics, withBaseChecks, withDocumentationStep, withFixPass, worker, type History } from './review-history.ts';
 
 /** How the checks of a fix run end in each phase, and what the repair answers. */
 export interface ChecksOfRun {
@@ -11,8 +12,8 @@ export interface ChecksOfRun {
   readonly before?: Readonly<Record<string, string>>;
   /** The outcome of each kind after the fixes, passed for a kind not named. */
   readonly after?: Readonly<Record<string, string>>;
-  /** Each run on the base in order: its kind, its outcome and, for a skipped one, its error. */
-  readonly base?: readonly (readonly [kind: string, outcome: string, error?: string])[];
+  /** Each run on the base in order: its kind, its outcome and, for a skipped one, why, with the error after the reason's words, if any. */
+  readonly base?: readonly (readonly [kind: string, outcome: string, skip?: BaseSkipReason, detail?: string])[];
   /** The repair's comparisons with the base; null for a repair the run budget stopped, which gives none. */
   readonly comparisons?: readonly { readonly kind: string; readonly reading: string; readonly words: string }[] | null;
   /** The outcome of each kind after a repair that applied one fix, which only then runs the checks again; none by default. */
@@ -42,7 +43,7 @@ export function checkedRun(checks: ChecksOfRun = {}): History {
   const history = checksPhase(documentationAnswered(fixed), 'checks', after);
   if (compared) {
     history.start('base-checks');
-    for (const [kind, outcome, error] of base) ranOnBase(history, kind, outcome, 1, null, error === undefined ? {} : { error });
+    for (const [kind, outcome, skip, detail] of base) ranOnBase(history, kind, outcome, 1, null, skip === undefined ? {} : baseSkip(skip, detail));
     history.finish('base-checks');
   }
   history.start('repair');
@@ -93,4 +94,11 @@ export function onBranch(history: History): RunState {
   const state = history.fold();
   const scope = state.scope!;
   return { ...state, scope: { ...scope, mode: 'range', base: mergeBase, request: { ...scope.request, range: { from: 'origin/main', to: 'HEAD', mergeBase: true } } } };
+}
+
+/** The run with the error of each skipped run on the base in other words, as a ledger recorded before a phrase of `baseSkipReasons` was reworded holds it; its `skipReason` stays. */
+export function rewordedOnBase(state: RunState, error: string): RunState {
+  const fix = state.review!.fix!;
+  const runs = fix.checks.runs['base-checks'].map((run) => (run.outcome === 'skipped' ? { ...run, error } : run));
+  return { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'base-checks': runs } } } } };
 }

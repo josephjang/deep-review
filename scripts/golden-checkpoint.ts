@@ -97,6 +97,8 @@ class ReviewHistory {
       phase, attempt, kind, command, outcome, ...ended,
       startedAt: '2026-10-19T02:00:00.000Z', endedAt: '2026-10-19T02:00:04.000Z',
       stdout: this.#checkpoint.evidence.put(`${kind} ${outcome}\n`), stderr: this.#checkpoint.evidence.put(''), error: null, replaces,
+      // Version 4 records why a run on the base was skipped, which a run that ran was not.
+      ...(ranVersion >= 4 ? { skipReason: null } : {}),
     }, ranVersion);
   }
 

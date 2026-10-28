@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
-import { writtenVersion } from '../../src/review/event-versions.ts';
+import { checkRanEvent, writtenVersion } from '../../src/review/event-versions.ts';
 import { attemptFaults, budgetDegradingPhases, checkPhases, editingPhases, phases, worktreeMoments, type Phase } from '../../src/review/vocabulary.ts';
 
 // The expressions each writer chose its version with before the table, as they were written at each site.
@@ -77,8 +77,9 @@ describe('the version each event that names a phase is written at', () => {
     }
     for (const phase of checkPhases) {
       assert.ok(accepts('check.started', writtenVersion('check.started', [phase]), { phase, attempt: 1, kind: 'test', command: 'npm test' }), `check.started ${phase}`);
-      const skipped = { phase, attempt: 1, kind: 'test', command: 'npm test', outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: '2026-10-28T00:00:00.000Z', endedAt: '2026-10-28T00:00:00.000Z', stdout: null, stderr: null, error: 'build failed', replaces: null };
-      assert.ok(accepts('check.ran', writtenVersion('check.ran', [phase]), skipped), `check.ran ${phase}`);
+      // The writer's own event, whose payload has the `skipReason` of a run on the base only at a version that records it.
+      const skipped = checkRanEvent({ phase, attempt: 1, kind: 'test', command: 'npm test', outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: '2026-10-28T00:00:00.000Z', endedAt: '2026-10-28T00:00:00.000Z', stdout: null, stderr: null, error: 'build failed', replaces: null, skipReason: phase === 'base-checks' ? 'build-failed' : null });
+      assert.ok(accepts(skipped.kind, skipped.version, skipped.payload), `check.ran ${phase}`);
     }
   });
 });

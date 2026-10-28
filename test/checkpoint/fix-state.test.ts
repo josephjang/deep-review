@@ -38,7 +38,7 @@ describe('unitRevisions', () => {
 /** A run of `kind` in `phase` at `attempt`, folded with `revisionsBefore` revisions before it. */
 const run = (phase: CheckPhase, kind: CheckKind, outcome: CheckRunState['outcome'], attempt: number, revisionsBefore: number): CheckRunState => ({
   phase, attempt, kind, command: `npm run ${kind}`, outcome, exitCode: outcome === 'passed' ? 0 : 1, signal: null, termination: outcome === 'timeout' ? 'killed' : 'exited',
-  startedAt: '2026-10-19T00:00:00.000Z', endedAt: '2026-10-19T00:00:01.000Z', stdout: null, stderr: null, error: null, replaces: null, revisionsBefore, replacedAt: null,
+  startedAt: '2026-10-19T00:00:00.000Z', endedAt: '2026-10-19T00:00:01.000Z', stdout: null, stderr: null, error: null, replaces: null, skipReason: null, revisionsBefore, replacedAt: null,
 });
 const withRuns = (fix: FixState, runs: Partial<Record<CheckPhase, readonly CheckRunState[]>>): FixState => ({ ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, ...runs } } });
 

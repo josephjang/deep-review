@@ -36,6 +36,7 @@ import {
   surveyWorkerFailedAction,
   surveyWorkerFailedActions,
   unitName,
+  type BaseSkipReason,
   type CheckKind,
   type CheckPhase,
   type TreeCheckPhase,
@@ -79,6 +80,12 @@ type DegradationTarget =
 /** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
 export type Degradation = DegradationTarget & { readonly reason: string };
 
+/** Why a check is skipped: the error its run records, and on the base the reason, which a run elsewhere has none of (R5 of the facts before a merge). */
+export interface CheckSkip {
+  readonly error: string;
+  readonly reason: BaseSkipReason | null;
+}
+
 /**
  * A check due in a checks phase: run it, or record it skipped with the
  * reason when `build` did not pass, in fixed words on the base (R5 of the
@@ -89,7 +96,7 @@ export type Degradation = DegradationTarget & { readonly reason: string };
 export interface DueCheck {
   readonly kind: CheckKind;
   readonly command: string;
-  readonly skip: string | null;
+  readonly skip: CheckSkip | null;
   readonly replaces: Omit<Extract<RunStanding, { readonly kind: 'again' }>, 'kind'> | null;
 }
 
@@ -537,9 +544,9 @@ export function dueCheck(review: ReviewState, phase: CheckPhase): DueCheck | nul
  * attempt could not make, since then it never ran (R5 of the facts before
  * a merge).
  */
-function skipAfterBuild(phase: CheckPhase, build: CheckRunState): string {
-  if (phase === 'base-checks') return build.outcome === 'skipped' && build.error !== null ? build.error : baseSkipReasons['build-failed'];
-  return `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}`;
+function skipAfterBuild(phase: CheckPhase, build: CheckRunState): CheckSkip {
+  if (phase === 'base-checks') return build.skipReason === null ? { reason: 'build-failed', error: baseSkipReasons['build-failed'] } : { reason: build.skipReason, error: build.error ?? baseSkipReasons[build.skipReason] };
+  return { reason: null, error: `build ${build.outcome === 'failed' ? 'failed' : build.outcome === 'timeout' ? 'timed out' : 'did not start'}` };
 }
 
 /**
