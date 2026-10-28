@@ -21,6 +21,9 @@ function sandbox(t: TestContext): { readonly directory: string; readonly repo: s
 /** Each entry of `git worktree list --porcelain` as its lines, the main worktree's first. */
 const entries = (repo: string): string[][] => git(repo, 'worktree', 'list', '--porcelain').split(/\n\n/).map((entry) => entry.split('\n').filter((line) => line.length > 0)).filter((entry) => entry.length > 0);
 
+/** The first line of the entry of the worktree at `path`, which git writes with forward slashes on Windows. */
+const entryOf = (path: string): string => `worktree ${process.platform === 'win32' ? path.replaceAll('\\', '/') : path}`;
+
 /** A post-checkout hook in the repository that records each run of it in `marker`. */
 function hookInto(repo: string, marker: string): void {
   write(repo, '.git/hooks/post-checkout', `#!/bin/sh\necho ran >> "${marker.replaceAll('\\', '/')}"\n`);
@@ -43,7 +46,7 @@ describe('makeBaseTree', () => {
     assert.equal(git(path, 'rev-parse', 'HEAD'), base);
     assert.equal(existsSync(join(path, 'base.txt')), true);
     assert.equal(existsSync(join(path, 'head.txt')), false, 'the tree is the base, not the change');
-    assert.deepEqual(entries(repo).find((entry) => entry[0] === `worktree ${path}`)?.slice(2), ['detached', `locked ${baseLockReason('run-1')}`]);
+    assert.deepEqual(entries(repo).find((entry) => entry[0] === entryOf(path))?.slice(2), ['detached', `locked ${baseLockReason('run-1')}`]);
     assert.equal(existsSync(marker), false, 'no hook ran at the checkout of the base');
   });
 
@@ -103,7 +106,7 @@ describe('removeBaseTrees', () => {
     rmSync(join(directory, 'unmounted'), { recursive: true, force: true });
     const other = makeBaseTree(context({ runId: 'run-2' }), base);
     assert.equal(other.kind, 'made');
-    const others = entries(repo).filter((entry) => ![here, elsewhere, gone].some((tree) => tree.kind === 'made' && entry[0] === `worktree ${tree.path}`));
+    const others = entries(repo).filter((entry) => ![here, elsewhere, gone].some((tree) => tree.kind === 'made' && entry[0] === entryOf(tree.path)));
     assert.equal(others.length, 4);
 
     removeBaseTrees(context());
@@ -124,7 +127,7 @@ describe('removeBaseTrees', () => {
     assert.ok(here.kind === 'made' && gone.kind === 'made');
     rmSync(gone.path, { recursive: true, force: true });
     git(repo, 'worktree', 'add', '--detach', join(directory, 'person'), base);
-    const others = entries(repo).filter((entry) => entry[0] !== `worktree ${here.path}` && entry[0] !== `worktree ${gone.path}`);
+    const others = entries(repo).filter((entry) => entry[0] !== entryOf(here.path) && entry[0] !== entryOf(gone.path));
     // git 2.32 to 2.35 has `worktree add --lock --reason` but no `worktree list -z`.
     const bin = join(directory, 'old-git');
     write(bin, 'git', `#!/bin/sh\nif [ "$1" = worktree ] && [ "$2" = list ]; then for a; do if [ "$a" = -z ]; then echo "error: unknown switch \\\`z'" >&2; exit 129; fi; done; fi\nexec "${join(git(repo, '--exec-path'), 'git')}" "$@"\n`);
