@@ -399,12 +399,16 @@ At the head of the work, `npm run check` passed (2988 tests: 2975 passed, 0 fail
 
 Each rule that the phase adds to the fold was broken once on purpose, and a test failed each time.
 
+After the review of the work (see The gate) and its fixes, `npm run check` passed (3005 tests: 2992 passed, 0 failed, 13 skipped), `npm run verify` passed, `npm run test:contract` passed 85 of 85, and `npm run resume-test` ran 984 cases and none broke. CI first failed in the check job on Windows, in two tests of `test/review/checks/base.test.ts`: they looked for a worktree in `git worktree list --porcelain` by its path with backslashes, which git writes with forward slashes there. The tests now compare the form git writes (the commit "Compare worktree paths as git writes them on Windows"), and with it the check and the contract test passed on macOS, Ubuntu and Windows. The engine finds the worktrees of a run by their lock reason, not by path, and its test that makes and removes a worktree of the base through a fix pass passed on Windows from the first CI run.
+
 ### Changes of the proposal during the work
 
 - TD16: each attempt makes the worktree of the base again, so a `build` that passed there in an earlier attempt runs again while another kind is due. The same holds for a `build` skipped in an earlier attempt that had no worktree, which a reopened fix pass can meet, except a `build` skipped because the base is the empty tree: no attempt can make a worktree of it, so that skip stays its result.
 - The variables that a check on the base runs without are named in the log of the run, not in the report, since no event carries them.
 - A fault read from the base holds only while the last run of the kind fails or times out. A check that an answer pass made pass reads as passing now, with no gap (R5 and the table of `fault`).
 - The list of the repository variables of git is in `src/runtime/git-sync.ts`, not in `checks/base.ts`.
+- TD17: a skipped run on the base records why as `skipReason` of `check.ran@4`, which the brief, the report and `runStanding` read, so a reworded reason never turns a recorded one into `not-run`. The author chose it in answer to a question of the review of the work, and `schema-1-16` is written with it.
+- From the review of the work, the body of this design also gained: a fourth moment of removal, when the loop of a command throws after it made a worktree of the base; `PERL5LIB`, `PERLLIB`, `RUBYLIB`, `GEM_PATH` and `CLASSPATH` among the variables that lose their paths into the reviewed tree, a variable left with no entry being dropped; a `build` that times out or does not start on the base skipping the other kinds as a failed one does; no worktree for a kind that the attempt only records as skipped; and `timed out` in the clause of a check not compared that timed out.
 
 Choices of the work that the design leaves open:
 
@@ -417,7 +421,9 @@ Choices of the work that the design leaves open:
 
 ### The gate (R12)
 
-Not run yet. The runs on pallets/click #3878 in Claude Code and in Codex, the run there with a check command that passes on the base and fails on the change, and a run of deep-review on this pull request are still to come, and with them the metrics of the requirements. CI has not run on the head of the work yet.
+The run of deep-review on this pull request is done, a fix run on Claude Code. It ran the engine of `main`, from before this change, so its ledger has no phase on the base and its brief has no line `Checks:`. It is a review of the work, not a test of the phase. It reported 26 findings, 4 major and 22 minor, 11 of them confirmed and 15 plausible, and its decision step chose 22 to fix, 2 to leave and 2 to ask. The author answered both questions: a write that a check on the base makes into the reviewed tree still stops the run as the edit of a person (TD14), and the reason of a skipped run on the base became a field (TD17). It left two findings: that a kind which timed out on the base does not run there again, which PD11 chose, and that the other checks and git calls of the engine inherit the repository variables of git, which is outside this change (TD11, #27). It added 27 commits to the pull request: 25 name the findings they fix or the answer they apply, one makes the contract test of resumable runs pass over a line that a fix reworded, and one builds `dist/`. The report of the run stays outside the repository, with the author. The run's `build` failed before and after the fixes with the error of #85, so its other checks were skipped there; after the answer pass, build, typecheck, lint and test all passed.
+
+The runs on pallets/click #3878 in Claude Code and in Codex, and the run there with a check command that passes on the base and fails on the change, are still to come, with the engine of this branch, and with them the metrics of the requirements.
 
 ## Risks & Migration
 
