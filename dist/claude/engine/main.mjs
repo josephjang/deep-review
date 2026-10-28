@@ -68,11 +68,11 @@ function realGit(run2 = execFileSync, exists = existsSync) {
   const binary = win32.join(execPath, "git.exe");
   return exists(binary) ? binary : "git";
 }
-function gitLocator(resolve13 = realGit) {
+function gitLocator(resolve14 = realGit) {
   let resolved;
   return (platform = process.platform) => {
     if (platform !== "win32") return "git";
-    resolved ??= resolve13();
+    resolved ??= resolve14();
     return resolved;
   };
 }
@@ -295,7 +295,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(guard2);
-    return await new Promise((resolve13) => {
+    return await new Promise((resolve14) => {
       let started = false;
       let kill;
       const expire = (graceLeftMs) => {
@@ -322,7 +322,7 @@ async function runProcess(request) {
       guard2.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve13(notStarted(`the guard did not start: ${error62.message}`, startedAt));
+        resolve14(notStarted(`the guard did not start: ${error62.message}`, startedAt));
       });
       guard2.stdin?.on("error", () => {
       });
@@ -332,12 +332,12 @@ async function runProcess(request) {
         guard2.stdin?.destroy();
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
         const result = readGuardResult(resultFile);
-        if (kill !== void 0 && kill.status !== "not-running") resolve13({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
-        else if (result?.termination === "exited") resolve13({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
-        else if (result?.termination === "not-started") resolve13(notStarted(result.error, startedAt, endedAt));
+        if (kill !== void 0 && kill.status !== "not-running") resolve14({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        else if (result?.termination === "exited") resolve14({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
+        else if (result?.termination === "not-started") resolve14(notStarted(result.error, startedAt, endedAt));
         else {
           endLeftGroup(guard2.pid);
-          resolve13({ termination: "exited", exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
+          resolve14({ termination: "exited", exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
         }
       });
     });
@@ -491,13 +491,13 @@ async function runGuard(argv) {
       writeResult(resultFile, { termination: "not-started", error: error62.message });
       return 1;
     }
-    return await new Promise((resolve13) => {
+    return await new Promise((resolve14) => {
       let started = false;
       let settled3 = false;
       const settle4 = (code) => {
         settled3 = true;
         process.stdin.destroy();
-        resolve13(code);
+        resolve14(code);
       };
       child.once("spawn", () => {
         started = true;
@@ -5058,7 +5058,7 @@ function isRef(value) {
 function cloneIssues(issues) {
   return issues.map((iss) => iss.path ? { ...iss, path: iss.path.slice() } : { ...iss });
 }
-function isRecursive(inst, stack, resolve13) {
+function isRecursive(inst, stack, resolve14) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5068,7 +5068,7 @@ function isRecursive(inst, stack, resolve13) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer3 = isRecursive(child, stack, resolve13);
+      const answer3 = isRecursive(child, stack, resolve14);
       if (answer3 > result)
         result = answer3;
     }
@@ -5079,7 +5079,7 @@ function isRecursive(inst, stack, resolve13) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve13) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve14) : NONE;
       if (child > answer3)
         answer3 = child;
     }
@@ -5143,7 +5143,7 @@ function isRecursive(inst, stack, resolve13) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve13 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve14 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -22673,7 +22673,8 @@ var init_events = __esm({
         "report"
       ],
       checkPhases: ["baseline-checks", "checks", "base-checks", "repair-checks", "answer-checks"],
-      baseReadings: ["same", "adds", "unknown"]
+      baseReadings: ["same", "adds", "unknown"],
+      baseSkipReasons: ["empty-tree", "no-worktree", "build-failed"]
     };
     vocabularyV9 = reviewVocabularyV9;
     phaseSchemaV9 = external_exports.enum(vocabularyV9.phases);
@@ -22705,8 +22706,12 @@ var init_events = __esm({
     });
     checkRanV4 = external_exports.strictObject({
       ...checkRanV3.shape,
-      phase: checkPhaseSchemaV9
-    }).superRefine(refineCheckRan);
+      phase: checkPhaseSchemaV9,
+      skipReason: external_exports.enum(vocabularyV9.baseSkipReasons).nullable()
+    }).superRefine((check2, context) => {
+      refineCheckRan(check2, context);
+      if (check2.skipReason !== null !== (check2.phase === "base-checks" && check2.outcome === "skipped")) context.addIssue({ code: "custom", message: "a skipped run on the base alone records why as skipReason", path: ["skipReason"] });
+    });
     comparisonWordsLengthV1 = 400;
     fixRecordedV4 = external_exports.strictObject({
       ...fixRecordedV3.shape,
@@ -22802,7 +22807,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22871,6 +22876,7 @@ var init_vocabulary = __esm({
     batchKeySchema = external_exports.string().regex(/^c[1-9][0-9]*-[1-9][0-9]*$/, "a batch key is a cluster id, a dash and a number from 1");
     checkOutcomes = ["passed", "failed", "timeout", "not-started", "skipped", "cut"];
     checkOutcomeSchema = external_exports.enum(checkOutcomes);
+    failedOrTimedOut = (outcome) => outcome === "failed" || outcome === "timeout";
     candidatePhases = ["triage", "finders", "sweep"];
     candidatePhaseSchema2 = external_exports.enum(candidatePhases);
     deduplicationPhases = ["deduplication", "sweep-deduplication"];
@@ -22913,10 +22919,11 @@ var init_vocabulary = __esm({
     baseReadings = ["same", "adds", "unknown"];
     baseReadingSchema = external_exports.enum(baseReadings);
     baseSkipReasons = {
-      emptyTree: "the base of the change is the empty tree",
-      noWorktree: "no worktree of the base could be made",
-      buildFailed: "the build failed on the base"
+      "empty-tree": "the base of the change is the empty tree",
+      "no-worktree": "no worktree of the base could be made",
+      "build-failed": "the build did not pass on the base"
     };
+    baseSkipReasonKeys = Object.keys(baseSkipReasons);
     validationMethods = ["old-code", "mutation", "static", "existing", "limited"];
     validationMethodSchema = external_exports.enum(validationMethods);
     suiteResults = ["pass", "fail", "not-run"];
@@ -23251,7 +23258,7 @@ function runStanding(review2, phase, kind) {
   const firstTimeout = review2.fix.checks.runs[phase].find((run2) => run2.kind === kind && run2.attempt === current && run2.outcome === "timeout");
   if (phase !== "base-checks" && last.outcome === "timeout" && last.attempt === current && firstTimeout === last) return { kind: "again", run: last, why: "timeout" };
   if (last.outcome !== "passed" && isCutAttempt(review2, phase, last.attempt)) return { kind: "again", run: last, why: "cut-attempt" };
-  const unbuilt = phase === "base-checks" && kind === "build" && (last.outcome === "passed" || last.outcome === "skipped") && last.attempt < current;
+  const unbuilt = phase === "base-checks" && kind === "build" && (last.outcome === "passed" || last.outcome === "skipped" && last.skipReason !== "empty-tree") && last.attempt < current;
   if (unbuilt && baseKinds(review2.fix).some((other) => other !== "build" && runStanding(review2, phase, other) !== null)) return { kind: "again", run: last, why: "earlier-worktree" };
   return null;
 }
@@ -23293,6 +23300,10 @@ function checksFloor(review2, phase) {
 function failedAtBaseline(fix, kind) {
   return ["failed", "timeout"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
 }
+function failingBaselineRun(fix, kind) {
+  const run2 = lastFreshRun(fix, "baseline-checks", kind);
+  return run2 !== null && failedOrTimedOut(run2.outcome) ? run2 : null;
+}
 function repairTargets(fix, read = "current") {
   const planned = fix.checks.planned?.checks ?? [];
   const afterFixes = (kind) => read === "current" ? lastFreshRun(fix, "checks", kind) : lastRecordedRun(fix, "checks", kind);
@@ -23301,12 +23312,15 @@ function repairTargets(fix, read = "current") {
 function baseKinds(fix, read = "current") {
   return repairTargets(fix, read).filter((kind) => failedAtBaseline(fix, kind));
 }
+function kindsTakenToBase(review2, read = "current") {
+  return review2.baseChecksStep ? baseKinds(review2.fix, read) : [];
+}
 function takenOnBase(review2, kind) {
   const kinds = baseKinds(review2.fix);
   return kinds.includes(kind) || kind === "build" && kinds.some((other) => other !== "build" && runStanding(review2, "base-checks", other) !== null);
 }
 function failedOnBase(fix, kind) {
-  return ["failed", "timeout"].includes(lastFreshRun(fix, "base-checks", kind)?.outcome ?? "");
+  return failedOrTimedOut(lastFreshRun(fix, "base-checks", kind)?.outcome);
 }
 function comparableKinds(fix) {
   return baseKinds(fix).filter((kind) => failedOnBase(fix, kind));
@@ -23531,11 +23545,11 @@ function documentationReadiness(fix) {
   if (!fix.revisions.some((revision) => revision.phase === "fixes")) return { kind: "no-fixes-revision" };
   return { kind: "ready" };
 }
-function documentationItemsOf(fix, resolve13) {
+function documentationItemsOf(fix, resolve14) {
   const groups = /* @__PURE__ */ new Map();
   for (const batch of allBatches(fix)) {
     for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
-      const path = resolve13(line.file);
+      const path = resolve14(line.file);
       const group = documentKey({ path, file: line.file });
       const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
       entry.drift.push({ key: batch.key, file: line.file, what: line.what });
@@ -24235,7 +24249,7 @@ function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `${verb} commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
 }
-var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV32, checkStarted, treeRestored, fixRecorded, fixRecordedV32, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
+var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV42, checkRanV32, checkStarted, treeRestored, fixRecorded, fixRecordedV32, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
 var init_fix_fold = __esm({
   "src/checkpoint/fix-fold.ts"() {
     "use strict";
@@ -24348,10 +24362,10 @@ var init_fix_fold = __esm({
       const { current, review: review2, fix } = requireFix(state, event);
       requirePlannedCheck(review2, fix, event, payload, "runs");
       if (lastCurrentRun({ ...review2, fix }, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === "answer-checks" ? " for one answer pass" : ""}`);
-      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null }, null)] };
+      const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null, skipReason: null }, null)] };
       return withFix(current, review2, { ...fix, checks: { ...fix.checks, runs } }, event);
     };
-    checkRanV32 = (state, payload, event) => {
+    checkRanV42 = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requirePlannedCheck(review2, fix, event, payload, "runs");
       const standing = runStanding({ ...review2, fix }, payload.phase, payload.kind);
@@ -24365,6 +24379,7 @@ var init_fix_fold = __esm({
       const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload, standing.kind === "again" ? standing.run : null)] };
       return withFix(current, review2, { ...fix, checks: { ...fix.checks, runs } }, event);
     };
+    checkRanV32 = (state, payload, event, drafts) => checkRanV42(state, { ...payload, skipReason: null }, event, drafts);
     checkStarted = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requirePlannedCheck(review2, fix, event, payload, "starts");
@@ -24561,7 +24576,7 @@ var init_fix_fold = __esm({
       "check.ran@1": checkRan,
       "check.ran@2": checkRan,
       "check.ran@3": checkRanV32,
-      "check.ran@4": checkRanV32,
+      "check.ran@4": checkRanV42,
       "tree.restored@1": treeRestored,
       "fix.recorded@1": fixRecordedV32,
       "fix.recorded@2": fixRecordedV32,
@@ -28818,11 +28833,11 @@ function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
   return held.length === 1 ? held[0] : name;
 }
 function resolveFixerAnswer(output2, context) {
-  const resolve13 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const resolve14 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
   const own2 = /* @__PURE__ */ new Set([...context.owned, ...context.claimed]);
   const findings = output2.findings.map(({ edits, ...finding }) => {
-    const files = [...new Set((edits?.files ?? []).map(resolve13))];
-    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve13))];
+    const files = [...new Set((edits?.files ?? []).map(resolve14))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve14))];
     const held = requiredFiles.filter((path) => own2.has(path));
     if (held.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${held.join(", ")}, which its own cluster owns or claimed`);
     return { ...finding, files, message: edits?.message ?? null, requiredFiles };
@@ -29149,10 +29164,10 @@ var init_survey = __esm({
 // src/review/grouping.ts
 function unlocatedSpellings(candidates) {
   const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative5 = [...spellings].filter((spelling) => !isAbsolute7(spelling));
+  const relative6 = [...spellings].filter((spelling) => !isAbsolute7(spelling));
   const joined = /* @__PURE__ */ new Map();
   for (const spelling of spellings) {
-    const within = isAbsolute7(spelling) ? relative5.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    const within = isAbsolute7(spelling) ? relative6.filter((name) => spelling.endsWith(`/${name}`)) : [];
     joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
   }
   return joined;
@@ -29722,10 +29737,14 @@ function dueCheck(review2, phase) {
     const standing = runStanding(withFix2, phase, check2.kind);
     if (standing === null || phase === "repair-checks" && standing.kind === "first" && !repairRevisedSince(fix, check2.kind)) continue;
     const build2 = lastCurrentRun(withFix2, phase, "build");
-    const skip = check2.kind === "build" || build2 === null || build2.outcome === "passed" ? null : phase === "base-checks" ? baseSkipReasons.buildFailed : `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}`;
+    const skip = check2.kind === "build" || build2 === null || build2.outcome === "passed" ? null : skipAfterBuild(phase, build2);
     return { kind: check2.kind, command: check2.command, skip, replaces: standing.kind === "first" ? null : { run: standing.run, why: standing.why } };
   }
   return null;
+}
+function skipAfterBuild(phase, build2) {
+  if (phase === "base-checks") return build2.skipReason === null ? { reason: "build-failed", error: baseSkipReasons["build-failed"] } : { reason: build2.skipReason, error: build2.error ?? baseSkipReasons[build2.skipReason] };
+  return { reason: null, error: `build ${build2.outcome === "failed" ? "failed" : build2.outcome === "timeout" ? "timed out" : "did not start"}` };
 }
 function surveyStep(review2, live2, attempt) {
   const survey = review2.survey;
@@ -30154,16 +30173,15 @@ var init_drift = __esm({
 
 // src/review/event-versions.ts
 function writtenVersion(kind, phases2, ...carried) {
+  const version2 = carriedVersions[kind];
   const words = carried[0];
-  return Math.max(
-    floors[kind],
-    ...phases2.map((phase) => phaseVersions[phase]?.[kind] ?? 0),
-    words?.moment === void 0 ? 0 : momentVersions[words.moment] ?? 0,
-    words?.fault === void 0 ? 0 : faultVersions[words.fault] ?? 0,
-    words?.comparisons === true ? comparisonsVersion : 0
-  );
+  return Math.max(floors[kind], ...phases2.map((phase) => phaseVersions[phase]?.[kind] ?? 0), version2 === void 0 || words === void 0 ? 0 : version2(words));
 }
-var floors, phaseVersions, momentVersions, faultVersions, comparisonsVersion;
+function checkRanEvent({ skipReason: skipReason2, ...ran }) {
+  const version2 = writtenVersion("check.ran", [ran.phase]);
+  return { kind: "check.ran", version: version2, payload: version2 < 4 ? ran : { ...ran, skipReason: skipReason2 } };
+}
+var floors, phaseVersions, carriedVersions;
 var init_event_versions = __esm({
   "src/review/event-versions.ts"() {
     "use strict";
@@ -30185,9 +30203,14 @@ var init_event_versions = __esm({
       documentation: { "phase.started": 6, "phase.finished": 7, "worktree.checked": 7, "attempt.failed": 8, "worker.lost": 6, "report.written": 6, "tree.revised": 3, "fix.recorded": 3, "unit.unattempted": 2, "fix.reopened": 2 },
       "base-checks": { "phase.started": 7, "phase.finished": 8, "worktree.checked": 8, "report.written": 7, "check.started": 2, "check.ran": 4 }
     };
-    momentVersions = { restored: 6 };
-    faultVersions = { cut: 7, limit: 7 };
-    comparisonsVersion = 4;
+    carriedVersions = {
+      // The moment of a worktree check after a write back, which version 6 first records (R7 of resumable runs).
+      "worktree.checked": ({ moment }) => moment === "restored" ? 6 : 0,
+      // The faults of a failed attempt that version 7 first records: a kill mark and the provider's usage limit (R4, R14 of resumable runs).
+      "attempt.failed": ({ fault }) => fault === "cut" || fault === "limit" ? 7 : 0,
+      // The answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
+      "fix.recorded": ({ comparisons }) => comparisons ? 4 : 0
+    };
   }
 });
 
@@ -30515,9 +30538,9 @@ function changedSince(manifest) {
   const ignoredFiles = new Set(manifest.ignored.filter((entry) => !entry.endsWith("/")));
   const changed = [];
   const found = /* @__PURE__ */ new Set();
-  const walk = (relative5) => {
-    for (const entry of readdirSync5(join20(manifest.worktree, ...relative5.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
-      const path = relative5 === "" ? entry.name : `${relative5}/${entry.name}`;
+  const walk = (relative6) => {
+    for (const entry of readdirSync5(join20(manifest.worktree, ...relative6.split("/").filter((part) => part !== "")), { withFileTypes: true })) {
+      const path = relative6 === "" ? entry.name : `${relative6}/${entry.name}`;
       if (entry.name === ".git") continue;
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
         if (!ignoredDirectories.has(path)) walk(path);
@@ -31679,7 +31702,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes: maxOutputBytes2 }) {
-  return new Promise((resolve13, reject) => {
+  return new Promise((resolve14, reject) => {
     let child;
     try {
       child = spawn3(executable, [...args], {
@@ -31733,7 +31756,7 @@ function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes: ma
       settled3 = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve13(Buffer.concat(stdout).toString("utf8"));
+        resolve14(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -32823,9 +32846,9 @@ var init_run = __esm({
 
 // src/review/checks/base.ts
 import { mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, readdirSync as readdirSync6, rmSync as rmSync9 } from "node:fs";
-import { isAbsolute as isAbsolute8, join as join27 } from "node:path";
+import { isAbsolute as isAbsolute8, join as join27, relative as relative4, resolve as resolve11, sep as sep4 } from "node:path";
 function makeBaseTree(context, base) {
-  if (isEmptyTree(base)) return { kind: "none", reason: baseSkipReasons.emptyTree };
+  if (isEmptyTree(base)) return { kind: "none", skip: { reason: "empty-tree", error: baseSkipReasons["empty-tree"] } };
   try {
     requireOutsideRun("worktree of the base", context.scratch, { worktree: context.worktree }, { root: context.checkpointRoot });
     mkdirSync9(context.scratch, { recursive: true });
@@ -32836,13 +32859,13 @@ function makeBaseTree(context, base) {
   } catch (error62) {
     const detail = gitFailureDetail(error62, baseCheckoutTimeoutMs);
     context.log(`no worktree of the base ${base.slice(0, 8)} could be made: ${detail}`);
-    return { kind: "none", reason: `${baseSkipReasons.noWorktree}: ${detail.split(/\r?\n/)[0] ?? ""}` };
+    return { kind: "none", skip: { reason: "no-worktree", error: `${baseSkipReasons["no-worktree"]}: ${detail.split(/\r?\n/)[0] ?? ""}` } };
   }
 }
-function lockedWith(listing, reason) {
+function lockedWith(listing, reason, separator) {
   const paths = [];
   let path = null;
-  for (const field of listing.split("\0")) {
+  for (const field of listing.split(separator)) {
     if (field.startsWith("worktree ")) path = field.slice("worktree ".length);
     else if (field === `locked ${reason}` && path !== null) paths.push(path);
   }
@@ -32851,9 +32874,14 @@ function lockedWith(listing, reason) {
 function removeBaseTrees(context) {
   let paths = [];
   try {
-    paths = lockedWith(baseGit(context, ["worktree", "list", "--porcelain", "-z"]), baseLockReason(context.runId));
+    paths = lockedWith(baseGit(context, ["worktree", "list", "--porcelain", "-z"]), baseLockReason(context.runId), "\0");
   } catch (error62) {
-    context.log(`could not list the worktrees of the base: ${gitFailureDetail(error62)}`);
+    context.log(`could not list the worktrees of the base with -z, listing them by line: ${gitFailureDetail(error62)}`);
+    try {
+      paths = lockedWith(baseGit(context, ["worktree", "list", "--porcelain"]), baseLockReason(context.runId), "\n");
+    } catch (lineError) {
+      context.log(`could not list the worktrees of the base: ${gitFailureDetail(lineError)}`);
+    }
   }
   for (const path of paths) {
     try {
@@ -32877,8 +32905,16 @@ function removeBaseTrees(context) {
     }
   }
 }
+function insideReviewed(reviewed, directory) {
+  try {
+    return isInside(reviewed, directory);
+  } catch {
+    const path = relative4(canonicalPath(reviewed), resolve11(directory));
+    return path === "" || !(path === ".." || path.startsWith(`..${sep4}`) || isAbsolute8(path));
+  }
+}
 function baseEnvironment(environment, reviewed, toolsPath, platform = process.platform) {
-  const inside = (directory) => isAbsolute8(directory) && isInside(reviewed, directory);
+  const inside = (directory) => isAbsolute8(directory) && insideReviewed(reviewed, directory);
   const delimiter3 = platform === "win32" ? ";" : ":";
   const lists = new Set(directoryLists.map((name) => comparable(name, platform)));
   const changed = [];
@@ -32896,8 +32932,13 @@ function baseEnvironment(environment, reviewed, toolsPath, platform = process.pl
       const entries = value.split(delimiter3);
       const removed = entries.filter(inside);
       if (removed.length > 0) {
+        const rest = entries.filter((entry) => !inside(entry)).join(delimiter3);
+        if (rest === "") {
+          changed.push(`${name}, every entry inside the reviewed worktree: ${removed.join(", ")}`);
+          continue;
+        }
         changed.push(`the entries of ${name} inside the reviewed worktree: ${removed.join(", ")}`);
-        kept.push([name, entries.filter((entry) => !inside(entry)).join(delimiter3)]);
+        kept.push([name, rest]);
         continue;
       }
     }
@@ -32921,7 +32962,7 @@ var init_base = __esm({
     baseCheckoutTimeoutMs = 6e5;
     gitEnvironment = (environment) => pinVariables(withoutRepositoryVariables(environment), { GIT_LFS_SKIP_SMUDGE: "1", GIT_TERMINAL_PROMPT: "0" }, process.platform);
     baseGit = (context, args, timeout) => runGitSync(args, { cwd: context.worktree, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: gitEnvironment(context.environment), ...timeout === void 0 ? {} : { timeout } });
-    directoryLists = ["PATH", "PYTHONPATH", "NODE_PATH"];
+    directoryLists = ["PATH", "PYTHONPATH", "NODE_PATH", "PERL5LIB", "PERLLIB", "RUBYLIB", "GEM_PATH", "CLASSPATH"];
   }
 });
 
@@ -32929,7 +32970,7 @@ var init_base = __esm({
 import { homedir as homedir2 } from "node:os";
 import { join as join28 } from "node:path";
 function existingUserRulesFiles(home = homedir2()) {
-  return userConventionFiles.map((relative5) => join28(home, ...relative5.split("/"))).filter(isFile);
+  return userConventionFiles.map((relative6) => join28(home, ...relative6.split("/"))).filter(isFile);
 }
 function mailmapAddress(output2) {
   const address = /<([^<>]*)>\s*$/.exec(output2.trim())?.[1]?.trim().toLowerCase();
@@ -33706,7 +33747,7 @@ function baseLines(base) {
   }
 }
 function comparisonsRule(checks) {
-  const compared = checks.some((check2) => check2.base?.outcome === "failed" || check2.base?.outcome === "timeout");
+  const compared = checks.some((check2) => failedOrTimedOut(check2.base?.outcome));
   return compared ? " Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other." : " Return `comparisons` empty: no check above failed or timed out on the base of the change.";
 }
 function repairTask(input2) {
@@ -34059,10 +34100,10 @@ function baseRunOf(evidence, run2) {
 function repairTaskOf(review2, editing, evidence) {
   const fix = review2.fix;
   if (fix === null) throw new Error("The repair runs only in a run with the fix pass");
-  const onBase = review2.baseChecksStep ? baseKinds(fix) : [];
+  const onBase = kindsTakenToBase({ ...review2, fix });
   const checks = repairTargets(fix).map((kind) => {
     const run2 = lastFreshRun(fix, "checks", kind);
-    const before = failedAtBaseline(fix, kind) ? lastFreshRun(fix, "baseline-checks", kind) : null;
+    const before = failingBaselineRun(fix, kind);
     return {
       kind,
       command: run2.command,
@@ -34514,10 +34555,6 @@ function earlierOf(fix, kind, last) {
   };
   return { passed: latest((outcome) => outcome === "passed"), failed: latest(failedOrTimedOut) };
 }
-function skippedReason(error62) {
-  const reason = Object.keys(skippedReasons).find((key) => error62?.startsWith(baseSkipReasons[key]) === true);
-  return reason === void 0 ? "not-run" : skippedReasons[reason];
-}
 function baseOf2(fix, kind, base) {
   const run2 = lastRecordedRun(fix, "base-checks", kind);
   const outcome = run2?.outcome ?? null;
@@ -34526,7 +34563,7 @@ function baseOf2(fix, kind, base) {
 }
 function briefChecksOf(review2, scope) {
   const { fix } = review2;
-  const taken = review2.baseChecksStep ? baseKinds(fix, "recorded") : [];
+  const taken = kindsTakenToBase(review2, "recorded");
   const base = { commit: scope.base, name: baseNameOf(scope.mode, scope.request) };
   return (fix.checks.planned?.checks ?? []).filter((check2) => check2.command !== null).map((check2) => {
     const last = lastRunOf(review2, check2.kind);
@@ -34578,7 +34615,8 @@ function checksLine(checks, noCommand) {
   ];
   return `Checks: ${parts.join("; ")}`;
 }
-function checkGap({ kind, base, fault }) {
+function checkGap(check2) {
+  const { kind, base, fault } = check2;
   if (base === null) return null;
   const where = baseWords2(base);
   switch (fault) {
@@ -34587,7 +34625,7 @@ function checkGap({ kind, base, fault }) {
     case "change-adds":
       return `The ${kind} check fails on the change with failures that its base, ${where}, does not have, by the repair's reading. No step of the run fixes a failure that the change brings.`;
     case "not-compared":
-      return base.reason === null ? null : `The ${kind} check failed before and after the fixes, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
+      return base.reason === null ? null : `The ${kind} check ${ranWords(check2)}, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
     default:
       return null;
   }
@@ -34603,13 +34641,13 @@ function validationSentence(validation, list) {
   const tested = validation.test.length;
   const fixes = total === 1 ? "the fix" : `${tested === total ? "each" : tested === 0 ? "none" : String(tested)} of the ${String(total)} fixes`;
   const lead = tested === 0 && total === 1 ? "The fixers report that no test validated the fix." : `The fixers report that a test validated ${fixes}${tested === 0 ? "." : ": it fails on the code before the fix, or on a mutation of the fix."}`;
-  const rest = ["existing", "static", "limited", "none"].flatMap((strength) => {
+  const rest = validationStrengths.filter((strength) => strength !== "test").flatMap((strength) => {
     const ids2 = validation[strength];
     return ids2.length === 0 ? [] : [`${list(ids2)} ${restsOn[strength][ids2.length === 1 ? 0 : 1]}.`];
   });
   return [lead, ...rest].join(" ");
 }
-var lastMoments, afterPhases, lastMomentOf, momentOf, notComparedReasons, notComparedWords, skippedReasons, checkFaults, failedOrTimedOut, failsNow, fromBase, faultHolds, reasonOf, baseWords2, outcomeVerbs, lastWords, lineRows, earlierWords, unfinished, clauses, clauseRows, validationStrengths, strengthOfMethod, restsOn;
+var lastMoments, afterPhases, lastMomentOf, momentOf, notComparedReasons, notComparedWords, checkFaults, failsNow, fromBase, faultHolds, skippedReason, reasonOf, baseWords2, outcomeVerbs, lastWords, lineRows, earlierWords, unfinished, clauses, clauseRows, validationStrengths, strengthOfMethod, restsOn;
 var init_brief_checks = __esm({
   "src/review/brief-checks.ts"() {
     "use strict";
@@ -34624,17 +34662,13 @@ var init_brief_checks = __esm({
     momentOf = { "baseline-checks": "before", ...lastMomentOf };
     notComparedReasons = ["empty-tree", "no-worktree", "build-failed", "not-started", "not-run", "no-comparison", "unknown"];
     notComparedWords = {
-      "empty-tree": baseSkipReasons.emptyTree,
-      "no-worktree": baseSkipReasons.noWorktree,
-      "build-failed": baseSkipReasons.buildFailed,
+      ...baseSkipReasons,
       "not-started": "the check did not start on the base",
       "not-run": "the check did not run on the base",
       "no-comparison": "the repair gave no comparison",
       unknown: "the repair could not compare the outputs"
     };
-    skippedReasons = { emptyTree: "empty-tree", noWorktree: "no-worktree", buildFailed: "build-failed" };
     checkFaults = ["edits", "change-breaks", "change-adds", "not-compared", "base-has"];
-    failedOrTimedOut = (outcome) => outcome === "failed" || outcome === "timeout";
     failsNow = ({ last }) => last !== null && failedOrTimedOut(last.outcome);
     fromBase = (holds) => (check2) => failsNow(check2) && check2.base !== null && holds(check2.base);
     faultHolds = {
@@ -34644,11 +34678,12 @@ var init_brief_checks = __esm({
       "not-compared": fromBase((base) => base.reason !== null),
       "base-has": fromBase((base) => base.reading === "same")
     };
+    skippedReason = (run2) => run2.skipReason ?? "not-run";
     reasonOf = {
       passed: () => null,
       failed: (_run, reading) => reading === null ? "no-comparison" : reading === "unknown" ? "unknown" : null,
       timeout: (run2, reading) => reasonOf.failed(run2, reading),
-      skipped: (run2) => skippedReason(run2.error),
+      skipped: skippedReason,
       "not-started": () => "not-started",
       cut: () => "not-run"
     };
@@ -34662,7 +34697,7 @@ var init_brief_checks = __esm({
       edits: ({ kind, fault, last, earlier }) => fault === "edits" && last !== null && earlier.passed !== null ? `${kind} ${outcomeVerbs[last.outcome]} ${lastWords[last.when]}, and passed ${earlierWords[earlier.passed]}` : null,
       "change-breaks": ({ kind, fault, base }) => fault === "change-breaks" && base !== null ? `${kind} fails on the change and passes on the base (${commitWords(base.commit)})` : null,
       "change-adds": ({ kind, fault, base }) => fault === "change-adds" && base !== null ? `${kind} fails on the change with failures that the base (${commitWords(base.commit)}) does not have, by the repair's reading` : null,
-      "not-compared": ({ kind, fault }) => fault === "not-compared" ? `${kind} failed before and after the fixes, not compared with the base` : null,
+      "not-compared": (check2) => check2.fault === "not-compared" ? `${check2.kind} ${ranWords(check2)}, not compared with the base` : null,
       "base-has": ({ kind, fault, base }) => fault === "base-has" && base !== null ? `${kind} failed, as it does on the base (${commitWords(base.commit)}), by the repair's reading` : null,
       // A check whose last run failed with no fault: one that never passed, in a run configured before the checks on the base or of a kind the run did not take there.
       failing: (check2) => check2.last?.outcome === "failed" ? `${check2.kind} ${ranWords(check2)}` : null,
@@ -34878,7 +34913,10 @@ function stopLimitations(review2, evidencePath) {
       if (run2.replacedAt === null) continue;
       const replaced = runs[run2.replacedAt];
       const now = `${run2.outcome} in ${runSeconds(run2)}`;
-      if (replaced.outcome === "cut") lines.push(`Cut: ${run2.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
+      const rebuilt = phase === "base-checks" && run2.kind === "build" && (replaced.outcome === "passed" || replaced.outcome === "skipped" && !isCutAttempt({ ...review2, fix }, phase, replaced.attempt));
+      if (rebuilt && replaced.outcome === "passed") lines.push(`Built again on the base: ${run2.kind} in ${phase} passed in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, and ${now} at attempt ${String(run2.attempt)}, since each attempt makes its own worktree of the base.`);
+      else if (rebuilt) lines.push(`Built again on the base: ${run2.kind} in ${phase} was skipped at attempt ${String(replaced.attempt)}, which had no worktree of the base, and ${now} at attempt ${String(run2.attempt)}, since each attempt makes its own worktree of the base.`);
+      else if (replaced.outcome === "cut") lines.push(`Cut: ${run2.kind} in ${phase} ended with ${killMarkWords(replaced)}, and ran again: ${now}.`);
       else if (replaced.outcome === "timeout") lines.push(`Ran again after a timeout: ${run2.kind} in ${phase} timed out after ${runSeconds(replaced)} at its first run, and ${now} at its second.`);
       else lines.push(`Ran again after a stop: ${run2.kind} in ${phase}, ${replaced.outcome} in ${runSeconds(replaced)} at attempt ${String(replaced.attempt)}, ${now} at attempt ${String(run2.attempt)}.`);
     }
@@ -34979,10 +35017,15 @@ function fixesSection(review2, fix) {
 }
 function checkCell(run2, evidencePath, note) {
   if (run2 === null) return "-";
-  if (run2.outcome === "skipped") return tableCell(`skipped: ${run2.phase === "base-checks" ? notComparedWords[skippedReason(run2.error)] : run2.error ?? "build did not pass"}`);
+  if (run2.outcome === "skipped") return tableCell(`skipped: ${run2.phase === "base-checks" ? notComparedWords[skippedReason(run2)] : run2.error ?? "build did not pass"}`);
   const output2 = run2.stdout === null || run2.stderr === null ? "" : `; output ${evidencePath(run2.stdout)}, ${evidencePath(run2.stderr)}`;
   const text3 = `${run2.outcome}, ${runSeconds(run2)}${run2.outcome === "passed" ? "" : output2}${note}`;
   return tableCell(text3);
+}
+function notRunOnBase(reason, kinds) {
+  if (reason === "not-run") return `${kinds} did not run there.`;
+  if (!Object.hasOwn(baseSkipReasons, reason)) return null;
+  return `${kinds} did not run there, since ${notComparedWords[reason]}${reason === "no-worktree" ? "; the facts of the run give the error" : ""}.`;
 }
 function baseNotes(review2, fix, checks, scope) {
   if (!review2.baseChecksStep) return [];
@@ -34991,21 +35034,21 @@ function baseNotes(review2, fix, checks, scope) {
   if (taken.length === 0 && fix.checks.runs["base-checks"].length === 0) return fix.checks.runs.checks.length === 0 ? [] : [`- ${title}: not run, since no check failed before and after the fixes.`];
   const notRun = notComparedReasons.flatMap((reason) => {
     const kinds = taken.filter((entry) => entry.reason === reason).map((entry) => entry.kind);
-    const words = notRunOnBase[reason];
-    return kinds.length === 0 || words === void 0 ? [] : [`- ${title}: ${words(listed(kinds))}`];
+    const words = kinds.length === 0 ? null : notRunOnBase(reason, listed(kinds));
+    return words === null ? [] : [`- ${title}: ${words}`];
   });
   return [`- ${title}: the base of the change is ${baseWords2({ commit: scope.base, name: baseNameOf(scope.mode, scope.request) })}.`, ...notRun];
 }
 function baseWorktreeLines(review2) {
-  const prefix = `${baseSkipReasons.noWorktree}: `;
-  const errors = new Set((review2.fix?.checks.runs["base-checks"] ?? []).flatMap((run2) => run2.outcome === "skipped" && run2.error?.startsWith(prefix) === true ? [run2.error.slice(prefix.length)] : []));
-  return [...errors].map((error62) => `Worktree of the base: git could not make it: ${inlineText(error62)}`);
+  const prefix = `${baseSkipReasons["no-worktree"]}: `;
+  const errors = new Set((review2.fix?.checks.runs["base-checks"] ?? []).flatMap((run2) => run2.skipReason === "no-worktree" && run2.error !== null ? [run2.error.startsWith(prefix) ? run2.error.slice(prefix.length) : run2.error] : []));
+  return [...errors].map((error62) => `Worktree of the base: could not be made: ${inlineText(error62)}`);
 }
 function checksSection(review2, fix, scope, evidencePath) {
   const { survey } = review2;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
-  const failedAtBaseline2 = (kind) => ["failed", "timeout", "not-started"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
+  const failingBeforeFixes = (kind) => ["failed", "timeout", "not-started"].includes(lastFreshRun(fix, "baseline-checks", kind)?.outcome ?? "");
   const sourceCell = (check2) => survey === null ? [] : [checkSourceCell(survey, check2)];
   const shown = (phase, kind) => lastRecordedRun(fix, phase, kind);
   const edits = new Map(ran.map((phase) => [phase, planned.map((check2) => shown(phase, check2.kind)).flatMap((run2) => run2 === null ? [] : [earlierTreeEdit(fix, phase, run2)]).find((edit) => edit !== null) ?? null]));
@@ -35018,7 +35061,7 @@ function checksSection(review2, fix, scope, evidencePath) {
   };
   const note = (phase, kind) => {
     if (phase === "base-checks") return baseNote(kind);
-    return phase !== "baseline-checks" && failedAtBaseline2(kind) ? " (failing before the fix pass)" : "";
+    return phase !== "baseline-checks" && failingBeforeFixes(kind) ? " (failing before the fix pass)" : "";
   };
   const rows = planned.map((check2) => {
     if (check2.command === null) return `| ${[check2.kind, unavailableCell(survey, check2), ...sourceCell(check2), ...ran.map(() => "-")].join(" | ")} |`;
@@ -35173,7 +35216,7 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, notRunOnBase;
+var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
@@ -35207,12 +35250,6 @@ var init_fix_report = __esm({
       same: "the change has no failure that the base does not have",
       adds: "the change has a failure that the base does not have",
       unknown: "the outputs cannot be compared"
-    };
-    notRunOnBase = {
-      "empty-tree": (kinds) => `${kinds} did not run there, since the base of the change is the empty tree.`,
-      "no-worktree": (kinds) => `${kinds} did not run there, since no worktree of the base could be made; the facts of the run give the error of git.`,
-      "build-failed": (kinds) => `${kinds} did not run there, since the build failed on the base.`,
-      "not-run": (kinds) => `${kinds} did not run there.`
     };
   }
 });
@@ -35642,7 +35679,7 @@ function briefShortForm(brief) {
     cut(`Changed: ${changedWords(brief.changed)}`)
   ];
 }
-var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, unfinishedOutcomeWords, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, leftSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
+var briefFates, gapKinds, lookConditions, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, withOutcome, withFate, unfinishedOutcomes, unfinishedWords, judgedWords, shownIds, fateWords, fixFateWords, fateClause, howToAnswer, howToAnswerInChat, formWords, answeredWords, missingAccountWords, beforeEditsSentence, leftSentence, questionsHeading, departuresHeading, shortLineLimit, changeLineLimit, shownQuestions, shownDepartures, endsAbbreviation, lookWords, optionWords, moreLine;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -35674,12 +35711,8 @@ var init_brief = __esm({
     };
     withOutcome = (context, outcome) => [...context.outcomes].filter(([, found]) => found.last === outcome).map(([id]) => id);
     withFate = (context, fate) => [...context.outcomes].filter(([, found]) => fateWordsOf[found.last] === fate).map(([id]) => id);
-    unfinishedOutcomeWords = {
-      timeout: "timed out",
-      skipped: "was skipped",
-      "not-started": "did not start"
-    };
-    unfinishedWords = (outcome) => outcome !== null && Object.hasOwn(unfinishedOutcomeWords, outcome) ? unfinishedOutcomeWords[outcome] : null;
+    unfinishedOutcomes = ["timeout", "skipped", "not-started"];
+    unfinishedWords = (outcome) => outcome !== null && unfinishedOutcomes.includes(outcome) ? outcomeVerbs[outcome] : null;
     judgedWords = (condition2) => `${condition2.what === null ? "" : `: ${condition2.what.trim().replace(/[.]+$/, "")}`}${condition2.files.length === 0 ? "" : ` (${condition2.files.join(", ")})`}`;
     shownIds = 8;
     fateWords = {
@@ -36237,9 +36270,9 @@ function claimLines(event) {
   }
   return [];
 }
-function refusingEmptyChange(resolve13) {
+function refusingEmptyChange(resolve14) {
   try {
-    return resolve13();
+    return resolve14();
   } catch (error62) {
     if (error62 instanceof EmptyChangeError) throw new ReviewRefusedError(`${error62.message}; nothing to review`);
     throw error62;
@@ -36371,6 +36404,12 @@ async function runReview(options2) {
     }
     if (phase === "fixes" && directories.lost() === null) directories.prepare(settled3.unit.key);
   };
+  const baseTrees = { runId, worktree: options2.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
+  let onBase = null;
+  const removeBase = () => {
+    removeBaseTrees(baseTrees);
+    onBase = null;
+  };
   try {
     if (capture !== null) {
       state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base }));
@@ -36438,8 +36477,6 @@ async function runReview(options2) {
         log(reason === void 0 ? `check ${check2.kind} (${phase}): wrote back ${file2.path}, ${changed}; the bytes before are ${bytes}` : `check ${check2.kind} (${phase}): did not write back ${file2.path}, ${changed}: ${reason}; the bytes in the tree are ${bytes}`);
       }
     };
-    const baseTrees = { runId, worktree: options2.worktree, scratch: scratchBase, checkpointRoot: checkpoint.root, environment, log: (line) => log(`phase base-checks: ${line}`) };
-    let onBase = null;
     const baseOf3 = (attempt) => {
       if (onBase?.attempt === attempt) return onBase;
       const tree = makeBaseTree(baseTrees, scope.base);
@@ -36448,19 +36485,15 @@ async function runReview(options2) {
       onBase = { attempt, tree, environment: base.environment };
       return onBase;
     };
-    const removeBase = () => {
-      removeBaseTrees(baseTrees);
-      onBase = null;
-    };
     const runDueCheck = async (phase, attempt, due) => {
       const replaces = due.replaces === null ? null : { attempt: due.replaces.run.attempt, outcome: due.replaces.run.outcome };
-      const base = isTreeCheckPhase(phase) ? null : baseOf3(attempt);
-      const skip = base?.tree.kind === "none" ? base.tree.reason : due.skip;
+      const base = isTreeCheckPhase(phase) || due.skip !== null ? null : baseOf3(attempt);
+      const skip = base?.tree.kind === "none" ? base.tree.skip : due.skip;
       if (skip !== null) {
-        log(`check ${due.kind} (${phase}): skipped, ${skip}`);
+        log(`check ${due.kind} (${phase}): skipped, ${skip.error}`);
         const now = (/* @__PURE__ */ new Date()).toISOString();
-        const skipped = { phase, attempt, kind: due.kind, command: due.command, outcome: "skipped", exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip, maxRecordedTextLength), replaces };
-        state = append(checkpoint, state, [{ kind: "check.ran", version: writtenVersion("check.ran", [phase]), payload: skipped }]);
+        const skipped = { phase, attempt, kind: due.kind, command: due.command, outcome: "skipped", exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip.error, maxRecordedTextLength), replaces, skipReason: skip.reason };
+        state = append(checkpoint, state, [checkRanEvent(skipped)]);
         return;
       }
       if (due.replaces !== null) log(`check ${due.kind} (${phase}): running again; ${rerunWords(due.replaces)}`);
@@ -36469,12 +36502,10 @@ async function runReview(options2) {
       if (timeoutMs === void 0) throw new Error(`Run ${runId} runs a check without the checks it pinned`);
       state = append(checkpoint, state, [{ kind: "check.started", version: writtenVersion("check.started", [phase]), payload: { phase, attempt, kind: due.kind, command: due.command } }]);
       const manifest = base === null ? prepareCheckManifest(join31(scratchBase, runId, "checks", `${phase}-${due.kind}`), options2.worktree) : null;
+      const site = base?.tree.kind === "made" ? { worktree: base.tree.path, environment: base.environment, toolsPath: [] } : { worktree: options2.worktree, environment, toolsPath };
       const result = await runCheck(checkpoint.evidence, {
         command: due.command,
-        worktree: base?.tree.kind === "made" ? base.tree.path : options2.worktree,
-        environment: base?.environment ?? environment,
-        // The environment of a check on the base has the directories of tools.path already, less those inside the reviewed worktree.
-        toolsPath: base === null ? toolsPath : [],
+        ...site,
         timeoutMs,
         ioDirectory: join31(checkpoint.root, ioDirectoryName, `check-${randomUUID4()}`),
         ...options2.runProcess === void 0 ? {} : { runProcess: options2.runProcess }
@@ -36484,8 +36515,8 @@ async function runReview(options2) {
       const error62 = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces.run)}, then with ${killMarkWords(result)}` : result.error;
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error62 === null ? "" : `: ${error62}`}`);
       if (outcome === "cut") log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
-      const ran = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error62 === null ? null : truncated(error62, maxRecordedTextLength), replaces };
-      const recorded = { kind: "check.ran", version: writtenVersion("check.ran", [phase]), payload: ran };
+      const ran = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error62 === null ? null : truncated(error62, maxRecordedTextLength), replaces, skipReason: null };
+      const recorded = checkRanEvent(ran);
       if (!isTreeCheckPhase(phase) || manifest === null) {
         state = append(checkpoint, state, [recorded]);
         return;
@@ -36664,6 +36695,7 @@ async function runReview(options2) {
         log(`worker ${settled3.unit.role} ${unitName(settled3.unit.phase, settled3.unit.key)}: not recorded: ${error62 instanceof Error ? error62.message : String(error62)}`);
       }
     }
+    if (onBase !== null) removeBase();
     release();
   }
 }
@@ -37295,7 +37327,7 @@ var init_answer = __esm({
 
 // src/review/executable.ts
 import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter as delimiter2, extname, isAbsolute as isAbsolute9, join as join32, posix as posix2, resolve as resolve11, win32 as win323 } from "node:path";
+import { delimiter as delimiter2, extname, isAbsolute as isAbsolute9, join as join32, posix as posix2, resolve as resolve12, win32 as win323 } from "node:path";
 function refuseShim(executable, platform = process.platform) {
   const extension = (platform === "win32" ? win323 : posix2).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
@@ -37308,7 +37340,7 @@ function refuseShim(executable, platform = process.platform) {
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute9(name) || name.includes("/") || name.includes("\\")) {
-    const absolute = resolve11(cwd, name);
+    const absolute = resolve12(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
     return refuseShim(realpathSync3.native(absolute), platform);
   }
@@ -37760,7 +37792,7 @@ __export(command_exports, {
   usage: () => usage
 });
 import { existsSync as existsSync10, mkdirSync as mkdirSync11, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname6, join as join33, relative as relative4, resolve as resolve12 } from "node:path";
+import { dirname as dirname6, join as join33, relative as relative5, resolve as resolve13 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 function number4(flag, text3) {
@@ -37896,7 +37928,7 @@ async function run(argv, io) {
   }
   if (command === "snapshot") return snapshot(values, io);
   if (command === "claim") return claim2(values, io);
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree, location.commonDir);
@@ -38077,8 +38109,8 @@ function snapshot(values, io) {
   const finding = values.finding;
   if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
   if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
-  const into = resolve12(io.cwd, values.into);
-  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo)).worktree;
+  const into = resolve13(io.cwd, values.into);
+  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo)).worktree;
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
 `);
@@ -38089,10 +38121,10 @@ function claim2(values, io) {
   if (paths.length !== 1 || paths[0].trim() === "") throw new UsageError("--path <path> is required, once");
   if (values.unit === void 0 || values.unit.trim() === "") throw new UsageError("--unit <key> is required");
   if (values.in === void 0 || values.in.trim() === "") throw new UsageError("--in <dir> is required");
-  const dir = resolve12(io.cwd, values.in);
+  const dir = resolve13(io.cwd, values.in);
   const { worktree } = readHeld(dir);
   if (isInside(worktree, io.cwd) && canonicalPath(io.cwd) !== canonicalPath(worktree)) {
-    throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative4(worktree, io.cwd)}, so the path names the file the repository does`);
+    throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative5(worktree, io.cwd)}, so the path names the file the repository does`);
   }
   const outcome = claimFile(dir, paths[0], values.unit);
   switch (outcome.kind) {
@@ -38128,11 +38160,11 @@ async function configCommand(values, rest, io) {
 `);
     return 0;
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve12(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo));
   if (subcommand === "validate") {
     const layer = values.layer ?? "repository";
     if (!fileLayers.includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(", ")}, not ${JSON.stringify(layer)}`);
-    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve12(io.cwd, argument);
+    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve13(io.cwd, argument);
     const read = readConfigBytes(layer, path);
     if (read === null) throw new ReviewRefusedError(`${path} is not a file to validate`);
     if ("problem" in read) throw new ReviewRefusedError(read.problem);
@@ -38221,7 +38253,7 @@ function invocationOf(values, io, worktree, commonDir) {
   if (setOther !== void 0) throw new UsageError(`${setOther.flag} applies only to runtime ${setOther.name.split(".")[1]}, not ${runtime}`);
   const source = configurationSource({
     worktree,
-    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve12(io.cwd, values.config) },
+    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve13(io.cwd, values.config) },
     repositoryConfig: values["no-repository-config"] !== true,
     flags: layer
   });
