@@ -361,7 +361,7 @@ const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Dat
 function checkCell(run: CheckRan | null, evidencePath: (reference: { sha256: string; bytes: number }) => string, note: string): string {
   if (run === null) return '-';
   // A run on the base says why it was skipped in fixed words: the error after them names local paths, which the facts of the run alone give (R5 of the facts before a merge).
-  if (run.outcome === 'skipped') return tableCell(`skipped: ${run.phase === 'base-checks' ? notComparedWords[skippedReason(run.error)] : run.error ?? 'build did not pass'}`);
+  if (run.outcome === 'skipped') return tableCell(`skipped: ${run.phase === 'base-checks' ? notComparedWords[skippedReason(run)] : run.error ?? 'build did not pass'}`);
   const output = run.stdout === null || run.stderr === null ? '' : `; output ${evidencePath(run.stdout)}, ${evidencePath(run.stderr)}`;
   const text = `${run.outcome}, ${runSeconds(run)}${run.outcome === 'passed' ? '' : output}${note}`;
   return tableCell(text);
@@ -417,7 +417,8 @@ function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefChe
  */
 export function baseWorktreeLines(review: ReviewState): string[] {
   const prefix = `${baseSkipReasons['no-worktree']}: `;
-  const errors = new Set((review.fix?.checks.runs['base-checks'] ?? []).flatMap((run) => (run.outcome === 'skipped' && run.error?.startsWith(prefix) === true ? [run.error.slice(prefix.length)] : [])));
+  // The reason says which runs had no worktree; their error gives git's words after the fixed ones.
+  const errors = new Set((review.fix?.checks.runs['base-checks'] ?? []).flatMap((run) => (run.skipReason === 'no-worktree' && run.error !== null ? [run.error.startsWith(prefix) ? run.error.slice(prefix.length) : run.error] : [])));
   return [...errors].map((error) => `Worktree of the base: could not be made: ${inlineText(error)}`);
 }
 

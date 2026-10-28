@@ -14,7 +14,7 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isEmptyTree } from '../scope/git.ts';
 import { baseNameOf, commitWords } from '../scope/scope-line.ts';
 import { listed } from './markdown.ts';
-import { baseSkipReasons, checkKinds, failedOrTimedOut, repairUnitKey, treeCheckPhases, type BaseReading, type BaseSkipReason, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
+import { baseSkipReasons, checkKinds, failedOrTimedOut, repairUnitKey, treeCheckPhases, type BaseReading, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
 
 /** When a run of a check ran, by its phase (R3 of the facts before a merge): before the fixes, after them, after the repair, or after an answer pass. */
 export const checkMoments = ['before', 'fixes', 'repair', 'answers'] as const;
@@ -153,21 +153,15 @@ function earlierOf(fix: FixState, kind: CheckKind, last: LastRun | null): BriefC
   return { passed: latest((outcome) => outcome === 'passed'), failed: latest(failedOrTimedOut) };
 }
 
-/**
- * Why a run on the base was skipped, from its error, which starts with
- * one of the fixed phrases the run records (`baseSkipReasons`); the error
- * after one stays in the facts of the run.
- */
-export function skippedReason(error: string | null): NotComparedReason {
-  return (Object.keys(baseSkipReasons) as BaseSkipReason[]).find((reason) => error?.startsWith(baseSkipReasons[reason]) === true) ?? 'not-run';
-}
+/** Why a run on the base was skipped, as it records it; a skipped run that records no reason, which `check.ran@4` refuses on the base, did not run there. */
+export const skippedReason = (run: Pick<CheckRunState, 'skipReason'>): NotComparedReason => run.skipReason ?? 'not-run';
 
 /** Why a kind's run on the base left it not compared, by how the run ended, or null when the run compared it (R5). */
 const reasonOf: Readonly<Record<CheckOutcome, (run: CheckRunState, reading: BaseReading | null) => NotComparedReason | null>> = {
   passed: () => null,
   failed: (_run, reading) => (reading === null ? 'no-comparison' : reading === 'unknown' ? 'unknown' : null),
   timeout: (run, reading) => reasonOf.failed(run, reading),
-  skipped: (run) => skippedReason(run.error),
+  skipped: skippedReason,
   'not-started': () => 'not-started',
   cut: () => 'not-run',
 };

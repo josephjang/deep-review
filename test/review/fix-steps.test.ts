@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { driftBlocker, dueCheck, fixPlanOf, nextStep, unitsOf, type Live, type Step } from '../../src/review/steps.ts';
+import { driftBlocker, dueCheck, fixPlanOf, nextStep, unitsOf, type CheckSkip, type Live, type Step } from '../../src/review/steps.ts';
 import { baseSkipReasons } from '../../src/review/vocabulary.ts';
-import { answer, answerableDecisions, askDecision, decidedFixRun, flagPlan, passAnswer, passRevision, passToReport, pin, readOnlyReported, type History, baselined, checkRun, checkedForBase, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, ranOnBase, reference, withFixPass, worker } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, askDecision, baseSkip, decidedFixRun, flagPlan, passAnswer, passRevision, passToReport, pin, readOnlyReported, type History, baselined, checkRun, checkedForBase, checksPhase, configured, decidedOf, decisions, endCheck, fixAnswer, fixed, fixPlan, fixRevision, launch, mergeRanked, noSecondRound, ranOnBase, reference, withFixPass, worker } from '../helpers/review-history.ts';
 
 const idle: Live = { running: new Set(), spend: { usd: 0, charged: 0, lost: 0 }, evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
 const live = (change: Partial<Live>): Live => ({ ...idle, ...change });
@@ -43,7 +43,7 @@ describe('nextStep in the fix pass', () => {
         assert.ok(again.kind === 'run-check' && again.check.kind === 'build' && again.check.replaces?.why === 'timeout', JSON.stringify(again));
         history.add('check.started', { phase: 'baseline-checks', attempt: 1, kind: 'build', command: 'npm run build' }).add('check.ran', { ...checkRun('baseline-checks', 'build', outcome), replaces: { attempt: 1, outcome } }, 3);
       }
-      assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: reason, replaces: null } }, outcome);
+      assert.deepEqual(nextStep(history.review(), idle), { kind: 'run-check', phase: 'baseline-checks', attempt: 1, check: { kind: 'lint', command: 'npm run lint', skip: { reason: null, error: reason }, replaces: null } }, outcome);
     }
   });
 
@@ -345,7 +345,7 @@ describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)',
     history.add('phase.started', { phase, attempt }, 5).add('worktree.checked', { phase, attempt, moment: 'start', drifted: files.length > 0 || head !== null, head, files, strays: [] }, 5);
   const inBaseline = (): History => withFixPass(mergeRanked()).start('baseline-checks');
   const runCheck = (step: Step): { kind: string; replaces: string | null; skip: string | null } | null =>
-    step.kind === 'run-check' ? { kind: step.check.kind, replaces: step.check.replaces === null ? null : `${step.check.replaces.why} ${step.check.replaces.run.outcome}@${String(step.check.replaces.run.attempt)}`, skip: step.check.skip } : null;
+    step.kind === 'run-check' ? { kind: step.check.kind, replaces: step.check.replaces === null ? null : `${step.check.replaces.why} ${step.check.replaces.run.outcome}@${String(step.check.replaces.run.attempt)}`, skip: step.check.skip?.error ?? null } : null;
 
   it('runs again, in the order of the kinds, each kind whose last run did not pass in a cut attempt, and not one that passed (R3)', () => {
     for (const outcome of ['failed', 'timeout', 'not-started', 'skipped'] as const) {
@@ -456,7 +456,7 @@ describe('nextStep in the checks after a stop (R3, R7, TD11 of resumable runs)',
 
 describe('nextStep in the checks on the base (R1, R11, TD4, TD14, TD16 of the facts before a merge)', () => {
   /** What a step runs: the kind, the run it replaces as `<why> <outcome>@<attempt>`, and why it is skipped. */
-  const runCheck = (step: Step): { kind: string; replaces: string | null; skip: string | null } | null =>
+  const runCheck = (step: Step): { kind: string; replaces: string | null; skip: CheckSkip | null } | null =>
     step.kind === 'run-check' && step.phase === 'base-checks' ? { kind: step.check.kind, replaces: step.check.replaces === null ? null : `${step.check.replaces.why} ${step.check.replaces.run.outcome}@${String(step.check.replaces.run.attempt)}`, skip: step.check.skip } : null;
   const finished = (attempt = 1): Step => ({ kind: 'finish-phase', phase: 'base-checks', attempt, outcome: 'completed', blocker: null });
   /** lint fails before the fixes and after them, test only after them, so lint alone needs a fact of the base. */
@@ -486,14 +486,14 @@ describe('nextStep in the checks on the base (R1, R11, TD4, TD14, TD16 of the fa
   it('skips each later kind once build did not pass on the base, in the fixed words of the brief', () => {
     for (const outcome of ['failed', 'timeout', 'not-started'] as const) {
       const history = ranOnBase(onBase(), 'build', outcome);
-      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: baseSkipReasons['build-failed'] }, outcome);
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: { reason: 'build-failed', error: baseSkipReasons['build-failed'] } }, outcome);
     }
   });
 
   it('skips each later kind with the reason of a build skipped on the base, which never ran there', () => {
-    for (const error of [baseSkipReasons['empty-tree'], `${baseSkipReasons['no-worktree']}: fatal: no room`]) {
-      const history = ranOnBase(onBase(), 'build', 'skipped', 1, null, { error });
-      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: error }, error);
+    for (const skip of [baseSkip('empty-tree'), baseSkip('no-worktree', 'fatal: no room')]) {
+      const history = ranOnBase(onBase(), 'build', 'skipped', 1, null, skip);
+      assert.deepEqual(runCheck(nextStep(history.review(), idle)), { kind: 'lint', replaces: null, skip: { reason: skip.skipReason, error: skip.error } }, skip.error);
     }
   });
 

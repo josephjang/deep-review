@@ -4,7 +4,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import { briefMarkdown, briefOf, briefShortForm, shortLineLimit, type Brief } from '../../src/review/brief.ts';
 import type { BriefCheck } from '../../src/review/brief-checks.ts';
 import { briefJson } from '../../src/review/brief-json.ts';
-import { answeredRun, checkedRun, mergeBase, onBranch, type ChecksOfRun } from '../helpers/base-checks-history.ts';
+import { answeredRun, checkedRun, mergeBase, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
 import { answer, answerableDecisions, decidedFixRun, readOnlyReported } from '../helpers/review-history.ts';
 
 /** The run whose checks end as `checks` says, its scope a branch's, and its question answered, so the headline counts the checks alone. */
@@ -98,6 +98,15 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     assert.equal(check(briefOf(run({ ...failing, base: [['build', 'passed'], ['lint', 'timeout']], comparisons: [same] })), 'lint').fault, 'base-has', 'a timeout on the base is compared as a failure is');
   });
 
+  it('reads why a run on the base was skipped from its skipReason, whatever words its error recorded (TD17 of the facts before a merge)', () => {
+    for (const reason of ['no-worktree', 'build-failed'] as const) {
+      const base: ChecksOfRun['base'] = reason === 'build-failed' ? [['build', 'failed'], ['lint', 'skipped', reason]] : [['lint', 'skipped', reason, 'fatal: x']];
+      const lint = check(briefOf(rewordedOnBase(onBranch(checkedRun({ ...failing, base })), 'the base could not be checked out: fatal: x')), 'lint');
+      assert.equal(lint.base?.reason, reason, reason);
+      assert.equal(lint.fault, 'not-compared', reason);
+    }
+  });
+
   it('says why the run could not compare a check it took to the base, in fixed words, for each reason', () => {
     const notCompared = (checks: ChecksOfRun, state: (history: ReturnType<typeof checkedRun>) => RunState = onBranch): string[] => {
       const brief = briefOf(state(checkedRun({ ...failing, ...checks })));
@@ -106,9 +115,9 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     };
     const gap = (reason: string, base = where): string => `The lint check failed before and after the fixes, and the run could not compare it with the base, ${base}: ${reason}.`;
     const emptyTree = (history: ReturnType<typeof checkedRun>): RunState => { const state = onBranch(history); return { ...state, scope: { ...state.scope!, base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' } }; };
-    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'the base of the change is the empty tree']] }, emptyTree), [gap('the base of the change is the empty tree', 'the empty tree')]);
-    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'no worktree of the base could be made: fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] }), [gap('no worktree of the base could be made')]);
-    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }), [gap('the build did not pass on the base')]);
+    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'empty-tree']] }, emptyTree), [gap('the base of the change is the empty tree', 'the empty tree')]);
+    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'no-worktree', 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] }), [gap('no worktree of the base could be made')]);
+    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }), [gap('the build did not pass on the base')]);
     assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'not-started']] }), [gap('the check did not start on the base')]);
     assert.deepEqual(notCompared({ base: [] }), [gap('the check did not run on the base')]);
     assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), [gap('the repair gave no comparison')]);
@@ -131,7 +140,7 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
   });
 
   it('gives the build that only prepares the base no fault and no gap of its own', () => {
-    const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }));
+    const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }));
     assert.deepEqual([check(brief, 'build').base, check(brief, 'build').fault], [null, null]);
     assert.equal(checkGaps(brief).length, 1);
   });
@@ -182,7 +191,7 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
   });
 
   it('names no local path from the error of git in any form of the brief (R5; R15 of the brief of a run)', () => {
-    const state = run({ ...failing, base: [['lint', 'skipped', 'no worktree of the base could be made: fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] });
+    const state = run({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] });
     const brief = briefOf(state);
     const json = { ...briefJson(brief, { copy: null, record: '/r', repository: '/w', store: '/s', continueCommand: null }, []), local: null };
     for (const text of [briefMarkdown(brief, 'report').join('\n'), briefMarkdown(brief, 'chat').join('\n'), briefShortForm(brief).join('\n'), JSON.stringify(json)]) {

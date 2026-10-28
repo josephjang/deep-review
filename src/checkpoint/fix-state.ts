@@ -10,7 +10,7 @@
  * below are answered from this state alone, or with the review state
  * beside it where an answer pass is concerned.
  */
-import { baseSkipReasons, budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, failedOrTimedOut, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
+import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, failedOrTimedOut, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
 import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecordedV4, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
@@ -290,7 +290,7 @@ export function runStanding(review: Pick<ReviewState, 'answerPasses' | 'phases'>
   if (phase !== 'base-checks' && last.outcome === 'timeout' && last.attempt === current && firstTimeout === last) return { kind: 'again', run: last, why: 'timeout' };
   if (last.outcome !== 'passed' && isCutAttempt(review, phase, last.attempt)) return { kind: 'again', run: last, why: 'cut-attempt' };
   // A build on the base is skipped only for a worktree its attempt could not have, which says nothing of the build; but no attempt has one of the empty tree, so its skip stands.
-  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || (last.outcome === 'skipped' && last.error !== baseSkipReasons['empty-tree'])) && last.attempt < current;
+  const unbuilt = phase === 'base-checks' && kind === 'build' && (last.outcome === 'passed' || (last.outcome === 'skipped' && last.skipReason !== 'empty-tree')) && last.attempt < current;
   if (unbuilt && baseKinds(review.fix).some((other) => other !== 'build' && runStanding(review, phase, other) !== null)) return { kind: 'again', run: last, why: 'earlier-worktree' };
   return null;
 }

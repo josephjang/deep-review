@@ -2184,7 +2184,8 @@ export function isDocumentItem(item: DocumentationItem): item is DocumentationIt
  * the base. Frozen here for the reason `reviewVocabularyV1` is: a test
  * holds it equal to today's vocabulary. The engine writes a version over
  * this vocabulary only for an event that names the phase or carries a
- * comparison (TD7), so a run configured before it holds none of them.
+ * comparison (TD7), so a run configured before it holds none of them; and
+ * the three reasons a run on the base is skipped for.
  */
 export const reviewVocabularyV9 = {
   phases: [
@@ -2197,6 +2198,7 @@ export const reviewVocabularyV9 = {
   ],
   checkPhases: ['baseline-checks', 'checks', 'base-checks', 'repair-checks', 'answer-checks'],
   baseReadings: ['same', 'adds', 'unknown'],
+  baseSkipReasons: ['empty-tree', 'no-worktree', 'build-failed'],
 } as const;
 
 const vocabularyV9 = reviewVocabularyV9;
@@ -2249,12 +2251,23 @@ export const checkStartedV2 = z.strictObject({
 });
 export type CheckStarted = z.infer<typeof checkStartedV2>;
 
-/** `check.ran` over the five check phases, so a run on the base can name its phase; there `replaces` can also name a `build` that passed in the worktree of an earlier attempt, or was skipped in one that had none, since each attempt makes its worktree anew (TD16 of the facts before a merge). */
+/**
+ * `check.ran` over the five check phases, so a run on the base can name its
+ * phase; there `replaces` can also name a `build` that passed in the
+ * worktree of an earlier attempt, or was skipped in one that had none,
+ * since each attempt makes its worktree anew (TD16 of the facts before a
+ * merge). A skipped run on the base, and no other, records why as
+ * `skipReason`, which its readers branch on; its `error` gives the words.
+ */
 export const checkRanV4 = z.strictObject({
   ...checkRanV3.shape,
   phase: checkPhaseSchemaV9,
-}).superRefine(refineCheckRan);
-/** A check's run as the fold holds it: a version 1 or 2 run reads as one that replaces nothing. */
+  skipReason: z.enum(vocabularyV9.baseSkipReasons).nullable(),
+}).superRefine((check, context) => {
+  refineCheckRan(check, context);
+  if ((check.skipReason !== null) !== (check.phase === 'base-checks' && check.outcome === 'skipped')) context.addIssue({ code: 'custom', message: 'a skipped run on the base alone records why as skipReason', path: ['skipReason'] });
+});
+/** A check's run as the fold holds it: a version 1 or 2 run reads as one that replaces nothing, and a run before version 4 as one with no `skipReason`. */
 export type CheckRan = z.infer<typeof checkRanV4>;
 
 /** The longest words of a comparison with the base: the cap the repair's schema gives them. */

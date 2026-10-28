@@ -6,6 +6,8 @@
  * no event an older engine cannot read. Adding a phase is one row of
  * `phaseVersions`, and adding a carried word one row of `carriedVersions`.
  */
+import type { NewEvent } from '../checkpoint/checkpoint.ts';
+import type { CheckRan } from '../checkpoint/events.ts';
 import type { AttemptFault, Phase, worktreeMoments } from './vocabulary.ts';
 
 /** The kinds whose version a writer asks for here. */
@@ -65,4 +67,10 @@ export function writtenVersion<K extends VersionedKind>(kind: K, phases: readonl
   const version = (carriedVersions as Partial<Record<VersionedKind, (words: Carried[keyof Carried]) => number>>)[kind];
   const words = carried[0];
   return Math.max(floors[kind], ...phases.map((phase) => phaseVersions[phase]?.[kind] ?? 0), version === undefined || words === undefined ? 0 : version(words));
+}
+
+/** The `check.ran` of a run, at the version its phase is written at: one before version 4, which no run on the base is, has no `skipReason`. */
+export function checkRanEvent({ skipReason, ...ran }: CheckRan): NewEvent {
+  const version = writtenVersion('check.ran', [ran.phase]);
+  return { kind: 'check.ran', version, payload: version < 4 ? ran : { ...ran, skipReason } };
 }

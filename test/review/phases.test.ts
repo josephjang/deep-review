@@ -551,7 +551,7 @@ describe('the repair of a run with the checks on the base', () => {
   it('gives a base that passed, one skipped after a failed build there, and one that did not start, with why', () => {
     assert.match(task(repairing((history) => ranOnBase(history, 'lint', 'passed'))), /^ {4}It passes on the base of the change, /m);
     const skipped = ranOnBase(checked().start('base-checks'), 'build', 'failed').add('check.ran', { ...checkRun('base-checks', 'lint', 'skipped'), replaces: null }, 4);
-    assert.match(task(skipped.finish('base-checks').start('repair').review()), /^ {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: build failed$/m);
+    assert.match(task(skipped.finish('base-checks').start('repair').review()), /^ {4}It did not run on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: the build did not pass on the base$/m);
     assert.match(task(repairing((history) => ranOnBase(history, 'lint', 'not-started'))), /^ {4}It did not start on the base of the change, the Base the scope names, so give no entry for it in `comparisons`: spawn ENOENT$/m);
   });
 
