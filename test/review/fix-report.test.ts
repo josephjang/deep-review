@@ -7,7 +7,7 @@ import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts'
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
-import { checkedRun, onBranch, type ChecksOfRun } from '../helpers/base-checks-history.ts';
+import { checkedRun, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, documentationAnswer, documentationItems, documentedFixRun, endCheck, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput, type History } from '../helpers/review-history.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/fix.md');
@@ -362,7 +362,7 @@ describe('the record of a stop (R15 of resumable runs)', () => {
     // A plain reopening started attempt 2 after attempt 1 finished, so no stop came between them.
     const passed = [onBase({ attempt: 1, outcome: 'passed', exitCode: 0 }, 4), onBase({ attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'passed' }, replacedAt: 0 }, 3.5)];
     assert.deepEqual(base(passed, 1), ['Built again on the base: build in base-checks passed in 4.0 s at attempt 1, and passed in 3.5 s at attempt 2, since each attempt makes its own worktree of the base.']);
-    const skipped = [onBase({ attempt: 1, outcome: 'skipped', exitCode: null, error: 'no worktree of the base could be made: fatal: x' }, 0), onBase({ attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'skipped' }, replacedAt: 0 }, 3.5)];
+    const skipped = [onBase({ attempt: 1, outcome: 'skipped', exitCode: null, error: 'no worktree of the base could be made: fatal: x', skipReason: 'no-worktree' }, 0), onBase({ attempt: 2, outcome: 'passed', exitCode: 0, replaces: { attempt: 1, outcome: 'skipped' }, replacedAt: 0 }, 3.5)];
     assert.deepEqual(base(skipped, 1), ['Built again on the base: build in base-checks was skipped at attempt 1, which had no worktree of the base, and passed in 3.5 s at attempt 2, since each attempt makes its own worktree of the base.']);
     // A stop cut attempt 1 before its `phase.finished`, so the skipped build runs again for the stop.
     assert.deepEqual(base(skipped, 0), ['Ran again after a stop: build in base-checks, skipped in 0.0 s at attempt 1, passed in 3.5 s at attempt 2.']);
@@ -608,20 +608,29 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
   });
 
   it('says why a kind did not run on the base, with the error in the facts of the run alone', () => {
-    const report = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', `no worktree of the base could be made: ${gitError}`]] })));
+    const report = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', gitError]] })));
     assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
     assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error\.$/m);
     assert.match(report, /^Worktree of the base: could not be made: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
-    const refused = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no worktree of the base could be made: The worktree of the base (/w/tmp) is inside the reviewed tree (/w).']] })));
+    const refused = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'The worktree of the base (/w/tmp) is inside the reviewed tree (/w).']] })));
     assert.match(refused, /^Worktree of the base: could not be made: The worktree of the base \(\/w\/tmp\) is inside the reviewed tree \(\/w\)\.$/m);
     assert.doesNotMatch(refused, /git could not|error of git/, 'a refusal of the engine is not blamed on git');
     assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## The run\n'), 'the path is in the facts of the run alone');
     assert.equal(report.split('/home/me/.cache/x').length, 2, 'once');
-    assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'the build did not pass on the base']] }), /^- On the base: lint did not run there, since the build did not pass on the base\.$/m);
-    const timedOut = checksOf({ ...failing, base: [['build', 'timeout'], ['lint', 'skipped', 'the build did not pass on the base']] });
+    assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }), /^- On the base: lint did not run there, since the build did not pass on the base\.$/m);
+    const timedOut = checksOf({ ...failing, base: [['build', 'timeout'], ['lint', 'skipped', 'build-failed']] });
     assert.match(timedOut, /^\| build \| .* \| timeout, 4\.0 s; [^|]* \|$/m);
     assert.match(timedOut, /^\| lint \| .* \| skipped: the build did not pass on the base \|$/m, 'words true of a build that timed out on the base');
     assert.match(checksOf({ ...failing, base: [] }), /^- On the base: lint did not run there\.$/m);
+  });
+
+  it('says why a kind did not run on the base by its skipReason, whatever words its error recorded (TD17 of the facts before a merge)', () => {
+    const report = render(rewordedOnBase(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'fatal: x']] })), 'the base could not be checked out: fatal: x'));
+    assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
+    assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error\.$/m);
+    assert.match(report, /^Worktree of the base: could not be made: the base could not be checked out: fatal: x$/m, 'the error it recorded, whole');
+    const unbuilt = render(rewordedOnBase(onBranch(checkedRun({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] })), 'no worktree of the base could be made: fatal: x'));
+    assert.doesNotMatch(unbuilt, /^Worktree of the base:/m, 'a run skipped after a failed build had a worktree, whatever its error says');
   });
 
   it('says why no check ran on the base, and nothing of the base in a run configured before the checks on the base (R10)', () => {

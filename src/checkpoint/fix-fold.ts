@@ -265,16 +265,16 @@ const runState = (fix: FixState, payload: CheckRan, replaced: CheckRunState | nu
  * revision made old (TD3 of resumable runs), and in answer-checks none
  * for the current answer pass (R5 of answers).
  */
-const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) => {
+const checkRan: Reducer<Omit<CheckRan, 'replaces' | 'skipReason'>> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   requirePlannedCheck(review, fix, event, payload, 'runs');
   if (lastCurrentRun({ ...review, fix }, payload.phase, payload.kind) !== null) throw invalid(event, `runs the ${payload.kind} check twice in ${payload.phase}${payload.phase === 'answer-checks' ? ' for one answer pass' : ''}`);
-  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null }, null)] };
+  const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, { ...payload, replaces: null, skipReason: null }, null)] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
 };
 
 /**
- * A version 3 run of a check (R3, R4, R7 of resumable runs): one that
+ * A version 3 or 4 run of a check (R3, R4, R7 of resumable runs): one that
  * replaces nothing when the kind has no current run in its phase, or one
  * that names the last current run when that run was cut, is the first
  * timeout of the kind in the current attempt, did not pass in a cut
@@ -284,7 +284,7 @@ const checkRan: Reducer<Omit<CheckRan, 'replaces'>> = (state, payload, event) =>
  * second cut of a kind in one attempt is a failure, so a cut run never
  * replaces a cut run of its own attempt.
  */
-const checkRanV3: Reducer<CheckRan> = (state, payload, event) => {
+const checkRanV4: Reducer<CheckRan> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
   requirePlannedCheck(review, fix, event, payload, 'runs');
   const standing = runStanding({ ...review, fix }, payload.phase, payload.kind);
@@ -298,6 +298,9 @@ const checkRanV3: Reducer<CheckRan> = (state, payload, event) => {
   const runs = { ...fix.checks.runs, [payload.phase]: [...fix.checks.runs[payload.phase], runState(fix, payload, standing.kind === 'again' ? standing.run : null)] };
   return withFix(current, review, { ...fix, checks: { ...fix.checks, runs } }, event);
 };
+
+/** A version 3 run of a check, which never names the base, so it has no `skipReason`. */
+const checkRanV3: Reducer<Omit<CheckRan, 'skipReason'>> = (state, payload, event, drafts) => checkRanV4(state, { ...payload, skipReason: null }, event, drafts);
 
 /**
  * The start of a check (R7 of resumable runs): while its phase runs at the
@@ -667,7 +670,7 @@ export const fixReducers = {
   'check.ran@1': checkRan,
   'check.ran@2': checkRan,
   'check.ran@3': checkRanV3,
-  'check.ran@4': checkRanV3,
+  'check.ran@4': checkRanV4,
   'tree.restored@1': treeRestored,
   'fix.recorded@1': fixRecordedV3,
   'fix.recorded@2': fixRecordedV3,

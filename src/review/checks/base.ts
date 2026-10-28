@@ -18,7 +18,7 @@ import { comparable, pinVariables } from '../../runtime/environment.ts';
 import { gitFailureDetail, isRepositoryVariable, runGitSync, withoutRepositoryVariables } from '../../runtime/git-sync.ts';
 import { requireOutsideRun } from '../../runtime/scratch.ts';
 import { isEmptyTree } from '../../scope/git.ts';
-import { baseSkipReasons } from '../vocabulary.ts';
+import { baseSkipReasons, type BaseSkip } from '../vocabulary.ts';
 import { checkEnvironment } from './run.ts';
 
 /** The reason git records with the lock of each worktree of the base a run makes, by which a later command of the run finds it. */
@@ -37,8 +37,8 @@ const directoryPrefix = (runId: string): string => `${runId}-base-`;
  */
 export const baseCheckoutTimeoutMs = 600_000;
 
-/** Where the checks on the base of an attempt run, or why no worktree is there, in the words a `skipped` run records. */
-export type BaseTree = { readonly kind: 'made'; readonly path: string } | { readonly kind: 'none'; readonly reason: string };
+/** Where the checks on the base of an attempt run, or why no worktree is there, as a `skipped` run records it. */
+export type BaseTree = { readonly kind: 'made'; readonly path: string } | { readonly kind: 'none'; readonly skip: BaseSkip };
 
 /** What making and removing the worktrees of the base of a run read. */
 export interface BaseTreeContext {
@@ -68,12 +68,12 @@ const baseGit = (context: BaseTreeContext, args: readonly string[], timeout?: nu
  * directory under the scratch directory, held outside the reviewed tree
  * and the checkpoint, with a hooks path that does not exist, so no hook of
  * the repository runs at the checkout. Whatever fails gives no worktree,
- * with the fixed words and the first line of the error: the run on the
+ * with its reason, the fixed words and the first line of the error: the run on the
  * base never blocks the run (R11). What a failed call left is removed with
  * the rest of the run's (`removeBaseTrees`).
  */
 export function makeBaseTree(context: BaseTreeContext, base: string): BaseTree {
-  if (isEmptyTree(base)) return { kind: 'none', reason: baseSkipReasons['empty-tree'] };
+  if (isEmptyTree(base)) return { kind: 'none', skip: { reason: 'empty-tree', error: baseSkipReasons['empty-tree'] } };
   try {
     requireOutsideRun('worktree of the base', context.scratch, { worktree: context.worktree }, { root: context.checkpointRoot });
     mkdirSync(context.scratch, { recursive: true });
@@ -84,7 +84,7 @@ export function makeBaseTree(context: BaseTreeContext, base: string): BaseTree {
   } catch (error) {
     const detail = gitFailureDetail(error, baseCheckoutTimeoutMs);
     context.log(`no worktree of the base ${base.slice(0, 8)} could be made: ${detail}`);
-    return { kind: 'none', reason: `${baseSkipReasons['no-worktree']}: ${detail.split(/\r?\n/)[0] ?? ''}` };
+    return { kind: 'none', skip: { reason: 'no-worktree', error: `${baseSkipReasons['no-worktree']}: ${detail.split(/\r?\n/)[0] ?? ''}` } };
   }
 }
 

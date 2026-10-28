@@ -52,7 +52,7 @@ import { runCheck } from './checks/run.ts';
 import { gitContent } from './content.ts';
 import { existingUserRulesFiles, reviewerAuthorship } from './conventions.ts';
 import { drifted, expectedTreeOf, findDrift, phaseCheck, restoredFiles, worktreeChecked, writeBack, type DriftFound, type RestoredFile } from './drift.ts';
-import { writtenVersion } from './event-versions.ts';
+import { checkRanEvent, writtenVersion } from './event-versions.ts';
 import { isFile, sameDirectory } from '../paths.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { foldedWith } from './claim-events.ts';
@@ -281,6 +281,7 @@ function rerunWords(replaces: NonNullable<DueCheck['replaces']>): string {
       return run.outcome === 'skipped' ? `attempt ${String(run.attempt)} had no worktree of the base to build it in, and this attempt makes one` : `it passed in ${took} in the worktree of the base of attempt ${String(run.attempt)}, and this attempt makes a new one`;
   }
 }
+
 const usd = (value: number | null): string => (value === null ? '' : `, ${value.toFixed(2)} USD`);
 
 /** A function that reads its value the first time it is called and returns that value after; a read that throws is tried again on the next call. */
@@ -721,12 +722,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       // A kind only to be recorded skipped needs no worktree of the base: the planner gave it the reason already, its build's own when that was skipped (R5 of the facts before a merge).
       const base = isTreeCheckPhase(phase) || due.skip !== null ? null : baseOf(attempt);
       // An attempt with no worktree of the base gives each kind it runs that reason (R5 of the facts before a merge).
-      const skip = base?.tree.kind === 'none' ? base.tree.reason : due.skip;
+      const skip = base?.tree.kind === 'none' ? base.tree.skip : due.skip;
       if (skip !== null) {
-        log(`check ${due.kind} (${phase}): skipped, ${skip}`);
+        log(`check ${due.kind} (${phase}): skipped, ${skip.error}`);
         const now = new Date().toISOString();
-        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip, maxRecordedTextLength), replaces };
-        state = append(checkpoint, state, [{ kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: skipped }]);
+        const skipped: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome: 'skipped', exitCode: null, signal: null, termination: null, startedAt: now, endedAt: now, stdout: null, stderr: null, error: truncated(skip.error, maxRecordedTextLength), replaces, skipReason: skip.reason };
+        state = append(checkpoint, state, [checkRanEvent(skipped)]);
         return;
       }
       if (due.replaces !== null) log(`check ${due.kind} (${phase}): running again; ${rerunWords(due.replaces)}`);
@@ -750,8 +751,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       const error = cutAgain ? `cut twice in attempt ${String(attempt)}: it ended first with ${killMarkWords(due.replaces!.run)}, then with ${killMarkWords(result)}` : result.error;
       log(`check ${due.kind} (${phase}): ${outcome} in ${seconds(Date.parse(result.endedAt) - Date.parse(result.startedAt))}${error === null ? '' : `: ${error}`}`);
       if (outcome === 'cut') log(`check ${due.kind} (${phase}): cut, it ended with ${killMarkWords(result)}; it runs again`);
-      const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces };
-      const recorded: NewEvent = { kind: 'check.ran', version: writtenVersion('check.ran', [phase]), payload: ran };
+      const ran: CheckRan = { phase, attempt, kind: due.kind, command: due.command, outcome, exitCode: result.exitCode, signal: result.signal, termination: result.termination, startedAt: result.startedAt, endedAt: result.endedAt, stdout: result.stdout, stderr: result.stderr, error: error === null ? null : truncated(error, maxRecordedTextLength), replaces, skipReason: null };
+      const recorded = checkRanEvent(ran);
       // A run on the base, which alone takes no manifest, wrote nothing of the reviewed worktree to write back or record as a revision (TD14 of the facts before a merge).
       if (!isTreeCheckPhase(phase) || manifest === null) {
         state = append(checkpoint, state, [recorded]);

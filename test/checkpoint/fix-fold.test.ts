@@ -14,6 +14,7 @@ import {
   answerableDecisions,
   askDecision,
   baselined,
+  baseSkip,
   checkRun,
   checksPhase,
   claimed,
@@ -1272,17 +1273,17 @@ describe('the checks on the base in the fix state', () => {
     const rebuilt = ranOnBase(ranOnBase(reopened.clone(), 'build', 'passed', 2, { attempt: 1, outcome: 'passed' }), 'test', 'failed', 2);
     assert.deepEqual(rebuilt.review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt, run.outcome]), [['build', 1, 'passed'], ['lint', 1, 'failed'], ['build', 2, 'passed'], ['test', 2, 'failed']]);
     // Attempt 1 could make no worktree, so build and lint were skipped there, and the reopened attempt tries again for test.
-    const noWorktree = (kind: string) => (history: History): History => history.add('check.ran', { ...checkRun('base-checks', kind, 'skipped'), error: 'no worktree of the base could be made: fatal: x', replaces: null }, 4);
+    const noWorktree = (kind: string) => (history: History): History => history.add('check.ran', { ...checkRun('base-checks', kind, 'skipped'), ...baseSkip('no-worktree', 'fatal: x'), replaces: null }, 4);
     const unmade = withFix(reopenedOf(toReport(true, (history) => noWorktree('lint')(noWorktree('build')(history)), [])));
     const again = runStanding(unmade, 'base-checks', 'build');
     assert.deepEqual(again?.kind === 'again' ? [again.why, again.run.outcome] : null, ['earlier-worktree', 'skipped'], 'a build skipped for want of a worktree runs once a worktree can be made');
     // The base is the empty tree, of which no attempt makes a worktree, so build's skip at attempt 1 stands and test is skipped alone.
-    const emptyTree = (kind: string) => (history: History): History => history.add('check.ran', { ...checkRun('base-checks', kind, 'skipped'), error: 'the base of the change is the empty tree', replaces: null }, 4);
+    const emptyTree = (kind: string) => (history: History): History => history.add('check.ran', { ...checkRun('base-checks', kind, 'skipped'), ...baseSkip('empty-tree'), replaces: null }, 4);
     const rootCommit = reopenedOf(toReport(true, (history) => emptyTree('lint')(emptyTree('build')(history)), []));
     assert.equal(runStanding(withFix(rootCommit), 'base-checks', 'build'), null, 'a build skipped for the empty tree would only be skipped again');
     assert.equal(takenOnBase(withFix(rootCommit), 'build'), true, 'build is still among the kinds the phase may name');
-    refused(rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'build', 'skipped', 2), error: 'the base of the change is the empty tree', replaces: { attempt: 1, outcome: 'skipped' } }, 4), /runs the build check again in base-checks, whose last current run is its result/);
-    const skippedAgain = rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'test', 'skipped', 2), error: 'the base of the change is the empty tree', replaces: null }, 4);
+    refused(rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'build', 'skipped', 2), ...baseSkip('empty-tree'), replaces: { attempt: 1, outcome: 'skipped' } }, 4), /runs the build check again in base-checks, whose last current run is its result/);
+    const skippedAgain = rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'test', 'skipped', 2), ...baseSkip('empty-tree'), replaces: null }, 4);
     assert.deepEqual(skippedAgain.review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt]), [['build', 1], ['lint', 1], ['test', 2]], 'the reopened attempt adds no run of build');
   });
 });

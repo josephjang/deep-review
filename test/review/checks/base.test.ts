@@ -49,7 +49,7 @@ describe('makeBaseTree', () => {
 
   it('makes none for the empty tree, the base of a root commit, and runs no git', (t) => {
     const { directory, repo, context } = sandbox(t);
-    assert.deepEqual(makeBaseTree(context(), '4b825dc642cb6eb9a060e54bf8d69288fbee4904'), { kind: 'none', reason: baseSkipReasons['empty-tree'] });
+    assert.deepEqual(makeBaseTree(context(), '4b825dc642cb6eb9a060e54bf8d69288fbee4904'), { kind: 'none', skip: { reason: 'empty-tree', error: baseSkipReasons['empty-tree'] } });
     assert.equal(existsSync(join(directory, 'scratch')), false);
     assert.equal(entries(repo).length, 1);
   });
@@ -58,10 +58,11 @@ describe('makeBaseTree', () => {
     const { context, logs } = sandbox(t);
     const tree = makeBaseTree(context(), 'f'.repeat(40));
     assert.equal(tree.kind, 'none');
-    const reason = tree.kind === 'none' ? tree.reason : '';
-    assert.ok(reason.startsWith(`${baseSkipReasons['no-worktree']}: `), reason);
-    assert.match(reason, /invalid reference/);
-    assert.doesNotMatch(reason, /\n/);
+    assert.equal(tree.kind === 'none' ? tree.skip.reason : null, 'no-worktree');
+    const error = tree.kind === 'none' ? tree.skip.error : '';
+    assert.ok(error.startsWith(`${baseSkipReasons['no-worktree']}: `), error);
+    assert.match(error, /invalid reference/);
+    assert.doesNotMatch(error, /\n/);
     assert.ok(logs.some((line) => line.startsWith('no worktree of the base ffffffff could be made: ')), logs.join('\n'));
   });
 
@@ -69,7 +70,8 @@ describe('makeBaseTree', () => {
     const { repo, base, context } = sandbox(t);
     const tree = makeBaseTree(context({ scratch: join(repo, 'scratch') }), base);
     assert.equal(tree.kind, 'none');
-    assert.match(tree.kind === 'none' ? tree.reason : '', /^no worktree of the base could be made: The worktree of the base .* is inside the reviewed tree/);
+    assert.equal(tree.kind === 'none' ? tree.skip.reason : null, 'no-worktree');
+    assert.match(tree.kind === 'none' ? tree.skip.error : '', /^no worktree of the base could be made: The worktree of the base .* is inside the reviewed tree/);
     assert.equal(existsSync(join(repo, 'scratch')), false);
   });
 
