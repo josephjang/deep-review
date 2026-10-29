@@ -118,18 +118,24 @@ const checkItem = (check: BriefCheck, lead: string, rest: string): NeedItem => n
 /** What a check that the edits of the run made fail costs if the person does nothing: the commit of a tree in which it fails, or the commits that hold one. */
 const editsCost = (facts: NeedsFacts): string => (facts.committed ? 'the commits of this run hold a tree in which it fails' : '`deep-review commit` commits a tree in which it fails');
 
+/**
+ * The line of an option of a question, as its item and its finding's block
+ * both give it: its number, `the default` with `held` when it is the
+ * default, whether it is deep-review's choice, then the option, its cost
+ * and its rule, each text already quoted.
+ */
+export const optionLine = (number: number, held: string | null, choice: boolean, texts: { readonly option: string; readonly cost: string; readonly rule: string }): string => {
+  const marks = [`Option ${String(number)}`, ...(held === null ? [] : [`the default, ${held}`]), ...(choice ? ['deep-review\'s choice'] : [])];
+  return `${marks.join(', ')}: ${sentenceText(texts.option)} Cost: ${sentenceText(texts.cost)} Rule: ${sentenceText(texts.rule)}`;
+};
+
 /** The item of a question (R3): its lead and question, a line per option with its marks, and what happens if the person does nothing with the commands. */
 export function questionItem(facts: ItemFacts, question: NeedQuestion): NeedItem {
   const own = question.finding;
   const choiceIsDefault = question.default === question.choice;
   const lead = choiceIsDefault ? `Finding ${String(own)} asks you a question, and its default is deep-review's choice.` : `Finding ${String(own)} asks you a question, and deep-review's choice is not its default.`;
   const held = question.defaultHeld === 'held' ? 'in place now' : question.defaultHeld === 'review-only' ? 'which this run did not apply, since it only reviewed' : 'which no fixer applied';
-  const marks = (number: number): string => [
-    `Option ${String(number)}`,
-    ...(number === question.default ? [`the default, ${held}`] : []),
-    ...(number === question.choice ? ['deep-review\'s choice'] : []),
-  ].join(', ');
-  const options = question.options.map((option) => `${marks(option.number)}: ${sentenceText(said(facts, option.option, own))} Cost: ${sentenceText(said(facts, option.cost, own))} Rule: ${sentenceText(said(facts, option.rule, own))}`);
+  const options = question.options.map((option) => optionLine(option.number, option.number === question.default ? held : null, option.number === question.choice, { option: said(facts, option.option, own), cost: said(facts, option.cost, own), rule: said(facts, option.rule, own) }));
   const stays = question.defaultHeld === 'review-only' ? `the fix pass applies option ${String(question.default)}` : `option ${String(question.default)} stays`;
   const another = `To take another option: ${codeSpan(answerCommand(facts.run, own, '--option <n>'))}, with its number.`;
   const nothing = choiceIsDefault
