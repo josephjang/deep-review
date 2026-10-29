@@ -174,9 +174,10 @@ export interface BriefStatus {
   readonly text: string;
 }
 
-/** A check as "Before you merge" gives it: its facts, its meaning from `checkMeanings`, and who compared its failures (R4 of the report for the person). */
+/** A check as "Before you merge" gives it: its facts, its meaning from `checkMeanings`, the rank that meaning gives it in "What needs you", and who compared its failures (R4 of the report for the person). */
 export interface BriefMergeCheck extends BriefCheck {
   readonly meaning: string;
+  readonly rank: 1 | 2 | 3 | null;
   readonly comparedBy: ComparedBy | null;
 }
 
@@ -472,7 +473,7 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
     committed: allCommitted,
     base,
     checks,
-    checkRanks: new Map(checks.map((check) => [check.kind, meaningRowOf(check, review).rank])),
+    checkRanks: new Map(checks.map((check) => [check.kind, check.rank])),
     unfinishedEdits,
     unapplied,
     documents: context.documents,
@@ -688,7 +689,7 @@ export function briefOf(state: RunState): Brief {
   const base = baseWords({ commit: state.scope.base, name: baseNameOf(state.scope.mode, state.scope.request) });
   const checks = context.checks.map((check) => {
     const row = meaningRowOf(check, review);
-    return { ...check, meaning: row.meaning(check), comparedBy: row.comparedBy };
+    return { ...check, meaning: row.meaning(check), rank: row.rank, comparedBy: row.comparedBy };
   });
   const facts = needsFactsOf(context, questions, departures, checks, base, findings);
   const needs = needsOf(facts);
