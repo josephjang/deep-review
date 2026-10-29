@@ -111,6 +111,9 @@ export function paragraphText(text: string): string {
  * The parts of a text in and out of its code spans, in order, by the
  * CommonMark rule: a run of backticks opens a span that the next run of
  * the same length closes, and a run with no such closer is plain text.
+ * A backtick after an odd run of backslashes is escaped, so it is plain
+ * text and opens nothing; inside a span a backslash is literal and
+ * stops no closer.
  */
 function codeParts(text: string): { readonly code: boolean; readonly text: string }[] {
   const parts: { code: boolean; text: string }[] = [];
@@ -120,6 +123,13 @@ function codeParts(text: string): { readonly code: boolean; readonly text: strin
     const open = /`+/.exec(text.slice(at));
     if (open === null) break;
     const start = at + open.index;
+    let backslashes = 0;
+    while (text.charAt(start - backslashes - 1) === '\\') backslashes += 1;
+    if (backslashes % 2 === 1) {
+      plain += text.slice(at, start + 1);
+      at = start + 1;
+      continue;
+    }
     const run = open[0];
     const closer = new RegExp(`(?<!\`)${run}(?!\`)`).exec(text.slice(start + run.length));
     if (closer === null) {
