@@ -7,6 +7,7 @@ import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts'
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
+import { repairUnitKey } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { checkedRun, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, documentationAnswer, documentationItems, documentedFixRun, endCheck, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput, type History } from '../helpers/review-history.ts';
@@ -234,6 +235,19 @@ describe('the report of a fix run', () => {
     const answerRevision = { ...fix.revisions.at(-1)!, phase: 'answer' as const };
     assert.match(without({ revisions: [...fix.revisions, answerRevision] }), /^- After the fixes for the checks: not run, since the fixes for the checks changed no file\.$/m);
     assert.match(without({ revisions: [...fix.revisions, answerRevision], notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the fixes for the checks: not run, since the fixes for the checks were not attempted: [^\n]*spent\.$/m);
+  });
+
+  it('says the repair was not attempted, and why, when an unfinished attempt\'s revision ran the checks after it', () => {
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    // The repair failed twice, the first attempt having left edits: its revision runs the checks after the repair, and no answer of the repair is on record.
+    const attempt = { ...fix.revisions.at(-1)!, source: { kind: 'attempt' as const, key: repairUnitKey, workerId: '00000000-0000-4000-8000-000000000001' } };
+    const failed = { ...fix, revisions: [...fix.revisions.slice(0, -1), attempt], answers: { ...fix.answers, repair: {} }, notAttempted: { ...fix.notAttempted, repair: { [repairUnitKey]: { cause: 'failures' as const, reason: 'its worker failed twice' } } } };
+    const report = render({ ...state, review: { ...state.review!, fix: failed } });
+    assert.ok(failed.checks.runs['repair-checks'].length > 0, 'the checks after the repair ran');
+    assert.match(report, /^- The fixes for the checks were not attempted: its worker failed twice\.$/m);
+    assert.doesNotMatch(report, /^- After the fixes for the checks: not run/m);
+    assert.doesNotMatch(render(), /were not attempted/, 'a repair that answered says nothing of the kind');
   });
 
   it('renders a run without the fix pass with none of these sections', () => {
