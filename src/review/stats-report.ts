@@ -10,11 +10,12 @@
 import type { Spend } from '../checkpoint/events.ts';
 import { allBatches, clusterOf, exactPath, holdersKeyedBy, lastClaimOf, planOfRound, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
+import type { ReviewState } from '../checkpoint/review-fold.ts';
+import { angleRan } from './brief.ts';
 import { inlineText, tableCell } from './markdown.ts';
 import type { ReportInput } from './report.ts';
 import { rankedFindings } from './state.ts';
-import { angles, phases, triageUnitKey, type Angle } from './vocabulary.ts';
+import { angles, phases, type Angle } from './vocabulary.ts';
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
 const count = (value: number | null): string => (value === null ? '-' : String(value));
@@ -36,10 +37,10 @@ function statisticsTable(review: ReviewState, statistics: ReportInput['statistic
 }
 
 function angleRow(review: ReviewState, angle: Angle): string {
-  if (angle === 'SCAN') return `| SCAN | ${isAnswered(review, 'triage', triageUnitKey) ? 'run (as the triage)' : 'not run'} | - |`;
+  if (angle === 'SCAN') return `| SCAN | ${angleRan(review, angle) ? 'run (as the triage)' : 'not run'} | - |`;
   const notRun = review.anglesNotRun[angle];
   const lead = review.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
-  const status = notRun !== undefined ? `not run (${tableCell(notRun)})` : isAnswered(review, 'finders', angle) ? 'run' : 'not run';
+  const status = angleRan(review, angle) ? 'run' : notRun === undefined ? 'not run' : `not run (${tableCell(notRun)})`;
   return `| ${angle} | ${status} | ${lead === null ? 'none' : tableCell(lead)} |`;
 }
 
