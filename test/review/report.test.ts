@@ -143,7 +143,7 @@ describe('renderReport', () => {
         candidates: {
           ...review.candidates,
           'SWEEP-1': { ...review.candidates['SWEEP-1']!, rawFile: 'C:\\x.ts\n## Heading from a path' },
-          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3\n\n## is a comment' }, duplicateOf: null },
+          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted <stdin>\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3 *x*\n\n## is a comment' }, duplicateOf: null },
         },
         anglesNotRun: { FOOTGUNS: 'timeout\n## Limitation heading' },
         unverifiedGroups: { ...review.unverifiedGroups, 'sweep-verification': { g1: 'failed\n# Group heading' } },
@@ -156,7 +156,7 @@ describe('renderReport', () => {
     assert.match(report, /^### 1\. ## Injected section second line$/m);
     assert.match(report, /^- Reason: because - a list item$/m);
     assert.match(report, /\(unlocated: C:\\x\.ts ## Heading from a path:9; unverified\) \(SWEEP-1\)$/m);
-    assert.match(report, /^- SCAN-1 \(SCAN\) {2}src\/a\.ts:3 {2}refuted # Heading\n {2}Evidence: line 3 ## is a comment$/m);
+    assert.match(report, /^- SCAN-1 \(SCAN\) {2}src\/a\.ts:3 {2}refuted \\<stdin> # Heading\n {2}Evidence: line 3 \\\*x\\\* ## is a comment$/m, 'a refuted summary and its evidence are escaped as worker text (R11)');
     assert.match(report, /^- The footguns review pass \(FOOTGUNS\) did not run: timeout ## Limitation heading\. /m);
     assert.match(report, /^- Group g1 of sweep-verification was not verified \(failed # Group heading\): /m);
     assert.deepEqual(report.split('\n').filter((line) => line.includes('a list item')), ['- Reason: because - a list item'], 'no list item opened by a reason');

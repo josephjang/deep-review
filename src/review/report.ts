@@ -447,6 +447,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const numbers = findingNumbers(review);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review);
+  const said = (text: string): string => inlineText(quoted(text, { numbers }));
   const findingsSection = [
     '## Findings',
     '',
@@ -456,7 +457,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const refutedSection = [
     '## Refuted at verification',
     '',
-    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
+    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said(candidate.summary)}\n  Evidence: ${said(evidence)}`)),
   ];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has none.
   const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));
