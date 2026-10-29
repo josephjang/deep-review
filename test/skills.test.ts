@@ -85,7 +85,7 @@ describe('the skill texts', () => {
       assert.match(text, /The brief at the top of the report lists, under What needs you, the\s+questions the run asked and the fixes that go against a written rule,\s+each with the `deep-review answer` command that answers it\./);
       // A number names a finding only within its run, so the template names the run as the brief's command does (R7 of the report for the person).
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --run <run> --finding <number> --option <n>`), 'the answer subcommand of the same bundle');
-      assert.ok(read('src/review/needs.ts').includes('`deep-review answer --run ${shortRunId(run)} --finding ${String(finding)} ${choice}`'), 'the brief\'s command has the same shape');
+      assert.ok(read('src/review/needs.ts').includes('`answer --run ${shortRunId(run)} --finding ${finding} ${choice}`'), 'the brief\'s command has the same shape');
       assert.match(text, /with the run, the finding's number and the option's number as that\s+item's `deep-review answer` command prints them, the run being the\s+eight characters of its id that the command names/);
       assert.match(text, /`--accept` or\s+`--reject` in place of `--option <n>` for a departure, and `--note <text>` with what the user said beyond the\s+choice/);
       assert.match(text, /as a background shell command with\s+the longest timeout you can/);
