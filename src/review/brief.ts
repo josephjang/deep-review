@@ -503,8 +503,11 @@ function statusOf(context: BriefContext, findings: readonly BriefFinding[]): Bri
   if (counts.findings === 0) return { ...counts, text: `${run} has no finding.${fix === null ? ' It changed no file and ran no check.' : ''}` };
   const done = fix === null ? counts.toFix : counts.fixed;
   const ofThem = counts.againstRule === 0 ? '' : counts.againstRule === done ? `, ${done === 1 ? 'against a written rule' : 'each against a written rule'}` : `, ${counts.againstRule === 1 ? 'one' : String(counts.againstRule)} of them against a written rule`;
+  // The default a fixer applied to an open question is in a patch, though the finding counts as a question, not a fix.
+  const defaults = findings.filter((finding) => appliedDefault(context, finding)).map((finding) => finding.number);
   const rest = [
     ...(counts.questions === 0 ? [] : [`asks you ${counted(counts.questions, 'question', 'questions')}`]),
+    ...(defaults.length === 0 ? [] : [`applied the default of ${findingWords(defaults)}`]),
     ...(answered.length === 0 ? [] : [`follows your answers to ${findingWords(answered)}`]),
     ...(owed.length === 0 ? [] : [`has not yet applied your answers to ${findingWords(owed)}`]),
     ...(counts.alreadyInTree === 0 ? [] : [`found ${String(counts.alreadyInTree)} already fixed in the tree`]),
@@ -520,7 +523,10 @@ function statusOf(context: BriefContext, findings: readonly BriefFinding[]): Bri
   return { ...counts, text: `${run} has ${counted(counts.findings, 'finding', 'findings')}. ${fixedWords}${rest.length === 0 ? '' : ` It ${listed(rest)}.`}` };
 }
 
-/** The rows of "What deep-review fixed" (R5 of the report for the person): each applied fix in rank order, then each update of the documentation step; in a run that only reviewed, each fix it decided, with its plan. */
+/** Whether a finding is an open question whose default, which edits the code, a fixer applied, so a patch holds it while the question stays open. */
+const appliedDefault = (context: BriefContext, finding: BriefFinding): boolean => finding.status === 'question' && context.outcomes.get(finding.id)?.last === 'applied';
+
+/** The rows of "What deep-review fixed" (R5 of the report for the person): each applied fix in rank order, the applied default of an open question among them, then each update of the documentation step; in a run that only reviewed, each fix it decided, with its plan. */
 function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): BriefFix[] {
   const { review } = context;
   const fix = review.fix;
@@ -531,7 +537,7 @@ function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): Brie
       return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === 'PLAUSIBLE', againstRule: decision.departure !== null, subject: firstSentence(decision.fix.approach), kinds: [], patches: [] };
     });
   }
-  const fixed = findings.filter((finding) => finding.status === 'fixed' || finding.status === 'fixed-against-rule').map((finding) => {
+  const fixed = findings.filter((finding) => finding.status === 'fixed' || finding.status === 'fixed-against-rule' || appliedDefault(context, finding)).map((finding) => {
     const answer = lastFixAnswer(review, fix, finding.id).answer;
     return {
       finding: finding.number,
@@ -853,7 +859,9 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   const lines = [planned ? '## What deep-review would fix' : '## What deep-review fixed', ''];
   if (brief.fixes.length === 0) return [...lines, planned ? 'deep-review decided to fix no finding.' : 'deep-review fixed no finding.'];
   const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: numbersOf(brief), own })));
-  const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
+  // A row of a finding still a question is the default a fixer applied, which the question's answer may change.
+  const asked = new Set(brief.findings.filter((finding) => finding.status === 'question').map((finding) => finding.number));
+  const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.finding !== null && asked.has(fix.finding) ? ['the default of a question'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
   const name = (fix: BriefFix): string => (fix.finding === null ? 'Documentation' : `${form === 'report' ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity!}${marks(fix)}`);
   const shown = brief.fixes.slice(0, shownFixes);
   const others = brief.fixes.slice(shownFixes);

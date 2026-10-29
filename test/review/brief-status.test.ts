@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RecordedDecision } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { briefOf, type Brief } from '../../src/review/brief.ts';
+import { briefMarkdown, briefOf, type Brief } from '../../src/review/brief.ts';
 import { shortRunId } from '../../src/review/runs.ts';
 import { answer, answerableDecisions, askDecision, decidedFixRun, decisions, departure, readOnlyReported } from '../helpers/review-history.ts';
 
@@ -72,5 +72,25 @@ describe('an answer recorded and not applied in the brief', () => {
     assert.deepEqual(brief.status.answered, [2]);
     assert.match(brief.status.text, /It follows your answers to finding 2\.$/);
     assert.equal(owedItem(brief, 2), undefined);
+  });
+});
+
+describe('the default a fixer applied to an open question in the brief', () => {
+  it('gives it a row of what deep-review fixed, marked as the default of a question, and names it in the status line, still counted as a question', () => {
+    // RIPPLE-1 asks with a default that edits the code, so a fixer applied it; nobody answered.
+    const state = decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)]).fold();
+    const brief = briefOf(state);
+    assert.equal(brief.findings[0]!.status, 'question');
+    assert.deepEqual(brief.fixes.map((fix) => [fix.finding, fix.subject, fix.patches]), [[1, 'fix: Guard the null', [1]]]);
+    assert.equal(brief.status.text, `deep-review's fix run ${shortRunId(state.id)} has 2 findings. It fixed no finding. It asks you 2 questions and applied the default of finding 1.`);
+    const lines = briefMarkdown(brief);
+    assert.equal(lines.at(-1), '| [1](#finding-1), major, the default of a question | fix: Guard the null | none reported | 1 |');
+    assert.ok(!lines.includes('deep-review fixed no finding.'));
+  });
+
+  it('gives no row to an open question whose default no fixer applied', () => {
+    const brief = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'blocked').fold());
+    assert.deepEqual(brief.fixes, []);
+    assert.doesNotMatch(brief.status.text, /applied the default/);
   });
 });
