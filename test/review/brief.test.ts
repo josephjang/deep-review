@@ -15,6 +15,8 @@ const given = (reading: ChangeReading = changeReading as unknown as ChangeReadin
 
 /** A read-only run whose decisions ask SWEEP-1 and fix RIPPLE-1 against a written rule. */
 const answerable = (): RunState => readOnlyReported(answerableDecisions()).fold();
+/** Each gap of what the run did not examine, as its kind and its words. */
+const gapsOf = (state: RunState): string[] => briefOf(state).notExamined.map((gap) => `${gap.kind}: ${gap.text}`);
 
 
 
@@ -164,26 +166,26 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     const passes = readOnlyReported().fold();
 
     it('names the review pass that did not run by its plain name, and the findings no verifier examined by their numbers', () => {
-      assert.deepEqual(briefOf(passes).notExamined.slice(0, 2), ['The footguns review pass did not run, and a later pass looked for what it would have found.', 'No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.']);
+      assert.deepEqual(gapsOf(passes).slice(0, 2), ['angle: The footguns review pass did not run, and a later pass looked for what it would have found.', 'unverified: No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.']);
     });
 
     it('names the paths the settings left out and the files too large to freeze', () => {
       const state = { ...passes, scope: { ...passes.scope!, excluded: { count: 2, paths: ['dist/a.js', 'dist/b.js'] }, request: { ...passes.scope!.request, exclude: ['dist/**'] }, files: [...passes.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] } } as RunState;
-      const gaps = briefOf(state).notExamined;
-      assert.ok(gaps.includes('2 changed paths under dist/**, which the settings leave out.'), JSON.stringify(gaps));
-      assert.ok(gaps.includes('1 file too large to freeze, which no worker was given: big.bin.'), JSON.stringify(gaps));
+      const gaps = gapsOf(state);
+      assert.ok(gaps.includes('excluded: 2 changed paths under dist/**, which the settings leave out.'), JSON.stringify(gaps));
+      assert.ok(gaps.includes('oversized: 1 file too large to freeze, which no worker was given: big.bin.'), JSON.stringify(gaps));
     });
 
     it('names a check with no command, the steps the run budget stopped, and a stop whose work did not run again, and no fix no fixer applied, which needs the person', () => {
       const state = decidedFixRun().fold();
       const fix = state.review!.fix!;
       const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
-      const gaps = briefOf(stopped).notExamined;
-      assert.ok(gaps.includes('No typecheck check ran: no typecheck step.'), JSON.stringify(gaps));
-      assert.ok(gaps.includes('The run budget stopped the fix pass before the fixes for the checks, and the end of the report gives the command that continues it.'), JSON.stringify(gaps));
+      const gaps = gapsOf(stopped);
+      assert.ok(gaps.includes('check: No typecheck check ran: no typecheck step.'), JSON.stringify(gaps));
+      assert.ok(gaps.includes('budget: The run budget stopped the fix pass before the fixes for the checks, and the end of the report gives the command that continues it.'), JSON.stringify(gaps));
       const launched = launch(worker(90), 'finder-WRAPPERS finders:WRAPPERS');
       const lost = { ...state, workers: { ...state.workers, [worker(90)]: { status: 'lost', launch: launched } } } as unknown as RunState;
-      assert.ok(briefOf(lost).notExamined.includes('A stop ended 1 worker whose work did not run again; the end of the report names it.'), JSON.stringify(briefOf(lost).notExamined));
+      assert.ok(gapsOf(lost).includes('stop: A stop ended 1 worker whose work did not run again; the end of the report names it.'), JSON.stringify(gapsOf(lost)));
     });
 
     it('gives a fix its fixer failed twice on, or that no fixer attempted, an item of unfinished work with why', () => {
@@ -289,13 +291,13 @@ describe('the documents a run left out of date in the brief', () => {
     // A spelling in another case is another document, as the plan keys a repository path exactly (TD8): the ledger does not say whether the worktree folds case.
     assert.equal(documents(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./Docs/A.md', 'parse throws on a null')] })).fold()).length, 2);
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
-    assert.ok(briefOf(failedTwice).notExamined.includes('The documentation step did not run: its worker failed twice.'), 'a gap of what the run did not examine (R4 of the report for the person)');
+    assert.ok(gapsOf(failedTwice).includes('documentation: The documentation step did not run: its worker failed twice.'), 'a gap of what the run did not examine (R4 of the report for the person)');
   });
 
   it('gives the step that did not answer a gap of its own, and none to one with nothing to do or a run before the step', () => {
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
-    const stepGaps = (state: RunState): string[] => briefOf(state).notExamined.filter((gap) => gap.startsWith('The documentation step'));
-    assert.deepEqual(stepGaps(failedTwice), ['The documentation step did not run: its worker failed twice.']);
+    const stepGaps = (state: RunState): string[] => gapsOf(state).filter((gap) => gap.startsWith('documentation: '));
+    assert.deepEqual(stepGaps(failedTwice), ['documentation: The documentation step did not run: its worker failed twice.']);
     assert.deepEqual(stepGaps(documentedFixRun().fold()), [], 'a step that answered');
     assert.deepEqual(stepGaps(decidedFixRun().fold()), [], 'a run an engine before the step configured');
     // A step with no plan: one whose fixes changed no file had nothing to do, and one whose fixes did has not run yet.
@@ -303,16 +305,15 @@ describe('the documents a run left out of date in the brief', () => {
     const fix = unplanned.review!.fix!;
     const withRevisions = (revisions: typeof fix.revisions): RunState => ({ ...unplanned, review: { ...unplanned.review!, fix: { ...fix, documentation: null, revisions } } });
     assert.deepEqual([briefOf(withRevisions([])).documents.length, stepGaps(withRevisions([]))], [1, []], 'the fixes changed no file');
-    assert.deepEqual(stepGaps(withRevisions(fix.revisions)), ['The documentation step did not run: it has not run yet.']);
+    assert.deepEqual(stepGaps(withRevisions(fix.revisions)), ['documentation: The documentation step did not run: it has not run yet.']);
   });
 
   it('names no fixer in the step\'s gap when only the repair named a document', () => {
     const searchOnly = documentedFixRun([], (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
     const fix = searchOnly.review!.fix!;
     const repaired = { ...searchOnly, review: { ...searchOnly.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair: { drift: [line('docs/api.md', 'the check name changed')] } } } } } } as unknown as RunState;
-    const brief = briefOf(repaired);
-    assert.deepEqual(brief.documents.map((document) => document.file), ['docs/api.md']);
-    assert.ok(brief.notExamined.includes('The documentation step did not run: its worker failed twice.'), JSON.stringify(brief.notExamined));
+    assert.deepEqual(briefOf(repaired).documents.map((document) => document.file), ['docs/api.md']);
+    assert.ok(gapsOf(repaired).includes('documentation: The documentation step did not run: its worker failed twice.'), JSON.stringify(gapsOf(repaired)));
   });
 
   it('counts the drift lines of a run an engine before the step configured, and says nothing of the step it never had (R11)', () => {
@@ -495,7 +496,7 @@ describe('the brief for the person', () => {
     ];
     const checks = (['build', 'typecheck', 'lint', 'test'] as const).map((kind) => ({ ...brief.checks[0]!, kind }));
     const fixes = Array.from({ length: 20 }, (_, index) => ({ finding: index + 1, severity: 'minor' as const, plausible: true, againstRule: false, subject: long('subject'), kinds: [], patches: [index + 1] }));
-    const full: Brief = { ...brief, title: long('title'), needs, checks, fixes, notExamined: Array.from({ length: 30 }, () => long('gap')) };
+    const full: Brief = { ...brief, title: long('title'), needs, checks, fixes, notExamined: Array.from({ length: 30 }, () => ({ kind: 'excluded' as const, text: long('gap') })) };
     assert.equal(briefMarkdown(full).length, briefLineLimit, 'every list at its cap reaches the maximum');
     assert.ok(briefChatForm(full).length <= chatLineLimit, String(briefChatForm(full).length));
     assert.ok(briefChatForm(briefOf(answerable())).length < chatLineLimit);

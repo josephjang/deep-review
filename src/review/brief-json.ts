@@ -31,8 +31,9 @@ const answer = z.strictObject({ kind: z.enum(['option', 'accept', 'reject']), op
  */
 export const gapKindsV1 = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop'] as const;
 
-/** The kinds of gap versions 2 to 4 hold (R10 of the brief of a run): what the run did not examine, and what it did not finish, the documentation step among it (R7 of the documentation step). */
+/** The kinds of gap versions 2 to 4 hold (R10 of the brief of a run): what the run did not examine, and what it did not finish, the documentation step among it (R7 of the documentation step). The brief types its gaps by them, and version 5 carries their words alone. */
 export const gapKinds = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation'] as const;
+export type GapKind = (typeof gapKinds)[number];
 
 /** The conditions of principle 8 that versions 1 to 4 name where to look (R11 of the brief of a run). */
 export const lookConditions = ['departure', 'plausible', 'public-interface', 'wide-effect'] as const;
@@ -255,7 +256,7 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
     baseChecks: brief.baseChecks,
     base: brief.base,
     fixes: brief.fixes.map((fix) => ({ ...fix, kinds: [...fix.kinds], patches: [...fix.patches] })),
-    notExamined: [...brief.notExamined],
+    notExamined: brief.notExamined.map((gap) => gap.text),
     leftAs: brief.leftAs,
     questions: brief.questions.map((question) => ({
       id: question.id,
