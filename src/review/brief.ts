@@ -475,7 +475,9 @@ export function needQuestionOf(question: BriefQuestion, number: number, fixed: b
 /** The status line (R1, R14 of the report for the person): the kind of run and its id, and its findings counted by what became of them. */
 function statusOf(context: BriefContext, findings: readonly BriefFinding[]): BriefStatus {
   const fix = context.review.fix;
-  const count = (...statuses: FindingStatus[]): number => findings.filter((finding) => statuses.includes(finding.status)).length;
+  // A fixed finding whose fixer found its fix already in the tree is counted apart from the fixes deep-review made, against a written rule or not; an open question is never one.
+  const inTree = new Set(findings.filter((finding) => (finding.status === 'fixed' || finding.status === 'fixed-against-rule') && context.outcomes.get(finding.id)?.last === 'already applied').map((finding) => finding.id));
+  const count = (...statuses: FindingStatus[]): number => findings.filter((finding) => statuses.includes(finding.status) && !inTree.has(finding.id)).length;
   // A fix run follows an answer the tree holds; one recorded only, or whose pass was refused, still owes its edit. A run that only reviewed plans every answer.
   const standing = findings.flatMap((finding) => {
     const answer = standingAnswer(context.review, finding.id);
@@ -483,14 +485,13 @@ function statusOf(context: BriefContext, findings: readonly BriefFinding[]): Bri
   });
   const answered = standing.filter((answer) => !answer.owed).map((answer) => answer.number);
   const owed = standing.filter((answer) => answer.owed).map((answer) => answer.number);
-  const alreadyInTree = [...context.outcomes.values()].filter((outcomes) => outcomes.last === 'already applied').length;
   const committed = fix === null ? 0 : committedRevisions(fix);
   const counts = {
     kind: fix === null ? ('review' as const) : ('fix' as const),
     findings: findings.length,
-    fixed: count('fixed', 'fixed-against-rule') - alreadyInTree,
+    fixed: count('fixed', 'fixed-against-rule'),
     againstRule: count('fixed-against-rule', 'planned-against-rule'),
-    alreadyInTree,
+    alreadyInTree: inTree.size,
     notFixed: count('not-fixed'),
     questions: count('question'),
     answered,
