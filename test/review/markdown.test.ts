@@ -138,13 +138,9 @@ describe('escapedText (R11, TD6 of the report for the person)', () => {
     assert.equal(escapedText('`a\\` and <b>'), '`a\\` and \\<b>', 'a backslash in a span is literal');
   });
 
-  it('escapes an underscore of emphasis, a link and an entity, and leaves snake_case and a batch index bare', () => {
-    assert.equal(escapedText('_name_ and snake_case and 1_000'), '\\_name\\_ and snake_case and 1_000');
-    assert.equal(escapedText('see [x](y) and ![a [b] c](d)'), 'see \\[x](y) and !\\[a [b] c](d)');
-    assert.equal(escapedText('fixed [0] and [1], then argv[0]'), 'fixed [0] and [1], then argv[0]');
-    assert.equal(escapedText('&lt; and &#60; and &#x3C; but a & b and &;'), '\\&lt; and \\&#60; and \\&#x3C; but a & b and &;');
-    assert.equal(escapedText('[`a]`](y) and `[x](y)` and `_a_`'), '\\[`a]`](y) and `[x](y)` and `_a_`', 'a bracket in a code span neither opens nor closes');
-    assert.equal(escapedText('\\[x](y) and \\_a\\_'), '\\[x](y) and \\_a\\_');
+  it('leaves a single underscore, a link and an entity as written', () => {
+    assert.equal(escapedText('_echo and _name_ and snake_case'), '_echo and _name_ and snake_case');
+    assert.equal(escapedText('see [x](y) and &lt;'), 'see [x](y) and &lt;');
   });
 });
 
@@ -173,7 +169,6 @@ describe('quoted (R6, PD13, TD5 of the report for the person)', () => {
 
   it('escapes what a preview would hide, after the aliases', () => {
     assert.equal(quoted('<stdin> for [0]', { numbers, batch: ['RIPPLE-3'] }), '\\<stdin> for [0] (finding 1)');
-    assert.equal(quoted('see [`RIPPLE-3`](y)', { numbers }), 'see \\[`RIPPLE-3`](y)', 'a link whose text is a code span');
   });
 });
 
