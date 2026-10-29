@@ -24,7 +24,7 @@ import { answeringLine, decisionBlockLines } from './decision-report.ts';
 import { baseWorktreeLines, fixBlockLines, fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { capitalized, codeSpan, findingAnchor, inlineText, listed, localPathWords, quoted } from './markdown.ts';
+import { capitalized, codeSpan, counted, findingAnchor, inlineText, listed, localPathWords, quoted } from './markdown.ts';
 import { findingNumbers, ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
@@ -62,7 +62,8 @@ export interface ReportInput {
   readonly fix?: { readonly patches: readonly ArtifactReference[]; readonly continueCommand: string | null };
 }
 
-const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
+/** A cost in USD as the report and the statistics give it, `-` when no worker reported one. */
+export const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
 
 /** The finder's own file and line, as one line of text whatever the file's name holds. */
 const rawAt = (candidate: CandidateState): string => inlineText(rawLocation(candidate));
@@ -368,7 +369,7 @@ function reopenedLine(review: ReviewState): string[] {
 /** The total spend of a run as one line of "About this run": its workers, their wall seconds and cost; `report --stats` gives each phase. */
 function totalsLine(statistics: ReportInput['statistics']): string {
   const { total } = statistics;
-  return `Totals: ${String(total.workers)} worker${total.workers === 1 ? '' : 's'}, ${total.seconds.toFixed(1)} wall seconds, ${usd(total.costUsd)} USD; \`deep-review report --stats\` gives each phase`;
+  return `Totals: ${counted(total.workers, 'worker', 'workers')}, ${total.seconds.toFixed(1)} wall seconds, ${usd(total.costUsd)} USD; \`deep-review report --stats\` gives each phase`;
 }
 
 /** The map of the numbers of the findings to the ids of the engine, which the ledger, the commits and earlier copies use (R7 of the report for the person). */
