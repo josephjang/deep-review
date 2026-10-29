@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import type { FixRecorded } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
+import { fixBlockLines, fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -51,6 +52,19 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it\.$/m);
     assert.match(report, /^- Its fix: applied, formatted the guard; patch 3$/m);
     assert.match(report, /Tests the fixers say they added or tightened:\n\n- test\/a\.test\.ts: parse\(null\) returns 0 \(c1-1\)/);
+  });
+
+  it('gives a finding two fixers worked the validation of each, oldest first and by its fixer, as the block lists both patches (R6 of the report for the person)', () => {
+    const review = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2).review();
+    const fix = review.fix!;
+    const validated = <Recorded extends FixRecorded>(recorded: Recorded, evidence: string): Recorded => ({ ...recorded, findings: recorded.findings.map((finding) => ({ ...finding, validation: [{ method: 'old-code' as const, source: 'test/a.test.ts', evidence }] })) });
+    const twice = { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': validated(fix.answers.fixes['c1-1']!, 'failed on <stdin> before the guard') }, answer: { 'pass-1': validated(fix.answers.answer['pass-1']!, 'failed before the answer') } } };
+    const lines = fixBlockLines(review, twice, 'RIPPLE-1', { numbers: new Map([['RIPPLE-1', 1]]), own: 1 });
+    assert.ok(lines.includes('Patch: 1, 2'), lines.join('\n'));
+    assert.deepEqual(lines.filter((line) => line.startsWith('Validation')), [
+      'Validation, as fixer c1-1 reports it: old-code, test/a.test.ts: failed on \\<stdin> before the guard',
+      'Validation, as the fixer of the answer pass pass-1 reports it: old-code, test/a.test.ts: failed before the answer',
+    ]);
   });
 
   it('gives each check a block with its anchor, each phase that ran it, a kind not available with its reason, the output of one that failed, and one failing before the fix pass', () => {
