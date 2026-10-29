@@ -260,3 +260,6 @@ export function findingWords(numbers: readonly number[]): string {
   }
   return `${sorted.length === 1 ? 'finding' : 'findings'} ${listed(runs)}`;
 }
+
+/** Another finding as the report names it: `finding` and its number, or its id when the run numbered none. */
+export const findingNamed = (numbers: ReadonlyMap<string, number>, id: string): string => `finding ${String(numbers.get(id) ?? id)}`;

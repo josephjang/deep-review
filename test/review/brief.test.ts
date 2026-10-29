@@ -435,6 +435,11 @@ describe('the brief for the person', () => {
     assert.deepEqual(briefMarkdown(readOnly).slice(briefMarkdown(readOnly).indexOf('## What needs you'), briefMarkdown(readOnly).indexOf('## Before you merge')), ['## What needs you', '', readOnly.needsLine, '']);
   });
 
+  it('names the finding that supersedes a finding left as is by its number', () => {
+    const brief = briefOf(readOnlyReported([decisions[0], { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }]).fold());
+    assert.equal(brief.leftAs, 'Left as is: finding 2, superseded by finding 1.');
+  });
+
   it('gives a run that only reviewed the item that applies its fixes last, and what it would fix in its table (R14)', () => {
     const brief = briefOf(answerable());
     assert.equal(brief.needs.at(-1)!.lines[0], '**Apply the 1 fix that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run `deep-review review --fix` on the same change with the same runtime.');

@@ -18,7 +18,7 @@ import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { baseWords, briefChecksOf, notComparedPlainWords, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { capitalized, codeSpan, counted, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, counted, findingNamed, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { baseSkipReasons, checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type BaseReading, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
@@ -179,7 +179,7 @@ export function fixBlockLines(review: ReviewState, fix: FixState, id: string, qu
   if (fate.outcome === 'held for the author') return ['Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it.'];
   if (fate.outcome === 'left by decision' || fate.outcome === 'asked, kept as is') {
     if (fate.superseder === null) return [];
-    const by = `finding ${String(quote.numbers.get(fate.superseder.id) ?? fate.superseder.id)}`;
+    const by = findingNamed(quote.numbers, fate.superseder.id);
     const landed = fate.superseder.outcome === 'applied' || fate.superseder.outcome === 'already applied';
     return [`Fix: none of its own; its removal was ${by}'s fix, whose fixer ${fate.superseder.outcome === 'not attempted' ? 'did not attempt it' : `reported it ${fate.superseder.outcome}`}.${landed ? '' : ' This finding may still stand.'}`];
   }
