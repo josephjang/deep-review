@@ -45,7 +45,7 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
-import { reviewStatus } from './review/state.ts';
+import { findingIdOf, findingNumberPattern, reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { removeBaseTrees } from './review/checks/base.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
@@ -83,12 +83,12 @@ export const usage = `usage:
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review status  --all [--every] [--repo <dir>]   (the runs of the checkpoint, newest first: the ${String(listedRuns)} newest, or every run with --every)
-  deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
+  deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <number>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
-  deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
+  deep-review answer  --finding <number> (--option <n> | --accept | --reject) [--note <text>]
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
-  deep-review snapshot --finding <n> --into <dir> [--repo <dir>]   (run by a fix worker after each finding)
+  deep-review snapshot --finding <index> --into <dir> [--repo <dir>]   (run by a fix worker after each finding, by its index in its batch from 0)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
   deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
@@ -500,7 +500,7 @@ function reviewEnded(outcome: ReviewOutcome, io: CommandIo): number {
  */
 async function answer(values: Values, io: CommandIo, root: string, worktree: string): Promise<number> {
   const finding = values.finding;
-  if (finding === undefined || !candidateIdSchema.safeParse(finding).success) throw new UsageError(`--finding takes a finding's id as the report prints it, such as RIPPLE-2, not ${JSON.stringify(finding ?? '')}`);
+  if (finding === undefined || !findingGiven(finding)) throw new UsageError(`--finding takes a finding's number as the report prints it, such as 2, or its id, such as RIPPLE-2, not ${JSON.stringify(finding ?? '')}`);
   const given = answerOf(values);
   const note = noteOf(values);
   const budgetUsd = number('--budget-usd', values['budget-usd']);
@@ -530,7 +530,9 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
         refreshReportCopy(checkpoint, state, copyContextOf(io, state), (line) => io.stderr(`${line}\n`));
       },
     });
-    io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${finding} ${answerWords(given)}\n`);
+    // A number names its finding by both, so the line says which finding the ledger recorded it on.
+    const named = finding === outcome.standing.id ? finding : `finding ${finding} (${outcome.standing.id})`;
+    io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${named} ${answerWords(given)}\n`);
     switch (outcome.next) {
       case 'read-only':
         io.stdout('the run only reviewed; run review --fix to apply the answer with the fixes\n');
@@ -895,6 +897,9 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
   }
 }
 
+/** Whether `--finding` names a finding as the report prints it: by its number, or by its id, which an earlier copy, a pull request or a commit may give (R7 of the report for the person). */
+const findingGiven = (given: string): boolean => findingNumberPattern.test(given) || candidateIdSchema.safeParse(given).success;
+
 /** What `report` prints of its run: the short form of the brief, the JSON form, the whole brief, a line for each fix, the statistics (R9 of the report for the person), or the block of one finding (R6, R7 of the questions in the chat). */
 type ReportForm = 'short' | 'json' | 'brief' | 'fixes' | 'stats' | 'finding';
 
@@ -902,7 +907,7 @@ type ReportForm = 'short' | 'json' | 'brief' | 'fixes' | 'stats' | 'finding';
 function reportFormOf(values: Values): ReportForm {
   const given = ([['json', values.json === true], ['brief', values.brief === true], ['fixes', values.fixes === true], ['stats', values.stats === true], ['finding', values.finding !== undefined]] as const).filter(([, on]) => on).map(([form]) => form);
   if (given.length > 1) throw new UsageError(`--${given[0]!} and --${given[1]!} do not go together; give one`);
-  if (values.finding !== undefined && !candidateIdSchema.safeParse(values.finding).success) throw new UsageError(`--finding takes a finding's id as the brief prints it, such as RIPPLE-2, not ${JSON.stringify(values.finding)}`);
+  if (values.finding !== undefined && !findingGiven(values.finding)) throw new UsageError(`--finding takes a finding's number as the brief prints it, such as 2, or its id, such as RIPPLE-2, not ${JSON.stringify(values.finding)}`);
   return given[0] ?? 'short';
 }
 
@@ -962,9 +967,10 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       else if (form === 'stats') body = renderStats(state, reportInputOf(checkpoint, state, context).statistics);
       else if (form === 'brief') body = briefMarkdown(brief, 'chat');
       else if (form === 'finding') {
-        const id = values.finding!;
+        const id = findingIdOf(review, values.finding!);
+        if (id === null) throw new UsageError(`run ${state.id} has ${String(review.ranking?.length ?? 0)} finding${review.ranking?.length === 1 ? '' : 's'}, so it has no finding ${values.finding!}`);
         const block = briefBlock(brief, id);
-        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`);
+        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${values.finding!}; for any fix, deep-review report --fixes gives its line`);
         body = block;
       } else body = briefShortForm(brief);
       // Each text form is told of the later runs it passed over and ends with the path, so no form can drop the warning (R8 of the questions in the chat).

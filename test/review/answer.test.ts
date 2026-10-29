@@ -11,6 +11,7 @@ import { gitContent } from '../../src/review/content.ts';
 import { spendBound } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { reportCopyPath } from '../../src/review/report-copy.ts';
+import { rankedFindings } from '../../src/review/state.ts';
 import { shortRunId } from '../../src/review/runs.ts';
 import { budgetSpendOf } from '../../src/review/spend.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
@@ -124,7 +125,9 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     await assert.rejects(answerRun(optionsOf(box, departing, { kind: 'option', option: 0 })), refused(new RegExp(`^${departing} was decided fix, departing from a rule, which admits --accept or --reject, not --option 1$`)));
     await assert.rejects(answerRun(optionsOf(box, question, { kind: 'accept' })), refused(new RegExp(`^${question} was decided ask, which admits an --option from 1 to 2, not --accept$`)));
     await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 2 })), refused(/which admits an --option from 1 to 2, not --option 3$/));
-    await assert.rejects(answerRun(optionsOf(box, 'SCAN-9', { kind: 'accept' })), refused(new RegExp(`^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${departing}, ${question}$|^run ${finished.id} has no finding SCAN-9; the findings it can answer are ${question}, ${departing}$`)));
+    await assert.rejects(answerRun(optionsOf(box, 'SCAN-9', { kind: 'accept' })), refused(new RegExp(`^run ${finished.id} has no decision of finding SCAN-9; the findings it can answer are \\d \\((${departing}|${question})\\), \\d \\((${departing}|${question})\\)$`)));
+    // A number names the finding of that rank, and one past the last names none (R7 of the report for the person).
+    await assert.rejects(answerRun(optionsOf(box, '9', { kind: 'accept' })), refused(new RegExp(`^run ${finished.id} has \\d findings, so it has no finding 9$`)));
     await assert.rejects(answerRun(optionsOf(box, question, { kind: 'option', option: 1 }, { runId: 'no-such-run' })), UnknownRunError);
     const unknown = await run(box, '--finding', question, '--option', '2', '--run', 'no-such-run');
     assert.equal(unknown.status, 1, 'an unknown run id is a usage mistake, as for commit and status');
@@ -152,7 +155,10 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
       assert.match(refusedBlock.stderr, new RegExp(`no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`));
     }
     assert.match((await report('--finding', question, '--json')).stderr, /--json and --finding do not go together; give one/);
-    assert.match((await report('--finding', 'not an id')).stderr, /--finding takes a finding's id as the brief prints it/);
+    assert.match((await report('--finding', 'not an id')).stderr, /--finding takes a finding's number as the brief prints it, such as 2, or its id, such as RIPPLE-2/);
+    assert.match((await report('--finding', '99')).stderr, /has \d findings, so it has no finding 99$/m);
+    const byNumber = await report('--finding', String(rankedFindings(box.run().review!).findIndex((entry) => entry.finding.id === departing) + 1), '--run', shortRunId(finished.id));
+    assert.equal(byNumber.stdout, departure.stdout, 'a number prints the block its id prints');
 
     const given = await run(box, '--finding', departing, '--accept', '--note', 'on second thought', '--run', shortRunId(finished.id));
     assert.equal(given.status, 0, given.stderr);

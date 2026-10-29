@@ -151,3 +151,27 @@ export function rankedFindings(review: ReviewState, findings: readonly RankedFin
   });
   return resolved.sort(compareFindings);
 }
+
+/**
+ * The number of each finding of a run (R6, TD4 of the report for the
+ * person): its place in `rankedFindings`, from 1, which holds for the life
+ * of the run, keyed by its id and by the id of each candidate merged into
+ * it, so a quote that names a member names its finding.
+ */
+export function findingNumbers(review: ReviewState): ReadonlyMap<string, number> {
+  return new Map(rankedFindings(review).flatMap((entry, index) => [entry.finding.id, ...entry.members.map((member) => member.id)].map((id) => [id, index + 1] as const)));
+}
+
+/** A finding's number as `--finding` takes it: a whole number from 1, with no sign and no leading zero. */
+export const findingNumberPattern = /^[1-9][0-9]{0,5}$/;
+
+/**
+ * The id of the finding `given` names (R7 of the report for the person):
+ * a number, its finding's id, or null past the last finding; an id, as it
+ * is, for the caller to look up, since an id from an earlier copy, a pull
+ * request or a commit still names its finding.
+ */
+export function findingIdOf(review: ReviewState, given: string): string | null {
+  if (!findingNumberPattern.test(given)) return given;
+  return rankedFindings(review)[Number(given) - 1]?.finding.id ?? null;
+}

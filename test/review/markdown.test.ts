@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { capitalized, codeSpan, counted, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, sentenceText, tableCell } from '../../src/review/markdown.ts';
+import { capitalized, codeSpan, counted, escapedText, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, quoted, sentenceText, tableCell } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
   it('quotes plain text in single backticks', () => {
@@ -108,6 +108,43 @@ describe('findingAnchor and findingLink (R12 of the brief of a run)', () => {
   it('anchors a finding by its id in lower case, and links to it with the id as the text', () => {
     assert.equal(findingAnchor('RIPPLE-12'), 'finding-ripple-12');
     assert.equal(findingLink('SWEEP-1'), '[SWEEP-1](#finding-sweep-1)');
+  });
+});
+
+describe('escapedText (R11, TD6 of the report for the person)', () => {
+  it('escapes a tag, a double underscore and an asterisk outside a code span, and nothing inside one', () => {
+    assert.equal(escapedText('reads <stdin> first'), 'reads \\<stdin> first');
+    assert.equal(escapedText('calls __init__ twice'), 'calls \\_\\_init\\_\\_ twice');
+    assert.equal(escapedText('a * b and snake_case'), 'a \\* b and snake_case');
+    assert.equal(escapedText('`<stdin>`, `__init__` and `a * b`'), '`<stdin>`, `__init__` and `a * b`');
+    assert.equal(escapedText('``a ` <b>`` and <c>'), '``a ` <b>`` and \\<c>');
+  });
+
+  it('leaves a backtick with no closer as text, and a character already escaped as it is', () => {
+    assert.equal(escapedText('a ` then <b>'), 'a ` then \\<b>');
+    assert.equal(escapedText('already \\<b> and \\*'), 'already \\<b> and \\*');
+  });
+});
+
+describe('quoted (R6, PD13, TD5 of the report for the person)', () => {
+  const numbers = new Map([['RIPPLE-3', 1], ['SWEEP-2', 1], ['REMOVALS-6', 2]]);
+
+  it('adds the number after an id of another finding, and not after the quote\'s own, an id the run does not hold or an id in a code span', () => {
+    assert.equal(quoted('as REMOVALS-6 says, and SWEEP-2 too', { numbers, own: 1 }), 'as REMOVALS-6 (finding 2) says, and SWEEP-2 too');
+    assert.equal(quoted('see RIPPLE-3 and MADEUP-9', { numbers }), 'see RIPPLE-3 (finding 1) and MADEUP-9');
+    assert.equal(quoted('see `RIPPLE-3`', { numbers }), 'see `RIPPLE-3`');
+    assert.equal(quoted('see RIPPLE-3 (finding 1)', { numbers }), 'see RIPPLE-3 (finding 1)', 'once');
+  });
+
+  it('adds the number after a batch index that stands alone, and not after a name with an index', () => {
+    const batch = ['REMOVALS-6', 'RIPPLE-3'];
+    assert.equal(quoted('fixed [0] and [1]; [2] is not in the batch', { numbers, batch }), 'fixed [0] (finding 2) and [1] (finding 1); [2] is not in the batch');
+    assert.equal(quoted('reads argv[0] and list[1][0]', { numbers, batch }), 'reads argv[0] and list[1][0]');
+    assert.equal(quoted('fixed [0]', { numbers }), 'fixed [0]', 'a text with no batch has no index');
+  });
+
+  it('escapes what a preview would hide, after the aliases', () => {
+    assert.equal(quoted('<stdin> for [0]', { numbers, batch: ['RIPPLE-3'] }), '\\<stdin> for [0] (finding 1)');
   });
 });
 
