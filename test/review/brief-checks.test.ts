@@ -180,6 +180,24 @@ describe('the fault of each check, and the item it gives (R4, R5 of the facts be
     assert.equal(meaning(brief, 'lint'), 'did not finish its last run');
   });
 
+  it('says a check that did not finish as submitted and passes after the fixes passes, with no item', () => {
+    for (const before of ['skipped', 'not-started'] as const) {
+      const brief = briefOf(run({ before: { build: 'failed', test: before } }));
+      assert.equal(row(brief, 'test'), `| test | not run | ${before === 'skipped' ? 'skipped' : 'did not start'} | passed, after the fixes | passes; it did not finish as submitted |`);
+      assert.deepEqual(brief.needs.filter((need) => need.check === 'test'), [], before);
+    }
+  });
+
+  it('gives a check that did not finish as submitted and fails after the fixes an item of rank 3, since the run never took it to the base (R2)', () => {
+    for (const before of ['skipped', 'not-started'] as const) {
+      const brief = briefOf(run({ before: { lint: before }, after: { lint: 'failed' } }));
+      assert.deepEqual([check(brief, 'lint').base, check(brief, 'lint').fault], [null, null], before);
+      assert.equal(meaning(brief, 'lint'), 'fails, not compared with the base, since the check did not run on the base');
+      assert.deepEqual(items(brief, 'not-compared'), ['**The lint check fails, and the run did not compare it with the base.** The check did not run on the base. If you do nothing, nobody knows whether the change causes the failure.']);
+      assert.doesNotMatch(brief.needsLine, /^Nothing needs you/);
+    }
+  });
+
   it('gives a run configured before the checks on the base no column and no fact of the base, no item of rank 3, and the fault of the edits (R10)', () => {
     const older = briefOf(run({ ...failing, compared: false }));
     assert.deepEqual([check(older, 'lint').base, check(older, 'lint').fault], [null, null]);
@@ -220,6 +238,12 @@ describe('the meanings of the checks (R4, TD3 of the report for the person)', ()
       [{}, true, 'passes', null, null],
       [{ before: 'failed' }, true, 'passes; it failed as submitted', null, null],
       [{ before: 'timeout' }, true, 'passes; it failed as submitted', null, null],
+      [{ before: 'skipped' }, true, 'passes; it did not finish as submitted', null, null],
+      [{ before: 'not-started' }, false, 'passes; it did not finish as submitted', null, null],
+      [{ before: 'cut' }, true, 'passes; it did not finish as submitted', null, null],
+      [{ before: 'skipped', last: { outcome: 'failed', when: 'fixes' } }, true, 'fails, not compared with the base, since the check did not run on the base', 3, null],
+      [{ before: null, last: { outcome: 'timeout', when: 'answers' } }, true, 'fails, not compared with the base, since the check did not run on the base', 3, null],
+      [{ before: 'skipped', last: { outcome: 'failed', when: 'fixes' } }, false, 'fails', null, null],
       [{ last: null }, true, 'passes as submitted; no check ran after the fixes', null, null],
       [{ last: { outcome: 'cut', when: 'fixes' } }, true, 'did not finish its last run', null, null],
       [{ last: { outcome: 'skipped', when: 'repair' } }, true, 'did not finish its last run', null, null],

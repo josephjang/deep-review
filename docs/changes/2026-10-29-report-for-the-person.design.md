@@ -107,7 +107,9 @@ The count line has one part for each condition that holds, with the number of it
 | 9 | failed before; passes in its last run | passes; it failed as submitted | none |
 | 10 | passed before; no last run | passes as submitted; no check ran after the fixes | none |
 | 11 | last run `skipped`, `not-started` or `cut` | did not finish its last run | none |
-| 12 | no run | did not run | none |
+| 12 | `skipped`, `not-started` or `cut` before; passes in its last run | passes; it did not finish as submitted | none |
+| 13 | a run that takes its checks to the base; fails in its last run, with no fault | fails, not compared with the base, with the reason | none |
+| 14 | no run | did not run | none |
 
 A timeout counts as a failure, as `faultHolds` counts it. "A model's comparison" names the reading of the repair, which is a model; the next proposal can say "the engine's comparison" where the engine compares lists. `comparedBy` is `engine` for row 2, `model` for rows 3 and 5, and absent for the others.
 
