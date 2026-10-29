@@ -405,7 +405,7 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
 
   // R9 and PD5 of the skill surface corrections: no `deep-review` executable is installed, so the report says once what a person at a terminal types, with the path of the engine that wrote it.
   it('says once, in the facts of the run, how a person at a terminal runs the answer command, with the path of the engine that wrote the report, and keeps the short name on each line', () => {
-    const terminal = 'At a terminal, type a command of this report from the repository with the engine that wrote the report in place of `deep-review`: `node "/opt/deep review/engine/main.mjs" answer --finding <number> --option <n>`, with `--accept` or `--reject` in place of `--option <n>` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.';
+    const terminal = 'At a terminal, type a command of this report from the repository with the engine that wrote the report in place of `deep-review`: `node "/opt/deep review/engine/main.mjs" answer --run run-1 --finding <number> --option <n>`, with `--accept` or `--reject` in place of `--option <n>` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.';
     const asked = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
     assert.equal(asked.split(terminal).length - 1, 1, 'said once');
     assert.ok(asked.indexOf(terminal) > asked.indexOf('\n## About this run\n'), 'in the facts of the run, the one part that names a local path (R15 of the brief of a run)');
@@ -417,15 +417,15 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
     assert.ok(!render(decidedOf(reported()).fold()).includes('At a terminal'), 'no question and no departure');
     // The path is the one the report's writer was given, as a Windows install spells it too.
     const windows = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: 'C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs' });
-    assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --finding <number> --option <n>`'), windows);
+    assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --run run-1 --finding <number> --option <n>`'), windows);
     // A path with a backtick cannot close the code span early, and is single-quoted, since bash would run it as a command substitution inside double quotes.
     const ticked = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a`b/main.mjs' });
-    assert.ok(ticked.includes('``node \'/opt/a`b/main.mjs\' answer --finding <number> --option <n>``'), ticked);
+    assert.ok(ticked.includes('``node \'/opt/a`b/main.mjs\' answer --run run-1 --finding <number> --option <n>``'), ticked);
     // A `$` or a `"` would be expanded or end double quotes, so such a path is single-quoted too.
     const dollar = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/home/me/$work/main.mjs' });
-    assert.ok(dollar.includes('`node \'/home/me/$work/main.mjs\' answer --finding <number> --option <n>`'), dollar);
+    assert.ok(dollar.includes('`node \'/home/me/$work/main.mjs\' answer --run run-1 --finding <number> --option <n>`'), dollar);
     const quoted = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a"b/main.mjs' });
-    assert.ok(quoted.includes('`node \'/opt/a"b/main.mjs\' answer --finding <number> --option <n>`'), quoted);
+    assert.ok(quoted.includes('`node \'/opt/a"b/main.mjs\' answer --run run-1 --finding <number> --option <n>`'), quoted);
   });
 
   // FOOTGUNS-1 of the gate: the command a person pastes reaches the shell with the engine's path intact, whatever it holds.
@@ -433,7 +433,7 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
     if (spawnSync('bash', ['-c', 'printf %s ok'], { windowsHide: true }).status !== 0) return t.skip('no bash here');
     for (const engineEntry of ['/opt/deep review/engine/main.mjs', '/home/me/$work/main.mjs', '/opt/a`b`/main.mjs', '/opt/a"b/main.mjs', "/opt/it's/main.mjs"]) {
       const report = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry });
-      const path = /`+ ?node (.+?) answer --finding <number> --option <n> ?`+/.exec(report)?.[1];
+      const path = /`+ ?node (.+?) answer --run run-1 --finding <number> --option <n> ?`+/.exec(report)?.[1];
       assert.ok(path !== undefined, report);
       const result = spawnSync('bash', ['-c', `printf %s ${path}`], { encoding: 'utf8', windowsHide: true });
       assert.equal(result.stdout, engineEntry, `${engineEntry}: ${result.stderr}`);

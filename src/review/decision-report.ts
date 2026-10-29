@@ -13,7 +13,7 @@ import { appliedOptionOf, lastFixesAnswerOf } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, findingNamed, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
-import { answerCommand, optionLine } from './needs.ts';
+import { answerArguments, answerCommand, optionLine } from './needs.ts';
 import type { LeaveReason } from './vocabulary.ts';
 
 /** Why a finding was left, as the report words it. */
@@ -62,20 +62,18 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
   }
 }
 
-/** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that the line of the facts of the run is built from. */
-export const answerArguments = (finding: string, choice: string): string => `answer --finding ${finding} ${choice}`;
-
-
 /**
  * How a person runs the answer command (R9, PD5 of the skill surface
  * corrections): at a terminal, `deep-review` is the engine this report's
  * writer ran, named by its path, since no executable of that name is
  * installed; through the skill, the agent runs it. Said once, in the
  * facts of the run, so each command of the brief keeps the short name a
- * reader cites and no other part names a local path.
+ * reader cites and no other part names a local path. The example names
+ * the run as every command of the report does (R7 of the report for the
+ * person).
  */
-export const answerAtTerminal = (engineEntry: string): string =>
-  `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments('<number>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+export const answerAtTerminal = (engineEntry: string, run: string): string =>
+  `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run, '<number>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
 /** What a decision's text can name, for its quotes: the run its commands name and the number of each finding. */
 export interface DecisionQuote {
@@ -134,7 +132,7 @@ export function decisionBlockLines(review: ReviewState, decision: RecordedDecisi
  * names the engine that wrote the report by its path. None for a run with
  * no question and no departure, which offers no command to answer.
  */
-export function answeringLine(review: ReviewState, engineEntry: string): string[] {
+export function answeringLine(review: ReviewState, engineEntry: string, run: string): string[] {
   const offers = (review.decisions ?? []).some((decision) => decision.decision === 'ask' || (decision.decision === 'fix' && decision.departure !== null));
-  return offers ? [answerAtTerminal(engineEntry)] : [];
+  return offers ? [answerAtTerminal(engineEntry, run)] : [];
 }

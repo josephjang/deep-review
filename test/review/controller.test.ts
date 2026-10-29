@@ -22,6 +22,7 @@ import { maxConcurrency, policyFileName } from '../../src/review/policy.ts';
 import { fakeClaude, until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
+import { shortRunId } from '../../src/review/runs.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { policyWords } from '../../src/review/survey.ts';
@@ -166,8 +167,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(text, /^- Where: src\/b\.ts:1 \(SWEEP-1\)$/m);
     assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification$/m);
     assert.match(text, /^- Option 1, the default, in place now: fake default\. /m);
-    // The facts of the run name the entry the engine ran from, for a person at a terminal (R9 of the skill surface corrections).
-    assert.ok(text.slice(text.indexOf('\n## About this run\n')).includes(`\`node "${cliEntry}" answer --finding <number> --option <n>\``), text);
+    // The facts of the run name the entry the engine ran from, for a person at a terminal (R9 of the skill surface corrections), and the run, as each command of the report does (R7 of the report for the person).
+    assert.ok(text.slice(text.indexOf('\n## About this run\n')).includes(`\`node "${cliEntry}" answer --run ${shortRunId(state.id)} --finding <number> --option <n>\``), text);
     assert.match(text, /^- Decision: fix: fake grounds for \[0\]\n- Plan: fake approach for \[0\]\.$/m);
     assert.match(text, /^- Decision: ask you; why it asks: fake grounds for \[1\]$/m);
     assert.doesNotMatch(text, /^## Patches$/m, 'a read-only run has no fix pass to report');
