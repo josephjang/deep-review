@@ -225,13 +225,15 @@ export interface QuoteContext {
  * index such as `[0]` that stands alone and names a finding of the
  * fixer's batch; outside its code spans, and then escaped as a whole
  * (`escapedText`), which a number adds no backtick or backslash to. An id
- * the run does not hold, and a name such as `argv[0]`, stay as they are.
+ * the run does not hold, a name such as `argv[0]`, and an id inside a path
+ * or URL such as `notes/RIPPLE-3.md` stay as they are; an id that ends a
+ * sentence, as in `RIPPLE-3.`, still gets its number.
  */
 export function quoted(text: string, context: QuoteContext): string {
   const alias = (number: number | undefined): string => (number === undefined || number === context.own ? '' : ` (finding ${String(number)})`);
   return escapedText(codeParts(text).map((part) => {
     if (part.code) return part.text;
-    const named = part.text.replaceAll(/\b[A-Z]+-[1-9][0-9]*\b(?! \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
+    const named = part.text.replaceAll(/(?<![/\\.#])\b[A-Z]+-[1-9][0-9]*\b(?!\/|\.\w| \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
     return context.batch === undefined || context.batch === null
       ? named
       : named.replaceAll(/(?<![\w\])>`])\[(0|[1-9][0-9]*)\](?! \(finding \d)/g, (index: string, position: string) => {
