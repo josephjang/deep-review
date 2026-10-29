@@ -193,6 +193,12 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const given = await run(box, '--finding', merged!.members[1]!.id, '--option', '2');
     assert.equal(given.status, 0, given.stderr);
     assert.match(given.stdout, new RegExp(`^answer recorded: run ${finished.id}, finding ${merged!.members[1]!.id} \\(${merged!.finding.id}\\) option 2\n`));
+
+    // A number past the last finding is refused in the same words by answer and report, a run of one finding in the singular.
+    await assert.rejects(answerRun(optionsOf(box, '2', { kind: 'option', option: 0 })), refused(new RegExp(`^run ${finished.id} has 1 finding, so it has no finding 2$`)));
+    const past = await node([cli, 'report', '--finding', '2'], { cwd: box.repo, env: environment(box) });
+    assert.equal(past.status, 1, past.stderr);
+    assert.match(past.stderr, new RegExp(`run ${finished.id} has 1 finding, so it has no finding 2$`, 'm'));
   });
 
   it('applies an answer on a fix run with one fixer, the checks again and a second report, and a later answer with a second pass (R5, R7, R10)', async (t) => {
