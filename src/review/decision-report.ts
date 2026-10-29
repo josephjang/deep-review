@@ -23,8 +23,11 @@ export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
   intended: 'intended, as the repository states',
 };
 
-/** The words for a left finding's reason, naming the finding that supersedes one. */
-export const leftAs = (leave: NonNullable<RecordedDecision['leave']>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${leave.supersededBy}`);
+/** Another finding as the report names it: `finding` and its number, or its id when the run numbered none. */
+export const findingNamed = (numbers: ReadonlyMap<string, number>, id: string): string => `finding ${String(numbers.get(id) ?? id)}`;
+
+/** The words for a left finding's reason, naming the finding that supersedes one by its number. */
+export const leaveWords = (leave: NonNullable<RecordedDecision['leave']>, numbers: ReadonlyMap<string, number>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`);
 
 /** A standing answer as the report says it after its label: the answer, when it was recorded, what applied it, `held` when the tree held it, and its note. */
 function answerSummary(review: Pick<ReviewState, 'answerPasses'>, standing: RecordedAnswer, held: string): string {
@@ -97,10 +100,8 @@ export function decisionBlockLines(review: ReviewState, decision: RecordedDecisi
   const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own }));
   const standing = standingAnswer(review, decision.id);
   switch (decision.decision) {
-    case 'leave': {
-      const by = decision.leave.supersededBy === null ? '' : ` by finding ${String(quote.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`;
-      return [`Decision: left, ${leaveReasonWords[decision.leave.reason]}${by}: ${said(decision.grounds)}`];
-    }
+    case 'leave':
+      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said(decision.grounds)}`];
     case 'fix': {
       const { fix, departure } = decision;
       const reviewed = departure === null ? [] : standing === null
