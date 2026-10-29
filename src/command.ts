@@ -45,7 +45,7 @@ import { resolveExecutable } from './review/executable.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
-import { findingIdOf, findingNumberPattern, reviewStatus } from './review/state.ts';
+import { findingIdOf, findingNumberPattern, noFindingPastTheLast, reviewStatus } from './review/state.ts';
 import { candidateIdSchema, checkKinds, checkKindSchema, type CheckKind } from './review/vocabulary.ts';
 import { removeBaseTrees } from './review/checks/base.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
@@ -969,7 +969,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       else if (form === 'brief') body = briefMarkdown(brief, 'chat');
       else if (form === 'finding') {
         const id = findingIdOf(review, values.finding!);
-        if (id === null) throw new UsageError(`run ${state.id} has ${String(review.ranking?.length ?? 0)} finding${review.ranking?.length === 1 ? '' : 's'}, so it has no finding ${values.finding!}`);
+        if (id === null) throw new UsageError(noFindingPastTheLast(state.id, review, values.finding!));
         const block = findingBlockOf(state, id);
         if (block === null) throw new UsageError(`run ${state.id} has no finding ${values.finding!}; deep-review report --run ${state.id} names each finding by its number`);
         body = block;

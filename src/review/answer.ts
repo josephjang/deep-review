@@ -24,7 +24,7 @@ import { acquireRunLock, acquireStartLock } from './lock.ts';
 import type { PolicyFlags } from './policy.ts';
 import { latestFirst, readableRuns, runIdOf } from './runs.ts';
 import { budgetBlocker } from './steps.ts';
-import { findingIdOf, findingNumbers, rankedFindings, reviewStatus } from './state.ts';
+import { findingIdOf, findingNumbers, noFindingPastTheLast, rankedFindings, reviewStatus } from './state.ts';
 import type { ExpectedMatch } from './tree.ts';
 
 /** What `answer` needs; the roles, platform, environment and preflight limits are the ones the pass's resume holds the run with, checked before the pass opens. */
@@ -215,7 +215,7 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       if (reason !== null) throw new ReviewRefusedError(reason);
       // A number names the finding of that rank, which the ledger keys by its id (TD4 of the report for the person).
       const finding = findingIdOf(run.review!, options.finding);
-      if (finding === null) throw new ReviewRefusedError(`run ${run.id} has ${String(rankedFindings(run.review!).length)} findings, so it has no finding ${options.finding}`);
+      if (finding === null) throw new ReviewRefusedError(noFindingPastTheLast(run.id, run.review!, options.finding));
       requireAdmitted(run, finding, options.answer);
       const fixes = run.review!.fix !== null;
       const standing = standingAnswer(run.review!, finding);

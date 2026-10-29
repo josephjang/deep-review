@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { FixState } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { budgetStoppedRun, compareFindings, currentPhase, findingIdOf, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { budgetStoppedRun, compareFindings, currentPhase, findingIdOf, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, noFindingPastTheLast, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
 import { baselined, configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -179,5 +179,11 @@ describe('findingIdOf (R7 of the report for the person)', () => {
 
   it('leaves an id the run does not rank as it is, for the caller to refuse', () => {
     assert.equal(findingIdOf(review, 'SCAN-99'), 'SCAN-99');
+  });
+
+  it('words a number past the last finding the same for answer and report, one finding in the singular', () => {
+    assert.equal(noFindingPastTheLast('run-1', review, '3'), 'run run-1 has 2 findings, so it has no finding 3');
+    assert.equal(noFindingPastTheLast('run-1', { ...review, ranking: review.ranking!.slice(0, 1) }, '2'), 'run run-1 has 1 finding, so it has no finding 2');
+    assert.equal(noFindingPastTheLast('run-1', { ...review, ranking: null }, '1'), 'run run-1 has 0 findings, so it has no finding 1');
   });
 });

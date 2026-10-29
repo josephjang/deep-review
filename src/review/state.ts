@@ -177,3 +177,9 @@ export function findingIdOf(review: ReviewState, given: string): string | null {
   if (findingNumberPattern.test(given)) return findings[Number(given) - 1]?.finding.id ?? null;
   return findings.find((entry) => entry.members.some((member) => member.id === given))?.finding.id ?? given;
 }
+
+/** Why `--finding` names no finding of run `runId` when `findingIdOf` finds none past the last, in the words `answer` and `report` both refuse it with. */
+export function noFindingPastTheLast(runId: string, review: ReviewState, given: string): string {
+  const count = rankedFindings(review).length;
+  return `run ${runId} has ${String(count)} finding${count === 1 ? '' : 's'}, so it has no finding ${given}`;
+}
