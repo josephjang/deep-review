@@ -134,11 +134,12 @@ Bash tool from then on.
    one, run this from the repository as a background shell command with
    the longest timeout you can, and wait for it to exit:
 
-   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" answer --finding <number> --option <n>
+   node "${CLAUDE_PLUGIN_ROOT}/engine/main.mjs" answer --run <run> --finding <number> --option <n>
 
-   with the finding's number and the option's number as the report
-   prints them, or `--accept` or `--reject` in place of `--option <n>` for a
-   departure, and `--note <text>` with what the user said beyond the
+   with the run, the finding's number and the option's number as that
+   item's `deep-review answer` command prints them, the run being the
+   eight characters of its id that the command names, or `--accept` or
+   `--reject` in place of `--option <n>` for a departure, and `--note <text>` with what the user said beyond the
    choice. Exit code 0: the first line of stdout says the answer is
    recorded. On a run that fixed, the engine then applies every answer
    that owes an edit, and stdout ends with the top of the brief

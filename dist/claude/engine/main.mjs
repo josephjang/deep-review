@@ -28031,6 +28031,13 @@ function codeParts(text3) {
     const open2 = /`+/.exec(text3.slice(at));
     if (open2 === null) break;
     const start = at + open2.index;
+    let backslashes = 0;
+    while (text3.charAt(start - backslashes - 1) === "\\") backslashes += 1;
+    if (backslashes % 2 === 1) {
+      plain += text3.slice(at, start + 1);
+      at = start + 1;
+      continue;
+    }
     const run2 = open2[0];
     const closer = new RegExp(`(?<!\`)${run2}(?!\`)`).exec(text3.slice(start + run2.length));
     if (closer === null) {
@@ -28050,19 +28057,62 @@ function codeParts(text3) {
   return parts;
 }
 function escapedText(text3) {
-  return codeParts(text3).map((part) => part.code ? part.text : part.text.replaceAll(/(?<!\\)(<|\*|_(?=_)|(?<=_)_)/g, "\\$1")).join("");
+  const code = codeParts(text3).flatMap((part) => Array.from({ length: part.text.length }, () => part.code));
+  let escaped = "";
+  for (let at = 0; at < text3.length; at += 1) {
+    const char = text3.charAt(at);
+    if (code[at] === true) {
+      escaped += char;
+    } else if (char === "\\") {
+      escaped += text3.slice(at, at + 2);
+      at += 1;
+    } else {
+      escaped += hides(text3, at, code) ? `\\${char}` : char;
+    }
+  }
+  return escaped;
+}
+function hides(text3, at, code) {
+  switch (text3.charAt(at)) {
+    case "<":
+    case "*":
+      return true;
+    case "_":
+      return !(/[\p{L}\p{N}]$/u.test(text3.slice(Math.max(0, at - 2), at)) && /^[\p{L}\p{N}]/u.test(text3.slice(at + 1, at + 3)));
+    case "[":
+      return opensLink(text3, at, code);
+    case "&":
+      return /^&(?:#[0-9]{1,7}|#[Xx][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/.test(text3.slice(at));
+    default:
+      return false;
+  }
+}
+function opensLink(text3, at, code) {
+  let depth = 0;
+  for (let index2 = at; index2 < text3.length; index2 += 1) {
+    const char = text3.charAt(index2);
+    if (code[index2] === true) continue;
+    if (char === "\\") {
+      index2 += 1;
+    } else if (char === "[") {
+      depth += 1;
+    } else if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return text3.charAt(index2 + 1) === "(";
+    }
+  }
+  return false;
 }
 function quoted(text3, context) {
   const alias = (number5) => number5 === void 0 || number5 === context.own ? "" : ` (finding ${String(number5)})`;
-  return codeParts(text3).map((part) => {
+  return escapedText(codeParts(text3).map((part) => {
     if (part.code) return part.text;
-    const named = part.text.replaceAll(/\b[A-Z]+-[1-9][0-9]*\b(?! \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
-    const indexed = context.batch === void 0 || context.batch === null ? named : named.replaceAll(/(?<![\w\])>`])\[(0|[1-9][0-9]*)\](?! \(finding \d)/g, (index2, position) => {
+    const named = part.text.replaceAll(/(?<![/\\.#])\b[A-Z]+-[1-9][0-9]*\b(?!\/|\.\w| \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
+    return context.batch === void 0 || context.batch === null ? named : named.replaceAll(/(?<![\w\])>`])\[(0|[1-9][0-9]*)\](?! \(finding \d)/g, (index2, position) => {
       const id = context.batch[Number(position)];
       return `${index2}${alias(id === void 0 ? void 0 : context.numbers.get(id))}`;
     });
-    return escapedText(indexed);
-  }).join("");
+  }).join(""));
 }
 function findingWords(numbers) {
   const sorted = [...new Set(numbers)].sort((a, b) => a - b);
@@ -28076,7 +28126,7 @@ function findingWords(numbers) {
   }
   return `${sorted.length === 1 ? "finding" : "findings"} ${listed(runs)}`;
 }
-var tableCell, inlineText, counted, listed, capitalized, findingAnchor, sentenceText;
+var tableCell, inlineText, counted, listed, capitalized, findingAnchor, checkAnchor, sentenceText, findingNamed;
 var init_markdown = __esm({
   "src/review/markdown.ts"() {
     "use strict";
@@ -28086,11 +28136,13 @@ var init_markdown = __esm({
     listed = (words) => words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
     capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
     findingAnchor = (number5) => `finding-${String(number5)}`;
+    checkAnchor = (kind) => `check-${kind}`;
     sentenceText = (text3) => {
       const inline = inlineText(text3).trimEnd();
       if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
       return `${inline.replace(/[:,;]$/, "")}.`;
     };
+    findingNamed = (numbers, id) => `finding ${String(numbers.get(id) ?? id)}`;
   }
 });
 
@@ -29438,18 +29490,18 @@ function budgetSpendOf(state, adapter) {
   if (!adapter.capabilities.costInUsd) return { usd: null, charged: 0, lost: 0 };
   const settled3 = settledWorkers(state);
   const finished = settled3.filter(isFinished);
-  let usd5 = 0;
+  let usd4 = 0;
   let charged = 0;
   for (const worker of finished) {
     const reported = usageOf(worker, adapter).costUsd;
     if (reported !== null) {
-      usd5 += reported;
+      usd4 += reported;
     } else if (worker.finish.termination !== "not-started" && worker.launch.budgetUsd !== null) {
-      usd5 += worker.launch.budgetUsd;
+      usd4 += worker.launch.budgetUsd;
       charged += 1;
     }
   }
-  return { usd: cents(usd5), charged, lost: settled3.length - finished.length };
+  return { usd: cents(usd4), charged, lost: settled3.length - finished.length };
 }
 function spendWords(spentUsd, budgetUsd) {
   if (spentUsd === null) return "no cost reported";
@@ -29572,8 +29624,13 @@ function findingNumbers(review2) {
   return new Map(rankedFindings(review2).flatMap((entry, index2) => [entry.finding.id, ...entry.members.map((member) => member.id)].map((id) => [id, index2 + 1])));
 }
 function findingIdOf(review2, given) {
-  if (!findingNumberPattern.test(given)) return given;
-  return rankedFindings(review2)[Number(given) - 1]?.finding.id ?? null;
+  const findings = rankedFindings(review2);
+  if (findingNumberPattern.test(given)) return findings[Number(given) - 1]?.finding.id ?? null;
+  return findings.find((entry) => entry.members.some((member) => member.id === given))?.finding.id ?? given;
+}
+function noFindingPastTheLast(runId, review2, given) {
+  const count3 = rankedFindings(review2).length;
+  return `run ${runId} has ${String(count3)} finding${count3 === 1 ? "" : "s"}, so it has no finding ${given}`;
 }
 var idParts, findingNumberPattern;
 var init_state = __esm({
@@ -33620,10 +33677,10 @@ function answerFields(unit) {
   const required2 = blocks ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : "`requiredFiles`, which stays empty";
   return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial2} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required2}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
 }
-function earlierWork(unit, unfinished) {
+function earlierWork(unit, unfinished2) {
   const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
-  if (unfinished.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
+  if (unfinished2.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished2.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
 function editingTail(input2, unit, answerSuffix = "") {
   return [
@@ -34530,7 +34587,7 @@ function validationWords(methods) {
   const kinds = validationKindsOf(methods);
   return kinds.length === 0 ? noValidationWords : kinds.map((method) => validationKinds.find((kind) => kind.method === method).words).join("; ");
 }
-var lastMoments, afterPhases, lastMomentOf, momentOf, notComparedReasons, notComparedWords, checkFaults, failsNow, fromBase, faultHolds, skippedReason, reasonOf, baseWords2, validationStrengths, fails, notComparedPlainWords, checkMeanings, validationKinds, noValidationWords, validationKindsOf;
+var lastMoments, afterPhases, lastMomentOf, momentOf, notComparedReasons, notComparedWords, checkFaults, failsNow, fromBase, faultHolds, skippedReason, reasonOf, baseWords2, validationStrengths, fails, unfinished, notComparedPlainWords, checkMeanings, validationKinds, noValidationWords, validationKindsOf;
 var init_brief_checks = __esm({
   "src/review/brief-checks.ts"() {
     "use strict";
@@ -34572,6 +34629,7 @@ var init_brief_checks = __esm({
     baseWords2 = (base) => isEmptyTree(base.commit) ? "the empty tree" : `${base.name} (${commitWords(base.commit)})`;
     validationStrengths = ["test", "existing", "static", "limited", "none"];
     fails = (outcome) => outcome !== null && outcome !== void 0 && failedOrTimedOut(outcome);
+    unfinished = (outcome) => outcome === "skipped" || outcome === "not-started" || outcome === "cut";
     notComparedPlainWords = {
       ...notComparedWords,
       "no-comparison": "the worker that compared the failures gave no comparison",
@@ -34588,7 +34646,10 @@ var init_brief_checks = __esm({
       { holds: (check2) => check2.before === "passed" && check2.last?.outcome === "passed", meaning: () => "passes", rank: null, comparedBy: null },
       { holds: (check2) => fails(check2.before) && check2.last?.outcome === "passed", meaning: () => "passes; it failed as submitted", rank: null, comparedBy: null },
       { holds: (check2) => check2.before === "passed" && check2.last === null, meaning: () => "passes as submitted; no check ran after the fixes", rank: null, comparedBy: null },
-      { holds: (check2) => ["skipped", "not-started", "cut"].includes(check2.last?.outcome ?? check2.before ?? ""), meaning: () => "did not finish its last run", rank: null, comparedBy: null },
+      { holds: (check2) => unfinished(check2.last?.outcome ?? check2.before), meaning: () => "did not finish its last run", rank: null, comparedBy: null },
+      { holds: (check2) => unfinished(check2.before) && check2.last?.outcome === "passed", meaning: () => "passes; it did not finish as submitted", rank: null, comparedBy: null },
+      // Only a check that neither failed nor passed as submitted fails now with no fault, since the run never took it to the base (R2).
+      { holds: (check2, run2) => run2.baseChecksStep && fails(check2.last?.outcome) && check2.fault === null, meaning: (check2) => `fails, not compared with the base, since ${notComparedPlainWords[check2.base?.reason ?? "not-run"]}`, rank: 3, comparedBy: null },
       { holds: () => true, meaning: (check2) => check2.before === null && check2.last === null ? "did not run" : "fails", rank: null, comparedBy: null }
     ];
     validationKinds = [
@@ -34609,16 +34670,11 @@ function questionItem(facts, question) {
   const choiceIsDefault = question.default === question.choice;
   const lead = choiceIsDefault ? `Finding ${String(own2)} asks you a question, and its default is deep-review's choice.` : `Finding ${String(own2)} asks you a question, and deep-review's choice is not its default.`;
   const held = question.defaultHeld === "held" ? "in place now" : question.defaultHeld === "review-only" ? "which this run did not apply, since it only reviewed" : "which no fixer applied";
-  const marks2 = (number5) => [
-    `Option ${String(number5)}`,
-    ...number5 === question.default ? [`the default, ${held}`] : [],
-    ...number5 === question.choice ? ["deep-review's choice"] : []
-  ].join(", ");
-  const options2 = question.options.map((option) => `${marks2(option.number)}: ${sentenceText(said(facts, option.option, own2))} Cost: ${sentenceText(said(facts, option.cost, own2))} Rule: ${sentenceText(said(facts, option.rule, own2))}`);
+  const options2 = question.options.map((option) => optionLine(option.number, option.number === question.default ? held : null, option.number === question.choice, { option: said(facts, option.option, own2), cost: said(facts, option.cost, own2), rule: said(facts, option.rule, own2) }));
   const stays = question.defaultHeld === "review-only" ? `the fix pass applies option ${String(question.default)}` : `option ${String(question.default)} stays`;
   const another = `To take another option: ${codeSpan(answerCommand(facts.run, own2, "--option <n>"))}, with its number.`;
   const nothing = choiceIsDefault ? `If you do nothing, ${stays}, and it is deep-review's choice. ${another}` : `If you do nothing, ${stays}, and deep-review's choice is option ${String(question.choice)}. To take it: ${codeSpan(answerCommand(facts.run, own2, `--option ${String(question.choice)}`))}.`;
-  return { rank: choiceIsDefault ? 7 : 6, condition: choiceIsDefault ? "question-choice" : "question-other", finding: own2, check: null, document: null, patch: null, lines: [`**${lead}** ${said(facts, question.question, own2)}`, ...options2, nothing] };
+  return need([`**${lead}** ${said(facts, question.question, own2)}`, ...options2, nothing], { finding: own2 });
 }
 function departureFateWords(fate) {
   switch (fate.kind) {
@@ -34639,29 +34695,21 @@ function departureItem(facts, departure) {
   const inTree = departure.fate.kind === "applied" || departure.fate.kind === "committed" || departure.fate.kind === "already-in-tree";
   const lead = departure.fate.kind === "review-only" ? `Finding ${String(own2)} would be fixed against a written rule.` : inTree ? `Finding ${String(own2)} is fixed against a written rule.` : `The fix of finding ${String(own2)} goes against a written rule, and no fixer applied it.`;
   const stays = inTree ? "the fix stays, and the rule stays as it is written" : departure.fate.kind === "review-only" ? "the fix pass applies the fix, and the rule stays as it is written" : "the rule stays as it is written";
-  return {
-    rank: 5,
-    condition: "departure",
-    finding: own2,
-    check: null,
-    document: null,
-    patch: null,
-    lines: [
-      `**${lead}** ${departureFateWords(departure.fate)}`,
-      `The rule: ${said(facts, departure.rule, own2)}`,
-      `Where it is written: ${said(facts, departure.source, own2)}`,
-      `Why deep-review went against it: ${said(facts, departure.reason, own2)}`,
-      `If you do nothing, ${stays}. To keep the fix and change the rule: ${codeSpan(answerCommand(facts.run, own2, "--accept"))}. To follow the rule: ${codeSpan(answerCommand(facts.run, own2, "--reject"))}.`
-    ]
-  };
+  return need([
+    `**${lead}** ${departureFateWords(departure.fate)}`,
+    `The rule: ${said(facts, departure.rule, own2)}`,
+    `Where it is written: ${said(facts, departure.source, own2)}`,
+    `Why deep-review went against it: ${said(facts, departure.reason, own2)}`,
+    `If you do nothing, ${stays}. To keep the fix and change the rule: ${codeSpan(answerCommand(facts.run, own2, "--accept"))}. To follow the rule: ${codeSpan(answerCommand(facts.run, own2, "--reject"))}.`
+  ], { finding: own2 });
 }
 function documentItem(facts, document) {
   const reported = document.facts.length === 0 ? "" : ` ${capitalized(document.facts.map((fact) => `${said(facts, fact.what).replace(/[.]+$/, "")} (${fact.by})`).join("; "))}.`;
   const reasons = document.reasons.length === 0 ? "" : ` ${document.reasons.map((reason) => inlineText(reason.text)).join(" ")}`;
-  return { rank: 4, condition: "document", finding: null, check: null, document: document.file, patch: null, lines: [`**${codeSpan(document.file)} is out of date.**${reported}${reasons} If you do nothing, the document stays out of date.`] };
+  return need([`**${codeSpan(document.file)} is out of date.**${reported}${reasons} If you do nothing, the document stays out of date.`], { document: document.file });
 }
 function needsCountLine(needs, facts) {
-  const of = (condition2) => needs.filter((need) => need.condition === condition2);
+  const of = (condition2) => needs.filter((need2) => need2.condition === condition2);
   const work = of("unfinished-edits").length + of("unapplied-fix").length;
   const parts = needTable.flatMap((row) => {
     if (row.condition === "unapplied-fix") return [];
@@ -34682,7 +34730,7 @@ function needsCountLine(needs, facts) {
   if (!facts.fixed) return "Nothing needs you. No fix against a written rule waits for your review, no question is open, and deep-review decided no fix.";
   return "Nothing needs you. The edits of this run made no check fail, no check fails because of the change or is left without a comparison with the base, the run left no work unfinished and no document out of date, no fix against a written rule waits for your review, no question is open, and every fix is committed.";
 }
-var needConditions, answerCommand, said, lastMomentWords, earlierMomentWords, checkItem, editsCost, ranked, needTable, needsOf, shownUnfinished, shownDecisions;
+var needConditions, answerArguments, answerCommand, said, lastMomentWords, earlierMomentWords, need, checkItem, editsCost, optionLine, ranked, needTable, needsOf, shownUnfinished, shownDecisions;
 var init_needs = __esm({
   "src/review/needs.ts"() {
     "use strict";
@@ -34690,58 +34738,48 @@ var init_needs = __esm({
     init_markdown();
     init_runs();
     needConditions = ["edits", "change-breaks", "not-compared", "unfinished-edits", "unapplied-fix", "document", "departure", "question-other", "question-choice", "uncommitted"];
-    answerCommand = (run2, finding, choice) => `deep-review answer --run ${shortRunId(run2)} --finding ${String(finding)} ${choice}`;
+    answerArguments = (run2, finding, choice) => `answer --run ${shortRunId(run2)} --finding ${finding} ${choice}`;
+    answerCommand = (run2, finding, choice) => `deep-review ${answerArguments(run2, String(finding), choice)}`;
     said = (facts, text3, own2 = null) => inlineText(quoted(text3, { numbers: facts.numbers, own: own2 }));
     lastMomentWords = { fixes: "after the fixes", repair: "after the fixes for the checks", answers: "after your answers" };
     earlierMomentWords = { before: "as submitted", fixes: "after the fixes", repair: "after the fixes for the checks", answers: "after earlier answers" };
-    checkItem = (facts, rank, condition2, check2, lead, rest) => ({ rank, condition: condition2, finding: null, check: check2.kind, document: null, patch: null, lines: [`**${lead}** ${rest}`] });
+    need = (lines, names2 = {}) => ({ finding: null, check: null, document: null, patch: null, ...names2, lines });
+    checkItem = (check2, lead, rest) => need([`**${lead}** ${rest}`], { check: check2.kind });
     editsCost = (facts) => facts.committed ? "the commits of this run hold a tree in which it fails" : "`deep-review commit` commits a tree in which it fails";
-    ranked = (facts, rank) => facts.checks.filter((check2) => facts.checkRanks.get(check2.kind) === rank);
+    optionLine = (number5, held, choice, texts) => {
+      const marks2 = [`Option ${String(number5)}`, ...held === null ? [] : [`the default, ${held}`], ...choice ? ["deep-review's choice"] : []];
+      return `${marks2.join(", ")}: ${sentenceText(texts.option)} Cost: ${sentenceText(texts.cost)} Rule: ${sentenceText(texts.rule)}`;
+    };
+    ranked = (facts, rank) => facts.checks.filter((check2) => check2.rank === rank);
     needTable = [
       {
         rank: 1,
         condition: "edits",
-        items: (facts) => ranked(facts, 1).map((check2) => checkItem(facts, 1, "edits", check2, `The ${check2.kind} check fails ${check2.last === null ? "" : lastMomentWords[check2.last.when]}, and passed ${check2.earlier.passed === null ? "before" : earlierMomentWords[check2.earlier.passed]}.`, `The edits of this run made it fail. If you do nothing, ${editsCost(facts)}.`)),
+        items: (facts) => ranked(facts, 1).map((check2) => checkItem(check2, `The ${check2.kind} check fails ${check2.last === null ? "" : lastMomentWords[check2.last.when]}, and passed ${check2.earlier.passed === null ? "before" : earlierMomentWords[check2.earlier.passed]}.`, `The edits of this run made it fail. If you do nothing, ${editsCost(facts)}.`)),
         count: ["check that the edits of this run made fail", "checks that the edits of this run made fail"]
       },
       {
         rank: 2,
         condition: "change-breaks",
-        items: (facts) => ranked(facts, 2).map((check2) => check2.fault === "change-breaks" ? checkItem(facts, 2, "change-breaks", check2, `The ${check2.kind} check fails because of the change.`, `It passes on the base, ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`) : checkItem(facts, 2, "change-breaks", check2, `The ${check2.kind} check has failures that the base does not have, by a model's comparison.`, `The base is ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)),
+        items: (facts) => ranked(facts, 2).map((check2) => check2.fault === "change-breaks" ? checkItem(check2, `The ${check2.kind} check fails because of the change.`, `It passes on the base, ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`) : checkItem(check2, `The ${check2.kind} check has failures that the base does not have, by a model's comparison.`, `The base is ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)),
         count: ["check fails because of the change", "checks fail because of the change"]
       },
       {
         rank: 3,
         condition: "not-compared",
-        items: (facts) => ranked(facts, 3).map((check2) => check2.last === null ? checkItem(facts, 3, "not-compared", check2, `The ${check2.kind} check fails as submitted, and the run did not compare it with the base.`, "No fix changed a file, so no check ran after the fixes and none ran on the base. If you do nothing, nobody knows whether the change causes the failure.") : checkItem(facts, 3, "not-compared", check2, `The ${check2.kind} check fails, and the run did not compare it with the base.`, `${capitalized(notComparedPlainWords[check2.base?.reason ?? "not-run"])}. If you do nothing, nobody knows whether the change causes the failure.`)),
+        items: (facts) => ranked(facts, 3).map((check2) => check2.last === null ? checkItem(check2, `The ${check2.kind} check fails as submitted, and the run did not compare it with the base.`, "No fix changed a file, so no check ran after the fixes and none ran on the base. If you do nothing, nobody knows whether the change causes the failure.") : checkItem(check2, `The ${check2.kind} check fails, and the run did not compare it with the base.`, `${capitalized(notComparedPlainWords[check2.base?.reason ?? "not-run"])}. If you do nothing, nobody knows whether the change causes the failure.`)),
         count: ["check not compared with the base", "checks not compared with the base"]
       },
       {
         rank: 4,
         condition: "unfinished-edits",
-        items: (facts) => facts.unfinishedEdits.map((edit) => ({
-          rank: 4,
-          condition: "unfinished-edits",
-          finding: edit.finding,
-          check: null,
-          document: null,
-          patch: edit.patch,
-          lines: [`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? "" : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? "the commits hold the edits as they are" : "the edits are committed as they are"}.`]
-        })),
+        items: (facts) => facts.unfinishedEdits.map((edit) => need([`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? "" : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? "the commits hold the edits as they are" : "`deep-review commit` commits the edits as they are"}.`], { finding: edit.finding, patch: edit.patch })),
         count: ["piece of work not finished", "pieces of work not finished"]
       },
       {
         rank: 4,
         condition: "unapplied-fix",
-        items: (facts) => facts.unapplied.map((fix) => ({
-          rank: 4,
-          condition: "unapplied-fix",
-          finding: fix.finding,
-          check: null,
-          document: null,
-          patch: null,
-          lines: [`**${fix.answer ? `Your answer to finding ${String(fix.finding)} is not applied` : `Finding ${String(fix.finding)} is not fixed`}: ${fix.why}.** If you do nothing, the finding stays as it is.`]
-        })),
+        items: (facts) => facts.unapplied.map((fix) => need([`**${fix.answer ? `Your answer to finding ${String(fix.finding)} is not applied` : `Finding ${String(fix.finding)} is not fixed`}: ${fix.why}.** If you do nothing, the finding stays as it is.`], { finding: fix.finding })),
         count: ["piece of work not finished", "pieces of work not finished"]
       },
       {
@@ -34776,15 +34814,15 @@ var init_needs = __esm({
             if (facts.uncommitted === null) return [];
             const { patches, readFirst } = facts.uncommitted;
             const first = readFirst.length === 0 ? "" : ` Read first ${listed(readFirst)}.`;
-            return [{ rank: 8, condition: "uncommitted", finding: null, check: null, document: null, patch: null, lines: [`**Review the ${counted(patches, "uncommitted patch, then commit it", "uncommitted patches, then commit them")}.**${first} If you do nothing, the fixes stay uncommitted in your working tree. To commit them: ${codeSpan(`deep-review commit --run ${shortRunId(facts.run)}`)}.`] }];
+            return [need([`**Review the ${counted(patches, "uncommitted patch, then commit it", "uncommitted patches, then commit them")}.**${first} If you do nothing, the fixes stay uncommitted in your working tree. To commit them: ${codeSpan(`deep-review commit --run ${shortRunId(facts.run)}`)}.`])];
           }
           if (facts.toFix === 0) return [];
-          return [{ rank: 8, condition: "uncommitted", finding: null, check: null, document: null, patch: null, lines: [`**Apply the ${counted(facts.toFix, "fix", "fixes")} that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run \`deep-review review --fix\` on the same change with the same runtime.`] }];
+          return [need([`**Apply the ${counted(facts.toFix, "fix", "fixes")} that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run \`deep-review review --fix\` on the same change with the same runtime.`])];
         },
         count: ["patch to commit", "patches to commit"]
       }
     ];
-    needsOf = (facts) => needTable.flatMap((row) => row.items(facts));
+    needsOf = (facts) => needTable.flatMap((row) => row.items(facts).map((item) => ({ rank: row.rank, condition: row.condition, ...item })));
     shownUnfinished = 3;
     shownDecisions = 3;
   }
@@ -34819,10 +34857,8 @@ function decisionBlockLines(review2, decision, quote) {
   const said2 = (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own }));
   const standing = standingAnswer(review2, decision.id);
   switch (decision.decision) {
-    case "leave": {
-      const by = decision.leave.supersededBy === null ? "" : ` by finding ${String(quote.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`;
-      return [`Decision: left, ${leaveReasonWords[decision.leave.reason]}${by}: ${said2(decision.grounds)}`];
-    }
+    case "leave":
+      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said2(decision.grounds)}`];
     case "fix": {
       const { fix, departure } = decision;
       const reviewed = departure === null ? [] : standing === null ? [`To review: \`${answerCommand(quote.run, quote.own, "--accept")}\` keeps the fix and changes the rule, \`${answerCommand(quote.run, quote.own, "--reject")}\` follows the rule`] : [`Answer: ${answerSummary(review2, standing, standing.answer.kind === "reject" ? "the rule-following fix the tree held" : "the departure the tree held")}`];
@@ -34837,22 +34873,21 @@ function decisionBlockLines(review2, decision, quote) {
     case "ask": {
       const { ask } = decision;
       const held = defaultInPlace(review2, decision) ? "in place now" : "which the tree does not hold";
-      const marks2 = (index2) => [`Option ${String(index2 + 1)}`, ...index2 === ask.applied ? [`the default, ${held}`] : [], ...index2 === ask.recommended ? ["deep-review's choice"] : []].join(", ");
       return [
         `Decision: ask you; why it asks: ${said2(decision.grounds)}`,
         `Question: ${said2(ask.question)}`,
-        ...ask.options.map((option, index2) => `${marks2(index2)}: ${sentenceText(said2(option.option))} Cost: ${sentenceText(said2(option.cost))} Rule: ${sentenceText(said2(option.rule))}`),
+        ...ask.options.map((option, index2) => optionLine(index2 + 1, index2 === ask.applied ? held : null, index2 === ask.recommended, { option: said2(option.option), cost: said2(option.cost), rule: said2(option.rule) })),
         `Where deep-review looked: ${ask.searched.map(said2).join("; ")}`,
         standing === null ? `To answer: \`${answerCommand(quote.run, quote.own, "--option <n>")}\`, with the number of the option` : `Answer: ${answerSummary(review2, standing, "the option the tree held")}`
       ];
     }
   }
 }
-function answeringLine(review2, engineEntry) {
+function answeringLine(review2, engineEntry, run2) {
   const offers = (review2.decisions ?? []).some((decision) => decision.decision === "ask" || decision.decision === "fix" && decision.departure !== null);
-  return offers ? [answerAtTerminal(engineEntry)] : [];
+  return offers ? [answerAtTerminal(engineEntry, run2)] : [];
 }
-var leaveReasonWords, answerArguments, answerAtTerminal;
+var leaveReasonWords, leaveWords, answerAtTerminal;
 var init_decision_report = __esm({
   "src/review/decision-report.ts"() {
     "use strict";
@@ -34866,8 +34901,8 @@ var init_decision_report = __esm({
       superseded: "superseded",
       intended: "intended, as the repository states"
     };
-    answerArguments = (finding, choice) => `answer --finding ${finding} ${choice}`;
-    answerAtTerminal = (engineEntry) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments("<number>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+    leaveWords = (leave, numbers) => leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`;
+    answerAtTerminal = (engineEntry, run2) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run2, "<number>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
   }
 });
 
@@ -35020,16 +35055,29 @@ function findingOutcomes(review2, fix, id) {
 function patchesOf(fix, id, phase) {
   return fix.revisions.flatMap((revision, index2) => revision.phase === phase && revision.change.findings.includes(id) ? [index2 + 1] : []);
 }
+function answersFor(fix, id) {
+  const fixes = allBatches(fix).flatMap((batch) => {
+    const finding = batch.findingIds.includes(id) ? fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id) : void 0;
+    return finding === void 0 ? [] : [{ phase: "fixes", key: batch.key, batch, finding }];
+  });
+  const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(a) - passNumber(b));
+  const answered2 = passes.flatMap((key) => {
+    const finding = fix.answers.answer[key].findings.find((candidate) => candidate.id === id);
+    return finding === void 0 ? [] : [{ phase: "answer", key, batch: null, finding }];
+  });
+  return [...fixes, ...answered2];
+}
 function fixBlockLines(review2, fix, id, quote) {
   const fate = fateOf(review2, fix, id);
   if (fate.outcome === "held for the author") return ["Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it."];
   if (fate.outcome === "left by decision" || fate.outcome === "asked, kept as is") {
     if (fate.superseder === null) return [];
-    const by = `finding ${String(quote.numbers.get(fate.superseder.id) ?? fate.superseder.id)}`;
+    const by = findingNamed(quote.numbers, fate.superseder.id);
     const landed = fate.superseder.outcome === "applied" || fate.superseder.outcome === "already applied";
     return [`Fix: none of its own; its removal was ${by}'s fix, whose fixer ${fate.superseder.outcome === "not attempted" ? "did not attempt it" : `reported it ${fate.superseder.outcome}`}.${landed ? "" : " This finding may still stand."}`];
   }
-  const said2 = (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, batch: fate.batch?.findingIds ?? null }));
+  const saidIn = (batch) => (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, batch: batch?.findingIds ?? null }));
+  const said2 = saidIn(fate.batch);
   const lines = [];
   if (fate.answer !== null) {
     lines.push(`Fix: ${fate.outcome}; ${said2(fate.answer.note)}`);
@@ -35044,7 +35092,12 @@ function fixBlockLines(review2, fix, id, quote) {
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(", ")}`);
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   if (fate.answer?.status === "blocked" && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push("Second round not planned: the run budget stopped the first round");
-  for (const validation of fate.answer?.validation ?? []) lines.push(`Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${said2(validation.evidence)}`);
+  const answers = answersFor(fix, id);
+  for (const { phase, key, batch, finding } of answers) {
+    const by = answers.length === 1 ? "its fixer" : phase === "fixes" ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
+    const quote2 = saidIn(batch);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote2(validation.source)}: ${quote2(validation.evidence)}`);
+  }
   return lines;
 }
 function stopLimitations(review2, evidencePath) {
@@ -35083,7 +35136,8 @@ function stopLimitations(review2, evidencePath) {
   for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to}, which the branch never moved to, after a stop or a refused move; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
-function documentationSection(review2, fix) {
+function documentationSection(review2, fix, numbers) {
+  const said2 = (text3) => workerText(text3, numbers);
   const plan = fix.documentation;
   const unheld = unheldDriftLines(review2);
   if (!review2.documentationStep && unheld.length === 0) return [];
@@ -35096,16 +35150,16 @@ function documentationSection(review2, fix) {
     const outcome = finding !== void 0 ? statusWords[finding.status] : notAttempted ? "not attempted" : "not answered";
     const document = isDocumentItem(item) ? [`Document: ${codeSpan(item.file)}, ${item.path === null ? "which the engine refused as a path of the repository" : `the repository path ${codeSpan(item.path)}`}`] : [];
     const answered2 = finding === void 0 ? notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, "documentation", documentationUnitKey))}`] : [] : [
-      `Note: ${inlineText(finding.note)}`,
-      ...finding.message === null ? [] : [`Commit message: ${inlineText(finding.message.subject)}`],
+      `Note: ${said2(finding.note)}`,
+      ...finding.message === null ? [] : [`Commit message: ${said2(finding.message.subject)}`],
       ...finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(", ")}; ${patchNote(patchesOf(fix, item.id, "documentation"))}`],
-      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${inlineText(entry.source)}: ${inlineText(entry.evidence)}`)
+      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${said2(entry.evidence)}`)
     ];
-    const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${inlineText(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
+    const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${said2(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index2 + 1)}. ${item.id} ${outcome}`, "", ...document, ...answered2, ...took, ""];
   });
-  const found = (answer3?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)}`);
-  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)} (${reporterWords(line)})`);
+  const found = (answer3?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${said2(line.what)}`);
+  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${said2(line.what)} (${reporterWords(line)})`);
   const lines = [
     "## Documentation updates",
     "",
@@ -35160,7 +35214,7 @@ function baseWorktreeLines(review2) {
   const errors = new Set((review2.fix?.checks.runs["base-checks"] ?? []).flatMap((run2) => run2.skipReason === "no-worktree" && run2.error !== null ? [run2.error.startsWith(prefix) ? run2.error.slice(prefix.length) : run2.error] : []));
   return [...errors].map((error62) => `Worktree of the base: could not be made: ${inlineText(error62)}`);
 }
-function checksSection(review2, fix, scope, evidencePath) {
+function checksSection(review2, fix, scope, evidencePath, numbers) {
   const { survey } = review2;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
@@ -35171,7 +35225,7 @@ function checksSection(review2, fix, scope, evidencePath) {
   const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
   const baseNote = (kind) => {
     const comparison = comparisons.find((entry) => entry.kind === kind);
-    if (comparison !== void 0) return `; a model's comparison: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
+    if (comparison !== void 0) return `; a model's comparison: ${readingWords[comparison.reading]} (${workerText(comparison.words, numbers)})`;
     return checks.find((check2) => check2.kind === kind)?.base?.reason === "no-comparison" ? `; ${notComparedPlainWords["no-comparison"]}` : "";
   };
   const note = (phase, kind) => {
@@ -35180,21 +35234,27 @@ function checksSection(review2, fix, scope, evidencePath) {
   };
   const repaired = fix.answers.repair[repairUnitKey];
   const blocks = planned.flatMap((check2) => {
-    const head2 = [`<a id="check-${check2.kind}"></a>`, "", `### ${check2.kind}`, ""];
+    const head2 = [`<a id="${checkAnchor(check2.kind)}"></a>`, "", `### ${check2.kind}`, ""];
     const source = survey === null ? [] : [`- Source: ${checkSourceCell(survey, check2)}`];
     if (check2.command === null) return [...head2, `- Command: ${unavailableCell(survey, check2)}`, ...source, ""];
     const runs = ran.flatMap((phase) => {
       const run2 = shown(phase, check2.kind);
       return run2 === null ? [] : [`- ${phaseTitles[phase]}${edits.get(phase) === null ? "" : ", on an earlier tree"}: ${checkCell(run2, evidencePath, note(phase, check2.kind))}`];
     });
-    const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check2.kind).map((finding) => `- Its fix: ${statusWords[finding.status]}, ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`);
+    const said2 = (text3) => workerText(text3, numbers);
+    const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check2.kind).flatMap((finding) => [
+      `- Its fix: ${statusWords[finding.status]}, ${said2(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`,
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${said2(validation.evidence)}`)
+    ]);
     return [...head2, `- Command: ${codeSpan(check2.command)}`, ...source, ...runs, ...fixed, ""];
   });
   const answered2 = review2.answerPasses.length > 0;
-  const repairWhy = repairTargets(fix, "recorded").length === 0 ? "no check failed after the fixes" : isNotAttempted(fix, "repair", repairUnitKey) ? `the fixes for the checks were not attempted: ${inlineText(notAttemptedNote(fix, "repair", repairUnitKey) ?? "no reason recorded")}` : "the fixes for the checks changed no file";
+  const repairUnattempted = isNotAttempted(fix, "repair", repairUnitKey) ? `the fixes for the checks were not attempted: ${inlineText(notAttemptedNote(fix, "repair", repairUnitKey) ?? "no reason recorded")}` : null;
+  const repairWhy = repairTargets(fix, "recorded").length === 0 ? "no check failed after the fixes" : repairUnattempted ?? "the fixes for the checks changed no file";
   const notRun = planned.every((check2) => check2.command === null) ? ["- No check ran in any phase, since no kind has a command."] : [
     ...fix.checks.runs.checks.length === 0 ? ["- After the fixes: not run, since no fix changed a file."] : [],
-    ...fix.checks.runs["repair-checks"].length === 0 ? [`- After the fixes for the checks: not run, since ${repairWhy}.`] : [],
+    // A revision of an unfinished attempt of the repair runs the checks after it, so a repair settled not attempted says so here too.
+    ...fix.checks.runs["repair-checks"].length === 0 ? [`- After the fixes for the checks: not run, since ${repairWhy}.`] : repairUnattempted === null ? [] : [`- ${capitalized(repairUnattempted)}.`],
     ...answered2 && fix.checks.runs["answer-checks"].length === 0 ? ["- After your answers: not run, since no answer pass changed a file."] : [],
     ...baseNotes(review2, fix, checks, scope)
   ];
@@ -35224,9 +35284,9 @@ function patchesSection(fix, patches, numbers) {
     const files = revision.files.map((file2) => `${inlineText(file2.path)} ${fileStatus(file2)}`).join(", ");
     const sha = commitOf.get(index2);
     const later = committed > 0 && index2 >= committed ? `, ${laterPass(revision)} after the commits` : "";
-    return `${String(index2 + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision, numbers)}${later}), ${files === "" ? "no file" : files}${sha === void 0 ? "" : `, committed as ${sha.slice(0, 8)}`}: ${patches[index2] ?? "not written"}`;
+    return `${String(index2 + 1)}. ${workerText(revisionMessageOf(fix, revision).subject, numbers)} (${revisedBy(revision, numbers)}${later}), ${files === "" ? "no file" : files}${sha === void 0 ? "" : `, committed as ${sha.slice(0, 8)}`}: ${patches[index2] ?? "not written"}`;
   });
-  const tests = allFixerAnswers(fix).filter((answer3) => answer3.phase !== "documentation").flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer3.key})`));
+  const tests = allFixerAnswers(fix).filter((answer3) => answer3.phase !== "documentation").flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${workerText(entry.covers, numbers)} (${answer3.key})`));
   return [
     "## Patches",
     "",
@@ -35238,7 +35298,7 @@ function fixSections(state, evidencePath, patches, numbers) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [documentationSection(review2, fix), checksSection(review2, fix, state.scope, evidencePath), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review2, fix, numbers), checksSection(review2, fix, state.scope, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -35299,7 +35359,7 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, fileStatus;
+var statusWords, patchNote, workerText, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, fileStatus;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
@@ -35322,6 +35382,7 @@ var init_fix_report = __esm({
       blocked: "blocked"
     };
     patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
+    workerText = (text3, numbers) => inlineText(quoted(text3, { numbers }));
     allFixerAnswers = (fix) => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
     reporterWords = (line) => line.phase === "repair" ? "the repair" : line.phase === "answer" ? `answer pass ${String(line.time)}` : line.key;
     laterPass = (revision) => revision.phase === "answer" || revision.phase === "answer-checks" ? "an answer pass" : "the reopened fix pass";
@@ -35372,8 +35433,10 @@ function questionsOf(context) {
   return decisionsOf(context, "ask").map((decision) => {
     const { ask } = decision;
     const standing = standingAnswer(context.review, decision.id);
+    const finding = context.numbers.get(decision.id);
     return {
       id: decision.id,
+      finding,
       question: ask.question,
       default: ask.applied + 1,
       defaultApplied: defaultInPlace(context.review, decision),
@@ -35382,7 +35445,7 @@ function questionsOf(context) {
       lookedIn: ask.searched,
       grounds: decision.grounds,
       answer: standing === null ? null : answerOf(standing),
-      command: answerCommand(context.state.id, context.numbers.get(decision.id), `--option ${String(ask.recommended + 1)}`)
+      command: answerCommand(context.state.id, finding, `--option ${String(ask.recommended + 1)}`)
     };
   });
 }
@@ -35391,8 +35454,10 @@ function departuresOf(context) {
     if (decision.departure === null) return [];
     const standing = standingAnswer(context.review, decision.id);
     const outcome = context.outcomes.get(decision.id)?.fixPass;
+    const finding = context.numbers.get(decision.id);
     return [{
       id: decision.id,
+      finding,
       rule: decision.departure.rule,
       source: decision.departure.source,
       fact: decision.departure.reason,
@@ -35400,8 +35465,8 @@ function departuresOf(context) {
       // A decided fix is given to a fixer, so its outcome is a fixer's or not attempted; a run that only reviewed has none.
       fate: context.review.fix === null ? "not-fixed" : (outcome === void 0 ? void 0 : fateWordsOf[outcome]) ?? "not-attempted",
       review: standing === null ? null : answerOf(standing),
-      accept: answerCommand(context.state.id, context.numbers.get(decision.id), "--accept"),
-      reject: answerCommand(context.state.id, context.numbers.get(decision.id), "--reject")
+      accept: answerCommand(context.state.id, finding, "--accept"),
+      reject: answerCommand(context.state.id, finding, "--reject")
     }];
   });
 }
@@ -35410,22 +35475,27 @@ function findingStatusOf(context, id, decision) {
   if (decision?.decision === "ask" && standing === null) return "question";
   const departs2 = decision?.decision === "fix" && decision.departure !== null && standing?.answer.kind !== "reject";
   if (context.review.fix === null) {
-    const edits = decision?.decision === "ask" && standing?.answer.kind === "option" && decision.ask.options[standing.answer.option]?.edits === true;
-    if (decision?.decision === "fix" || edits) return departs2 ? "planned-against-rule" : "planned";
+    if (decision?.decision === "fix" || chosenEdits(decision, standing)) return departs2 ? "planned-against-rule" : "planned";
     return "left";
   }
   const outcome = context.outcomes.get(id)?.last;
   if (outcome === "applied" || outcome === "already applied") return departs2 ? "fixed-against-rule" : "fixed";
   if (outcome === "deferred" || outcome === "blocked" || outcome === "not attempted") return "not-fixed";
+  if (standing !== null && standing.appliedBy === null) return "not-fixed";
   return "left";
 }
-function unappliedWhy(outcomes) {
+function unappliedWhy(outcomes, started) {
   switch (outcomes.last) {
     case "deferred":
       return "its fixer put it off";
     case "blocked":
       return "its fixer could not apply it";
     default:
+      if (started) {
+        if (outcomes.unattempted === "budget") return "its fixer did not finish, and the run budget stopped another attempt; the end of the report gives the command that continues the fixes";
+        if (outcomes.unattempted === "failures") return "its fixer did not finish, and a second failure stopped another attempt";
+        return "its fixer did not finish";
+      }
       if (outcomes.unattempted === "budget") return "the run budget stopped the fixes before it, and the end of the report gives the command that continues them";
       if (outcomes.unattempted === "failures") return "its fixer failed twice and gave no answer";
       return "no fixer attempted it";
@@ -35440,12 +35510,16 @@ function needsFactsOf(context, questions, departures, checks, base, findings) {
   const openDepartures = departures.filter((departure) => departure.review === null);
   const departing = new Set(openDepartures.map((departure) => departure.id));
   const decisionOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+  const owed = new Map(owedAnswers(review2).map((answer3) => [answer3.id, answer3]));
+  const unfinished2 = fix === null ? [] : fix.revisions.flatMap((revision, index2) => revision.source.kind === "attempt" && !answeredLater(fix, revision) ? [{ revision, patch: index2 + 1 }] : []);
+  const unfinishedEdits = unfinished2.map(({ revision, patch }) => ({ patch, finding: revisionFindings(context, revision.change.findings)[0] ?? null }));
+  const started = new Set(unfinished2.flatMap(({ revision }) => revision.change.findings));
   const unapplied = fix === null ? [] : [...context.outcomes].flatMap(([id, outcomes]) => {
-    if (!["deferred", "blocked", "not attempted"].includes(outcomes.last) || departing.has(id)) return [];
-    if (decisionOf.get(id)?.decision === "ask" && !outcomes.byAnswerPass) return [];
-    return [{ finding: number5(id), why: unappliedWhy(outcomes), answer: outcomes.byAnswerPass }];
+    if (departing.has(id)) return [];
+    if (["deferred", "blocked", "not attempted"].includes(outcomes.last) && (decisionOf.get(id)?.decision !== "ask" || outcomes.byAnswerPass)) return [{ finding: number5(id), why: unappliedWhy(outcomes, started.has(id)), answer: outcomes.byAnswerPass }];
+    const answer3 = owed.get(id);
+    return answer3 === void 0 ? [] : [{ finding: number5(id), why: `no answer pass applied it yet, and ${codeSpan(answerCommand(context.state.id, number5(id), choiceFlag(answer3)))} applies it`, answer: true }];
   });
-  const unfinishedEdits = fix === null ? [] : fix.revisions.flatMap((revision, index2) => revision.source.kind === "attempt" && !answeredLater(fix, revision) ? [{ patch: index2 + 1, finding: revisionFindings(context, revision.change.findings)[0] ?? null }] : []);
   const plausible = new Set(findings.filter((finding) => finding.verdict === "PLAUSIBLE").map((finding) => finding.id));
   const readFirst = fix === null ? [] : fix.revisions.flatMap((revision, index2) => {
     if (index2 < committed) return [];
@@ -35461,11 +35535,13 @@ function needsFactsOf(context, questions, departures, checks, base, findings) {
         return { kind: "review-only" };
       case "already-in-tree":
         return { kind: "already-in-tree" };
-      case "applied":
-        return fix !== null && patchesHolding(fix, departure.id).every((patch) => patch <= committed) ? { kind: "committed" } : { kind: "applied" };
+      case "applied": {
+        const holding = fix === null ? [] : patchesHolding(fix, departure.id);
+        return holding.length > 0 && holding.every((patch) => patch <= committed) ? { kind: "committed" } : { kind: "applied" };
+      }
       default: {
         const outcomes = context.outcomes.get(departure.id);
-        return { kind: "not-applied", why: outcomes === void 0 ? fateClause(departure.fate) : unappliedWhy(outcomes) };
+        return { kind: "not-applied", why: outcomes === void 0 ? fateClause(departure.fate) : unappliedWhy(outcomes, started.has(departure.id)) };
       }
     }
   };
@@ -35475,20 +35551,19 @@ function needsFactsOf(context, questions, departures, checks, base, findings) {
     committed: allCommitted,
     base,
     checks,
-    checkRanks: new Map(checks.map((check2) => [check2.kind, meaningRowOf(check2, review2).rank])),
     unfinishedEdits,
     unapplied,
     documents: context.documents,
-    departures: openDepartures.map((departure) => ({ finding: number5(departure.id), rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
-    questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, number5(question.id), fix !== null)),
+    departures: openDepartures.map((departure) => ({ finding: departure.finding, rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
+    questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, fix !== null)),
     uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
-    toFix: fix === null ? decisionsOf(context, "fix").length : 0,
+    toFix: fix === null ? findings.filter(isPlanned).length : 0,
     numbers: context.numbers
   };
 }
-function needQuestionOf(question, number5, fixed) {
+function needQuestionOf(question, fixed) {
   return {
-    finding: number5,
+    finding: question.finding,
     question: question.question,
     default: question.default,
     defaultHeld: question.defaultApplied ? "held" : fixed ? "not-applied" : "review-only",
@@ -35498,16 +35573,21 @@ function needQuestionOf(question, number5, fixed) {
 }
 function statusOf2(context, findings) {
   const fix = context.review.fix;
-  const count3 = (...statuses) => findings.filter((finding) => statuses.includes(finding.status)).length;
-  const answered2 = findings.filter((finding) => standingAnswer(context.review, finding.id) !== null).map((finding) => finding.number);
-  const alreadyInTree = [...context.outcomes.values()].filter((outcomes) => outcomes.last === "already applied").length;
+  const inTree = new Set(findings.filter((finding) => (finding.status === "fixed" || finding.status === "fixed-against-rule") && context.outcomes.get(finding.id)?.last === "already applied").map((finding) => finding.id));
+  const count3 = (...statuses) => findings.filter((finding) => statuses.includes(finding.status) && !inTree.has(finding.id)).length;
+  const standing = findings.flatMap((finding) => {
+    const answer3 = standingAnswer(context.review, finding.id);
+    return answer3 === null ? [] : [{ number: finding.number, owed: fix !== null && answer3.appliedBy === null }];
+  });
+  const answered2 = standing.filter((answer3) => !answer3.owed).map((answer3) => answer3.number);
+  const owed = standing.filter((answer3) => answer3.owed).map((answer3) => answer3.number);
   const committed = fix === null ? 0 : committedRevisions(fix);
   const counts = {
     kind: fix === null ? "review" : "fix",
     findings: findings.length,
-    fixed: count3("fixed", "fixed-against-rule") - alreadyInTree,
+    fixed: count3("fixed", "fixed-against-rule"),
     againstRule: count3("fixed-against-rule", "planned-against-rule"),
-    alreadyInTree,
+    alreadyInTree: inTree.size,
     notFixed: count3("not-fixed"),
     questions: count3("question"),
     answered: answered2,
@@ -35519,9 +35599,12 @@ function statusOf2(context, findings) {
   if (counts.findings === 0) return { ...counts, text: `${run2} has no finding.${fix === null ? " It changed no file and ran no check." : ""}` };
   const done = fix === null ? counts.toFix : counts.fixed;
   const ofThem = counts.againstRule === 0 ? "" : counts.againstRule === done ? `, ${done === 1 ? "against a written rule" : "each against a written rule"}` : `, ${counts.againstRule === 1 ? "one" : String(counts.againstRule)} of them against a written rule`;
+  const defaults = findings.filter((finding) => appliedDefault(context, finding)).map((finding) => finding.number);
   const rest = [
     ...counts.questions === 0 ? [] : [`asks you ${counted(counts.questions, "question", "questions")}`],
+    ...defaults.length === 0 ? [] : [`applied the default of ${findingWords(defaults)}`],
     ...answered2.length === 0 ? [] : [`follows your answers to ${findingWords(answered2)}`],
+    ...owed.length === 0 ? [] : [`has not yet applied your answers to ${findingWords(owed)}`],
     ...counts.alreadyInTree === 0 ? [] : [`found ${String(counts.alreadyInTree)} already fixed in the tree`],
     ...counts.notFixed === 0 ? [] : [`did not fix ${String(counts.notFixed)}`],
     ...counts.left === 0 ? [] : [`left ${counted(counts.left, "finding", "findings")} as is`]
@@ -35537,14 +35620,16 @@ function statusOf2(context, findings) {
 function fixesOf(context, findings) {
   const { review: review2 } = context;
   const fix = review2.fix;
-  const byId = new Map(findings.map((finding) => [finding.id, finding]));
   if (fix === null) {
-    return decisionsOf(context, "fix").map((decision) => {
-      const finding = byId.get(decision.id);
-      return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === "PLAUSIBLE", againstRule: decision.departure !== null, subject: firstSentence(decision.fix.approach), kinds: [], patches: [] };
+    const decided = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+    return findings.filter(isPlanned).map((finding) => {
+      const decision = decided.get(finding.id);
+      const standing = standingAnswer(review2, finding.id);
+      const plan = decision.decision === "fix" ? decision.fix.approach : decision.decision === "ask" && standing?.answer.kind === "option" ? decision.ask.options[standing.answer.option].option : "";
+      return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === "PLAUSIBLE", againstRule: finding.status === "planned-against-rule", subject: firstSentence(plan), kinds: [], patches: [] };
     });
   }
-  const fixed = findings.filter((finding) => finding.status === "fixed" || finding.status === "fixed-against-rule").map((finding) => {
+  const fixed = findings.filter((finding) => finding.status === "fixed" || finding.status === "fixed-against-rule" || appliedDefault(context, finding)).map((finding) => {
     const answer3 = lastFixAnswer(review2, fix, finding.id).answer;
     return {
       finding: finding.number,
@@ -35567,11 +35652,17 @@ function fixesOf(context, findings) {
   }));
   return [...fixed, ...documentation];
 }
+function angleRan(review2, angle) {
+  return angle === "SCAN" ? isAnswered(review2, "triage", triageUnitKey) : review2.anglesNotRun[angle] === void 0 && isAnswered(review2, "finders", angle);
+}
 function notExaminedOf(context) {
   const { state, review: review2 } = context;
   const scope = state.scope;
   const gaps = [];
-  for (const angle of Object.keys(review2.anglesNotRun)) gaps.push(`The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
+  const gap = (kind, text3) => {
+    gaps.push({ kind, text: text3 });
+  };
+  for (const angle of Object.keys(review2.anglesNotRun)) gap("angle", `The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
   const primaries = new Set(context.findings.map(({ entry }) => entry.finding.id));
   for (const group of unverifiedGroupsOf(review2)) {
     const own2 = group.candidateIds.filter((id) => primaries.has(id)).map((id) => context.numbers.get(id));
@@ -35582,26 +35673,26 @@ function notExaminedOf(context) {
       ...merged.length === 0 ? [] : [`${merged.length === 1 ? "a candidate" : "candidates"} merged into ${findingWords(merged)}`],
       ...others === 0 ? [] : [counted(others, "candidate", "candidates")]
     ];
-    gaps.push(`No verifier examined ${listed(parts)}${own2.length === 0 ? "" : `; ${own2.length === 1 ? "it counts" : "each counts"} as plausible`}.`);
+    gap("unverified", `No verifier examined ${listed(parts)}${own2.length === 0 ? "" : `; ${own2.length === 1 ? "it counts" : "each counts"} as plausible`}.`);
   }
-  if (scope.excluded.count > 0) gaps.push(`${capitalized(counted(scope.excluded.count, "changed path", "changed paths"))} under ${scope.request.exclude.join(", ")}, which the settings leave out.`);
+  if (scope.excluded.count > 0) gap("excluded", `${capitalized(counted(scope.excluded.count, "changed path", "changed paths"))} under ${scope.request.exclude.join(", ")}, which the settings leave out.`);
   const oversized = scope.files.filter((file2) => file2.before !== null && "oversized" in file2.before || file2.after !== null && "oversized" in file2.after).map((file2) => file2.path);
-  if (oversized.length > 0) gaps.push(`${capitalized(counted(oversized.length, "file", "files"))} too large to freeze, which no worker was given: ${oversized.join(", ")}.`);
+  if (oversized.length > 0) gap("oversized", `${capitalized(counted(oversized.length, "file", "files"))} too large to freeze, which no worker was given: ${oversized.join(", ")}.`);
   const fix = review2.fix;
   if (fix !== null) {
     for (const check2 of fix.checks.planned?.checks ?? []) {
-      if (check2.command === null) gaps.push(`No ${check2.kind} check ran: ${droppedByOperator(review2.survey, check2) ?? check2.reason ?? "the run has no command for it"}.`);
+      if (check2.command === null) gap("check", `No ${check2.kind} check ran: ${droppedByOperator(review2.survey, check2) ?? check2.reason ?? "the run has no command for it"}.`);
     }
     const stopped = budgetStoppedUnits(fix);
     const steps = [...stopped.some((unit) => unit.phase === "documentation") ? ["the documentation step"] : [], ...stopped.some((unit) => unit.phase === "repair") ? ["the fixes for the checks"] : []];
-    if (steps.length > 0) gaps.push(`The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
-    if (fix.openSeries !== null) gaps.push("A stop cut `deep-review commit` short; the next command completes the commits or drops them.");
+    if (steps.length > 0) gap("budget", `The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
+    if (fix.openSeries !== null) gap("stop", "A stop cut `deep-review commit` short; the next command completes the commits or drops them.");
     const cause = stepNotRunCause(review2);
-    if (review2.documentationStep && cause !== null && cause !== "no-edits") gaps.push(stepNotRunSentence(cause));
+    if (review2.documentationStep && cause !== null && cause !== "no-edits") gap("documentation", stepNotRunSentence(cause));
   }
   const workers = Object.values(state.workers);
   const ended = workers.filter((worker) => (worker.status === "lost" || worker.status === "finished" && endedByKill(worker.finish)) && !ranAgain(workers, worker));
-  if (ended.length > 0) gaps.push(`A stop ended ${counted(ended.length, "worker", "workers")} whose work did not run again; the end of the report names ${ended.length === 1 ? "it" : "them"}.`);
+  if (ended.length > 0) gap("stop", `A stop ended ${counted(ended.length, "worker", "workers")} whose work did not run again; the end of the report names ${ended.length === 1 ? "it" : "them"}.`);
   return gaps;
 }
 function leftAsOf(context, findings) {
@@ -35612,8 +35703,8 @@ function leftAsOf(context, findings) {
   const decided = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
   for (const finding of findings.filter((entry) => entry.status === "left")) {
     const decision = decided.get(finding.id) ?? null;
-    if (decision?.decision === "leave") add(decision.leave.supersededBy === null ? leaveReasonWords[decision.leave.reason] : `${leaveReasonWords[decision.leave.reason]} by finding ${String(context.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`, finding.number);
-    else if (decision?.decision === "ask") add("your answer keeps the code as it is", finding.number);
+    if (decision?.decision === "leave") add(leaveWords(decision.leave, context.numbers), finding.number);
+    else if (decision?.decision === "ask" && !chosenEdits(decision, standingAnswer(context.review, finding.id))) add("your answer keeps the code as it is", finding.number);
     else add(context.review.fix === null && context.review.decisions === null ? "with no decision, since an engine before the decision step reviewed this run" : "held for the author", finding.number);
   }
   if (reasons.size === 0) return null;
@@ -35643,7 +35734,7 @@ function briefOf(state) {
   const base = baseWords2({ commit: state.scope.base, name: baseNameOf(state.scope.mode, state.scope.request) });
   const checks = context.checks.map((check2) => {
     const row = meaningRowOf(check2, review2);
-    return { ...check2, meaning: row.meaning(check2), comparedBy: row.comparedBy };
+    return { ...check2, meaning: row.meaning(check2), rank: row.rank, comparedBy: row.comparedBy };
   });
   const facts = needsFactsOf(context, questions, departures, checks, base, findings);
   const needs = needsOf(facts);
@@ -35651,6 +35742,7 @@ function briefOf(state) {
     run: state.id,
     title: review2.change.kind === "given" ? review2.change.reading.title : scopeTitle(state),
     findings,
+    numbers: context.numbers,
     status: statusOf2(context, findings),
     needs,
     needsLine: needsCountLine(needs, facts),
@@ -35666,15 +35758,10 @@ function briefOf(state) {
     documents: context.documents
   };
 }
-function numberIn(brief, id) {
-  const found = brief.findings.find((finding) => finding.id === id || finding.merged.includes(id));
-  if (found === void 0) throw new Error(`The brief names a finding it does not hold: ${id}`);
-  return found.number;
-}
 function accountPart(brief) {
   const { change } = brief;
   if (change.state !== "given") return [missingAccountWords[change.state]];
-  const said2 = (text3) => inlineText(quoted(text3, { numbers: numbersOf(brief) }));
+  const said2 = (text3) => inlineText(quoted(text3, { numbers: brief.numbers }));
   const sources = (list) => list.map(inlineText).join(", ");
   const why = change.why === null ? "The change states no reason." : `Why, in the change's own words: ${said2(change.why)} (${change.whyFrom.length === 0 ? "it names no source" : `from ${sources(change.whyFrom)}`}).`;
   const judged2 = [
@@ -35687,32 +35774,32 @@ function accountPart(brief) {
 }
 function shownNeeds(brief) {
   const shown = [];
-  const unfinished = brief.needs.filter((need) => need.rank === 4);
-  const decisions = brief.needs.filter((need) => need.rank >= 5 && need.rank <= 7);
-  const name = (need) => need.document !== null ? codeSpan(need.document) : need.finding !== null ? `finding ${String(need.finding)}` : `patch ${String(need.patch)}`;
-  for (const need of brief.needs) {
-    if (need.rank === 4) {
-      const index2 = unfinished.indexOf(need);
-      if (index2 < shownUnfinished) shown.push(need.lines);
+  const unfinished2 = brief.needs.filter((need2) => need2.rank === 4);
+  const decisions = brief.needs.filter((need2) => need2.rank >= 5 && need2.rank <= 7);
+  const name = (need2) => need2.document !== null ? codeSpan(need2.document) : need2.finding !== null ? `finding ${String(need2.finding)}` : `patch ${String(need2.patch)}`;
+  for (const need2 of brief.needs) {
+    if (need2.rank === 4) {
+      const index2 = unfinished2.indexOf(need2);
+      if (index2 < shownUnfinished) shown.push(need2.lines);
       if (index2 === shownUnfinished) {
-        const others = unfinished.slice(shownUnfinished);
-        shown.push([`**${String(others.length)} more:** ${listed(others.map(name))}.`]);
+        const others = unfinished2.slice(shownUnfinished);
+        shown.push([`**${String(others.length)} more:** ${listed([...new Set(others.map(name))])}.`]);
       }
-    } else if (need.rank >= 5 && need.rank <= 7) {
-      const index2 = decisions.indexOf(need);
-      if (index2 < shownDecisions) shown.push(need.lines);
+    } else if (need2.rank >= 5 && need2.rank <= 7) {
+      const index2 = decisions.indexOf(need2);
+      if (index2 < shownDecisions) shown.push(need2.lines);
       if (index2 === shownDecisions) {
         const others = decisions.slice(shownDecisions);
-        shown.push([`**${counted(others.length, "more decision", "more decisions")}:** ${findingWords(others.map((other) => other.finding))}. \`deep-review report --finding <number>\` prints each with its options and commands.`]);
+        shown.push([`**${counted(others.length, "more decision", "more decisions")}:** ${findingWords(others.map((other) => other.finding))}. \`deep-review report --run ${shortRunId(brief.run)} --finding <number>\` prints each with its options and commands.`]);
       }
-    } else shown.push(need.lines);
+    } else shown.push(need2.lines);
   }
   return shown;
 }
 function needsPart(brief) {
   const lines = ["## What needs you", "", brief.needsLine];
   if (brief.needs.length === 0) return lines;
-  const asks = brief.needs.some((need) => need.condition === "question-other" || need.condition === "question-choice");
+  const asks = brief.needs.some((need2) => need2.condition === "question-other" || need2.condition === "question-choice");
   const how = `${asks ? "Each question has a default, the option that is the easiest to reverse, so no item here holds up the run. " : ""}Ask your agent with the deep-review skill to run a command, or type it at a terminal as the end of the report shows. \`deep-review report --run ${shortRunId(brief.run)} --finding <number>\` prints any finding.`;
   return [...lines, "", ...shownNeeds(brief).flatMap((item, index2) => itemLines(index2 + 1, item)), "", how];
 }
@@ -35725,7 +35812,7 @@ function mergeParagraph(brief) {
     ...brief.baseChecks && brief.status.kind === "fix" && brief.checks.length > 0 ? [`The base is ${brief.base}.`] : [],
     ...shared2 ? ["A check that fails the same way on the base has no failure that the change adds."] : [],
     ...byModel ? ["A model's comparison is the reading of the worker that compared the failures of the change with those of the base."] : [],
-    ...brief.notExamined.length === 0 ? [covered] : brief.notExamined,
+    ...brief.notExamined.length === 0 ? [covered] : brief.notExamined.map((gap) => gap.text),
     ...brief.leftAs === null ? [] : [brief.leftAs]
   ].join(" ");
 }
@@ -35740,7 +35827,7 @@ function mergePart(brief, form) {
   const rows = brief.checks.map((check2) => {
     const base = check2.base === null || check2.base.outcome === null ? "not run" : outcomeCells[check2.base.outcome];
     const last = check2.last === null ? "did not run" : `${outcomeCells[check2.last.outcome]}, ${lastMomentWords[check2.last.when]}`;
-    const name = form === "report" ? `[${check2.kind}](#check-${check2.kind})` : check2.kind;
+    const name = form === "report" ? `[${check2.kind}](#${checkAnchor(check2.kind)})` : check2.kind;
     return `| ${[name, ...brief.baseChecks ? [base] : [], check2.before === null ? "did not run" : outcomeCells[check2.before], last, check2.meaning].join(" | ")} |`;
   });
   return [...lines, `| ${columns.join(" | ")} |`, `|${columns.map(() => "---").join("|")}|`, ...rows, "", mergeParagraph(brief)];
@@ -35749,8 +35836,9 @@ function fixesPart(brief, form) {
   const planned = brief.status.kind === "review";
   const lines = [planned ? "## What deep-review would fix" : "## What deep-review fixed", ""];
   if (brief.fixes.length === 0) return [...lines, planned ? "deep-review decided to fix no finding." : "deep-review fixed no finding."];
-  const said2 = (text3, own2) => tableCell(inlineText(quoted(text3, { numbers: numbersOf(brief), own: own2 })));
-  const marks2 = (fix) => [...fix.againstRule ? ["against a written rule"] : [], ...fix.plausible ? ["plausible"] : []].map((mark) => `, ${mark}`).join("");
+  const said2 = (text3, own2) => tableCell(inlineText(quoted(text3, { numbers: brief.numbers, own: own2 })));
+  const asked = new Set(brief.findings.filter((finding) => finding.status === "question").map((finding) => finding.number));
+  const marks2 = (fix) => [...fix.againstRule ? ["against a written rule"] : [], ...fix.finding !== null && asked.has(fix.finding) ? ["the default of a question"] : [], ...fix.plausible ? ["plausible"] : []].map((mark) => `, ${mark}`).join("");
   const name = (fix) => fix.finding === null ? "Documentation" : `${form === "report" ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity}${marks2(fix)}`;
   const shown = brief.fixes.slice(0, shownFixes);
   const others = brief.fixes.slice(shownFixes);
@@ -35790,7 +35878,7 @@ function briefChatForm(brief) {
     `${brief.status.kind === "review" ? "What deep-review would fix" : "What deep-review fixed"}: deep-review report --fixes --run ${run2}`
   ];
 }
-var briefFates, gapKinds, lookConditions, findingStatuses, shapeOfMode, changeShapeOf, answerOf, fateWordsOf, judgedWords, revisionFindings, patchesHolding, answeredLater, passNames, fateWords, fixFateWords, fateClause, missingAccountWords, numbersOf, itemLines, outcomeCells, shownFixes, shortLineLimit, changeLineLimit, endsAbbreviation;
+var briefFates, findingStatuses, shapeOfMode, changeShapeOf, answerOf, choiceFlag, fateWordsOf, judgedWords, chosenEdits, revisionFindings, patchesHolding, answeredLater, isPlanned, appliedDefault, passNames, fateWords, fixFateWords, fateClause, missingAccountWords, itemLines, outcomeCells, shownFixes, shortLineLimit, changeLineLimit, endsAbbreviation;
 var init_brief = __esm({
   "src/review/brief.ts"() {
     "use strict";
@@ -35810,12 +35898,11 @@ var init_brief = __esm({
     init_survey_report();
     init_vocabulary();
     briefFates = ["applied", "already-in-tree", "deferred", "blocked", "not-attempted", "not-fixed"];
-    gapKinds = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop", "documentation"];
-    lookConditions = ["departure", "plausible", "public-interface", "wide-effect"];
     findingStatuses = ["question", "fixed", "fixed-against-rule", "not-fixed", "left", "planned", "planned-against-rule"];
     shapeOfMode = { worktree: "working-tree", "last-commit": "commit", ref: "commits-and-tree", range: "commits-and-tree" };
     changeShapeOf = (scope) => shapeOfMode[scope.mode];
     answerOf = (answer3) => ({ kind: answer3.answer.kind, option: answer3.answer.kind === "option" ? answer3.answer.option + 1 : null, words: answerWords(answer3.answer), at: answer3.at, applied: answer3.appliedBy !== null });
+    choiceFlag = (answer3) => answer3.answer.kind === "option" ? `--option ${String(answer3.answer.option + 1)}` : `--${answer3.answer.kind}`;
     fateWordsOf = {
       applied: "applied",
       "already applied": "already-in-tree",
@@ -35824,12 +35911,15 @@ var init_brief = __esm({
       "not attempted": "not-attempted"
     };
     judgedWords = (condition2) => `${condition2.what === null ? "" : `: ${condition2.what.trim().replace(/[.]+$/, "")}`}${condition2.files.length === 0 ? "" : ` (${condition2.files.join(", ")})`}`;
+    chosenEdits = (decision, standing) => decision?.decision === "ask" && standing?.answer.kind === "option" && decision.ask.options[standing.answer.option]?.edits === true;
     revisionFindings = (context, findings) => findings.flatMap((id) => {
       const number5 = context.numbers.get(id);
       return number5 === void 0 ? [] : [number5];
     });
     patchesHolding = (fix, id) => fix.revisions.flatMap((revision, index2) => revision.change.findings.includes(id) ? [index2 + 1] : []);
     answeredLater = (fix, revision) => revision.source.kind === "attempt" && fix.answers[revision.phase]?.[revision.source.key] !== void 0;
+    isPlanned = (finding) => finding.status === "planned" || finding.status === "planned-against-rule";
+    appliedDefault = (context, finding) => finding.status === "question" && context.outcomes.get(finding.id)?.last === "applied";
     passNames = { SCAN: "first", REMOVALS: "removals", RIPPLE: "ripple effects", FOOTGUNS: "footguns", WRAPPERS: "wrappers", EFFICIENCY: "efficiency", DESIGN: "design", DUPLICATION: "duplication", ALTITUDE: "altitude", CONVENTIONS: "conventions" };
     fateWords = {
       applied: "A fixer applied it.",
@@ -35854,8 +35944,10 @@ var init_brief = __esm({
       unrecorded: "deep-review recorded no account of this change, because an engine before this change reviewed it.",
       none: "deep-review gave no account of this change."
     };
-    numbersOf = (brief) => new Map(brief.findings.flatMap((finding) => [finding.id, ...finding.merged].map((id) => [id, finding.number])));
-    itemLines = (number5, lines) => [`${String(number5)}. ${lines[0]}`, ...lines.slice(1).map((line) => `   - ${line}`)];
+    itemLines = (number5, lines) => {
+      const marker = `${String(number5)}. `;
+      return [`${marker}${lines[0]}`, ...lines.slice(1).map((line) => `${" ".repeat(marker.length)}- ${line}`)];
+    };
     outcomeCells = { passed: "passed", failed: "failed", timeout: "timed out", "not-started": "did not start", skipped: "skipped", cut: "cut short" };
     shownFixes = 10;
     shortLineLimit = 200;
@@ -35953,9 +36045,12 @@ function findingBlockOf(state, id) {
   const numbers = findingNumbers(review2);
   const number5 = numbers.get(id);
   if (number5 === void 0) return null;
-  const brief = briefOf(state);
-  const entry = rankedFindings(review2)[number5 - 1];
-  return findingBlock(state, brief.findings[number5 - 1], entry, review2.decisions?.find((decision) => decision.id === entry.finding.id) ?? null, numbers);
+  const finding = briefOf(state).findings.find((entry2) => entry2.number === number5);
+  const entry = entriesById(review2).get(finding.id);
+  return findingBlock(state, finding, entry, review2.decisions?.find((decision) => decision.id === finding.id) ?? null, numbers);
+}
+function entriesById(review2) {
+  return new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
 }
 function stoppedUnitWords(units) {
   const batches = units.filter((unit) => unit.phase === "fixes").length;
@@ -36005,13 +36100,13 @@ function limitBlockLines(review2) {
   return review2.limitBlocks.map((block) => `Usage limit: ${block.phase} blocked at attempt ${String(block.attempt)}, and the run resumed after it: ${inlineText(block.detail)}.`);
 }
 function coveredSection(state, scope, review2, brief, conventions) {
-  const ran = angles.filter((angle) => angle === "SCAN" ? isAnswered(review2, "triage", triageUnitKey) : review2.anglesNotRun[angle] === void 0 && isAnswered(review2, "finders", angle));
+  const ran = angles.filter((angle) => angleRan(review2, angle));
   const lines = [
     `The review passes that ran: ${ran.length === 0 ? "none" : listed(ran.map((angle) => `${passNames[angle]} (${angle})`))}.`,
     "",
     // A pass that did not run says why here, where the brief names it by its plain name alone.
     ...Object.entries(review2.anglesNotRun).map(([angle, reason]) => `- The ${passNames[angle]} review pass (${angle}) did not run: ${inlineText(reason)}. A later pass looked for what it would have found.`),
-    ...brief.notExamined.filter((gap) => !gap.includes(" review pass did not run")).map((gap) => `- ${gap}`)
+    ...brief.notExamined.filter((gap) => gap.kind !== "angle").map((gap) => `- ${gap.text}`)
   ];
   for (const group of unverifiedGroupsOf(review2)) lines.push(`- Group ${group.groupId} of ${group.phase} was not verified (${inlineText(group.reason)}): its candidates are ${group.candidateIds.join(", ")}.`);
   const standing = Object.values(review2.candidates).filter((candidate) => candidate.duplicateOf === null);
@@ -36070,7 +36165,7 @@ function reopenedLine(review2) {
 }
 function totalsLine(statistics) {
   const { total } = statistics;
-  return `Totals: ${String(total.workers)} worker${total.workers === 1 ? "" : "s"}, ${total.seconds.toFixed(1)} wall seconds, ${usd2(total.costUsd)} USD; \`deep-review report --stats\` gives each phase`;
+  return `Totals: ${counted(total.workers, "worker", "workers")}, ${total.seconds.toFixed(1)} wall seconds, ${usd2(total.costUsd)} USD; \`deep-review report --stats\` gives each phase`;
 }
 function numbersLine(findings) {
   if (findings.length === 0) return [];
@@ -36083,7 +36178,7 @@ function aboutSection(state, scope, review2, input2) {
   const stopped = review2.fix === null ? [] : budgetStoppedUnits(review2.fix);
   const command = input2.fix?.continueCommand ?? null;
   const continuing = stopped.length > 0 && command !== null ? ["", `The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`] : [];
-  const answering = answeringLine(review2, input2.engineEntry);
+  const answering = answeringLine(review2, input2.engineEntry, state.id);
   return [
     "## About this run",
     "",
@@ -36108,7 +36203,7 @@ function aboutSection(state, scope, review2, input2) {
     ...[fixHeaderLine(review2)].filter((line) => line !== null),
     totalsLine(input2.statistics),
     ...baseWorktreeLines(review2),
-    `Evidence store: ${inlineText(input2.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is the file <hash> in it.`,
+    `Evidence store: ${inlineText(input2.store)}; a name such as ${codeSpan(`${evidenceDirectoryName}/<hash>`)} in this report is the file ${codeSpan("<hash>")} in it.`,
     "",
     ...aboutNotes(state, review2, input2),
     ...answering.length === 0 ? [] : ["", ...answering],
@@ -36121,20 +36216,21 @@ function renderReport(state, input2) {
   if (review2 === null || scope === null) throw new Error(`Run ${state.id} has no review to report on`);
   const places = { worktree: state.worktree, home: input2.home };
   const brief = briefOf(state);
-  const findings = rankedFindings(review2);
+  const entries = entriesById(review2);
   const numbers = findingNumbers(review2);
   const decidedFor2 = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review2);
+  const said2 = (text3) => inlineText(quoted(text3, { numbers }));
   const findingsSection = [
     "## Findings",
     "",
-    ...findings.length === 0 ? ["No finding survived verification."] : findings.flatMap((entry, index2) => [...findingBlock(state, brief.findings[index2], entry, decidedFor2.get(entry.finding.id) ?? null, numbers), ""])
+    ...brief.findings.length === 0 ? ["No finding survived verification."] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id), decidedFor2.get(finding.id) ?? null, numbers), ""])
   ];
   const refutedSection = [
     "## Refuted at verification",
     "",
-    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}
-  Evidence: ${inlineText(evidence)}`)
+    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}
+  Evidence: ${said2(evidence)}`)
   ];
   const conventions = conventionsReportSection(review2, (path) => localPathWords(path, places));
   const fixed = input2.fix === void 0 ? [] : fixSections(state, storeNameOf, input2.fix.patches.map(storeNameOf), numbers);
@@ -37286,14 +37382,17 @@ function admitted(decision) {
       return "no answer, since it was left";
   }
 }
-function requireAdmitted(run2, finding, answer3) {
+function answeredName(given, id) {
+  return given === id ? id : `finding ${given} (${id})`;
+}
+function requireAdmitted(run2, finding, named, answer3) {
   const decision = run2.review.decisions.find((candidate) => candidate.id === finding);
   if (decision === void 0) {
     const numbers = findingNumbers(run2.review);
-    const named = answerable(run2).map((entry) => `${String(numbers.get(entry.id))} (${entry.id})`);
-    throw new ReviewRefusedError(`run ${run2.id} has no decision of finding ${finding}; ${named.length === 0 ? "it asked no question and no fix of it departs from a rule" : `the findings it can answer are ${named.join(", ")}`}`);
+    const listed2 = answerable(run2).map((entry) => `${String(numbers.get(entry.id))} (${entry.id})`);
+    throw new ReviewRefusedError(`run ${run2.id} has no decision of finding ${finding}; ${listed2.length === 0 ? "it asked no question and no fix of it departs from a rule" : `the findings it can answer are ${listed2.join(", ")}`}`);
   }
-  if (!admits(decision, answer3)) throw new ReviewRefusedError(`${finding} was decided ${decision.decision}${departs(decision) ? ", departing from a rule" : ""}, which admits ${admitted(decision)}, not ${flagOf(answer3)}`);
+  if (!admits(decision, answer3)) throw new ReviewRefusedError(`${named} was decided ${decision.decision}${departs(decision) ? ", departing from a rule" : ""}, which admits ${admitted(decision)}, not ${flagOf(answer3)}`);
   return decision;
 }
 function chooseAnswerRun(checkpoint, runId, worktree, log) {
@@ -37350,15 +37449,16 @@ async function answerRun(options2) {
       const reason = whyNotAnswerable(run2, worktree);
       if (reason !== null) throw new ReviewRefusedError(reason);
       const finding = findingIdOf(run2.review, options2.finding);
-      if (finding === null) throw new ReviewRefusedError(`run ${run2.id} has ${String(rankedFindings(run2.review).length)} findings, so it has no finding ${options2.finding}`);
-      requireAdmitted(run2, finding, options2.answer);
+      if (finding === null) throw new ReviewRefusedError(noFindingPastTheLast(run2.id, run2.review, options2.finding));
+      const named = answeredName(options2.finding, finding);
+      requireAdmitted(run2, finding, named, options2.answer);
       const fixes = run2.review.fix !== null;
       const standing = standingAnswer(run2.review, finding);
       const again = standing !== null && sameAnswer(standing.answer, options2.answer);
       const retry = again && standing.appliedBy === null && fixes && !options2.recordOnly;
-      if (again && !retry) throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options2.answer)} on run ${run2.id}, on ${standing.at}${standing.appliedBy === null ? "" : ", and the tree holds it"}`);
+      if (again && !retry) throw new ReviewRefusedError(`${named} is already answered ${answerWords(options2.answer)} on run ${run2.id}, on ${standing.at}${standing.appliedBy === null ? "" : ", and the tree holds it"}`);
       if (retry && options2.note !== null && options2.note !== standing.note) {
-        throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options2.answer)} on run ${run2.id}, ${standing.note === null ? "with no note" : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
+        throw new ReviewRefusedError(`${named} is already answered ${answerWords(options2.answer)} on run ${run2.id}, ${standing.note === null ? "with no note" : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
       }
       if (!retry) run2 = checkpoint.append(run2.id, run2.lastSequence, [{ kind: "answer.recorded", version: 1, payload: { id: finding, answer: options2.answer, note: options2.note } }]);
       try {
@@ -37464,18 +37564,18 @@ function briefJson(brief, local, notShown) {
     change: change.state !== "given" ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, beforeEdits: change.beforeEdits },
     status: { ...brief.status, answered: [...brief.status.answered] },
     findings: brief.findings.map((finding) => ({ ...finding, merged: [...finding.merged] })),
-    needs: brief.needs.map((need) => ({ ...need, lines: [...need.lines] })),
+    needs: brief.needs.map((need2) => ({ ...need2, lines: [...need2.lines] })),
     needsLine: brief.needsLine,
     // When a check passed and failed before its last run is for the words of the brief; its fault and meaning say what a program needs of it.
     checks: brief.checks.map((check2) => ({ kind: check2.kind, before: check2.before, last: check2.last === null ? null : { ...check2.last }, base: check2.base === null ? null : { ...check2.base }, fault: check2.fault, meaning: check2.meaning, comparedBy: check2.comparedBy })),
     baseChecks: brief.baseChecks,
     base: brief.base,
     fixes: brief.fixes.map((fix) => ({ ...fix, kinds: [...fix.kinds], patches: [...fix.patches] })),
-    notExamined: [...brief.notExamined],
+    notExamined: brief.notExamined.map((gap) => gap.text),
     leftAs: brief.leftAs,
     questions: brief.questions.map((question) => ({
       id: question.id,
-      finding: numberIn(brief, question.id),
+      finding: question.finding,
       question: question.question,
       default: question.default,
       defaultApplied: question.defaultApplied,
@@ -37486,13 +37586,13 @@ function briefJson(brief, local, notShown) {
       answer: answerJson(question.answer),
       command: question.command
     })),
-    departures: brief.departures.map((departure) => ({ ...departure, finding: numberIn(brief, departure.id), review: answerJson(departure.review) })),
+    departures: brief.departures.map((departure) => ({ id: departure.id, rule: departure.rule, source: departure.source, fact: departure.fact, fix: departure.fix, fate: departure.fate, review: answerJson(departure.review), accept: departure.accept, reject: departure.reject, finding: departure.finding })),
     documents: brief.documents.map((document) => ({ file: document.file, facts: document.facts.map((fact) => ({ ...fact })), reasons: document.reasons.map((reason) => ({ ...reason })) })),
     local: { ...local },
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state }))
   };
 }
-var text2, ids, condition, answer, gapKindsV1, changeV1, briefJsonV1, briefJsonV2, briefJsonV3, briefJsonV4, questionV5, departureV5, count, briefJsonV5, answerJson;
+var text2, ids, condition, answer, gapKindsV1, gapKinds, lookConditions, changeV1, briefJsonV1, briefJsonV2, briefJsonV3, briefJsonV4, questionV5, departureV5, count, briefJsonV5, answerJson;
 var init_brief_json = __esm({
   "src/review/brief-json.ts"() {
     "use strict";
@@ -37507,6 +37607,8 @@ var init_brief_json = __esm({
     condition = external_exports.strictObject({ holds: external_exports.boolean(), what: text2.nullable(), files: external_exports.array(text2) });
     answer = external_exports.strictObject({ kind: external_exports.enum(["option", "accept", "reject"]), option: external_exports.number().int().min(1).nullable(), words: text2, at: text2, applied: external_exports.boolean() });
     gapKindsV1 = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop"];
+    gapKinds = ["angle", "unverified", "excluded", "oversized", "check", "fix", "budget", "stop", "documentation"];
+    lookConditions = ["departure", "plausible", "public-interface", "wide-effect"];
     changeV1 = external_exports.strictObject({ what: text2, why: text2.nullable(), whyFrom: external_exports.array(text2), restsOn: external_exports.array(text2), publicInterface: condition, wideEffect: condition });
     briefJsonV1 = external_exports.strictObject({
       version: external_exports.literal(1),
@@ -37665,10 +37767,10 @@ function statisticsTable(review2, statistics) {
   ];
 }
 function angleRow(review2, angle) {
-  if (angle === "SCAN") return `| SCAN | ${isAnswered(review2, "triage", triageUnitKey) ? "run (as the triage)" : "not run"} | - |`;
+  if (angle === "SCAN") return `| SCAN | ${angleRan(review2, angle) ? "run (as the triage)" : "not run"} | - |`;
   const notRun = review2.anglesNotRun[angle];
   const lead = review2.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
-  const status3 = notRun !== void 0 ? `not run (${tableCell(notRun)})` : isAnswered(review2, "finders", angle) ? "run" : "not run";
+  const status3 = angleRan(review2, angle) ? "run" : notRun === void 0 ? "not run" : `not run (${tableCell(notRun)})`;
   return `| ${angle} | ${status3} | ${lead === null ? "none" : tableCell(lead)} |`;
 }
 function heldBy(fix) {
@@ -37717,19 +37819,18 @@ function renderStats(state, statistics) {
   ];
   return parts.flatMap((part, index2) => index2 === 0 ? part : ["", ...part]);
 }
-var usd4, count2, workersCount, costCell;
+var count2, costCell;
 var init_stats_report = __esm({
   "src/review/stats-report.ts"() {
     "use strict";
     init_fix_state();
-    init_review_fold();
+    init_brief();
     init_markdown();
+    init_report();
     init_state();
     init_vocabulary();
-    usd4 = (value) => value === null ? "-" : value.toFixed(2);
     count2 = (value) => value === null ? "-" : String(value);
-    workersCount = (n) => `${String(n)} worker${n === 1 ? "" : "s"}`;
-    costCell = (spend) => `${usd4(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${workersCount(spend.costUnreported)} unreported)`}`;
+    costCell = (spend) => `${usd2(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? "" : ` (${counted(spend.costUnreported, "worker", "workers")} unreported)`}`;
   }
 });
 
@@ -37744,11 +37845,10 @@ function fixLines2(state) {
     const planned = brief.findings.filter((finding) => finding.status === "planned" || finding.status === "planned-against-rule").map((finding) => finding.number);
     return [`This run only reviewed: it changed nothing.${planned.length === 0 ? "" : ` It would fix ${findingWords(planned)}.`}${leftWords}`];
   }
-  const numbers = findingNumbers(review2);
-  const fixes = rankedFindings(review2).flatMap(({ finding }) => {
-    const { outcome, answer: answer3, reason } = lastFixAnswer(review2, fix, finding.id);
+  const fixes = brief.findings.flatMap(({ number: number5, id }) => {
+    const { outcome, answer: answer3, reason } = lastFixAnswer(review2, fix, id);
     const fate = fateWordsOf[outcome];
-    return fate === void 0 ? [] : [{ number: numbers.get(finding.id), fate, answer: answer3, reason }];
+    return fate === void 0 ? [] : [{ number: number5, fate, answer: answer3, reason }];
   });
   if (fixes.length === 0) return [`This run gave no finding to a fixer, so it applied no fix.${leftWords}`];
   return fixes.map(({ number: number5, fate, answer: answer3, reason }) => {
@@ -37762,7 +37862,6 @@ var init_fix_lines = __esm({
     init_brief();
     init_fix_report();
     init_markdown();
-    init_state();
   }
 });
 
@@ -38272,7 +38371,7 @@ async function answer2(values, io, root, worktree) {
 `));
       }
     });
-    const named = finding === outcome.standing.id ? finding : `finding ${finding} (${outcome.standing.id})`;
+    const named = answeredName(finding, outcome.standing.id);
     io.stdout(`answer ${outcome.recorded ? "recorded" : "already recorded"}: run ${outcome.runId}, ${named} ${answerWords(given)}
 `);
     switch (outcome.next) {
@@ -38612,7 +38711,7 @@ function report(values, io, root, worktree) {
       else if (form === "brief") body = briefMarkdown(brief, "chat");
       else if (form === "finding") {
         const id = findingIdOf(review2, values.finding);
-        if (id === null) throw new UsageError(`run ${state.id} has ${String(review2.ranking?.length ?? 0)} finding${review2.ranking?.length === 1 ? "" : "s"}, so it has no finding ${values.finding}`);
+        if (id === null) throw new UsageError(noFindingPastTheLast(state.id, review2, values.finding));
         const block = findingBlockOf(state, id);
         if (block === null) throw new UsageError(`run ${state.id} has no finding ${values.finding}; deep-review report --run ${state.id} names each finding by its number`);
         body = block;
