@@ -194,6 +194,12 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(given.status, 0, given.stderr);
     assert.match(given.stdout, new RegExp(`^answer recorded: run ${finished.id}, finding ${merged!.members[1]!.id} \\(${merged!.finding.id}\\) option 2\n`));
 
+    // A refusal names a finding given by number, or by a merged id, by what the person gave and the id, as the line of a recorded answer does (PD2 of the report for the person).
+    await assert.rejects(answerRun(optionsOf(box, '1', { kind: 'accept' })), refused(new RegExp(`^finding 1 \\(${merged!.finding.id}\\) was decided ask, which admits an --option from 1 to 2, not --accept$`)));
+    await assert.rejects(answerRun(optionsOf(box, '1', { kind: 'option', option: 1 })), refused(new RegExp(`^finding 1 \\(${merged!.finding.id}\\) is already answered option 2 on run ${finished.id}, on `)));
+    await assert.rejects(answerRun(optionsOf(box, member, { kind: 'option', option: 1 })), refused(new RegExp(`^finding ${member} \\(${merged!.finding.id}\\) is already answered option 2 on run `)));
+    await assert.rejects(answerRun(optionsOf(box, merged!.finding.id, { kind: 'accept' })), refused(new RegExp(`^${merged!.finding.id} was decided ask, `)), 'an id the ledger keys stays bare');
+
     // A number past the last finding is refused in the same words by answer and report, a run of one finding in the singular.
     await assert.rejects(answerRun(optionsOf(box, '2', { kind: 'option', option: 0 })), refused(new RegExp(`^run ${finished.id} has 1 finding, so it has no finding 2$`)));
     const past = await node([cli, 'report', '--finding', '2'], { cwd: box.repo, env: environment(box) });

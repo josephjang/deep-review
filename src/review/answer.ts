@@ -100,15 +100,20 @@ function admitted(decision: RecordedDecision): string {
 /** The answer as the command's flags spell it. */
 const flagOf = (answer: Answer): string => (answer.kind === 'option' ? `--option ${String(answer.option + 1)}` : `--${answer.kind}`);
 
-/** Refuse an answer the finding's decision does not admit, naming the decision and what it admits; refuse a finding the run did not decide, naming the ones it can answer. */
-function requireAdmitted(run: RunState, finding: string, answer: Answer): RecordedDecision {
+/** A finding as a line of `answer` names it: by the id when the person gave that id, else by what they gave and the id the ledger records it on, as `finding 4 (RIPPLE-3)`. */
+export function answeredName(given: string, id: string): string {
+  return given === id ? id : `finding ${given} (${id})`;
+}
+
+/** Refuse an answer the finding's decision does not admit, naming the decision and what it admits, and the finding as `named`; refuse a finding the run did not decide, naming the ones it can answer. */
+function requireAdmitted(run: RunState, finding: string, named: string, answer: Answer): RecordedDecision {
   const decision = run.review!.decisions!.find((candidate) => candidate.id === finding);
   if (decision === undefined) {
     const numbers = findingNumbers(run.review!);
-    const named = answerable(run).map((entry) => `${String(numbers.get(entry.id))} (${entry.id})`);
-    throw new ReviewRefusedError(`run ${run.id} has no decision of finding ${finding}; ${named.length === 0 ? 'it asked no question and no fix of it departs from a rule' : `the findings it can answer are ${named.join(', ')}`}`);
+    const listed = answerable(run).map((entry) => `${String(numbers.get(entry.id))} (${entry.id})`);
+    throw new ReviewRefusedError(`run ${run.id} has no decision of finding ${finding}; ${listed.length === 0 ? 'it asked no question and no fix of it departs from a rule' : `the findings it can answer are ${listed.join(', ')}`}`);
   }
-  if (!admits(decision, answer)) throw new ReviewRefusedError(`${finding} was decided ${decision.decision}${departs(decision) ? ', departing from a rule' : ''}, which admits ${admitted(decision)}, not ${flagOf(answer)}`);
+  if (!admits(decision, answer)) throw new ReviewRefusedError(`${named} was decided ${decision.decision}${departs(decision) ? ', departing from a rule' : ''}, which admits ${admitted(decision)}, not ${flagOf(answer)}`);
   return decision;
 }
 
@@ -216,15 +221,17 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       // A number names the finding of that rank, which the ledger keys by its id (TD4 of the report for the person).
       const finding = findingIdOf(run.review!, options.finding);
       if (finding === null) throw new ReviewRefusedError(noFindingPastTheLast(run.id, run.review!, options.finding));
-      requireAdmitted(run, finding, options.answer);
+      // The refusals name the finding as the person gave it, with the id the ledger keys it by when that differs, as the line of a recorded answer does (PD2 of the report for the person).
+      const named = answeredName(options.finding, finding);
+      requireAdmitted(run, finding, named, options.answer);
       const fixes = run.review!.fix !== null;
       const standing = standingAnswer(run.review!, finding);
       const again = standing !== null && sameAnswer(standing.answer, options.answer);
       const retry = again && standing.appliedBy === null && fixes && !options.recordOnly;
-      if (again && !retry) throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options.answer)} on run ${run.id}, on ${standing.at}${standing.appliedBy === null ? '' : ', and the tree holds it'}`);
+      if (again && !retry) throw new ReviewRefusedError(`${named} is already answered ${answerWords(options.answer)} on run ${run.id}, on ${standing.at}${standing.appliedBy === null ? '' : ', and the tree holds it'}`);
       // A retry is not recorded again (R3), so a note it carries would never reach the pass's fixer, which reads the standing one.
       if (retry && options.note !== null && options.note !== standing.note) {
-        throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
+        throw new ReviewRefusedError(`${named} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
       }
       if (!retry) run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id: finding, answer: options.answer, note: options.note } }]);
       try {
