@@ -161,18 +161,16 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // The angles and the statistics are in `report --stats` (R9 of the report for the person).
     const stats = renderStats(state, state.review!.report!.statistics).join('\n');
     assert.match(stats, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);
-    assert.match(text, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also RIPPLE-2\)  src\/a\.ts:2$/m);
-    assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
-    // A read-only run says what it decided first in the evidence, and under each finding (R8 of the decision step).
-    assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author\./m);
+    // Each finding has one block, with what the decision step decided for it (R6 of the report for the person; R8 of the decision step).
+    assert.match(text, /^- Where: src\/a\.ts:2 \(RIPPLE-1; merged into it: RIPPLE-2 at [^\n]+\)$/m);
+    assert.match(text, /^- Where: src\/b\.ts:1 \(SWEEP-1\)$/m);
     assert.match(text, /^Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 1 refuted at verification$/m);
-    assert.match(text, /^- 2\\\. SWEEP-1: not answered; the default in place is fake default \(no edit\)$/m);
+    assert.match(text, /^- Option 1, the default, in place now: fake default\. /m);
     // The facts of the run name the entry the engine ran from, for a person at a terminal (R9 of the skill surface corrections).
-    assert.ok(text.slice(text.indexOf('\n## The run\n')).includes(`\`node "${cliEntry}" answer --finding <number> --option <n>\``), text);
-    assert.match(text, /^### To fix\n\n- 1\\\. RIPPLE-1: fake approach for \[0\]\. Grounds: fake grounds for \[0\]$/m);
-    assert.match(text, /^Decision: fix: fake grounds for \[0\]$/m);
-    assert.match(text, /^Decision: ask the author, defaulting to fake default \(no edit\); see What needs you: fake grounds for \[1\]$/m);
-    assert.doesNotMatch(text, /^## Fixes$/m, 'a read-only run has no fix pass to report');
+    assert.ok(text.slice(text.indexOf('\n## About this run\n')).includes(`\`node "${cliEntry}" answer --finding <number> --option <n>\``), text);
+    assert.match(text, /^- Decision: fix: fake grounds for \[0\]\n- Plan: fake approach for \[0\]\.$/m);
+    assert.match(text, /^- Decision: ask you; why it asks: fake grounds for \[1\]$/m);
+    assert.doesNotMatch(text, /^## Patches$/m, 'a read-only run has no fix pass to report');
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
     assert.match(stats, /^\| Total \| 19 \| /m);
     assert.match(stats, /^\| decision \| 1 \| /m);
@@ -306,7 +304,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(state.review!.anglesNotRun.DESIGN!, /failed: The answer does not match the output schema.*; timeout: The worker ran past its timeout/);
     assert.equal(state.review!.phases.finders.status, 'degraded');
     assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
-    assert.match(text, /^- The DESIGN angle did not run \(/m, 'the notes say why');
+    assert.match(text, /^- The design review pass \(DESIGN\) did not run: /m, 'the evidence says why');
     assert.match(text, /The design review pass did not run, and a later pass looked for what it would have found\./);
     assert.match(box.promptOf(state, 'sweep sweep:sweep'), /These angles did not run, so their territory is yours to cover: FOOTGUNS \(.*\); DESIGN \(.*\)\./);
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'finder-FOOTGUNS finders:FOOTGUNS').length, 2);
@@ -321,7 +319,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.deepEqual(state.review!.unverifiedGroups.verification, { g2: '2 attempts did not complete: failed: The worker exited with code 1; failed: The worker exited with code 1' });
     assert.equal(state.review!.candidates['SCAN-2']!.unverified, true);
     assert.equal(state.review!.phases.verification.status, 'degraded');
-    assert.match(text, /PLAUSIBLE  SCAN-2  src\/b\.ts:1 \(unverified\)/);
+    assert.match(text, /^- Where: src\/b\.ts:1 \(unverified\) \(SCAN-2\)$/m);
     assert.match(text, /Evidence: none; the verifier of this group failed twice/);
     assert.match(text, /No verifier examined finding \d; it counts as plausible\./);
     assert.match(text, /^- Group g2 of verification was not verified \(2 attempts did not complete: /m);
@@ -369,7 +367,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const decided = box.run();
     assert.deepEqual(decided.review!.phases.decision, { status: 'completed', attempt: 2 });
     assert.deepEqual(decided.review!.decisions?.map((decision) => decision.decision), ['fix', 'ask']);
-    assert.match(text, /^## Decisions$/m);
+    assert.match(text, /^- Decision: /m);
   });
 
   it('decides nothing and launches no decider for a run whose ranking holds no finding', async (t) => {
@@ -406,7 +404,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     box.script({});
     const text = reportText(await box.review('claude'));
     assert.equal(box.checkpoint.fold(readOnly.id).review!.phases.decision.status, 'skipped');
-    assert.doesNotMatch(text, /^## Decisions$/m);
+    assert.doesNotMatch(text, /^- Decision: /m);
   });
 
   it('goes on without a fix run\'s failed survey on flags alone, reading only the user-level files, so a git history it cannot read does not stop it (R9 of the repository survey)', async (t) => {

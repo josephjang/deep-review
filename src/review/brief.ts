@@ -22,8 +22,8 @@ import { defaultInPlace, leaveReasonWords } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { baseWords, briefChecksOf, checkGap, meaningRowOf, outcomeVerbs, validationKindsOf, validationOf, validationWords, type BriefCheck, type BriefValidation, type ComparedBy } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { capitalized, codeSpan, counted, findingAnchor, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
-import { answerCommand, departureItem, lastMomentWords, needsCountLine, needsOf, questionItem, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
+import { capitalized, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
+import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
 import { shortRunId } from './runs.ts';
 import { findingNumbers, ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
@@ -614,31 +614,15 @@ function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
   return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
 }
 
-/**
- * Findings by their numbers as a sentence names them: one as `finding 3`,
- * several as `findings 2, 5 and 9`, with a run of three or more as
- * `11 to 19`.
- */
-export function findingWords(numbers: readonly number[]): string {
-  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
-  const runs: string[] = [];
-  for (let at = 0; at < sorted.length;) {
-    let end = at;
-    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end]! + 1) end += 1;
-    if (end - at >= 2) runs.push(`${String(sorted[at])} to ${String(sorted[end])}`);
-    else for (let index = at; index <= end; index += 1) runs.push(String(sorted[index]));
-    at = end + 1;
-  }
-  return `${sorted.length === 1 ? 'finding' : 'findings'} ${listed(runs)}`;
-}
-
 /** What became of a finding (R6 of the report for the person): a question still open, fixed or not, left, or in a run that only reviewed, planned. */
 function findingStatusOf(context: BriefContext, id: string, decision: RecordedDecision | null): FindingStatus {
   const standing = standingAnswer(context.review, id);
   if (decision?.decision === 'ask' && standing === null) return 'question';
   const departs = decision?.decision === 'fix' && decision.departure !== null && standing?.answer.kind !== 'reject';
   if (context.review.fix === null) {
-    if (decision?.decision === 'fix' || (decision?.decision === 'ask' && standing !== null)) return departs ? 'planned-against-rule' : 'planned';
+    // An answered question is planned when the option the person chose edits the code; one that keeps it leaves the finding as it is.
+    const edits = decision?.decision === 'ask' && standing?.answer.kind === 'option' && decision.ask.options[standing.answer.option]?.edits === true;
+    if (decision?.decision === 'fix' || edits) return departs ? 'planned-against-rule' : 'planned';
     return 'left';
   }
   const outcome = context.outcomes.get(id)?.last;
@@ -820,7 +804,7 @@ function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): Brie
 }
 
 /** The plain name of each review pass, which the brief names a pass by (R10 of the report for the person). */
-const passNames: Readonly<Record<Angle, string>> = { SCAN: 'first', REMOVALS: 'removals', RIPPLE: 'ripple effects', FOOTGUNS: 'footguns', WRAPPERS: 'wrappers', EFFICIENCY: 'efficiency', DESIGN: 'design', DUPLICATION: 'duplication', ALTITUDE: 'altitude', CONVENTIONS: 'conventions' };
+export const passNames: Readonly<Record<Angle, string>> = { SCAN: 'first', REMOVALS: 'removals', RIPPLE: 'ripple effects', FOOTGUNS: 'footguns', WRAPPERS: 'wrappers', EFFICIENCY: 'efficiency', DESIGN: 'design', DUPLICATION: 'duplication', ALTITUDE: 'altitude', CONVENTIONS: 'conventions' };
 
 /**
  * What the run did not examine, in plain words (R4, R10 of the report for
@@ -1098,7 +1082,7 @@ function mergeParagraph(brief: Brief): string {
  * run with when it ran, and its meaning, then the paragraph; a run that
  * only reviewed says that no check ran and names its major findings.
  */
-function mergePart(brief: Brief): string[] {
+function mergePart(brief: Brief, form: BriefForm): string[] {
   const lines = ['## Before you merge', ''];
   if (brief.status.kind === 'review') {
     const major = brief.findings.filter((finding) => finding.severity !== 'minor').map((finding) => finding.number);
@@ -1109,7 +1093,9 @@ function mergePart(brief: Brief): string[] {
   const rows = brief.checks.map((check) => {
     const base = check.base === null || check.base.outcome === null ? 'not run' : outcomeCells[check.base.outcome];
     const last = check.last === null ? 'did not run' : `${outcomeCells[check.last.outcome]}, ${lastMomentWords[check.last.when]}`;
-    return `| ${[check.kind, ...(brief.baseChecks ? [base] : []), check.before === null ? 'did not run' : outcomeCells[check.before], last, check.meaning].join(' | ')} |`;
+    // The report links each check to its block under Checks (R4 of the report for the person); the chat has no link.
+    const name = form === 'report' ? `[${check.kind}](#check-${check.kind})` : check.kind;
+    return `| ${[name, ...(brief.baseChecks ? [base] : []), check.before === null ? 'did not run' : outcomeCells[check.before], last, check.meaning].join(' | ')} |`;
   });
   return [...lines, `| ${columns.join(' | ')} |`, `|${columns.map(() => '---').join('|')}|`, ...rows, '', mergeParagraph(brief)];
 }
@@ -1128,7 +1114,7 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   const planned = brief.status.kind === 'review';
   const lines = [planned ? '## What deep-review would fix' : '## What deep-review fixed', ''];
   if (brief.fixes.length === 0) return [...lines, planned ? 'deep-review decided to fix no finding.' : 'deep-review fixed no finding.'];
-  const said = (text: string): string => tableCell(inlineText(quoted(text, { numbers: numbersOf(brief) })));
+  const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: numbersOf(brief), own })));
   const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
   const name = (fix: BriefFix): string => (fix.finding === null ? 'Documentation' : `${form === 'report' ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity!}${marks(fix)}`);
   const shown = brief.fixes.slice(0, shownFixes);
@@ -1138,8 +1124,8 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   const otherMarks = others.flatMap((fix) => (fix.finding === null || marks(fix) === '' ? [] : [`finding ${String(fix.finding)}${marks(fix)}`])).join('; ');
   const othersName = [...(otherFindings.length === 0 ? [] : [findingWords(otherFindings)]), ...(otherDocuments === 0 ? [] : [counted(otherDocuments, 'documentation update', 'documentation updates')])].join(' and ');
   const table = planned
-    ? ['| Finding | The planned fix |', '|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject)} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} |`])]
-    : ['| Finding | The fix | How its fixer reports checking it | Patch |', '|---|---|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject)} | ${validationWords(fix.kinds)} | ${fix.patches.length === 0 ? 'none' : fix.patches.join(', ')} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} | | |`])];
+    ? ['| Finding | The planned fix |', '|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject, fix.finding)} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} |`])]
+    : ['| Finding | The fix | How its fixer reports checking it | Patch |', '|---|---|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject, fix.finding)} | ${validationWords(fix.kinds)} | ${fix.patches.length === 0 ? 'none' : fix.patches.join(', ')} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} | | |`])];
   const plausible = brief.fixes.some((fix) => fix.plausible) ? ['', 'A plausible finding is one that the verifier did not confirm.'] : [];
   return [...lines, ...table, ...plausible];
 }
@@ -1152,36 +1138,7 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
  * finding of the table of the fixes is plain text.
  */
 export function briefMarkdown(brief: Brief, form: BriefForm = 'report'): string[] {
-  return [`# ${inlineText(brief.title)}`, '', ...accountPart(brief), '', brief.status.text, '', ...needsPart(brief), '', ...mergePart(brief), '', ...fixesPart(brief, form)];
-}
-
-/** An answer a person gave, as a line under its item. */
-const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
-
-/**
- * The item of one decision of the brief, a question or a fix that goes
- * against a written rule, open or answered, under the heading of its
- * finding (R7 of the questions in the chat), which `report --finding`
- * prints; null for a finding that is neither.
- */
-export function briefBlock(brief: Brief, id: string): string[] | null {
-  if (!brief.findings.some((finding) => finding.id === id || finding.merged.includes(id))) return null;
-  const number = numberIn(brief, id);
-  const facts = { run: brief.run, numbers: numbersOf(brief) };
-  const question = brief.questions.find((entry) => entry.id === id);
-  const fixed = brief.status.kind === 'fix';
-  if (question !== undefined) {
-    const item = questionItem(facts, needQuestionOf(question, number, fixed));
-    // An answered question no longer waits, so its block drops what doing nothing does and says the answer.
-    const lines = question.answer === null ? item.lines : item.lines.slice(0, -1);
-    return [`## Finding ${String(number)}`, '', ...itemLines(1, lines), ...(question.answer === null ? [] : ['', answeredWords(question.answer)])];
-  }
-  const departure = brief.departures.find((entry) => entry.id === id);
-  if (departure === undefined) return null;
-  const fate: NeedDeparture['fate'] = departure.fate === 'not-fixed' ? { kind: 'review-only' } : departure.fate === 'applied' ? { kind: 'applied' } : departure.fate === 'already-in-tree' ? { kind: 'already-in-tree' } : { kind: 'not-applied', why: fateClause(departure.fate) };
-  const item = departureItem(facts, { finding: number, rule: departure.rule, source: departure.source, reason: departure.fact, fate });
-  const lines = departure.review === null ? item.lines : item.lines.slice(0, -1);
-  return [`## Finding ${String(number)}`, '', ...itemLines(1, lines), ...(departure.review === null ? [] : ['', answeredWords(departure.review)])];
+  return [`# ${inlineText(brief.title)}`, '', ...accountPart(brief), '', brief.status.text, '', ...needsPart(brief), '', ...mergePart(brief, form), '', ...fixesPart(brief, form)];
 }
 
 /**
@@ -1247,7 +1204,7 @@ export function briefChatForm(brief: Brief): string[] {
     '',
     ...needsPart(brief),
     '',
-    ...mergePart(brief),
+    ...mergePart(brief, 'chat'),
     '',
     `${brief.status.kind === 'review' ? 'What deep-review would fix' : 'What deep-review fixed'}: deep-review report --fixes --run ${run}`,
   ];

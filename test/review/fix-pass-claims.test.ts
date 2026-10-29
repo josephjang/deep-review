@@ -43,7 +43,7 @@ describe('claims (commit series integrity)', { timeout: 900_000, concurrency: sa
     const fix = state.review!.fix!;
     assert.deepEqual(fix.answers.fixes['c2-1']!.findings.map((finding) => [finding.status, finding.requiredFiles]), [['blocked', [shared]]]);
     // The report names who held each path: c1 by its claim in the first round, c3 by the plan in the second.
-    assert.match(text, /^\| test\/shared\.test\.ts \| created \| c1-1, c3-1 \|$/m);
+    assert.match(text, /^\d\. [^\n]*test\/shared\.test\.ts created/m);
     const stats = renderStats(state, state.review!.report!.statistics).join('\n');
     assert.match(stats, /^\| test\/shared\.test\.ts \| c1 \(claimed\), c3 \|$/m);
     assert.match(stats, /^\| docs\/c3\.md \| c3 \(claimed\) \|$/m);

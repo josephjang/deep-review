@@ -143,20 +143,21 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(block.status, 0, block.stderr);
     const blockLines = block.stdout.trimEnd().split('\n');
     const numberOf = (id: string): number => rankedFindings(box.run().review!).findIndex((entry) => entry.finding.id === id) + 1;
-    assert.equal(blockLines[0], `## Finding ${String(numberOf(question))}`);
-    assert.ok(blockLines.some((line) => line.startsWith(`1. **Finding ${String(numberOf(question))} asks you a question`)), block.stdout);
-    assert.match(block.stdout, /^Answered: option 1 on [^;]+; the tree holds it\.$/m, 'an answered question says its answer');
-    assert.doesNotMatch(block.stdout, /If you do nothing/, 'and no longer what doing nothing does');
+    // report --finding prints the block of the finding, by its number or its id (R7 of the report for the person).
+    assert.equal(blockLines[0], `<a id="finding-${String(numberOf(question))}"></a>`);
+    assert.ok(blockLines.some((line) => /^Left as is\. /.test(line)), 'the answer keeps the code as it is');
+    assert.match(block.stdout, /^- Answer: option 1 on [^;]+; the option the tree held$/m, 'an answered question says its answer');
     assert.equal(blockLines.at(-1), reportCopyPath(box.checkpoint.root, box.run()));
     const departure = await report('--finding', departing, '--run', shortRunId(finished.id));
     assert.equal(departure.status, 0, departure.stderr);
-    assert.ok(departure.stdout.startsWith(`## Finding ${String(numberOf(departing))}\n\n1. **Finding ${String(numberOf(departing))} would be fixed against a written rule.**`), departure.stdout);
+    assert.ok(departure.stdout.startsWith(`<a id="finding-${String(numberOf(departing))}"></a>`), departure.stdout);
+    assert.match(departure.stdout, /^- Against a written rule: /m);
+    // Any finding has a block, a fix that goes against no rule among them; an id the run does not hold is refused (R7 of the report for the person).
     const fixId = box.run().review!.decisions!.find((decision) => decision.decision === 'fix' && decision.departure === null)?.id;
-    for (const id of [...(fixId === undefined ? [] : [fixId]), 'SCAN-99']) {
-      const refusedBlock = await report('--finding', id);
-      assert.equal(refusedBlock.status, 1, `${id}: ${refusedBlock.stderr}`);
-      assert.match(refusedBlock.stderr, new RegExp(`no question and no fix that goes against a written rule named ${id}; for any fix, deep-review report --fixes gives its line`));
-    }
+    if (fixId !== undefined) assert.equal((await report('--finding', fixId)).status, 0);
+    const refusedBlock = await report('--finding', 'SCAN-99');
+    assert.equal(refusedBlock.status, 1, refusedBlock.stderr);
+    assert.match(refusedBlock.stderr, /has no finding SCAN-99; deep-review report --run \S+ names each finding by its number/);
     assert.match((await report('--finding', question, '--json')).stderr, /--json and --finding do not go together; give one/);
     assert.match((await report('--finding', 'not an id')).stderr, /--finding takes a finding's number as the brief prints it, such as 2, or its id, such as RIPPLE-2/);
     assert.match((await report('--finding', '99')).stderr, /has \d findings, so it has no finding 99$/m);
@@ -200,7 +201,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.ok(box.checkRuns().length > checksBefore, 'the checks ran again');
     assert.ok(passed.review!.fix!.checks.runs['answer-checks'].length > 0);
     const report = reportText({ kind: 'report', runId: passed.id, reportPath: lines.at(-1)!, copyPath: null, shortForm: [] });
-    assert.match(report, new RegExp(`^- \\d\\\\\\. ${question}: answered option `, 'm'));
+    assert.match(report, /^- Answer: option 2 on [^;]+; applied by the answer pass of /m);
     assert.match(report, /^Answered: the last pass on /m);
 
     // One answer recorded only, rejecting the departure; the same answer given again opens a second pass over that finding alone, which follows the rule.

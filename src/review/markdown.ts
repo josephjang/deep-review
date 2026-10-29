@@ -179,3 +179,21 @@ export function quoted(text: string, context: QuoteContext): string {
     return escapedText(indexed);
   }).join('');
 }
+
+/**
+ * Findings by their numbers as a sentence names them: one as `finding 3`,
+ * several as `findings 2, 5 and 9`, with a run of three or more as
+ * `11 to 19`.
+ */
+export function findingWords(numbers: readonly number[]): string {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let at = 0; at < sorted.length;) {
+    let end = at;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end]! + 1) end += 1;
+    if (end - at >= 2) runs.push(`${String(sorted[at])} to ${String(sorted[end])}`);
+    else for (let index = at; index <= end; index += 1) runs.push(String(sorted[index]));
+    at = end + 1;
+  }
+  return `${sorted.length === 1 ? 'finding' : 'findings'} ${listed(runs)}`;
+}

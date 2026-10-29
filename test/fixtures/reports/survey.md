@@ -17,9 +17,9 @@ Ask your agent with the deep-review skill to run a command, or type it at a term
 
 | Check | As submitted | Last run | What it means |
 |---|---|---|---|
-| build | passed | passed, after the fixes for the checks | passes |
-| lint | passed | passed, after the fixes for the checks | passes |
-| test | failed | failed, after the fixes for the checks | fails |
+| [build](#check-build) | passed | passed, after the fixes for the checks | passes |
+| [lint](#check-lint) | passed | passed, after the fixes for the checks | passes |
+| [test](#check-test) | failed | failed, after the fixes for the checks | fails |
 
 The footguns review pass did not run, and a later pass looked for what it would have found. No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible. No typecheck check ran: dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found. Left as is: finding 2, held for the author.
 
@@ -29,60 +29,35 @@ The footguns review pass did not run, and a later pass looked for what it would 
 |---|---|---|---|
 | [1](#finding-1), major | fix: Guard the null in parse | a new test fails on the code before the fix | 2 |
 
----
-
-The evidence for each statement above follows.
-
 ## Findings
 
 <a id="finding-1"></a>
 
-### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
+### 1. null dereference
 
-null dereference
+Fixed. Major, CONFIRMED.
 
-Reason: same root cause at lines 4 and 7
-Evidence: line 4 dereferences null
-Angle: RIPPLE, SCAN
-Also at: SWEEP-2 src/a.ts:7
+- Where: src/a.ts:4 (RIPPLE-1; merged into it: SWEEP-2 at src/a.ts:7)
+- Reason: same root cause at lines 4 and 7
+- Evidence: line 4 dereferences null
+- Fix: applied; guarded the null before its use
+- Commit message: fix: Guard the null in parse
+- Patch: 2
+- Correction: src/a.ts parse: parse is at line 4 -> it moved to line 6 (git blame)
+- Validation, as its fixer reports it: old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
 
 <a id="finding-2"></a>
 
-### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
+### 2. extract the helper
 
-extract the helper
+Left as is. Minor, PLAUSIBLE, which no verifier examined.
 
-Reason: one improvement
-Evidence: none; the verifier of this group failed twice
-Angle: DESIGN
+- Where: C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified) (SWEEP-1)
+- Reason: one improvement
+- Evidence: none; the verifier of this group failed twice
+- Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it.
 
-## Fixes
-
-What the fix pass did with each finding, in rank order. Every edit is in the working tree, uncommitted; a patch number is one of the series under Changed files.
-
-### 1. RIPPLE-1 applied
-
-Note: guarded the null before its use
-Commit message: fix: Guard the null in parse
-Patch 2
-Correction: src/a.ts parse: parse is at line 4 -> it moved to line 6 (git blame)
-
-### 2. SWEEP-1 held for the author
-
-A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it.
-
-### Repair
-
-- lint check applied: formatted the guard; patch 3
-- test check deferred: every failure was there before the fixes; no patch
-
-The documentation the fixers say their edits made stale is under Documentation, with what became of it.
-
-Tests the fixers say they added or tightened:
-
-- test/a.test.ts: parse(null) returns 0 (c1-1)
-
-## Documentation
+## Documentation updates
 
 The documentation step did not run: an engine before the documentation step configured this run.
 
@@ -92,27 +67,68 @@ Documentation the workers of this run say their edits made stale, which no step 
 
 ## Checks
 
-| Check | Command | Source | Before the fixes | After the fixes | After the repair |
-|---|---|---|---|---|---|
-| build | npm run build | package.json (hint) | passed, 4.0 s | passed, 4.0 s | passed, 4.0 s |
-| typecheck | dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found | --no-check | - | - | - |
-| lint | npm run lint | .github/workflows/ci.yml (stated) | passed, 4.0 s | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd | passed, 4.0 s |
-| test | npm run test | --check | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass) | failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass) |
+<a id="check-build"></a>
 
-## Changed files
+### build
 
-| Path | Status | Changed by |
-|---|---|---|
-| src/a.ts | modified | lint check, c1-1, repair |
-| test/a.test.ts | created | c1-1 |
+- Command: `npm run build`
+- Source: package.json (hint)
+- As submitted: passed, 4.0 s
+- After the fixes: passed, 4.0 s
+- After the fixes for the checks: passed, 4.0 s
+
+<a id="check-typecheck"></a>
+
+### typecheck
+
+- Command: dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found
+- Source: --no-check
+
+<a id="check-lint"></a>
+
+### lint
+
+- Command: `npm run lint`
+- Source: .github/workflows/ci.yml (stated)
+- As submitted: passed, 4.0 s
+- After the fixes: failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+- After the fixes for the checks: passed, 4.0 s
+- Its fix: applied, formatted the guard; patch 3
+
+<a id="check-test"></a>
+
+### test
+
+- Command: `npm run test`
+- Source: --check
+- As submitted: failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+- After the fixes: failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass)
+- After the fixes for the checks: failed, 4.0 s; output artifacts/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, artifacts/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (failing before the fix pass)
+- Its fix: deferred, every failure was there before the fixes; no patch
+
+## Patches
 
 The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:
 
-1. chore: apply the lint check's rewrite (lint check): artifacts/1111111111111111111111111111111111111111111111111111111111111111
-2. fix: Guard the null in parse (c1-1): artifacts/2222222222222222222222222222222222222222222222222222222222222222
-3. style: Format the guard (repair): artifacts/3333333333333333333333333333333333333333333333333333333333333333
+1. chore: apply the lint check's rewrite (the lint check), src/a.ts modified: artifacts/1111111111111111111111111111111111111111111111111111111111111111
+2. fix: Guard the null in parse (finding 1, c1-1), src/a.ts modified, test/a.test.ts created: artifacts/2222222222222222222222222222222222222222222222222222222222222222
+3. style: Format the guard (repair), src/a.ts modified: artifacts/3333333333333333333333333333333333333333333333333333333333333333
 
-## Conventions
+Tests the fixers say they added or tightened:
+
+- test/a.test.ts: parse(null) returns 0 (c1-1)
+
+## What the review covered
+
+The review passes that ran: first (SCAN), removals (REMOVALS), ripple effects (RIPPLE), wrappers (WRAPPERS), efficiency (EFFICIENCY), design (DESIGN), duplication (DUPLICATION), altitude (ALTITUDE) and conventions (CONVENTIONS).
+
+- The footguns review pass (FOOTGUNS) did not run: 2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout. A later pass looked for what it would have found.
+- No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.
+- No typecheck check ran: dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found.
+- Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates are SWEEP-1, SWEEP-2.
+- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
+
+### Conventions
 
 The survey named these files as stating the conventions the change was held to:
 
@@ -133,21 +149,7 @@ Surveyor's note: CONTRIBUTING.md links to a style guide outside the repository
 
 None.
 
-## Notes of the run
-
-- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout).
-- Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates (SWEEP-1, SWEEP-2) are a gap of the brief.
-- Worktree checks: 18, none found a difference from what the run expected.
-- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
-- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
-- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
-- Files no answer names, left in the tree and in no patch: notes.txt.
-- Validation of RIPPLE-1 (c1-1), old-code, test/a.test.ts: failed on the old code for the null, passed on the fix
-- Fixer c1-1 ran its own suite: pass (npm test).
-- The repair ran its own suite: pass (npm test).
-- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.
-
-## The run
+## About this run
 
 Repository: /w
 Base: 1111111111111111111111111111111111111111
@@ -158,5 +160,15 @@ Engine: 0.0.0+dev (run created by 0.0.0)
 Runtime: claude 2.1.283 at /bin/claude
 Models: strong opus, fast sonnet
 Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
+Findings by number: 1 RIPPLE-1 (also SWEEP-2); 2 SWEEP-1
 Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
+Totals: 9 workers, 22.5 wall seconds, 4.50 USD; `deep-review report --stats` gives each phase
 Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.
+
+- Worktree checks: 18, none found a difference from what the run expected.
+- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
+- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
+- Files no answer names, left in the tree and in no patch: notes.txt.
+- Fixer c1-1 ran its own suite: pass (npm test).
+- The repair ran its own suite: pass (npm test).
+- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.

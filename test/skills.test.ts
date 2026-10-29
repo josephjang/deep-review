@@ -114,7 +114,7 @@ describe('the skill texts', () => {
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(') && read('src/review/status.ts').includes('settingsLimitations('), 'status prints the run\'s recorded settings');
       // The report gives the settings line in the facts of the run, the paths left out among the gaps of the brief, and the rest in the notes of the run (R10, R12 of the brief of a run).
       assert.ok(read('src/review/report.ts').includes('settingsHeaderLine(') && read('src/review/report.ts').includes('settingsNotes(') && read('src/review/brief.ts').includes('scope.excluded'), 'the report prints the run\'s recorded settings');
-      assert.ok(read('src/review/report.ts').includes('\'## The run\'') && read('src/review/report.ts').includes('\'## Notes of the run\''), 'the report has the facts and the notes of the run');
+      assert.ok(read('src/review/report.ts').includes('\'## About this run\'') && read('src/review/report.ts').includes('\'## What the review covered\''), 'the report has the facts of the run and what the review covered (R8 of the report for the person)');
       assert.match(text, /When the user\s+asks to change a preference, name the file that\s+`config show` lists for it\./);
       // R3 of the skill surface corrections: a new file comes from config init, each setting commented at its default, not from TOML the model writes.
       assert.match(text, /When the user asks for a configuration file\s+that does not exist yet, run the `main\.mjs` of step 3 with only\s+`config init --repository`, `config init --operator` or\s+`config init --clone`, for the repository's file, the operator's or\s+this clone's\./);
