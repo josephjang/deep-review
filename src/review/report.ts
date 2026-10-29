@@ -17,9 +17,9 @@ import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevi
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import { briefMarkdown, briefOf, firstSentence, passNames, type Brief, type BriefFinding, type FindingStatus } from './brief.ts';
+import { angleRan, briefMarkdown, briefOf, firstSentence, passNames, type Brief, type BriefFinding, type FindingStatus } from './brief.ts';
 import { answeringLine, decisionBlockLines } from './decision-report.ts';
 import { baseWorktreeLines, fixBlockLines, fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
@@ -29,7 +29,7 @@ import { findingNumbers, ranAgain, rankedFindings, refuted, type ReportFinding }
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
-import { angles, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
+import { angles, type Angle, type Phase } from './vocabulary.ts';
 
 /** A Codex Windows sandbox as the ledger records it, which the report renders from rather than from the adapter's vocabulary. */
 type PinnedWindowsSandbox = NonNullable<ReviewConfiguration['codex']>['windowsSandbox'];
@@ -269,7 +269,7 @@ export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): strin
  * do.
  */
 function coveredSection(state: RunState, scope: ScopeState, review: ReviewState, brief: Brief, conventions: string[] | null): string[] {
-  const ran = angles.filter((angle) => (angle === 'SCAN' ? isAnswered(review, 'triage', triageUnitKey) : review.anglesNotRun[angle] === undefined && isAnswered(review, 'finders', angle)));
+  const ran = angles.filter((angle) => angleRan(review, angle));
   const lines = [
     `The review passes that ran: ${ran.length === 0 ? 'none' : listed(ran.map((angle) => `${passNames[angle]} (${angle})`))}.`,
     '',

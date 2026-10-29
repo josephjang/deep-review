@@ -132,6 +132,19 @@ describe('renderReport', () => {
     assert.ok(report.includes(' 1 file too large to freeze, which no worker was given: big.bin.'), 'a gap of the brief (R10 of the brief of a run)');
   });
 
+  it('names the same review passes as run in the report and in the Angles table of report --stats', () => {
+    const state = reported().fold();
+    const skipped = { ...state, review: { ...state.review!, anglesNotRun: { ...state.review!.anglesNotRun, DESIGN: 'timeout' } } };
+    for (const run of [state, skipped]) {
+      const named = /^The review passes that ran: (.*)\.$/m.exec(renderReport(run, reportInput))![1]!;
+      const inReport = [...named.matchAll(/\(([A-Z]+)\)/g)].map((match) => match[1]);
+      const inStats = renderStats(run, statistics).flatMap((line) => /^\| ([A-Z]+) \| run\b/.exec(line)?.[1] ?? []);
+      assert.deepEqual(inReport, inStats);
+      assert.ok(inReport.includes('SCAN'), 'the first pass runs as the triage');
+    }
+    assert.ok(!/^The review passes that ran: .*\(DESIGN\)/m.test(renderReport(skipped, reportInput)), 'a pass the run marked not run did not run');
+  });
+
   it('keeps text from workers inside the line it belongs to, so it cannot add a heading, a list item or a paragraph', () => {
     const state = reported().fold();
     const review = state.review!;
