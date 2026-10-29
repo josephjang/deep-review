@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -132,7 +132,20 @@ describe('assembleArtifact and publishArtifact', () => {
     publishArtifact(repository, target, staged);
     assert.equal(readFileSync(join(repository, 'dist/sample/SKILL.md'), 'utf8'), 'new');
     assert.equal(existsSync(join(repository, 'dist/sample/stale.md')), false);
-    assert.equal(existsSync(staged), false, 'the staged tree is moved, not copied');
+    assert.deepEqual(readdirSync(join(repository, 'dist')), ['sample'], 'nothing of the publish is left beside the artifact');
+  });
+
+  it('keeps the old artifact when the new one cannot be renamed into its place', () => {
+    write(repository, 'skill/sample/SKILL.md', 'new');
+    write(repository, 'dist/sample/SKILL.md', 'old');
+    const staged = assembleArtifact(repository, target, staging);
+    const rename = (from: string, to: string): void => {
+      if (from.endsWith('incoming')) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      renameSync(from, to);
+    };
+    assert.throws(() => publishArtifact(repository, target, staged, rename), /EPERM/);
+    assert.equal(readFileSync(join(repository, 'dist/sample/SKILL.md'), 'utf8'), 'old');
+    assert.deepEqual(readdirSync(join(repository, 'dist')), ['sample'], 'nothing of the failed publish is left beside the artifact');
   });
 
   it('creates dist when it does not exist yet', () => {

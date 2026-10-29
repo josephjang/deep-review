@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
  * One runtime's installed artifact: a source directory that the build copies
@@ -86,14 +86,32 @@ export function assembleArtifact(repositoryRoot: string, target: ArtifactTarget,
  * Replace the committed artifact at `repositoryRoot/<target.destination>` with a
  * staged tree, removing whatever was there. The destination has to sit under
  * `dist/` inside the repository, so a wrong path can never delete anything else.
+ * Staging may sit on another filesystem, which a rename cannot cross, so the
+ * staged tree is first copied beside the destination; only then is the old
+ * tree moved aside and the copy renamed into its place. A rename that fails
+ * puts the old tree back, so a failed publish leaves the artifact as it was.
+ * `rename` stands in for the file system's in tests.
  */
-export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, staged: string): void {
+export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, staged: string, rename: (from: string, to: string) => void = renameSync): void {
   const destination = resolve(repositoryRoot, target.destination);
   assertUnderDist(repositoryRoot, destination);
   if (!existsSync(staged)) throw new Error(`Staged artifact does not exist: ${staged}`);
-  mkdirSync(resolve(repositoryRoot, distRoot), { recursive: true });
-  rmSync(destination, { recursive: true, force: true });
-  renameSync(staged, destination);
+  const parent = dirname(destination);
+  mkdirSync(parent, { recursive: true });
+  const work = mkdtempSync(join(parent, `.${target.name}-publish-`));
+  const incoming = join(work, 'incoming');
+  const outgoing = join(work, 'outgoing');
+  try {
+    cpSync(staged, incoming, { recursive: true, errorOnExist: true, dereference: false });
+    if (existsSync(destination)) rename(destination, outgoing);
+    rename(incoming, destination);
+  } catch (error) {
+    // A restore that fails too throws before the removal, leaving the old tree under `work`.
+    if (existsSync(outgoing) && !existsSync(destination)) rename(outgoing, destination);
+    rmSync(work, { recursive: true, force: true });
+    throw error;
+  }
+  rmSync(work, { recursive: true, force: true });
 }
 
 /** Throw unless `destination` is strictly inside `<repositoryRoot>/dist`. */
