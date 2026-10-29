@@ -788,7 +788,7 @@ function shownNeeds(brief: Brief): (readonly string[])[] {
       if (index < shownDecisions) shown.push(need.lines);
       if (index === shownDecisions) {
         const others = decisions.slice(shownDecisions);
-        shown.push([`**${counted(others.length, 'more decision', 'more decisions')}:** ${findingWords(others.map((other) => other.finding!))}. \`deep-review report --finding <number>\` prints each with its options and commands.`]);
+        shown.push([`**${counted(others.length, 'more decision', 'more decisions')}:** ${findingWords(others.map((other) => other.finding!))}. \`deep-review report --run ${shortRunId(brief.run)} --finding <number>\` prints each with its options and commands.`]);
       }
     } else shown.push(need.lines);
   }
