@@ -229,7 +229,7 @@ export const needTable: readonly NeedRow[] = [
       check: null,
       document: null,
       patch: edit.patch,
-      lines: [`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? '' : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? 'the commits hold the edits as they are' : 'the edits are committed as they are'}.`],
+      lines: [`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? '' : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? 'the commits hold the edits as they are' : '`deep-review commit` commits the edits as they are'}.`],
     })),
     count: ['piece of work not finished', 'pieces of work not finished'],
   },

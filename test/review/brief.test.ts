@@ -410,7 +410,7 @@ describe('the brief for the person', () => {
     const answered = fix.revisions[0]!;
     const attempt = (key: string): unknown => ({ ...answered, source: { kind: 'attempt', key, workerId: worker(60) } });
     const left = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [answered, attempt('c9-1')] } } } as RunState);
-    assert.deepEqual(left.needs.filter((need) => need.condition === 'unfinished-edits').map((need) => need.lines[0]), ['**Patch 2 holds edits of a fixer that did not finish, for finding 1.** No later fixer of the same work answered. If you do nothing, the edits are committed as they are.']);
+    assert.deepEqual(left.needs.filter((need) => need.condition === 'unfinished-edits').map((need) => need.lines[0]), ['**Patch 2 holds edits of a fixer that did not finish, for finding 1.** No later fixer of the same work answered. If you do nothing, `deep-review commit` commits the edits as they are.']);
     const finished = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [answered, attempt('c1-1')] } } } as RunState);
     assert.ok(!finished.needs.some((need) => need.condition === 'unfinished-edits'));
     assert.equal(finished.needs.find((need) => need.condition === 'uncommitted')!.lines[0], `**Review the 2 uncommitted patches, then commit them.** Read first patch 2, edits of a fixer that did not finish, which a later fixer of the same work completed. If you do nothing, the fixes stay uncommitted in your working tree. To commit them: \`deep-review commit --run ${run(state)}\`.`);
