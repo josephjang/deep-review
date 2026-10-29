@@ -18,7 +18,7 @@ import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { baseWords, briefChecksOf, notComparedPlainWords, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { codeSpan, counted, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, counted, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { baseSkipReasons, checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type BaseReading, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
@@ -427,12 +427,14 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   });
   const answered = review.answerPasses.length > 0;
   // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
-  const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? `the fixes for the checks were not attempted: ${inlineText(notAttemptedNote(fix, 'repair', repairUnitKey) ?? 'no reason recorded')}` : 'the fixes for the checks changed no file';
+  const repairUnattempted = isNotAttempted(fix, 'repair', repairUnitKey) ? `the fixes for the checks were not attempted: ${inlineText(notAttemptedNote(fix, 'repair', repairUnitKey) ?? 'no reason recorded')}` : null;
+  const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : repairUnattempted ?? 'the fixes for the checks changed no file';
   const notRun = planned.every((check) => check.command === null)
     ? ['- No check ran in any phase, since no kind has a command.']
     : [
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
-        ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the fixes for the checks: not run, since ${repairWhy}.`] : []),
+        // A revision of an unfinished attempt of the repair runs the checks after it, so a repair settled not attempted says so here too.
+        ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the fixes for the checks: not run, since ${repairWhy}.`] : repairUnattempted === null ? [] : [`- ${capitalized(repairUnattempted)}.`]),
         ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After your answers: not run, since no answer pass changed a file.'] : []),
         ...baseNotes(review, fix, checks, scope),
       ];
