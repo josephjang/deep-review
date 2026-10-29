@@ -107,7 +107,8 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.equal(path, reportCopyPath(root, state));
     const text = readFileSync(path!, 'utf8');
     assert.equal(text, renderReport(state, reportInputOf(checkpointAt(root), state, context)));
-    assert.match(text, /It follows your answers to finding 2 /);
+    // No answer pass ran, so the answer still owes its edit.
+    assert.match(text, /It has not yet applied your answers to finding 2 /);
     assert.match(text, /^Engine: 0\.0\.0\+copy \(run created by 0\.0\.0\)$/m, 'the copy names the engine that rendered it');
   });
 
