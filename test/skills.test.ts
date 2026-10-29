@@ -83,14 +83,17 @@ describe('the skill texts', () => {
     it(`${name}: runs deep-review answer when the user answers a question or a departure, and says what each outcome means (R12 of answers)`, () => {
       const text = read(path);
       assert.match(text, /The brief at the top of the report lists, under What needs you, the\s+questions the run asked and the fixes that go against a written rule,\s+each with the `deep-review answer` command that answers it\./);
-      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --finding <number> --option <n>`), 'the answer subcommand of the same bundle');
-      assert.match(text, /`--accept` or `--reject` in place of `--option <n>` for a\s+departure, and `--note <text>` with what the user said beyond the\s+choice/);
+      // A number names a finding only within its run, so the template names the run as the brief's command does (R7 of the report for the person).
+      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --run <run> --finding <number> --option <n>`), 'the answer subcommand of the same bundle');
+      assert.ok(read('src/review/needs.ts').includes('`deep-review answer --run ${shortRunId(run)} --finding ${String(finding)} ${choice}`'), 'the brief\'s command has the same shape');
+      assert.match(text, /with the run, the finding's number and the option's number as that\s+item's `deep-review answer` command prints them, the run being the\s+eight characters of its id that the command names/);
+      assert.match(text, /`--accept` or\s+`--reject` in place of `--option <n>` for a departure, and `--note <text>` with what the user said beyond the\s+choice/);
       assert.match(text, /as a background shell command with\s+the longest timeout you can/);
       assert.match(text, /stdout ends with the top of the brief\s+and the new report's path: show them as in step 4 and offer to commit\s+the new edits as in step 5/);
       assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run step 3 again with `--fix`/);
       assert.match(text, /When it says the tree already holds the answer, tell the user nothing\s+was applied/);
       assert.match(text, /Exit code 2: show stderr verbatim and stop; when it says\s+the answer is recorded, the same command applies it once the cause\s+it names is gone/);
-      assert.ok(text.indexOf(' commit\n') < text.indexOf(' answer --finding') && text.indexOf(' answer --finding') < text.indexOf('Exit code 2: the run is blocked'), 'after the commit step, before the blocked run');
+      assert.ok(text.indexOf(' commit\n') < text.indexOf(' answer --run') && text.indexOf(' answer --run') < text.indexOf('Exit code 2: the run is blocked'), 'after the commit step, before the blocked run');
       assert.doesNotMatch(text, /write the rule|record the rule/, 'nothing about writing a rule (PD3 of answers)');
     });
 
