@@ -15,7 +15,7 @@ import { answerWords, owedAnswers, standingAnswer, type RecordedAnswer } from '.
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
 import { budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
+import { isAnswered, unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { defaultInPlace, leaveReasonWords } from './decision-report.ts';
@@ -27,7 +27,7 @@ import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions
 import { shortRunId } from './runs.ts';
 import { findingNumbers, ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import { documentationUnitKey, type Angle, type CheckOutcome, type EditingPhase, type Severity, type ValidationMethod } from './vocabulary.ts';
+import { documentationUnitKey, triageUnitKey, type Angle, type CheckOutcome, type EditingPhase, type Severity, type ValidationMethod } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -586,6 +586,11 @@ function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): Brie
 
 /** The plain name of each review pass, which the brief names a pass by (R10 of the report for the person). */
 export const passNames: Readonly<Record<Angle, string>> = { SCAN: 'first', REMOVALS: 'removals', RIPPLE: 'ripple effects', FOOTGUNS: 'footguns', WRAPPERS: 'wrappers', EFFICIENCY: 'efficiency', DESIGN: 'design', DUPLICATION: 'duplication', ALTITUDE: 'altitude', CONVENTIONS: 'conventions' };
+
+/** Whether a review pass ran: the first through the triage, any other as a finder the run did not mark as not run, which the report and `report --stats` both read. */
+export function angleRan(review: ReviewState, angle: Angle): boolean {
+  return angle === 'SCAN' ? isAnswered(review, 'triage', triageUnitKey) : review.anglesNotRun[angle] === undefined && isAnswered(review, 'finders', angle);
+}
 
 /**
  * What the run did not examine, in plain words (R4, R10 of the report for
