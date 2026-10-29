@@ -47,6 +47,9 @@ export function codeSpan(text: string): string {
  */
 export const findingAnchor = (number: number): string => `finding-${String(number)}`;
 
+/** The fixed anchor of a check's block under Checks in the report, from its kind; a check named before the merge links to it. */
+export const checkAnchor = (kind: string): string => `check-${kind}`;
+
 /** Where a report is rendered, for naming a local path the engine writes (R15 of the brief of a run). */
 export interface LocalPlaces {
   readonly worktree: string;
