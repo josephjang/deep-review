@@ -12,16 +12,14 @@ import { allBatches, clusterOf, exactPath, holdersKeyedBy, lastClaimOf, planOfRo
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { angleRan } from './brief.ts';
-import { inlineText, tableCell } from './markdown.ts';
-import type { ReportInput } from './report.ts';
+import { counted, inlineText, tableCell } from './markdown.ts';
+import { usd, type ReportInput } from './report.ts';
 import { rankedFindings } from './state.ts';
 import { angles, phases, type Angle } from './vocabulary.ts';
 
-const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
 const count = (value: number | null): string => (value === null ? '-' : String(value));
-const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' : 's'}`;
 /** A cost cell: the reported sum, and how many workers' cost it leaves out. */
-const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
+const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${counted(spend.costUnreported, 'worker', 'workers')} unreported)`}`;
 
 /** The table of the statistics: every phase the run did not skip, in phase order, and the total. */
 function statisticsTable(review: ReviewState, statistics: ReportInput['statistics']): string[] {
