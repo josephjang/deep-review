@@ -420,8 +420,11 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
         return { kind: 'review-only' };
       case 'already-in-tree':
         return { kind: 'already-in-tree' };
-      case 'applied':
-        return fix !== null && patchesHolding(fix, departure.id).every((patch) => patch <= committed) ? { kind: 'committed' } : { kind: 'applied' };
+      case 'applied': {
+        // A fixer can report a fix applied that changed no file, so no revision holds it, and nothing of it was committed.
+        const holding = fix === null ? [] : patchesHolding(fix, departure.id);
+        return holding.length > 0 && holding.every((patch) => patch <= committed) ? { kind: 'committed' } : { kind: 'applied' };
+      }
       default: {
         // Why its fixer did not apply it, the run budget among the reasons, as a fix that goes against no rule says it.
         const outcomes = context.outcomes.get(departure.id);
