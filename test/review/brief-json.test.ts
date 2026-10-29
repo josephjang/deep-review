@@ -3,8 +3,8 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { briefOf, gapKinds } from '../../src/review/brief.ts';
-import { briefJson, briefJsonV1, briefJsonV2, briefJsonV3, briefJsonV4, briefJsonV5, gapKindsV1, type BriefJsonV4 } from '../../src/review/brief-json.ts';
+import { briefOf } from '../../src/review/brief.ts';
+import { briefJson, briefJsonV1, briefJsonV2, briefJsonV3, briefJsonV4, briefJsonV5, gapKinds, gapKindsV1, type BriefJsonV4 } from '../../src/review/brief-json.ts';
 import { answeredRun, checkedRun, onBranch } from '../helpers/base-checks-history.ts';
 import { answer, answerableDecisions, changeReading, decidedFixRun, readOnlyReported } from '../helpers/review-history.ts';
 
