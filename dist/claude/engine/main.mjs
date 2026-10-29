@@ -28057,51 +28057,21 @@ function codeParts(text3) {
   return parts;
 }
 function escapedText(text3) {
-  const code = codeParts(text3).flatMap((part) => Array.from({ length: part.text.length }, () => part.code));
+  return codeParts(text3).map((part) => part.code ? part.text : escapedPlain(part.text)).join("");
+}
+function escapedPlain(text3) {
   let escaped = "";
   for (let at = 0; at < text3.length; at += 1) {
     const char = text3.charAt(at);
-    if (code[at] === true) {
-      escaped += char;
-    } else if (char === "\\") {
+    if (char === "\\") {
       escaped += text3.slice(at, at + 2);
       at += 1;
     } else {
-      escaped += hides(text3, at, code) ? `\\${char}` : char;
+      const hidden = char === "<" || char === "*" || char === "_" && (text3.charAt(at - 1) === "_" || text3.charAt(at + 1) === "_");
+      escaped += hidden ? `\\${char}` : char;
     }
   }
   return escaped;
-}
-function hides(text3, at, code) {
-  switch (text3.charAt(at)) {
-    case "<":
-    case "*":
-      return true;
-    case "_":
-      return !(/[\p{L}\p{N}]$/u.test(text3.slice(Math.max(0, at - 2), at)) && /^[\p{L}\p{N}]/u.test(text3.slice(at + 1, at + 3)));
-    case "[":
-      return opensLink(text3, at, code);
-    case "&":
-      return /^&(?:#[0-9]{1,7}|#[Xx][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/.test(text3.slice(at));
-    default:
-      return false;
-  }
-}
-function opensLink(text3, at, code) {
-  let depth = 0;
-  for (let index2 = at; index2 < text3.length; index2 += 1) {
-    const char = text3.charAt(index2);
-    if (code[index2] === true) continue;
-    if (char === "\\") {
-      index2 += 1;
-    } else if (char === "[") {
-      depth += 1;
-    } else if (char === "]") {
-      depth -= 1;
-      if (depth === 0) return text3.charAt(index2 + 1) === "(";
-    }
-  }
-  return false;
 }
 function quoted(text3, context) {
   const alias = (number5) => number5 === void 0 || number5 === context.own ? "" : ` (finding ${String(number5)})`;

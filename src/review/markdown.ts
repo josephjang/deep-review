@@ -155,63 +155,29 @@ function codeParts(text: string): { readonly code: boolean; readonly text: strin
 /**
  * A worker's text with what a preview of Markdown would hide escaped
  * outside its code spans (R11, TD6 of the report for the person): a
- * backslash before `<`, before `*`, before an `_` that is not between two
- * letters or digits, before a `[` that opens a link such as `[x](y)` and
- * before an `&` that opens an entity such as `&lt;`, which CommonMark
- * reads as the character itself. So `snake_case` and a batch index such as
- * `[0]` stay bare. A character a backslash already escapes stays as it is;
- * a backslash that a backslash escapes, as in `C:\\<b>`, escapes nothing.
+ * backslash before `<`, before each `_` of a `__` and before `*`, which
+ * CommonMark reads as the character itself. A character a backslash
+ * already escapes stays as it is; a backslash that a backslash escapes,
+ * as in `C:\\<b>`, escapes nothing.
  */
 export function escapedText(text: string): string {
-  const code = codeParts(text).flatMap((part) => Array.from({ length: part.text.length }, () => part.code));
+  return codeParts(text).map((part) => (part.code ? part.text : escapedPlain(part.text))).join('');
+}
+
+/** Text outside a code span, escaped as `escapedText` says, each backslash read with the character it escapes. */
+function escapedPlain(text: string): string {
   let escaped = '';
   for (let at = 0; at < text.length; at += 1) {
     const char = text.charAt(at);
-    if (code[at] === true) {
-      escaped += char;
-    } else if (char === '\\') {
+    if (char === '\\') {
       escaped += text.slice(at, at + 2);
       at += 1;
     } else {
-      escaped += hides(text, at, code) ? `\\${char}` : char;
+      const hidden = char === '<' || char === '*' || (char === '_' && (text.charAt(at - 1) === '_' || text.charAt(at + 1) === '_'));
+      escaped += hidden ? `\\${char}` : char;
     }
   }
   return escaped;
-}
-
-/** Whether the character at `at`, outside a code span and escaped by no backslash, would change or hide text in a preview. */
-function hides(text: string, at: number, code: readonly boolean[]): boolean {
-  switch (text.charAt(at)) {
-    case '<':
-    case '*':
-      return true;
-    case '_':
-      return !(/[\p{L}\p{N}]$/u.test(text.slice(Math.max(0, at - 2), at)) && /^[\p{L}\p{N}]/u.test(text.slice(at + 1, at + 3)));
-    case '[':
-      return opensLink(text, at, code);
-    case '&':
-      return /^&(?:#[0-9]{1,7}|#[Xx][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/.test(text.slice(at));
-    default:
-      return false;
-  }
-}
-
-/** Whether the `[` at `at` opens a link or an image: the `]` that balances it, outside code spans, is followed by `(`. */
-function opensLink(text: string, at: number, code: readonly boolean[]): boolean {
-  let depth = 0;
-  for (let index = at; index < text.length; index += 1) {
-    const char = text.charAt(index);
-    if (code[index] === true) continue;
-    if (char === '\\') {
-      index += 1;
-    } else if (char === '[') {
-      depth += 1;
-    } else if (char === ']') {
-      depth -= 1;
-      if (depth === 0) return text.charAt(index + 1) === '(';
-    }
-  }
-  return false;
 }
 
 /** What a quote of a worker can name: the number of each finding by its id and its merged ids, the finding the quote is about, and for a fixer's text the findings of its batch, in the order its task numbered them. */
