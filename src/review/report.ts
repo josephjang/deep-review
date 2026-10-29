@@ -276,7 +276,7 @@ function coveredSection(state: RunState, scope: ScopeState, review: ReviewState,
     '',
     // A pass that did not run says why here, where the brief names it by its plain name alone.
     ...(Object.entries(review.anglesNotRun) as [Angle, string][]).map(([angle, reason]) => `- The ${passNames[angle]} review pass (${angle}) did not run: ${inlineText(reason)}. A later pass looked for what it would have found.`),
-    ...brief.notExamined.filter((gap) => !gap.includes(' review pass did not run')).map((gap) => `- ${gap}`),
+    ...brief.notExamined.filter((gap) => gap.kind !== 'angle').map((gap) => `- ${gap.text}`),
   ];
   for (const group of unverifiedGroupsOf(review)) lines.push(`- Group ${group.groupId} of ${group.phase} was not verified (${inlineText(group.reason)}): its candidates are ${group.candidateIds.join(', ')}.`);
   const standing = Object.values(review.candidates).filter((candidate) => candidate.duplicateOf === null);
