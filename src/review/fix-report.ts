@@ -10,7 +10,7 @@
  */
 import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type ScopeState, type TreeRevised } from '../checkpoint/events.ts';
 import { passOf } from '../checkpoint/answer-state.ts';
-import { allBatches, clusterOf, committedRevisions, cutShortChecks, exactPath, holdersKeyedBy, isCutAttempt, isNotAttempted, killedRun, lastAnswerOf, lastClaimOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, planOfRound, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
+import { allBatches, committedRevisions, cutShortChecks, isCutAttempt, isNotAttempted, killedRun, lastAnswerOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
@@ -51,8 +51,6 @@ interface FindingFate {
   readonly answer: FixedFinding | null;
   /** Why the finding was not attempted, for one whose batch failed twice or met the run budget. */
   readonly reason: string | null;
-  /** For a finding the second round took, the files it was first blocked on (R21 of the fix pass); null otherwise. */
-  readonly firstBlockedOn: readonly string[] | null;
   /** Why the second round's batch of a finding was not attempted, when its last answer is the first round's. */
   readonly secondRoundSkipped: string | null;
   /** For a finding left as superseded, the finding whose fix was to remove it and what became of that one; null otherwise. */
@@ -82,7 +80,7 @@ function fateOf(review: ReviewState, fix: FixState, id: string, passes: 'read' |
   if (last?.phase === 'answer') {
     const pass = passOf(review, last.key);
     if (pass === null) throw new Error(`Finding ${id} is answered by ${last.key}, which no answer pass has`);
-    return { id, outcome: statusWords[last.finding.status], decision: null, batch: null, answer: last.finding, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: { key: last.key, at: pass.at } };
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch: null, answer: last.finding, reason: null, secondRoundSkipped: null, superseder: null, pass: { key: last.key, at: pass.at } };
   }
   const route = fix.plan?.routes.find((candidate) => candidate.id === id)?.route ?? 'fixer';
   if (route === 'held') {
@@ -90,19 +88,18 @@ function fateOf(review: ReviewState, fix: FixState, id: string, passes: 'read' |
     // The superseding finding is decided fix, so a fixer was given it and its fate is never held: this recursion ends there.
     const by = decision?.leave?.supersededBy ?? null;
     const superseder = by === null ? null : { id: by, outcome: fateOf(review, fix, by).outcome };
-    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, firstBlockedOn: null, secondRoundSkipped: null, superseder, pass: null };
+    return { id, outcome: heldOutcome(decision), decision, batch: null, answer: null, reason: null, secondRoundSkipped: null, superseder, pass: null };
   }
   const second = fix.secondRound?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
-  const firstBlockedOn = fix.secondRound?.blocked.find((entry) => entry.id === id)?.requiredFiles ?? null;
   if (last !== null) {
     const batch = allBatches(fix).find((candidate) => candidate.key === last.key) ?? null;
     const answeredInSecond = second !== null && last.key === second.key;
     const secondRoundSkipped = second !== null && !answeredInSecond ? notAttemptedNote(fix, 'fixes', second.key) : null;
-    return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, firstBlockedOn: answeredInSecond ? firstBlockedOn : null, secondRoundSkipped, superseder: null, pass: null };
+    return { id, outcome: statusWords[last.finding.status], decision: null, batch, answer: last.finding, reason: null, secondRoundSkipped, superseder: null, pass: null };
   }
   const batch = fix.plan?.batches.find((candidate) => candidate.findingIds.includes(id)) ?? null;
   const reason = (batch === null ? null : notAttemptedNote(fix, 'fixes', batch.key)) ?? 'no fixer answered for it';
-  return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, firstBlockedOn: null, secondRoundSkipped: null, superseder: null, pass: null };
+  return { id, outcome: 'not attempted', decision: null, batch, answer: null, reason, secondRoundSkipped: null, superseder: null, pass: null };
 }
 
 /** A ranked finding's last outcome in a fix run, with the answer that gave it, a fix pass's or an answer pass's, or null with why no fixer attempted it. */
@@ -166,14 +163,11 @@ function fateLines(fix: FixState, fate: FindingFate): string[] {
   } else if (fate.reason !== null) {
     lines.push(`Not attempted: ${inlineText(fate.reason)}`);
   }
-  if (fate.batch !== null) {
-    const files = clusterOf(fix, fate.batch.cluster)?.files ?? [];
-    lines.push(`Cluster: ${fate.batch.cluster}, batch ${fate.batch.key}${files.length === 0 ? ', owning no file' : ` (${files.map(inlineText).join(', ')})`}; ${patchNote(patchesOf(fix, fate.id, 'fixes'))}`);
-  }
+  // The cluster and the batch that held it are in `report --stats` (R9 of the report for the person).
+  if (fate.batch !== null) lines.push(capitalized(patchNote(patchesOf(fix, fate.id, 'fixes'))));
   if (fate.pass !== null) lines.push(`Answer pass: ${fate.pass.key}, opened on ${fate.pass.at}; ${patchNote(patchesOf(fix, fate.id, 'answer'))}`);
   for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);
-  if (fate.firstBlockedOn !== null) lines.push(`First blocked on: ${fate.firstBlockedOn.map(inlineText).join(', ')}, which the second round gave it`);
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   // A finding the first round blocked has no second round while the run budget left a batch of the first, until a reopen runs it (PD13 of resumable runs).
   if (fate.answer?.status === 'blocked' && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push('Second round not planned: the run budget stopped the first round');
@@ -525,35 +519,13 @@ function finalStatus(files: PathRevisions['files']): string {
   return existsAfter ? 'created' : 'created, then deleted';
 }
 
-/**
- * Which clusters held a path in the fixes phase, round by round (R1, R3 of
- * commit series integrity), from each planned round's holders as
- * `holdersKeyedBy` gives them, built once for every path: its owner by the
- * plan, or else the cluster that claimed it last in that round, marked as
- * a claim or a late claim; `nobody` for a path no cluster held, such as one
- * only a check wrote.
- */
-function heldBy(fix: FixState): (path: string) => string {
-  const rounds = ([1, 2] as const).flatMap((round) => (planOfRound(fix, round) === null ? [] : [{ round, held: holdersKeyedBy(fix, round, exactPath) }]));
-  return (path) => {
-    const holders = rounds.flatMap(({ round, held }) => {
-      const holder = held.get(path);
-      if (holder === undefined) return [];
-      if (holder.by === 'plan') return [holder.cluster];
-      return [`${holder.cluster} (${lastClaimOf(fix, round, path)?.claimedAt === null ? 'claimed late' : 'claimed'})`];
-    });
-    return holders.length === 0 ? 'nobody' : [...new Set(holders)].join(', ');
-  };
-}
-
-/** The Changed files section: every path a revision names, once, with its final status, who changed it and who held it, then the patch series. */
+/** The Changed files section: every path a revision names, once, with its final status and who changed it, then the patch series; who held it is in `report --stats`. */
 function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
   const revised = revisionsByPath(fix.revisions);
-  const holderOf = heldBy(fix);
   const paths = [...revised.keys()].sort();
   const rows = paths.map((path) => {
     const { by, files } = revised.get(path)!;
-    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} | ${tableCell(holderOf(path))} |`;
+    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} |`;
   });
   // A revision after a committed series names the pass that made it, which a later series commits (R15 of resumable runs).
   const committed = committedRevisions(fix);
@@ -561,7 +533,7 @@ function changedFilesSection(fix: FixState, patches: readonly string[]): string[
   return [
     '## Changed files',
     '',
-    ...(paths.length === 0 ? ['No file was changed.'] : ['| Path | Status | Changed by | Held by |', '|---|---|---|---|', ...rows]),
+    ...(paths.length === 0 ? ['No file was changed.'] : ['| Path | Status | Changed by |', '|---|---|---|', ...rows]),
     ...(series.length === 0 ? [] : ['', 'The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:', '', ...series]),
   ];
 }

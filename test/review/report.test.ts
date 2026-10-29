@@ -3,11 +3,11 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { codexWindowsSandboxesV4, type ChangeReading, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
+import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { conditionWords } from '../../src/review/prompts.ts';
 import { renderReport, type ReportInput } from '../../src/review/report.ts';
-import { answer, askDecision, changeReading, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
+import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -21,10 +21,7 @@ describe('renderReport', () => {
 
   it('exercises every section and mark in the snapshot', () => {
     const report = renderReport(reported().fold(), reportInput);
-    for (const heading of ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
-    assert.match(report, /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
-    assert.match(report, /^\| RIPPLE \| run \| the callers of parse\(\) \|$/m);
-    assert.match(report, /^\| SCAN \| run \(as the triage\) \| - \|$/m);
+    for (const heading of ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
     assert.match(report, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also SWEEP-2\)  src\/a\.ts:4$/m);
     assert.match(report, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  C:\\elsewhere\\b\.ts:9 \(unlocated: C:\\elsewhere\\b\.ts:9; unverified\)$/m);
     assert.match(report, /Evidence: none; the verifier of this group failed twice/);
@@ -39,34 +36,20 @@ describe('renderReport', () => {
     assert.match(report, /- Worktree checks: 9, none found a difference/);
     assert.match(report, /- Run budget: 30\.00 USD, checked before every launch; spent 4\.50 USD\./);
     assert.match(report, /- Unlocated candidates.*SWEEP-1 \(C:\\elsewhere\\b\.ts:9\)/);
-    assert.match(report, /^\| Total \| 9 \| 22\.5 \| 4\.50 \(1 worker unreported\) \| 900 \| 180 \| 90 \|$/m);
-    assert.match(report, /^\| triage \| 1 \| 2\.5 \| 0\.50 \| 100 \| 20 \| 10 \|$/m, 'a row with every cost reported carries no mark');
     assert.match(report, /^- Workers with no reported cost: 1\. .* the costs above leave such workers out, so the run cost more than the totals show\. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out\.$/m);
     assert.match(report, /Findings: 2 \(1 CONFIRMED, 1 PLAUSIBLE\); 0 refuted at verification/);
     assert.ok(report.endsWith('\n') && !report.endsWith('\n\n'));
   });
 
-  it('says why a run has no account of the change in one sentence, the same in the brief and in the evidence', () => {
+  it('says why a run has no account of the change in one sentence, in the brief alone', () => {
     const state = reported().fold();
     const expected = { unrecorded: 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.', none: 'The triage of this run gave no account of the change.' };
     for (const kind of ['unrecorded', 'none'] as const) {
       const report = renderReport({ ...state, review: { ...state.review!, change: { kind } } }, reportInput);
       const after = (heading: string): string => report.slice(report.indexOf(`\n${heading}\n\n`) + heading.length + 3).split('\n')[0]!;
       assert.equal(after('## The change'), expected[kind], kind);
-      assert.equal(after('## The change, in full'), expected[kind], kind);
+      assert.ok(!report.includes('\n## The change, in full\n'), 'the account is told once (R1 of the report for the person)');
     }
-  });
-
-  it('words each judgment of the triage in the change in full as the scope block words it, after its own label', () => {
-    const state = reported().fold();
-    const reading = { ...changeReading, wideEffect: { holds: true, what: null, files: [] } } as unknown as ChangeReading;
-    const report = renderReport({ ...state, review: { ...state.review!, change: { kind: 'given', reading } } }, reportInput);
-    const evidence = report.slice(report.indexOf('\n## The change, in full\n'));
-    assert.match(evidence, /^- Public interface: yes, parse\(\) can now return null\. \(in src\/a\.ts\)$/m);
-    assert.match(evidence, /^- Wide effect: yes$/m);
-    for (const [label, condition] of [['Public interface', reading.publicInterface], ['Wide effect', reading.wideEffect]] as const) assert.match(evidence, new RegExp(`^- ${label}: ${RegExp.escape(conditionWords(condition))}$`, 'm'), label);
-    const without = renderReport({ ...state, review: { ...state.review!, change: { kind: 'given', reading: changeReading as unknown as ChangeReading } } }, reportInput);
-    assert.match(without, /^- Wide effect: no$/m);
   });
 
   it('names the Codex Windows sandbox a Codex run on Windows pinned, after the runtime, and nothing for a run that pins none (R7 of the Codex sandbox)', () => {
@@ -105,7 +88,7 @@ describe('renderReport', () => {
     assert.match(report, /## Findings\n\nNo finding survived verification\.\n/);
     assert.match(report, /## Refuted at verification\n\n- SCAN-1 \(SCAN\)  src\/a\.ts:3  SCAN-1 summary\n  Evidence: line 3 is a comment\n/);
     assert.match(report, /- The run budget did not apply: runtime claude reports no cost in USD/);
-    assert.match(report, /^\| Total \| 9 \| 22\.5 \| - \| 900 \| 180 \| 90 \|$/m);
+    assert.match(renderStats(history.fold(), noCost).join('\n'), /^\| Total \| 9 \| 22\.5 \| - \| 900 \| 180 \| 90 \|$/m);
     assert.doesNotMatch(report, /no reported cost/, 'a runtime that reports no cost has no unreported count to name');
     assert.match(report, /Findings: 0 \(0 CONFIRMED, 0 PLAUSIBLE\); 1 refuted at verification/);
   });
@@ -170,7 +153,7 @@ describe('renderReport', () => {
     };
     const report = renderReport(hostile, reportInput);
     const headings = report.split('\n').filter((line) => line.startsWith('#'));
-    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## The change, in full', '## Findings', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run']);
+    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']);
     assert.equal(headings.filter((line) => line.startsWith('### ')).length, 2, 'one heading per finding, and nothing else at that level');
     assert.match(report, /^\\## Injected section second line$/m);
     assert.match(report, /^Reason: because - a list item$/m);
@@ -244,7 +227,7 @@ describe('renderReport', () => {
     it('starts with the brief, then a rule and one sentence, then the evidence', () => {
       const report = renderReport(answerable(), reportInput);
       assert.ok(report.startsWith('# The uncommitted change on 22222222\n\n2 things need you: 1 question and 1 fix that goes against a written rule.'), report.slice(0, 200));
-      const parts = ['## The change\n', '## Questions for you (1)\n', '## Fixes that go against a written rule (1)\n', '## What the review did not cover\n', '## Where to look\n', '## What deep-review changed\n', '---\n\nThe evidence for each statement above follows.\n', '## The change, in full\n'].map((marker) => report.indexOf(`\n${marker}`));
+      const parts = ['## The change\n', '## Questions for you (1)\n', '## Fixes that go against a written rule (1)\n', '## What the review did not cover\n', '## Where to look\n', '## What deep-review changed\n', '---\n\nThe evidence for each statement above follows.\n', '## Decisions\n'].map((marker) => report.indexOf(`\n${marker}`));
       assert.ok(parts.every((position, index) => position > 0 && (index === 0 || parts[index - 1]! < position)), JSON.stringify(parts));
     });
 
@@ -308,9 +291,9 @@ describe('the Decisions section (R8 of the decision step)', () => {
   const render = (state: RunState): string => renderReport(state, reportInput);
   const departing = { ...decisions[0], departure: { rule: 'parse trusts its callers', source: 'src/a.ts:1', reason: 'the comment came with a caller that is gone' } };
 
-  it('follows the change in full and comes before Findings and Angles, counting the decisions and the fixes that depart from a rule (R12 of the brief of a run)', () => {
+  it('follows the brief and comes before Findings, counting the decisions and the fixes that depart from a rule (R12 of the brief of a run)', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
-    const order = ['\n---\n', '\n## The change, in full\n', '\n## Decisions\n', '\n## Findings\n', '\n## Angles\n', '\n## The run\n'].map((marker) => report.indexOf(marker));
+    const order = ['\n---\n', '\n## Decisions\n', '\n## Findings\n', '\n## Refuted at verification\n', '\n## The run\n'].map((marker) => report.indexOf(marker));
     assert.ok(order.every((position) => position > 0) && order.every((position, index) => index === 0 || order[index - 1]! < position), JSON.stringify(order));
     assert.match(report, /^Before any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author; 1 fix departs from a rule the repository states\. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left\.$/m);
   });
@@ -553,11 +536,11 @@ describe('a report after an answer pass (R10 of answers)', () => {
 describe('the report of a run continued into the fix pass', () => {
   const fix = { patches: [reference('1')], continueCommand: null };
 
-  it('says in its header when the run was continued and where its read-only report is, after the roles digest', () => {
+  it('says in its header when the run was continued and where its read-only report is, after the models', () => {
     const state = continuedToReport().fold();
     const report = renderReport(state, { ...reportInput, fix });
     const at = state.review!.continuedFrom!.at;
-    assert.match(report, new RegExp(`^Roles digest: d{64}\\nContinued: into the fix pass on ${at.replaceAll('.', '\\.')}, after the read-only report artifacts/e{64}\\nFindings: `, 'm'));
+    assert.match(report, new RegExp(`^Models: strong opus, fast sonnet\\nContinued: into the fix pass on ${at.replaceAll('.', '\\.')}, after the read-only report artifacts/e{64}\\nFindings: `, 'm'));
     assert.match(report, /^## Fixes$/m, 'a full fix run\'s report');
   });
 

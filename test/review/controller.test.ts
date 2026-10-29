@@ -23,6 +23,7 @@ import { fakeClaude, until } from '../helpers/launcher.ts';
 import { finish, launch, worker } from '../helpers/review-history.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from '../../src/review/lock.ts';
 import { describeRun } from '../../src/review/status.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
 import { policyWords } from '../../src/review/survey.ts';
 import { answerPhases, fixPhases, phases, type FinderRole } from '../../src/review/vocabulary.ts';
 import { paddedVersionBytes } from '../helpers/fake-probe.ts';
@@ -156,8 +157,9 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // The report starts with the brief: the triage's title and account, then the question (R2, R12 of the brief of a run).
     assert.match(text, /^# Parse with a guard\n\n1 thing needs you: 1 question\. Nothing waits for you: the question has a default in place\.\n\n## The change\n\nThe parser reads the length of its input, and another function calls it\.\n/);
     assert.match(text, /^### 1\. fake question for \[1\]\? \(\[SWEEP-1\]\(#finding-sweep-1\)\)$/m);
-    assert.match(text, /^## The change, in full\n\nThe triage's account, as it gave it\./m);
-    assert.match(text, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);
+    // The angles and the statistics are in `report --stats` (R9 of the report for the person).
+    const stats = renderStats(state, state.review!.report!.statistics).join('\n');
+    assert.match(stats, /^\| RIPPLE \| run \| callers of parse\(\) \|$/m);
     assert.match(text, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also RIPPLE-2\)  src\/a\.ts:2$/m);
     assert.match(text, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  src\/b\.ts:1$/m);
     // A read-only run says what it decided first in the evidence, and under each finding (R8 of the decision step).
@@ -171,9 +173,9 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(text, /^Decision: ask the author, defaulting to fake default \(no edit\); see Questions for you: fake grounds for \[1\]$/m);
     assert.doesNotMatch(text, /^## Fixes$/m, 'a read-only run has no fix pass to report');
     assert.match(text, /## Refuted at verification\n\n- SCAN-2 \(SCAN\)  src\/a\.ts:6  other\(\) passes null\n  Evidence: other\(\) is never called/);
-    assert.match(text, /^\| Total \| 19 \| /m);
-    assert.match(text, /^\| decision \| 1 \| /m);
-    assert.match(text, /^\| survey \| 1 \| /m);
+    assert.match(stats, /^\| Total \| 19 \| /m);
+    assert.match(stats, /^\| decision \| 1 \| /m);
+    assert.match(stats, /^\| survey \| 1 \| /m);
     assert.match(text, /- Run budget: 60\.00 USD/);
     assert.match(text, /- Unlocated candidates.*RIPPLE-2 \(src\/nowhere\.ts:1\)/);
     // The prompts: the finder got its lead, the sweep got the lists, the verifier its numbered group, and every worker after the survey the scope block and the source it named.
@@ -257,7 +259,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.equal(Object.values(state.workers).length, 12);
     assert.match(text, /No finding survived verification\./);
     assert.match(text, /- The run budget did not apply: runtime codex reports no cost in USD/);
-    assert.match(text, /^\| Total \| 12 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| Total \| 12 \| [0-9.]+ \| - \| \d+ \| 0 \| \d+ \|$/m);
     // Each phase line says how long the run has been in progress, and that Codex reports no cost (R7 of the skill surface corrections).
     const phaseLines = box.logs.filter((line) => /^phase [a-z-]+: started /.test(line));
     assert.ok(phaseLines.length >= 5, box.logs.join('\n'));
@@ -302,7 +304,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.match(state.review!.anglesNotRun.FOOTGUNS!, /^2 attempts did not complete: failed: The worker exited with code 3; failed: The worker exited with code 3$/);
     assert.match(state.review!.anglesNotRun.DESIGN!, /failed: The answer does not match the output schema.*; timeout: The worker ran past its timeout/);
     assert.equal(state.review!.phases.finders.status, 'degraded');
-    assert.match(text, /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| FOOTGUNS \| not run \(2 attempts did not complete: .*\) \| none \|$/m);
     assert.match(text, /^- The DESIGN angle did not run \(/m);
     assert.match(box.promptOf(state, 'sweep sweep:sweep'), /These angles did not run, so their territory is yours to cover: FOOTGUNS \(.*\); DESIGN \(.*\)\./);
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'finder-FOOTGUNS finders:FOOTGUNS').length, 2);

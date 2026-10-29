@@ -23,10 +23,6 @@ This run only reviewed: it changed nothing.
 
 The evidence for each statement above follows.
 
-## The change, in full
-
-The triage of this run did not record the core of the change, because an engine before this change reviewed it.
-
 ## Findings
 
 <a id="finding-ripple-1"></a>
@@ -50,39 +46,9 @@ Reason: one improvement
 Evidence: none; the verifier of this group failed twice
 Angle: DESIGN
 
-## Angles
-
-| Angle | Ran | Lead from SCAN |
-|---|---|---|
-| SCAN | run (as the triage) | - |
-| REMOVALS | run | none |
-| RIPPLE | run | the callers of parse() |
-| FOOTGUNS | not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout) | none |
-| WRAPPERS | run | none |
-| EFFICIENCY | run | none |
-| DESIGN | run | none |
-| DUPLICATION | run | none |
-| ALTITUDE | run | none |
-| CONVENTIONS | run | none |
-
 ## Refuted at verification
 
 None.
-
-## Statistics
-
-| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |
-|---|---|---|---|---|---|---|
-| triage | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| finders | 1 | 2.5 | 0.50 (1 worker unreported) | 100 | 20 | 10 |
-| deduplication | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep-deduplication | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep-verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| merge-rank | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| report | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| Total | 9 | 22.5 | 4.50 (1 worker unreported) | 900 | 180 | 90 |
 
 ## Notes of the run
 
@@ -103,6 +69,5 @@ Run: run-1
 Engine: 0.0.0+dev (run created by 0.0.0)
 Runtime: claude 2.1.283 at /bin/claude
 Models: strong opus, fast sonnet
-Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.

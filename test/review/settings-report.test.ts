@@ -103,7 +103,7 @@ describe('the settings in the report and status (R7 of the configuration)', () =
     const settings = configuredWith({ notFollowed: [{ name: 'checks.test', repository: 'npm test', value: 'make test', layer: 'operator' }] });
     const state: RunState = { ...finished, scope: scopeWith(['dist/**'], ['dist/a.js']), review: { ...finished.review!, configuration: settings } };
     const report = renderReport(state, reportInput);
-    assert.match(report, /^Roles digest: d{64}\nSettings: no configuration file\n/m);
+    assert.match(report, /^Models: strong opus, fast sonnet\nSettings: no configuration file\n/m);
     assert.match(report, /^- 1 changed path under dist\/\*\*, which the settings leave out\.$/m, 'a gap of the brief (R10 of the brief of a run)');
     // The facts of the run name each path left out and each value not followed, beside the Settings line the skills point at (R12, R15 of the brief of a run).
     const facts = report.slice(report.indexOf('\n## The run\n'));

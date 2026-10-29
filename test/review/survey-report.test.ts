@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { SurveyedCheck } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
 import { renderReport } from '../../src/review/report.ts';
 import { checkUnavailableBlocker } from '../../src/review/steps.ts';
 import { checkSourceCell, conventionsReportSection, droppedByOperator, surveyLimitations, unavailableCell } from '../../src/review/survey-report.ts';
@@ -77,12 +78,12 @@ describe('the report of a surveyed run', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
   });
 
-  it('places Conventions after Angles and before Refuted at verification, and gives the survey its row in the statistics (R12 of the brief of a run)', () => {
+  it('places Conventions before Refuted at verification, and gives the survey its row in the statistics (R12 of the brief of a run; R9 of the report for the person)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Checks', '## Angles', '## Conventions', '## Refuted at verification'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Fixes', '## Checks', '## Conventions', '## Refuted at verification'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
-    assert.match(report, /^\| survey \| 1 \| 20\.0 \| 0\.30 \| 500 \| 100 \| 50 \|$/m);
+    assert.match(renderStats(surveyedFixRun().fold(), surveyStatistics).join('\n'), /^\| survey \| 1 \| 20\.0 \| 0\.30 \| 500 \| 100 \| 50 \|$/m);
   });
 
   it('lists each source with its level, what it governs and what it applies to, each user-level decision with its reason, and the surveyor\'s note (R10)', () => {

@@ -9,6 +9,7 @@ import { fixerAnswer } from '../helpers/fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { until } from '../helpers/launcher.ts';
 import { git } from '../helpers/repository.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 describe('claims (commit series integrity)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
@@ -42,8 +43,10 @@ describe('claims (commit series integrity)', { timeout: 900_000, concurrency: sa
     const fix = state.review!.fix!;
     assert.deepEqual(fix.answers.fixes['c2-1']!.findings.map((finding) => [finding.status, finding.requiredFiles]), [['blocked', [shared]]]);
     // The report names who held each path: c1 by its claim in the first round, c3 by the plan in the second.
-    assert.match(text, /^\| test\/shared\.test\.ts \| created \| c1-1, c3-1 \| c1 \(claimed\), c3 \|$/m);
-    assert.match(text, /^\| docs\/c3\.md \| created \| c3-1 \| c3 \(claimed\) \|$/m);
+    assert.match(text, /^\| test\/shared\.test\.ts \| created \| c1-1, c3-1 \|$/m);
+    const stats = renderStats(state, state.review!.report!.statistics).join('\n');
+    assert.match(stats, /^\| test\/shared\.test\.ts \| c1 \(claimed\), c3 \|$/m);
+    assert.match(stats, /^\| docs\/c3\.md \| c3 \(claimed\) \|$/m);
     // c1's claim reached the ledger with c2-1's answer, the first settle after it, under c1's own key; c3's in the second round.
     assert.deepEqual(fix.claims.map((claim) => [claim.path, claim.cluster, claim.key, claim.round, claim.claimedAt === null]), [[shared, 'c1', 'c1-1', 1, false], ['docs/c3.md', 'c3', 'c3-1', 2, false]]);
     const events = box.events(state.id);

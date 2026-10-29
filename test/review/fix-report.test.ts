@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { checkedRun, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
@@ -35,16 +36,17 @@ describe('the report of a fix run', () => {
     assert.match(report, /in rank order\. Patches 1 to 3 are committed; a patch number/);
   });
 
-  it('places Fixes, Documentation, Checks and Changed files after Findings and before Angles (R12 of the brief of a run, R10 of the documentation step)', () => {
+  it('places Fixes, Documentation, Checks and Changed files after Findings and before Refuted at verification (R12 of the brief of a run, R10 of the documentation step)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Documentation', '## Checks', '## Changed files', '## Angles', '## Refuted at verification', '## Statistics', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Fixes', '## Documentation', '## Checks', '## Changed files', '## Refuted at verification', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
   });
 
-  it('gives every ranked finding its fate, the fixer\'s note and correction, its cluster and patch, and a held finding\'s reason', () => {
+  it('gives every ranked finding its fate, the fixer\'s note and correction, its patch, and a held finding\'s reason, and leaves its cluster to the statistics', () => {
     const report = render();
-    assert.match(report, /^### 1\. RIPPLE-1 applied\n\nNote: guarded the null before its use\nCommit message: fix: Guard the null in parse\nCluster: c1, batch c1-1 \(src\/a\.ts\); patch 2\nCorrection: src\/a\.ts parse: parse is at line 4 -> it moved to line 6 \(git blame\)$/m);
+    assert.match(renderStats(fixRun().fold(), fixStatistics).join('\n'), /^- 1\. RIPPLE-1: cluster c1, batch c1-1 \(src\/a\.ts\)$/m);
+    assert.match(report, /^### 1\. RIPPLE-1 applied\n\nNote: guarded the null before its use\nCommit message: fix: Guard the null in parse\nPatch 2\nCorrection: src\/a\.ts parse: parse is at line 4 -> it moved to line 6 \(git blame\)$/m);
     assert.match(report, /^### 2\. SWEEP-1 held for the author\n\nA PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it\.$/m);
     assert.match(report, /^### Repair\n\n- lint check applied: formatted the guard; patch 3$/m);
     assert.match(report, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
@@ -62,9 +64,12 @@ describe('the report of a fix run', () => {
 
   it('lists every changed path once with its final status and who changed it, then the patch series in order', () => {
     const report = render();
-    assert.match(report, /^\| Path \| Status \| Changed by \| Held by \|$/m);
-    assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
-    assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \| nobody \|$/m, 'a file no cluster owned, edited before claims existed');
+    assert.match(report, /^\| Path \| Status \| Changed by \|$/m);
+    assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \|$/m);
+    assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
+    const stats = renderStats(fixRun().fold(), fixStatistics).join('\n');
+    assert.match(stats, /^\| src\/a\.ts \| c1 \|$/m);
+    assert.match(stats, /^\| test\/a\.test\.ts \| nobody \|$/m, 'a file no cluster owned, edited before claims existed');
     assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(lint check\): artifacts\/1{64}\n2\. fix: Guard the null in parse \(c1-1\): artifacts\/2{64}\n3\. style: Format the guard \(repair\): artifacts\/3{64}$/m);
   });
 
@@ -124,9 +129,10 @@ describe('the report of a fix run', () => {
     const review = fixRun().review();
     const fix = review.fix!;
     const claimed = { ...fix, claims: [{ path: 'test/a.test.ts', cluster: 'c1', key: 'c1-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }] };
-    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed\) \|$/m);
+    const stats = (state: RunState): string => renderStats(state, fixStatistics).join('\n');
+    assert.match(stats({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| test\/a\.test\.ts \| c1 \(claimed\) \|$/m);
     const late = { ...fix, claims: [{ ...claimed.claims[0]!, claimedAt: null }] };
-    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: late } }), /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
+    assert.match(stats({ ...fixRun().fold(), review: { ...review, fix: late } }), /^\| test\/a\.test\.ts \| c1 \(claimed late\) \|$/m);
   });
 
   it('names a path\'s owner by the plan as its holder over a later claim of it, as the fold judges who holds it', () => {
@@ -134,7 +140,7 @@ describe('the report of a fix run', () => {
     const fix = review.fix!;
     const plan = { ...fix.plan!, clusters: [...fix.plan!.clusters, { id: 'c2', findingIds: [], files: [] }] };
     const claimed = { ...fix, plan, claims: [{ path: 'src/a.ts', cluster: 'c2', key: 'c2-1', round: 1 as const, claimedAt: '2026-10-09T01:00:00.000Z' }] };
-    assert.match(render({ ...fixRun().fold(), review: { ...review, fix: claimed } }), /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \| c1 \|$/m);
+    assert.match(renderStats({ ...fixRun().fold(), review: { ...review, fix: claimed } }, fixStatistics).join('\n'), /^\| src\/a\.ts \| c1 \|$/m);
   });
 
   it('names a later check\'s rewrite of a file an unfinished attempt\'s revision holds, as for a fixer\'s answer, since a stop can leave a fixer\'s edits there (R10 of resumable runs)', () => {
