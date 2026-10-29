@@ -87,26 +87,27 @@ chained before or after it.
    engine prints its progress on stderr. If the command is interrupted,
    run the same command again: it continues from the last step its ledger
    holds and pays for no completed worker twice.
-4. Exit code 0: stdout ends with the short form of the run's brief, one
-   line for each part, with the lines of each open question and each fix
-   that goes against a written rule under their part, and its last line
-   is the report's path. Show the
-   lines before the path to the user in a code block, as printed, then
-   show the path and say the report is theirs to read: it starts with
-   the brief, and the evidence follows. Put them in the last message of
-   the turn, after any other command you run. Do not
-   summarize, quote or interpret the findings beyond those lines. After
-   a run with `--fix`, also say that the fixes are in the working tree,
-   uncommitted, one patch per finding as the report's Changed files
-   lists them, and offer to commit them.
-   When the user asks for more on one question, or on one fix that goes
-   against a written rule, run the `main.mjs` of step 3 with only
-   `report --finding <id>`, with the id that the brief shows. When the
-   user asks about a document left out of date, or for the whole result,
-   run it with only `report --brief`; when the user asks what the run
-   changed, with only `report --fixes`. Show the lines before the path as
-   printed, the Markdown of `--brief` and `--finding` as Markdown, and
-   then the path.
+4. Exit code 0: stdout ends with the top of the run's brief: its title
+   and the line of the change, the status line, What needs you and
+   Before you merge as the report has them, and a line that names
+   `report --fixes`; its last line is the report's path. Show the lines
+   before the path to the user in a code block, as printed, then show
+   the path and say the report is theirs to read: it starts with the
+   brief, and a block for each finding and the evidence follow. Put them
+   in the last message of the turn, after any other command you run. Do
+   not summarize, quote or interpret the findings beyond those lines.
+   Answer the user in the language that the user writes, and quote ids,
+   paths and commands as printed. After a run with `--fix`, also say
+   that the fixes are in the working tree, uncommitted, one patch per
+   finding as the report's Patches lists them, and offer to commit them.
+   When the user asks for more on one finding, run the `main.mjs` of
+   step 3 with only `report --finding <number>`, with the number that
+   the brief shows. When the user asks for the whole result, run it with
+   only `report --brief`; when the user asks what the run changed, with
+   only `report --fixes`; when the user asks for the statistics of the
+   run, with only `report --stats`. Show the lines before the path as
+   printed, the Markdown of `--brief`, `--finding` and `--stats` as
+   Markdown, and then the path.
 5. When the user accepts, run
 
    node "<this skill's directory>/engine/main.mjs" commit
@@ -117,22 +118,23 @@ chained before or after it.
    verbatim and stop. On exit code 0, run the `main.mjs` of step 3 with
    only `report`, and in the last message of the turn show the lines that
    `commit` printed, one per commit, and then what `report` printed, as
-   step 4 says: the short form that the review printed still says that
-   the fixes are not committed.
-6. The brief at the top of the report lists the questions the run asked
-   and the fixes that go against a written rule, each with the
-   `deep-review answer` command that answers it. When the user answers
+   step 4 says: the brief that the review printed still says that the
+   fixes are not committed.
+6. The brief at the top of the report lists, under What needs you, the
+   questions the run asked and the fixes that go against a written rule,
+   each with the `deep-review answer` command that answers it. When the
+   user answers
    one, run this from the repository as a background shell command with
    the longest timeout you can, and wait for it to exit:
 
-   node "<this skill's directory>/engine/main.mjs" answer --finding <id> --option <n>
+   node "<this skill's directory>/engine/main.mjs" answer --finding <number> --option <n>
 
-   with the finding's id and the option's number as the report prints
-   them, or `--accept` or `--reject` in place of `--option <n>` for a
+   with the finding's number and the option's number as the report
+   prints them, or `--accept` or `--reject` in place of `--option <n>` for a
    departure, and `--note <text>` with what the user said beyond the
    choice. Exit code 0: the first line of stdout says the answer is
    recorded. On a run that fixed, the engine then applies every answer
-   that owes an edit, and stdout ends with the short form of the brief
+   that owes an edit, and stdout ends with the top of the brief
    and the new report's path: show them as in step 4 and offer to commit
    the new edits as in step 5. On a run that only reviewed, it says that `review --fix`
    applies the answer: offer to run step 3 again with `--fix`.
@@ -175,9 +177,9 @@ why a run reviewed what it did, answer from that run's own record, not
 from `config show`, which reads today's files and flags: for the active
 run, run the `status` command of step 3 and show all that it prints;
 for a finished run, show the `Settings:` line of the facts of the run,
-the section `## The run` at the end of its report, and the list of what
-the review did not cover in its brief, exactly as the report prints
-them.
+the part `## About this run` at the end of its report, and the paragraph
+under Before you merge in its brief that says what the run did not
+examine, exactly as the report prints them.
 When the user asks to change a preference, name the file that
 `config show` lists for it. When the user asks for a configuration file
 that does not exist yet, run the `main.mjs` of step 3 with only

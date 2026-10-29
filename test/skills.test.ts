@@ -29,7 +29,7 @@ describe('the skill texts', () => {
       assert.ok(text.includes(`review --runtime ${runtime}`), 'the runtime flag');
       for (const flag of ['--worktree', '--last-commit', '--branch', '--base <rev>', '--ref <ref>', '--from <rev> --to HEAD', '--merge-base', '--path <path>']) assert.ok(text.includes(flag), flag);
       // The short form of the brief as printed, then the path (R13, R17 of the brief of a run).
-      assert.match(text, /Exit code 0: stdout ends with the short form of the run's brief, one\s+line for each part, with the lines of each open question and each fix\s+that goes against a written rule under their part, and its last line\s+is the report's path\. Show the\s+lines before the path to the user in a code block, as printed, then\s+show the path and say the report is theirs to read: it starts with\s+the brief, and the evidence follows\./);
+      assert.match(text, /Exit code 0: stdout ends with the top of the run's brief: its title\s+and the line of the change, the status line, What needs you and\s+Before you merge as the report has them, and a line that names\s+`report --fixes`; its last line is the report's path\. Show the lines\s+before the path to the user in a code block, as printed, then show\s+the path and say the report is theirs to read: it starts with the\s+brief, and a block for each finding and the evidence follow\./);
       assert.match(text, /When the user asks what a finished run found, run the `main\.mjs` of\s+step 3 with only `report`, adding `--run <id>` when they name a run,\s+and show what it prints as step 4 says\./);
       assert.match(text, /Exit code 2: the run is blocked or was refused/);
       // The blocker as printed and nothing more: the interactive smoke showed a model that retold a budget block wrongly.
@@ -38,7 +38,9 @@ describe('the skill texts', () => {
       assert.match(text, /wait for it to exit/);
       assert.match(text, /Do not poll the\s+ledger/);
       assert.match(text, /run the same\s+command again/);
-      assert.match(text, /Do not\s+summarize, quote or interpret the findings/);
+      assert.match(text, /Do\s+not summarize, quote or interpret the findings/);
+      // The host answers in the person's language and quotes what the engine prints as it prints it (R12 of the report for the person).
+      assert.match(text, /Answer the user in the language that the user writes, and quote ids,\s+paths and commands as printed\./);
       assert.match(text, /Never review, fix, revert or commit the change another way under this\s+skill's name, and never edit the code yourself: no `git commit`, no\s+amend, no push/);
       assert.match(text, /Node 26 or newer/);
       assert.doesNotMatch(text, /not shipped|skeleton|editing nothing/);
@@ -71,7 +73,7 @@ describe('the skill texts', () => {
         assert.doesNotMatch(text, /until its fixes phase the run has edited nothing/);
         assert.match(text, /a run that reviews edits nothing until its fixes phase\./);
       }
-      assert.match(text, /the fixes are in the working tree,\s+uncommitted, one\s+patch per finding/);
+      assert.match(text, /the fixes are in the working tree,\s+uncommitted, one\s+patch per\s+finding as the report's Patches lists them/);
       assert.match(text, /offer\s+to commit them/);
       assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" commit`), 'the commit subcommand of the same bundle');
       assert.match(text, /adding `--change-message <message>` when the scope was `--worktree`/);
@@ -80,11 +82,11 @@ describe('the skill texts', () => {
 
     it(`${name}: runs deep-review answer when the user answers a question or a departure, and says what each outcome means (R12 of answers)`, () => {
       const text = read(path);
-      assert.match(text, /The brief at the top of the report lists the questions the run asked\s+and the fixes that go against a written rule, each with the\s+`deep-review answer` command that answers it\./);
-      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --finding <id> --option <n>`), 'the answer subcommand of the same bundle');
+      assert.match(text, /The brief at the top of the report lists, under What needs you, the\s+questions the run asked and the fixes that go against a written rule,\s+each with the `deep-review answer` command that answers it\./);
+      assert.ok(text.includes(`${engineDirectoryName}/${engineBundleName}" answer --finding <number> --option <n>`), 'the answer subcommand of the same bundle');
       assert.match(text, /`--accept` or `--reject` in place of `--option <n>` for a\s+departure, and `--note <text>` with what the user said beyond the\s+choice/);
       assert.match(text, /as a background shell command with\s+the longest timeout you can/);
-      assert.match(text, /stdout ends with the short form of the brief\s+and the new report's path: show them as in step 4 and offer to commit\s+the new edits as in step 5/);
+      assert.match(text, /stdout ends with the top of the brief\s+and the new report's path: show them as in step 4 and offer to commit\s+the new edits as in step 5/);
       assert.match(text, /it says that `review --fix`\s+applies the answer: offer to run step 3 again with `--fix`/);
       assert.match(text, /When it says the tree already holds the answer, tell the user nothing\s+was applied/);
       assert.match(text, /Exit code 2: show stderr verbatim and stop; when it says\s+the answer is recorded, the same command applies it once the cause\s+it names is gone/);
@@ -108,7 +110,7 @@ describe('the skill texts', () => {
       const text = read(path);
       assert.match(text, /When the user asks how deep-review is configured, or what a run would\s+take now, run the `config show` command of step 3 with the same scope\s+flags and no `--fix`, and show all that it prints\./);
       // A question about a run is answered from that run's record: config show reads today's files and flags, which may differ from those the run recorded or a resume ignored.
-      assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of the facts of the run,\s+the section `## The run` at the end of its report, and the list of what\s+the review did not cover in its brief, exactly as the report prints\s+them\./);
+      assert.match(text, /When the user asks\s+why a run reviewed what it did, answer from that run's own record, not\s+from `config show`, which reads today's files and flags: for the active\s+run, run the `status` command of step 3 and show all that it prints;\s+for a finished run, show the `Settings:` line of the facts of the run,\s+the part `## About this run` at the end of its report, and the paragraph\s+under Before you merge in its brief that says what the run did not\s+examine, exactly as the report prints them\./);
       assert.doesNotMatch(text, /why a run reviewed\s+what it did, run the `config show`/);
       // The record the skill names holds the run's settings: status and the report give the same settings lines.
       assert.ok(read('src/review/status.ts').includes('settingsHeaderLine(') && read('src/review/status.ts').includes('settingsLimitations('), 'status prints the run\'s recorded settings');
@@ -132,12 +134,12 @@ describe('the skill texts', () => {
     it(`${name}: names the commands that give one finding, the brief and the fixes, runs report after commit, and finds a run by its start or from the list`, () => {
       const text = read(path);
       const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
-      assert.match(step4, /Put them in the last message of\s+the turn, after any other command you run\./);
-      assert.match(step4, /When the user asks for more on one question, or on one fix that goes\s+against a written rule, run the `main\.mjs` of step 3 with only\s+`report --finding <id>`, with the id that the brief shows\./);
-      assert.match(step4, /When the\s+user asks about a document left out of date, or for the whole result,\s+run it with only `report --brief`; when the user asks what the run\s+changed, with only `report --fixes`\./);
-      assert.match(step4, /Show the lines before the path as\s+printed, the Markdown of `--brief` and `--finding` as Markdown, and\s+then the path\./);
+      assert.match(step4, /Put them\s+in the last message of the turn, after any other command you run\./);
+      assert.match(step4, /When the user asks for more on one finding, run the `main\.mjs` of\s+step 3 with only `report --finding <number>`, with the number that\s+the brief shows\./);
+      assert.match(step4, /When the user asks for the whole result, run it with\s+only `report --brief`; when the user asks what the run changed, with\s+only `report --fixes`; when the user asks for the statistics of the\s+run, with only `report --stats`\./);
+      assert.match(step4, /Show the lines before the path as\s+printed, the Markdown of `--brief`, `--finding` and `--stats` as\s+Markdown, and then the path\./);
       const step5 = text.slice(text.indexOf('5. When the user accepts'), text.indexOf('6. '));
-      assert.match(step5, /On exit code 2, show stderr\s+verbatim and stop\. On exit code 0, run the `main\.mjs` of step 3 with\s+only `report`, and in the last message of the turn show the lines that\s+`commit` printed, one per commit, and then what `report` printed, as\s+step 4 says: the short form that the review printed still says that\s+the fixes are not committed\./);
+      assert.match(step5, /On exit code 2, show stderr\s+verbatim and stop\. On exit code 0, run the `main\.mjs` of step 3 with\s+only `report`, and in the last message of the turn show the lines that\s+`commit` printed, one per commit, and then what `report` printed, as\s+step 4 says: the brief that the review printed still says that the\s+fixes are not committed\./);
       assert.match(text, /`--run` takes the eight\s+characters of a run id that the brief shows\. When the user asks for a\s+run and does not know which, run it with only `status --all`, show what\s+it prints, and then run `report --run <id>` with the run the user\s+chooses\./);
       // The flags the skill names are flags of report and status, and the short form that report prints after a commit names the commits.
       const usage = read('src/command.ts');

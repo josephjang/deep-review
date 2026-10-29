@@ -208,48 +208,46 @@ named by the day the run started and the run, is what a person opens.
 `review`, `answer`, `commit` and `report` write the copy again, so it
 shows each answer and commit; the record in the store stays the report
 of its moment. The report starts with the brief of the run: what the
-change does and why, as the triage read it from the change's own words;
-the questions only a person can answer, each with the option in place
-now and deep-review's choice; the fixes that go against a written rule;
-the documents the edits of a fix run left out of date;
-what the run did not cover; where a person must look; and what
-deep-review changed. The evidence follows: the change in full,
-Decisions, Findings (most severe first, each with its anchor, the
-merged ids, verdict, evidence, the outside-the-change, unlocated and
-unverified marks, and the decision made), the fix pass's sections,
-Angles, Conventions, Refuted at verification, Statistics per phase and
-the notes of the run. The facts of the run come last: its repository,
-commits, engine, runtime, models and settings, the one section that
-names a local path. The command prints the short form of the brief,
-seven lines that each name their subject first, and in a fix run an
-eighth that counts the documents it left out of date and a ninth,
-`Checks:`, that says how each check ended and when, and for a check
-that failed before and after the fixes whether its base fails too, then
-the copy's path as the last line of stdout, and exits 0. Under its
-line, each open question gets its words, the option in place now and
-deep-review's choice, and each fix that goes against a written rule
-gets where the rule is written and the rule, the words of the decider
-whole, for at most three of each; the short form has at most 23 lines.
-The headline of a fix run counts a check that the edits of the run
-made fail, and "What deep-review changed" says how the fixers validated
-the fixes. The line of
-the change gives the first sentence of the triage's account whole, and
-in a run whose fixes or answers changed the code it reads
-`The change before the fixes:`, since the account was written before
-them. `deep-review report` shows the brief of the run of this worktree
-with a report whose last event is the latest, after a `Not shown:`
-line for each later run it passed over that says why that run has no
-report; `--run` names another run by its id or its first eight
-characters. With `--json` it prints the JSON form, version 4, which
-names those runs in `notShown`, marks an account written before the
-fixes with `beforeEdits` in `change`, and gives each check its last run
-and when it ran, what its base says and its fault; with `--brief`, the
-whole brief as a chat shows it; with `--finding <id>`, the block of one
-question or one fix that goes against a written rule; and with
-`--fixes`, a line for each fix with the subject of its commit message.
+change does and why, as deep-review read it from the change's own words,
+and its judgments of the change; a status line that counts the findings
+by what became of them; What needs you, a numbered list computed from a
+closed table of conditions in the order of what doing nothing costs,
+from a check the edits of the run made fail, a check the change breaks
+and a check not compared with the base, through work the run did not
+finish and documents left out of date, the fixes that go against a
+written rule and the questions only a person can answer, each with its
+options, to the patches to commit, each item with what happens if the
+person does nothing and its command; Before you merge, one row per check
+with its result on the base, as submitted and in its last run, and one
+meaning that says who compared the failures; and What deep-review fixed,
+one row per fix with how its fixer reports checking it and its patch.
+Each finding is named by its number, its rank in the run. One block per
+finding follows, from where it is and why to its decision, its fix, its
+patch and each validation its fixer reports; then the evidence:
+Documentation updates, Checks, Patches, What the review covered, Refuted
+at verification, and About this run, with the repository, the commits,
+the engine, the runtime, the models and the settings, the one part that
+names a local path. The command prints the top of the brief, the title,
+the line of the change, the status line, What needs you and Before you
+merge, with every list held to a cap so it has at most 52 lines, then
+the copy's path as the last line of stdout, and exits 0. The line of the
+change gives the first sentence of the account whole, and in a run whose
+fixes or answers changed the code it reads `The change before the
+fixes:`, since the account was written before them. `deep-review report`
+shows the top of the brief of the run of this worktree with a report
+whose last event is the latest, after a `Not shown:` line for each later
+run it passed over that says why that run has no report; `--run` names
+another run by its id or its first eight characters. With `--json` it
+prints the JSON form, version 5, which names those runs in `notShown`;
+with `--brief`, the whole brief as a chat shows it; with `--finding
+<number>`, the block of any finding, by its number or its id; with
+`--fixes`, a line for each fix with the subject of its commit message;
+and with `--stats`, the statistics per phase, the angles, the digest of
+the roles and the clusters of the fix pass, which the report leaves out.
 See `docs/changes/2026-10-20-run-brief.requirements.md` and its design,
-`docs/changes/2026-10-24-questions-in-the-chat.md` and
-`docs/changes/2026-10-28-facts-before-a-merge.requirements.md`.
+`docs/changes/2026-10-24-questions-in-the-chat.md`,
+`docs/changes/2026-10-28-facts-before-a-merge.requirements.md` and
+`docs/changes/2026-10-29-report-for-the-person.requirements.md`.
 A finding's location is matched to a file of the
 repository: one the change touches, or an unchanged file such as a
 caller, marked outside the change; a location that names no such file
@@ -534,7 +532,7 @@ warning. Each value needs and gives up something:
 The engine sets up neither the machine nor its package stores. See
 `docs/changes/2026-10-04-codex-sandbox.requirements.md`.
 
-The report gains Fixes, Documentation, Checks and Changed files, and beside it the
+The report gains Documentation updates, Checks and Patches, and beside it the
 engine writes a patch series, one patch per revision, rendered from the
 frozen bytes, as git would store them, so it holds none of the user's
 own uncommitted change;
@@ -550,10 +548,11 @@ no file and running no hook. See
 
 A person answers a question the decision step asked, or accepts or
 rejects a fix's departure from a rule, with `deep-review answer
---finding <id>` and one of `--option <n>`, `--accept` or `--reject`,
-after the run has written its report. The brief at the top of the
-report gives each question and each departure with the command that
-answers it, and the facts of the run at its end say once how a person
+--finding <number>` and one of `--option <n>`, `--accept` or
+`--reject`, after the run has written its report; an id of the engine
+names its finding too. The brief at the top of the report gives each
+question and each departure with the command that answers it, and
+About this run at its end says once how a person
 at a terminal types it: no `deep-review` executable is installed, so
 they name `node "<entry>" answer ...` with the path of the engine that
 wrote the report. The answer is recorded on the run's ledger first, with an optional
@@ -953,11 +952,11 @@ the repository and that the run commits nothing, also when `--fix`
 continues a finished read-only run, which starts its checks and fixes
 at once, so the user can read it after they begin, and afterwards
 offers to commit the edits with `deep-review commit`, after which it
-shows the short form again with `deep-review report`. It ends each turn
-with the result it relays. Asked for more on one question, or on one
-fix that goes against a written rule, it runs `report --finding <id>`;
-for the whole result or a document left out of date, `report --brief`;
-and for what the run changed, `report --fixes`. Asked for a run the
+shows the top of the brief again with `deep-review report`. It ends
+each turn with the result it relays, in the language the user writes.
+Asked for more on one finding, it runs `report --finding <number>`; for
+the whole result, `report --brief`; for what the run changed,
+`report --fixes`; and for the statistics of the run, `report --stats`. Asked for a run the
 user cannot name, it runs `status --all`. Asked for a
 configuration file, it writes it with `config init --repository`,
 `--operator` or `--clone`. Asked why a run reviewed what it did, it
