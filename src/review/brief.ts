@@ -21,6 +21,7 @@ import { baseNameOf } from '../scope/scope-line.ts';
 import { defaultInPlace, leaveWords } from './decision-report.ts';
 import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
+import type { GapKind } from './brief-json.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { capitalized, checkAnchor, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
 import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
@@ -184,6 +185,12 @@ export interface BriefFix {
   readonly patches: readonly number[];
 }
 
+/** A gap of what the run did not examine (R10 of the brief of a run), with its kind, so a reader of the brief tells gaps apart without reading their words. */
+export interface BriefGap {
+  readonly kind: GapKind;
+  readonly text: string;
+}
+
 export interface Brief {
   readonly run: string;
   readonly title: string;
@@ -202,8 +209,8 @@ export interface Brief {
   readonly base: string;
   /** The rows of "What deep-review fixed", or in a run that only reviewed, of what it would fix. */
   readonly fixes: readonly BriefFix[];
-  /** What the run did not examine, each gap of R10 of the brief of a run that is not an item of "What needs you", in plain words. */
-  readonly notExamined: readonly string[];
+  /** What the run did not examine, each gap of R10 of the brief of a run that is not an item of "What needs you", with its kind and in plain words. */
+  readonly notExamined: readonly BriefGap[];
   /** The findings left as is, by their reason, as one sentence, or null for none. */
   readonly leftAs: string | null;
   readonly change: BriefChange;
@@ -592,19 +599,22 @@ export function angleRan(review: ReviewState, angle: Angle): boolean {
 }
 
 /**
- * What the run did not examine, in plain words (R4, R10 of the report for
- * the person; R10 of the brief of a run): the review passes that did not
- * run, the findings no verifier examined, the paths the settings left out,
- * the files too large to freeze, the checks with no command, the work a
- * stop ended, the steps the run budget stopped, and a documentation step
- * that did not run. What needs the person is an item of "What needs you",
- * not a gap.
+ * What the run did not examine, each gap with its kind and in plain words
+ * (R4, R10 of the report for the person; R10 of the brief of a run): the
+ * review passes that did not run, the findings no verifier examined, the
+ * paths the settings left out, the files too large to freeze, the checks
+ * with no command, the work a stop ended, the steps the run budget
+ * stopped, and a documentation step that did not run. What needs the
+ * person is an item of "What needs you", not a gap.
  */
-function notExaminedOf(context: BriefContext): string[] {
+function notExaminedOf(context: BriefContext): BriefGap[] {
   const { state, review } = context;
   const scope = state.scope!;
-  const gaps: string[] = [];
-  for (const angle of Object.keys(review.anglesNotRun) as Angle[]) gaps.push(`The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
+  const gaps: BriefGap[] = [];
+  const gap = (kind: GapKind, text: string): void => {
+    gaps.push({ kind, text });
+  };
+  for (const angle of Object.keys(review.anglesNotRun) as Angle[]) gap('angle', `The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
   // A candidate of a group no verifier examined is a finding of its own, or merged into one whose verdict another candidate may give.
   const primaries = new Set(context.findings.map(({ entry }) => entry.finding.id));
   for (const group of unverifiedGroupsOf(review)) {
@@ -616,26 +626,26 @@ function notExaminedOf(context: BriefContext): string[] {
       ...(merged.length === 0 ? [] : [`${merged.length === 1 ? 'a candidate' : 'candidates'} merged into ${findingWords(merged)}`]),
       ...(others === 0 ? [] : [counted(others, 'candidate', 'candidates')]),
     ];
-    gaps.push(`No verifier examined ${listed(parts)}${own.length === 0 ? '' : `; ${own.length === 1 ? 'it counts' : 'each counts'} as plausible`}.`);
+    gap('unverified', `No verifier examined ${listed(parts)}${own.length === 0 ? '' : `; ${own.length === 1 ? 'it counts' : 'each counts'} as plausible`}.`);
   }
-  if (scope.excluded.count > 0) gaps.push(`${capitalized(counted(scope.excluded.count, 'changed path', 'changed paths'))} under ${scope.request.exclude.join(', ')}, which the settings leave out.`);
+  if (scope.excluded.count > 0) gap('excluded', `${capitalized(counted(scope.excluded.count, 'changed path', 'changed paths'))} under ${scope.request.exclude.join(', ')}, which the settings leave out.`);
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
-  if (oversized.length > 0) gaps.push(`${capitalized(counted(oversized.length, 'file', 'files'))} too large to freeze, which no worker was given: ${oversized.join(', ')}.`);
+  if (oversized.length > 0) gap('oversized', `${capitalized(counted(oversized.length, 'file', 'files'))} too large to freeze, which no worker was given: ${oversized.join(', ')}.`);
   const fix = review.fix;
   if (fix !== null) {
     for (const check of fix.checks.planned?.checks ?? []) {
-      if (check.command === null) gaps.push(`No ${check.kind} check ran: ${droppedByOperator(review.survey, check) ?? check.reason ?? 'the run has no command for it'}.`);
+      if (check.command === null) gap('check', `No ${check.kind} check ran: ${droppedByOperator(review.survey, check) ?? check.reason ?? 'the run has no command for it'}.`);
     }
     const stopped = budgetStoppedUnits(fix);
     const steps = [...(stopped.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the fixes for the checks'] : [])];
-    if (steps.length > 0) gaps.push(`The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
-    if (fix.openSeries !== null) gaps.push('A stop cut `deep-review commit` short; the next command completes the commits or drops them.');
+    if (steps.length > 0) gap('budget', `The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
+    if (fix.openSeries !== null) gap('stop', 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.');
     const cause = stepNotRunCause(review);
-    if (review.documentationStep && cause !== null && cause !== 'no-edits') gaps.push(stepNotRunSentence(cause));
+    if (review.documentationStep && cause !== null && cause !== 'no-edits') gap('documentation', stepNotRunSentence(cause));
   }
   const workers = Object.values(state.workers);
   const ended = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !ranAgain(workers, worker));
-  if (ended.length > 0) gaps.push(`A stop ended ${counted(ended.length, 'worker', 'workers')} whose work did not run again; the end of the report names ${ended.length === 1 ? 'it' : 'them'}.`);
+  if (ended.length > 0) gap('stop', `A stop ended ${counted(ended.length, 'worker', 'workers')} whose work did not run again; the end of the report names ${ended.length === 1 ? 'it' : 'them'}.`);
   return gaps;
 }
 
@@ -837,7 +847,7 @@ function mergeParagraph(brief: Brief): string {
     ...(brief.baseChecks && brief.status.kind === 'fix' && brief.checks.length > 0 ? [`The base is ${brief.base}.`] : []),
     ...(shared ? ['A check that fails the same way on the base has no failure that the change adds.'] : []),
     ...(byModel ? ['A model\'s comparison is the reading of the worker that compared the failures of the change with those of the base.'] : []),
-    ...(brief.notExamined.length === 0 ? [covered] : brief.notExamined),
+    ...(brief.notExamined.length === 0 ? [covered] : brief.notExamined.map((gap) => gap.text)),
     ...(brief.leftAs === null ? [] : [brief.leftAs]),
   ].join(' ');
 }

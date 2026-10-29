@@ -30,6 +30,9 @@ describe('renderReport', () => {
     assert.ok(brief.includes('The footguns review pass did not run, and a later pass looked for what it would have found. No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.'), brief);
     const covered = report.slice(report.indexOf('\n## What the review covered\n'));
     assert.match(covered, /^- The footguns review pass \(FOOTGUNS\) did not run: 2 attempts did not complete: [^\n]*\. A later pass looked for what it would have found\.$/m);
+    // The brief's gap of a pass that did not run gives way to the line with why, by its kind; each other gap of the brief stays.
+    assert.equal(covered.match(/footguns review pass/g)?.length, 1, covered);
+    assert.match(covered, /^- No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible\.$/m);
     assert.match(covered, /^- Group g1 of sweep-verification was not verified \(2 attempts did not complete: failed; failed again\): its candidates are SWEEP-1, SWEEP-2\.$/m);
     assert.doesNotMatch(brief, /g1|sweep-verification/, 'the brief names neither the group nor its phase');
     assert.match(report, /- Worktree checks: 9, none found a difference/);
