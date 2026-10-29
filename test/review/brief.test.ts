@@ -474,7 +474,7 @@ describe('the brief for the person', () => {
     const documents = Array.from({ length: 5 }, (_, index) => ({ rank: 4 as const, condition: 'document' as const, finding: null, check: null, document: `docs/${String(index)}.md`, patch: null, lines: [`**\`docs/${String(index)}.md\` is out of date.**`] }));
     const lines = briefMarkdown({ ...brief, needs: [...documents, ...decided] });
     assert.ok(lines.includes('4. **2 more:** `docs/3.md` and `docs/4.md`.'), lines.join('\n'));
-    assert.ok(lines.includes('8. **2 more decisions:** findings 6 and 7. `deep-review report --finding <number>` prints each with its options and commands.'), lines.join('\n'));
+    assert.ok(lines.includes(`8. **2 more decisions:** findings 6 and 7. \`deep-review report --run ${shortRunId(brief.run)} --finding <number>\` prints each with its options and commands.`), lines.join('\n'));
   });
 
   it('holds the brief to 72 lines and the chat form to 52 for any number of findings, with every list at its cap (R1, R12)', () => {
