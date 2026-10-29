@@ -8,8 +8,8 @@
  * each command computes it again, so it is current after an answer or a
  * commit, and the same engine computes the same brief from the same
  * ledger. The report, the chat form of a command and the JSON form each
- * render this one value. The headline, the gaps, what was covered, where
- * to look and what changed remain for version 4 of the JSON form alone.
+ * render this one value, as version 5 of the JSON form; the shapes of the
+ * versions before it are frozen in brief-json.ts.
  */
 import { answerWords, owedAnswers, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
@@ -126,14 +126,6 @@ export interface BriefDeparture {
   readonly accept: string;
   readonly reject: string;
 }
-
-/** The kinds of gap of R10: what the run did not examine, and what it did not finish, the documentation step among it (R7 of the documentation step). */
-export const gapKinds = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation'] as const;
-export type GapKind = (typeof gapKinds)[number];
-
-/** The conditions of principle 8 that the brief names (R11 of the brief of a run). */
-export const lookConditions = ['departure', 'plausible', 'public-interface', 'wide-effect'] as const;
-export type LookCondition = (typeof lookConditions)[number];
 
 /** A document the edits of the run left out of date (R7 of the documentation step), as `leftDocumentsOf` gives it. */
 export type BriefDocument = LeftDocument;
@@ -929,10 +921,6 @@ export const shortLineLimit = 200;
  * `accountLimits.firstSentence`, which a model does not keep exactly.
  */
 export const changeLineLimit = 400;
-
-/** The most open questions, and the most open departures, the short form names with their words; it counts the others (PD2 of the questions in the chat). */
-export const shownQuestions = 3;
-export const shownDepartures = 3;
 
 /**
  * Whether the period that ends `before` ends an abbreviation, not a
