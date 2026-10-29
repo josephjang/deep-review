@@ -397,7 +397,7 @@ function aboutSection(state: RunState, scope: ScopeState, review: ReviewState, i
   const stopped = review.fix === null ? [] : budgetStoppedUnits(review.fix);
   const command = input.fix?.continueCommand ?? null;
   const continuing = stopped.length > 0 && command !== null ? ['', `The run budget stopped the fix pass: ${stoppedUnitWords(stopped)} did not start. ${codeSpan(command)} continues it and reviews nothing again.`] : [];
-  const answering = answeringLine(review, input.engineEntry);
+  const answering = answeringLine(review, input.engineEntry, state.id);
   return [
     '## About this run',
     '',
