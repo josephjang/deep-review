@@ -124,6 +124,12 @@ describe('escapedText (R11, TD6 of the report for the person)', () => {
     assert.equal(escapedText('a ` then <b>'), 'a ` then \\<b>');
     assert.equal(escapedText('already \\<b> and \\*'), 'already \\<b> and \\*');
   });
+
+  it('escapes a character after a backslash that a backslash escapes', () => {
+    assert.equal(escapedText('C:\\\\<script>'), 'C:\\\\\\<script>');
+    assert.equal(escapedText('a\\\\*b*'), 'a\\\\\\*b\\*');
+    assert.equal(escapedText('\\\\\\<b> and \\\\__x'), '\\\\\\<b> and \\\\\\_\\_x');
+  });
 });
 
 describe('quoted (R6, PD13, TD5 of the report for the person)', () => {

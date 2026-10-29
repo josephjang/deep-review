@@ -144,10 +144,27 @@ function codeParts(text: string): { readonly code: boolean; readonly text: strin
  * outside its code spans (R11, TD6 of the report for the person): a
  * backslash before `<`, before each `_` of a `__` and before `*`, which
  * CommonMark reads as the character itself. A character a backslash
- * already escapes stays as it is.
+ * already escapes stays as it is; a backslash that a backslash escapes,
+ * as in `C:\\<b>`, escapes nothing.
  */
 export function escapedText(text: string): string {
-  return codeParts(text).map((part) => (part.code ? part.text : part.text.replaceAll(/(?<!\\)(<|\*|_(?=_)|(?<=_)_)/g, '\\$1'))).join('');
+  return codeParts(text).map((part) => (part.code ? part.text : escapedPlain(part.text))).join('');
+}
+
+/** Text outside a code span, escaped as `escapedText` says, each backslash read with the character it escapes. */
+function escapedPlain(text: string): string {
+  let escaped = '';
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text.charAt(at);
+    if (char === '\\') {
+      escaped += text.slice(at, at + 2);
+      at += 1;
+    } else {
+      const hidden = char === '<' || char === '*' || (char === '_' && (text.charAt(at - 1) === '_' || text.charAt(at + 1) === '_'));
+      escaped += hidden ? `\\${char}` : char;
+    }
+  }
+  return escaped;
 }
 
 /** What a quote of a worker can name: the number of each finding by its id and its merged ids, the finding the quote is about, and for a fixer's text the findings of its batch, in the order its task numbered them. */
