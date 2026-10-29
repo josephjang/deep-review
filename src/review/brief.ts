@@ -455,7 +455,7 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
     departures: openDepartures.map((departure) => ({ finding: number(departure.id), rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
     questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, number(question.id), fix !== null)),
     uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
-    toFix: fix === null ? decisionsOf(context, 'fix').length : 0,
+    toFix: fix === null ? findings.filter(isPlanned).length : 0,
     numbers: context.numbers,
   };
 }
@@ -471,6 +471,9 @@ export function needQuestionOf(question: BriefQuestion, number: number, fixed: b
     options: question.options.map((option) => ({ number: option.number, option: option.option, cost: option.cost, rule: option.rule })),
   };
 }
+
+/** Whether a finding of a run that only reviewed is one the fix pass would fix: a decided fix, or a question whose chosen option edits the code. */
+const isPlanned = (finding: BriefFinding): boolean => finding.status === 'planned' || finding.status === 'planned-against-rule';
 
 /** The status line (R1, R14 of the report for the person): the kind of run and its id, and its findings counted by what became of them. */
 function statusOf(context: BriefContext, findings: readonly BriefFinding[]): BriefStatus {
@@ -526,15 +529,18 @@ function statusOf(context: BriefContext, findings: readonly BriefFinding[]): Bri
 /** Whether a finding is an open question whose default, which edits the code, a fixer applied, so a patch holds it while the question stays open. */
 const appliedDefault = (context: BriefContext, finding: BriefFinding): boolean => finding.status === 'question' && context.outcomes.get(finding.id)?.last === 'applied';
 
-/** The rows of "What deep-review fixed" (R5 of the report for the person): each applied fix in rank order, the applied default of an open question among them, then each update of the documentation step; in a run that only reviewed, each fix it decided, with its plan. */
+/** The rows of "What deep-review fixed" (R5 of the report for the person): each applied fix in rank order, the applied default of an open question among them, then each update of the documentation step; in a run that only reviewed, each planned fix, a decided fix or an answered question whose chosen option edits, with its plan. */
 function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): BriefFix[] {
   const { review } = context;
   const fix = review.fix;
-  const byId = new Map(findings.map((finding) => [finding.id, finding]));
   if (fix === null) {
-    return decisionsOf(context, 'fix').map((decision) => {
-      const finding = byId.get(decision.id)!;
-      return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === 'PLAUSIBLE', againstRule: decision.departure !== null, subject: firstSentence(decision.fix.approach), kinds: [], patches: [] };
+    // A question the person answered with an option that edits is planned as a decided fix is, with the option they chose as its plan.
+    const decided = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+    return findings.filter(isPlanned).map((finding) => {
+      const decision = decided.get(finding.id)!;
+      const standing = standingAnswer(review, finding.id);
+      const plan = decision.decision === 'fix' ? decision.fix.approach : decision.decision === 'ask' && standing?.answer.kind === 'option' ? decision.ask.options[standing.answer.option]!.option : '';
+      return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === 'PLAUSIBLE', againstRule: finding.status === 'planned-against-rule', subject: firstSentence(plan), kinds: [], patches: [] };
     });
   }
   const fixed = findings.filter((finding) => finding.status === 'fixed' || finding.status === 'fixed-against-rule' || appliedDefault(context, finding)).map((finding) => {
