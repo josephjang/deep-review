@@ -18,7 +18,7 @@ import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { baseWords, briefChecksOf, notComparedPlainWords, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { capitalized, codeSpan, counted, findingNamed, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
+import { capitalized, checkAnchor, codeSpan, counted, findingNamed, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { baseSkipReasons, checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type BaseReading, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
@@ -446,7 +446,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   };
   const repaired = fix.answers.repair[repairUnitKey];
   const blocks = planned.flatMap((check) => {
-    const head = [`<a id="check-${check.kind}"></a>`, '', `### ${check.kind}`, ''];
+    const head = [`<a id="${checkAnchor(check.kind)}"></a>`, '', `### ${check.kind}`, ''];
     const source = survey === null ? [] : [`- Source: ${checkSourceCell(survey, check)}`];
     if (check.command === null) return [...head, `- Command: ${unavailableCell(survey, check)}`, ...source, ''];
     const runs = ran.flatMap((phase) => {

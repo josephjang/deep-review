@@ -22,7 +22,7 @@ import { defaultInPlace, leaveWords } from './decision-report.ts';
 import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { capitalized, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
+import { capitalized, checkAnchor, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
 import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
 import { shortRunId } from './runs.ts';
 import { findingNumbers, ranAgain, rankedFindings, type ReportFinding } from './state.ts';
@@ -860,7 +860,7 @@ function mergePart(brief: Brief, form: BriefForm): string[] {
     const base = check.base === null || check.base.outcome === null ? 'not run' : outcomeCells[check.base.outcome];
     const last = check.last === null ? 'did not run' : `${outcomeCells[check.last.outcome]}, ${lastMomentWords[check.last.when]}`;
     // The report links each check to its block under Checks (R4 of the report for the person); the chat has no link.
-    const name = form === 'report' ? `[${check.kind}](#check-${check.kind})` : check.kind;
+    const name = form === 'report' ? `[${check.kind}](#${checkAnchor(check.kind)})` : check.kind;
     return `| ${[name, ...(brief.baseChecks ? [base] : []), check.before === null ? 'did not run' : outcomeCells[check.before], last, check.meaning].join(' | ')} |`;
   });
   return [...lines, `| ${columns.join(' | ')} |`, `|${columns.map(() => '---').join('|')}|`, ...rows, '', mergeParagraph(brief)];
