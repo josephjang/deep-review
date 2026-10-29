@@ -94,3 +94,17 @@ describe('the default a fixer applied to an open question in the brief', () => {
     assert.doesNotMatch(brief.status.text, /applied the default/);
   });
 });
+
+describe('the fixes a run that only reviewed would apply in the brief', () => {
+  it('counts a question answered with an option that edits among them, in the status line, the count line, the item and the table alike', () => {
+    // RIPPLE-1 a decided fix; SWEEP-1 a question the person answered with option 2, which edits the code.
+    const state = readOnlyReported([decisions[0], askDecision('SWEEP-1', false)]).add('answer.recorded', answer('SWEEP-1', 1)).fold();
+    const brief = briefOf(state);
+    assert.deepEqual(brief.findings.map((finding) => finding.status), ['planned', 'planned']);
+    assert.equal(brief.status.toFix, 2);
+    assert.match(brief.status.text, /It would fix 2\./);
+    assert.match(brief.needsLine, /2 fixes to apply/);
+    assert.match(brief.needs.find((need) => need.rank === 8)!.lines[0]!, /^\*\*Apply the 2 fixes that deep-review decided\.\*\*/);
+    assert.deepEqual(brief.fixes.map((fix) => [fix.finding, fix.subject]), [[1, 'guard the null once, before parse reads it'], [2, 'accept it and return an empty result']]);
+  });
+});
