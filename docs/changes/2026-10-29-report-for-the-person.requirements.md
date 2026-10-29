@@ -199,7 +199,7 @@ The words that the renderer writes above "Findings" hold no id of the engine and
 
 ### R11: The report reads the same raw and rendered
 
-The only HTML in the report is the anchor line before the block of a finding or of a check. The report has no `<details>`, which the question block of today uses. In the text of a worker, the renderer escapes a tag such as `<stdin>`, a `*`, an `_` that is not between two letters or digits, the `[` of a link such as `[x](y)` and the `&` of an entity such as `&lt;` outside a code span, so a preview shows what a terminal shows. A name such as `snake_case` and a batch index such as `[0]` stay bare. Each paragraph is one line, and a table has at most 5 columns.
+The only HTML in the report is the anchor line before the block of a finding or of a check. The report has no `<details>`, which the question block of today uses. In the text of a worker, the renderer escapes a tag such as `<stdin>`, a `__` and a `*` outside a code span, so a preview shows what a terminal shows. Each paragraph is one line, and a table has at most 5 columns.
 
 ### R12: The chat shows the top of the brief
 
@@ -395,4 +395,4 @@ Version 5 changes the shape. A program that reads version 4 sees the version cha
 
 ### The escaping changes a quote
 
-The renderer escapes a tag, a `*`, an underscore of emphasis, a link and an entity in the text of a worker. A worker who meant them as Markdown loses the format, and the quote still reads the same raw.
+The renderer escapes a tag, a `__` and a `*` in the text of a worker. A worker who meant them as Markdown loses the format, and the quote still reads the same raw.

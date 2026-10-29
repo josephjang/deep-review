@@ -133,7 +133,7 @@ A new form of the `report` command, `--stats`, prints a Markdown document of fou
 
 ### Plain words and escaping (R10, R11)
 
-The words of R10 live in the renderer's own strings. The test renders folds whose workers' texts hold none of the words that R10 lists, and checks that the brief above "Findings" holds none of them either; a word that a worker wrote stays, as PD5 of the brief of a run asks. The escaping is one function, `escapedText`, applied to a quote of a worker after the aliases: outside a code span, a backslash goes before `<`, before `*`, before an `_` that is not between two letters or digits, before a `[` whose balancing `]` is followed by `(`, and before an `&` that opens an entity, which CommonMark reads as the character itself, while a backslash that a backslash escapes escapes nothing and a backtick after an odd run of backslashes opens no code span, so a terminal shows one extra backslash and a preview shows the text. The only HTML that the renderer writes is the anchor line before the block of a finding, `<a id="finding-<n>"></a>`, or of a check, `<a id="check-<kind>"></a>`, and the question block no longer uses `<details>`.
+The words of R10 live in the renderer's own strings. The test renders folds whose workers' texts hold none of the words that R10 lists, and checks that the brief above "Findings" holds none of them either; a word that a worker wrote stays, as PD5 of the brief of a run asks. The escaping is one function, `escapedText`, applied to a quote of a worker after the aliases: outside a code span, a backslash goes before `<`, before each `_` of a `__` and before `*`, which CommonMark reads as the character itself, while a backslash that a backslash escapes escapes nothing and a backtick after an odd run of backslashes opens no code span, so a terminal shows one extra backslash and a preview shows the text. The only HTML that the renderer writes is the anchor line before the block of a finding, `<a id="finding-<n>"></a>`, or of a check, `<a id="check-<kind>"></a>`, and the question block no longer uses `<details>`.
 
 ### The chat (R12)
 
@@ -230,7 +230,7 @@ The renderer adds a number after an id that the map of the run holds, and after 
 
 ### TD6: Backslash escapes, not code spans or entities
 
-A backslash before `<`, `_`, `*`, `[` and `&` is read by every preview of CommonMark as the character, and costs one character in a terminal. It goes only where the character would render: an `_` between two letters or digits, as in `snake_case`, and a `[` that opens no link, as in a batch index `[0]`, stay bare, since a backslash before every punctuation character would fill paths and dots with them. Writing an entity such as `&lt;` reads badly raw, and a code span around a word changes what the worker wrote and broke code spans when a draft of this design tried it.
+A backslash before `<`, `_` and `*` is read by every preview of CommonMark as the character, and costs one character in a terminal. A single `_`, the `[` of a link and the `&` of an entity stay as the worker wrote them. The deep-review run on this change escaped them where they would render, and the reports of the gate's runs on click, rendered with that fix, gained a backslash before each leading underscore of a Python name such as `_echo`, 52 more in the run of Claude Code and 15 more in the run of Codex, which a preview does not read as emphasis, while no link or entity of a worker appeared in them; the author rejected that fix. An entity such as `&lt;` reads badly raw, and a code span around a word changes what the worker wrote and broke code spans when a draft of this design tried it.
 
 ### TD7: `--stats` is a form of `report`
 
@@ -286,7 +286,7 @@ A test checks that the blocks run from 1 to the count of findings, each with its
 
 ### R10 and R11: The words and the escaping
 
-The test of the shape reads the brief of each snapshot for the words of R10, with workers' texts that hold none of them, and the whole report for HTML other than the anchor lines. A test of `escapedText` checks `<stdin>`, `__init__`, `*`, `_name_`, `[x](y)` and `&lt;` in a sentence, each of them in a code span, `snake_case` and `[0]` left bare, and a character after an escaped backslash or backtick.
+The test of the shape reads the brief of each snapshot for the words of R10, with workers' texts that hold none of them, and the whole report for HTML other than the anchor lines. A test of `escapedText` checks `<stdin>`, `__init__` and `*` in a sentence, each of them in a code span, a single `_`, a link and an entity left as written, and a character after an escaped backslash or backtick.
 
 ### R12: The chat
 
