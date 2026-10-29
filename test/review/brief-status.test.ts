@@ -4,7 +4,7 @@ import type { RecordedDecision } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { briefMarkdown, briefOf, type Brief } from '../../src/review/brief.ts';
 import { shortRunId } from '../../src/review/runs.ts';
-import { answer, answerableDecisions, askDecision, decidedFixRun, decisions, departure, readOnlyReported } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, askDecision, decidedFixRun, decisions, departure, readOnlyReported, worker } from '../helpers/review-history.ts';
 
 /** The run with no revision of the fix pass: a fixer reported its fix applied, and the tree held no change of it. */
 const withoutRevisions = (state: RunState): RunState => ({ ...state, review: { ...state.review!, fix: { ...state.review!.fix!, revisions: [] } } });
@@ -115,5 +115,35 @@ describe('the items of what needs you in the brief', () => {
     const needs = Array.from({ length: 10 }, (_, index) => ({ rank: 1 as const, condition: 'edits' as const, finding: null, check: null, document: null, patch: null, lines: [`Lead ${String(index + 1)}.`, `Under ${String(index + 1)}.`] }));
     const lines = briefMarkdown({ ...brief, needs });
     assert.deepEqual(lines.slice(lines.indexOf('9. Lead 9.'), lines.indexOf('9. Lead 9.') + 4), ['9. Lead 9.', '   - Under 9.', '10. Lead 10.', '    - Under 10.']);
+  });
+});
+
+describe('a fix whose fixer did not finish in the brief', () => {
+  /** The run whose one fixer, of RIPPLE-1, left an attempt's edits and gave no answer, its retry stopped as `cause` says. */
+  const lost = (cause: 'budget' | 'failures' | null): Brief => {
+    const state = decidedFixRun([decisions[0], decisions[1]]).fold();
+    const fix = state.review!.fix!;
+    const attempt = { ...fix.revisions[0]!, source: { kind: 'attempt' as const, key: 'c1-1', workerId: worker(60) } };
+    const notAttempted = cause === null ? fix.notAttempted : { ...fix.notAttempted, fixes: { 'c1-1': { cause, reason: 'spent 31 USD of 30 USD' } } };
+    return briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [attempt], answers: { ...fix.answers, fixes: {} }, notAttempted } } } as RunState);
+  };
+  const unapplied = (brief: Brief): string | undefined => brief.needs.find((need) => need.condition === 'unapplied-fix')?.lines[0];
+
+  it('says its fixer did not finish and the run budget stopped another attempt, not that the budget stopped the fixes before it', () => {
+    const brief = lost('budget');
+    assert.deepEqual(brief.needs.filter((need) => need.rank === 4).map((need) => [need.condition, need.finding]), [['unfinished-edits', 1], ['unapplied-fix', 1]]);
+    assert.equal(unapplied(brief), '**Finding 1 is not fixed: its fixer did not finish, and the run budget stopped another attempt; the end of the report gives the command that continues the fixes.** If you do nothing, the finding stays as it is.');
+  });
+
+  it('says its fixer did not finish when a second failure stopped another attempt, or nothing did, never that no fixer attempted it', () => {
+    assert.match(unapplied(lost('failures')) ?? '', /: its fixer did not finish, and a second failure stopped another attempt\.\*\*/);
+    assert.match(unapplied(lost(null)) ?? '', /: its fixer did not finish\.\*\*/);
+  });
+
+  it('names the finding once in the item that names the unfinished work past the cap', () => {
+    const brief = lost('budget');
+    const documents = Array.from({ length: 3 }, (_, index) => ({ rank: 4 as const, condition: 'document' as const, finding: null, check: null, document: `docs/${String(index)}.md`, patch: null, lines: [`**\`docs/${String(index)}.md\` is out of date.**`] }));
+    const lines = briefMarkdown({ ...brief, needs: [...documents, ...brief.needs] });
+    assert.ok(lines.includes('4. **2 more:** finding 1.'), lines.join('\n'));
   });
 });
