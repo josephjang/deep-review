@@ -78,9 +78,9 @@ describe('the report of a surveyed run', () => {
     assert.equal(render(), readFileSync(snapshotPath, 'utf8'), `the report changed; if on purpose, write the new text to ${snapshotPath}`);
   });
 
-  it('places Conventions before Refuted at verification, and gives the survey its row in the statistics (R12 of the brief of a run; R9 of the report for the person)', () => {
+  it('places Conventions in what the review covered, before Refuted at verification, and gives the survey its row in the statistics (R8, R9 of the report for the person)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Checks', '## Conventions', '## Refuted at verification'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Checks', '## What the review covered', '### Conventions', '## Refuted at verification'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
     assert.match(renderStats(surveyedFixRun().fold(), surveyStatistics).join('\n'), /^\| survey \| 1 \| 20\.0 \| 0\.30 \| 500 \| 100 \| 50 \|$/m);
@@ -100,22 +100,21 @@ describe('the report of a surveyed run', () => {
 
   it('names each check\'s source, and of a kind the operator dropped after its tool was missing what the project defines (R10, R15)', () => {
     const report = render();
-    assert.match(report, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| After the repair \|$/m);
-    assert.match(report, /^\| build \| npm run build \| package\.json \(hint\) \| passed/m);
-    assert.match(report, /^\| typecheck \| dropped by the operator; the project defines `npx tsc --noEmit` \(\.github\/workflows\/ci\.yml\), tsc not found \| --no-check \| - \| - \| - \|$/m);
-    assert.match(report, /^\| lint \| npm run lint \| \.github\/workflows\/ci\.yml \(stated\) \| passed/m);
-    assert.match(report, /^\| test \| npm run test \| --check \| failed/m);
+    assert.match(report, /^### build\n\n- Command: `npm run build`\n- Source: package\.json \(hint\)\n- As submitted: passed/m);
+    assert.match(report, /^### typecheck\n\n- Command: dropped by the operator; the project defines `npx tsc --noEmit` \(\.github\/workflows\/ci\.yml\), tsc not found\n- Source: --no-check$/m);
+    assert.match(report, /^### lint\n\n- Command: `npm run lint`\n- Source: \.github\/workflows\/ci\.yml \(stated\)\n- As submitted: passed/m);
+    assert.match(report, /^### test\n\n- Command: `npm run test`\n- Source: --check\n- As submitted: failed/m);
     assert.ok(report.includes(' No typecheck check ran: dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found.'), 'a gap of the brief, with what the operator dropped (R10 of the brief of a run)');
   });
 
   it('says the survey failed, and that CONVENTIONS had no rule, in a read-only run without a source', () => {
     const failed = withSurvey(withoutConventionsFinder(reported()), (history) => history.start('survey').add('survey.failed', { reason: '2 attempts did not complete: timeout', conventions: [], userRules: [] }).finish('survey', 'degraded'));
     const report = renderReport(failed.fold(), reportInput);
-    assert.match(report, /^## Conventions\n\nThe survey failed: 2 attempts did not complete: timeout\. The run went on with no convention source\.\n\nNo user-level rules file of the reviewer's existed on this machine; the policy value was `judge`\.$/m);
+    assert.match(report, /^### Conventions\n\nThe survey failed: 2 attempts did not complete: timeout\. The run went on with no convention source\.\n\nNo user-level rules file of the reviewer's existed on this machine; the policy value was `judge`\.$/m);
     assert.match(report, /^- The survey failed: 2 attempts did not complete: timeout\. No repository convention source was known\.$/m);
-    assert.match(report, /^- The CONVENTIONS angle did not run \(the survey failed, so no convention source is known: 2 attempts did not complete: timeout\)\.$/m);
+    assert.match(report, /^- The conventions review pass \(CONVENTIONS\) did not run: the survey failed, so no convention source is known: 2 attempts did not complete: timeout\. /m);
     const none = withSurvey(reported(), (history) => history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', { workerId: worker(80), conventions: [], userRules: [], checks: null, note: '' }).finish('survey'));
-    assert.match(renderReport(none.fold(), reportInput), /^## Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
+    assert.match(renderReport(none.fold(), reportInput), /^### Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
   });
 
   it('counts the survey\'s answers, and says it blocked on a check this machine could not run only when the ledger records that block (R10)', () => {
@@ -126,7 +125,7 @@ describe('the report of a surveyed run', () => {
     const plan = { checks: surveyed.map(({ kind, command, basis, source, reason }) => ({ kind, command, origin: command === null ? 'none' : 'survey', reason, source: source === null || basis === null ? null : { ...source, basis } })) };
     const conventionsOf = (history: History): string => {
       const report = render(history.fold());
-      return report.slice(report.indexOf('\n## Conventions\n'), report.indexOf('\n## Refuted at verification\n'));
+      return report.slice(report.indexOf('\n### Conventions\n'), report.indexOf('\n## Refuted at verification\n'));
     };
     // The engine died between the first answer and its plan; the resumed invocation surveyed again with no block in between.
     const resumed = withSurvey(fixRun(), (history) => history
@@ -145,10 +144,10 @@ describe('the report of a surveyed run', () => {
     assert.doesNotMatch(render(), /The survey answered/, 'one answer is not counted');
   });
 
-  it('renders a run configured before the survey existed with no Conventions section and no Source column, as it did', () => {
+  it('renders a run configured before the survey existed with no Conventions part and no source of a check, as it did', () => {
     const older = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches, continueCommand: null } });
-    assert.ok(!older.includes('## Conventions'));
-    assert.match(older, /^\| Check \| Command \| Before the fixes \|/m);
+    assert.ok(!older.includes('### Conventions'));
+    assert.match(older, /^### build\n\n- Command: `npm run build`\n- As submitted: /m);
   });
 });
 
@@ -164,7 +163,7 @@ describe('the Conventions section of a run continued into the fix pass', () => {
     }
     return copy;
   };
-  const conventionsOf = (report: string): string => report.slice(report.indexOf('\n## Conventions\n'), report.indexOf('\n## Refuted at verification\n'));
+  const conventionsOf = (report: string): string => report.slice(report.indexOf('\n### Conventions\n'), report.indexOf('\n## Refuted at verification\n'));
 
   it('says the continuation asked for the checks alone, and shows the review\'s note on the conventions beside the note on the checks', () => {
     const state = noted(continuedToReport(), { [worker(80)]: 'AGENTS.md imports the reviewer\'s rules', [worker(81)]: 'checks only; the conventions stand' }).fold();

@@ -91,7 +91,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.equal(readFileSync(firstPath, 'utf8'), firstText);
     // The first report by its name in the store, the same on every machine (R15 of the brief of a run).
     assert.match(text, new RegExp(`^Continued: into the fix pass on ${RegExp.escape(review.continuedFrom!.at)}, after the read-only report artifacts/${review.continuedFrom!.report.report.sha256}$`, 'm'));
-    assert.match(text, /^## Fixes$/m);
+    assert.match(text, /^## Patches$/m);
     assert.equal(review.report!.statistics.phases.find((row) => row.phase === 'survey')?.workers, 2, 'the statistics count both passes');
     const described = describeRun(state, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference));
     assert.ok(described.lines.includes(`Continued from: ${firstPath}, into the fix pass on ${review.continuedFrom!.at}`), described.lines.join('\n'));
@@ -147,7 +147,7 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.deepEqual((pinned.ignored as { name: string }[]).map((entry) => entry.name), ['report.formats']);
     const report = box.checkpoint.evidence.read(state.review!.report!.report).toString('utf8');
     // The facts of the run give the settings' lines beside the Settings: line, where the clone's file may be named by its path (R15 of the brief of a run).
-    const facts = report.slice(report.indexOf('\n## The run\n'));
+    const facts = report.slice(report.indexOf('\n## About this run\n'));
     assert.ok(facts.includes(`\nNot followed: checks.test: the repository's "npm test", this run's ${JSON.stringify(flags.commands.test)} from the clone's file.\n`), report);
     assert.match(facts, /^Ignored: report\.formats in .*clone\.toml: no such setting\.$/m);
     assert.deepEqual(state.review!.configuration.checks, { timeoutMs: 30 * 60_000 }, 'the repository\'s check timeout');

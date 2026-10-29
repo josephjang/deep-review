@@ -16,48 +16,42 @@ No check ran: this run only reviewed. The major findings stay open: finding 1. T
 
 deep-review decided to fix no finding.
 
----
-
-The evidence for each statement above follows.
-
 ## Findings
 
 <a id="finding-1"></a>
 
-### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
+### 1. null dereference
 
-null dereference
+Left as is. Major, CONFIRMED.
 
-Reason: same root cause at lines 4 and 7
-Evidence: line 4 dereferences null
-Angle: RIPPLE, SCAN
-Also at: SWEEP-2 src/a.ts:7
+- Where: src/a.ts:4 (RIPPLE-1; merged into it: SWEEP-2 at src/a.ts:7)
+- Reason: same root cause at lines 4 and 7
+- Evidence: line 4 dereferences null
 
 <a id="finding-2"></a>
 
-### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
+### 2. extract the helper
 
-extract the helper
+Left as is. Minor, PLAUSIBLE, which no verifier examined.
 
-Reason: one improvement
-Evidence: none; the verifier of this group failed twice
-Angle: DESIGN
+- Where: C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified) (SWEEP-1)
+- Reason: one improvement
+- Evidence: none; the verifier of this group failed twice
+
+## What the review covered
+
+The review passes that ran: first (SCAN), removals (REMOVALS), ripple effects (RIPPLE), wrappers (WRAPPERS), efficiency (EFFICIENCY), design (DESIGN), duplication (DUPLICATION), altitude (ALTITUDE) and conventions (CONVENTIONS).
+
+- The footguns review pass (FOOTGUNS) did not run: 2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout. A later pass looked for what it would have found.
+- No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.
+- Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates are SWEEP-1, SWEEP-2.
+- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
 
 ## Refuted at verification
 
 None.
 
-## Notes of the run
-
-- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout).
-- Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates (SWEEP-1, SWEEP-2) are a gap of the brief.
-- Worktree checks: 9, none found a difference from the reviewed change.
-- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
-- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
-- Unlocated candidates on a path the repository does not hold, or on a line past the end of an unchanged file: SWEEP-1 (C:\elsewhere\b.ts:9).
-- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.
-
-## The run
+## About this run
 
 Repository: /w
 Base: 1111111111111111111111111111111111111111
@@ -68,4 +62,11 @@ Engine: 0.0.0+dev (run created by 0.0.0)
 Runtime: claude 2.1.283 at /bin/claude
 Models: strong opus, fast sonnet
 Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
+Findings by number: 1 RIPPLE-1 (also SWEEP-2); 2 SWEEP-1
+Totals: 9 workers, 22.5 wall seconds, 4.50 USD; `deep-review report --stats` gives each phase
 Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.
+
+- Worktree checks: 9, none found a difference from the reviewed change.
+- Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
+- Workers with no reported cost: 1. A worker that times out, fails before the runtime prints its usage, or is lost with its engine reports none; the costs above leave such workers out, so the run cost more than the totals show. The budget check counted each such worker at its per-worker cap, except a worker lost with its engine, which it could not price and left out.
+- Lost with the engine: the worker of finder-WRAPPERS finders:WRAPPERS, and ran again.

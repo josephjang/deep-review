@@ -120,7 +120,7 @@ describe('the repository survey in a run', { timeout: 600_000, concurrency: sand
     assert.equal(Object.values(state.workers).filter((worker) => worker.launch.label === 'finder-CONVENTIONS finders:CONVENTIONS').length, 0, 'no CONVENTIONS finder ran');
     assert.match(box.promptOf(state, 'sweep sweep:sweep'), /These angles did not run, so their territory is yours to cover: CONVENTIONS \(the survey failed/);
     assert.match(box.promptOf(state, 'triage triage:SCAN'), /### Convention sources\n\nThe repository survey failed, so no convention source is known\./);
-    assert.match(text, /^- The CONVENTIONS angle did not run \(the survey failed/m, 'the notes say why');
+    assert.match(text, /^- The conventions review pass \(CONVENTIONS\) did not run: the survey failed/m, 'the evidence says why');
   });
 
   it('blocks a fix run whose survey fails twice with the action naming the flags, and goes on without it once they settle all four (R9, PD6)', async (t) => {

@@ -27,50 +27,46 @@ describe('the report of a fix run', () => {
     assert.match(render(), /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted$/m);
   });
 
-  it('says once deep-review commit committed every patch, lowercase in its header and capitalized where the Fixes section starts a sentence (R8 of answers)', () => {
+  it('says once deep-review commit committed every patch, in its header and by the commit of each patch (R8 of answers)', () => {
     const revisions = ['chore: apply the lint check\'s rewrite', 'fix: Guard the null in parse', 'style: Format the guard'].map((subject, revision) => ({ sha: String(revision + 3).repeat(40), revision, subject }));
     const commits = [{ sha: 'a'.repeat(40), revision: 'change' as const, subject: 'the change' }, ...revisions];
     const written = fixRun().add('report.written', { report: reference('9', 4096), statistics, patches: [reference('1'), reference('2'), reference('3')] }, 4).finish('report');
     const report = render(written.add('commits.created', { commits, from: '2'.repeat(40), to: '5'.repeat(40) }).fold());
     assert.match(report, /^Fix pass: [^\n]*; 3 patches; patches 1 to 3 are committed$/m);
-    assert.match(report, /in rank order\. Patches 1 to 3 are committed; a patch number/);
+    assert.match(report, /^2\. fix: Guard the null in parse \(finding 1, c1-1\), src\/a\.ts modified, test\/a\.test\.ts created, committed as 44444444: artifacts\/2{64}$/m);
   });
 
-  it('places Fixes, Documentation, Checks and Changed files after Findings and before Refuted at verification (R12 of the brief of a run, R10 of the documentation step)', () => {
+  it('places Documentation updates, Checks and Patches after Findings and before What the review covered (R8 of the report for the person)', () => {
     const report = render();
-    const order = ['## Findings', '## Fixes', '## Documentation', '## Checks', '## Changed files', '## Refuted at verification', '## Notes of the run', '## The run'].map((heading) => report.indexOf(`\n${heading}\n`));
+    const order = ['## Findings', '## Documentation updates', '## Checks', '## Patches', '## What the review covered', '## Refuted at verification', '## About this run'].map((heading) => report.indexOf(`\n${heading}\n`));
     assert.ok(order.every((position) => position > 0), JSON.stringify(order));
     assert.deepEqual([...order].sort((a, b) => a - b), order);
   });
 
-  it('gives every ranked finding its fate, the fixer\'s note and correction, its patch, and a held finding\'s reason, and leaves its cluster to the statistics', () => {
+  it('gives every ranked finding in its block its fate, the fixer\'s note and correction, its patch and validations, and a held finding\'s reason, and leaves its cluster to the statistics', () => {
     const report = render();
     assert.match(renderStats(fixRun().fold(), fixStatistics).join('\n'), /^- 1\. RIPPLE-1: cluster c1, batch c1-1 \(src\/a\.ts\)$/m);
-    assert.match(report, /^### 1\. RIPPLE-1 applied\n\nNote: guarded the null before its use\nCommit message: fix: Guard the null in parse\nPatch 2\nCorrection: src\/a\.ts parse: parse is at line 4 -> it moved to line 6 \(git blame\)$/m);
-    assert.match(report, /^### 2\. SWEEP-1 held for the author\n\nA PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it\.$/m);
-    assert.match(report, /^### Repair\n\n- lint check applied: formatted the guard; patch 3$/m);
-    assert.match(report, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
+    assert.match(report, /^- Fix: applied; guarded the null before its use\n- Commit message: fix: Guard the null in parse\n- Patch: 2\n- Correction: src\/a\.ts parse: parse is at line 4 -> it moved to line 6 \(git blame\)\n- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed on the old code for the null, passed on the fix$/m);
+    assert.match(report, /^- Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it\.$/m);
+    assert.match(report, /^- Its fix: applied, formatted the guard; patch 3$/m);
     assert.match(report, /Tests the fixers say they added or tightened:\n\n- test\/a\.test\.ts: parse\(null\) returns 0 \(c1-1\)/);
   });
 
-  it('shows each check in each phase that ran it, a kind not available with its reason, the output of one that failed, and one failing before the fix pass', () => {
+  it('gives each check a block with its anchor, each phase that ran it, a kind not available with its reason, the output of one that failed, and one failing before the fix pass', () => {
     const report = render();
-    assert.match(report, /^\| Check \| Command \| Before the fixes \| After the fixes \| After the repair \|$/m);
-    assert.match(report, /^\| typecheck \| not available \(none: nothing names it\) \| - \| - \| - \|$/m);
+    assert.match(report, /^<a id="check-typecheck"><\/a>\n\n### typecheck\n\n- Command: not available \(none: nothing names it\)$/m);
     // The frozen output is named by its name in the store, which names no local path (R15 of the brief of a run).
-    assert.match(report, /^\| lint \| npm run lint \| passed, 4\.0 s \| failed, 4\.0 s; output artifacts\/c{64}, artifacts\/d{64} \| passed, 4\.0 s \|$/m);
-    assert.match(report, /^\| test \| npm run test \| failed, 4\.0 s; output \S+, \S+ \| failed, 4\.0 s; output \S+, \S+ \(failing before the fix pass\) \| failed, 4\.0 s; output \S+, \S+ \(failing before the fix pass\) \|$/m);
+    assert.match(report, /^### lint\n\n- Command: `npm run lint`\n- As submitted: passed, 4\.0 s\n- After the fixes: failed, 4\.0 s; output artifacts\/c{64}, artifacts\/d{64}\n- After the fixes for the checks: passed, 4\.0 s$/m);
+    assert.match(report, /^- After the fixes: failed, 4\.0 s; output \S+, \S+ \(failing before the fix pass\)$/m);
+    assert.match(report, /^\| \[lint\]\(#check-lint\) \| /m, 'the table of the brief links to the block');
   });
 
-  it('lists every changed path once with its final status and who changed it, then the patch series in order', () => {
+  it('lists the patch series in order, each with who made it and the files it changes, and leaves who held each path to the statistics', () => {
     const report = render();
-    assert.match(report, /^\| Path \| Status \| Changed by \|$/m);
-    assert.match(report, /^\| src\/a\.ts \| modified \| lint check, c1-1, repair \|$/m);
-    assert.match(report, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
     const stats = renderStats(fixRun().fold(), fixStatistics).join('\n');
     assert.match(stats, /^\| src\/a\.ts \| c1 \|$/m);
     assert.match(stats, /^\| test\/a\.test\.ts \| nobody \|$/m, 'a file no cluster owned, edited before claims existed');
-    assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(lint check\): artifacts\/1{64}\n2\. fix: Guard the null in parse \(c1-1\): artifacts\/2{64}\n3\. style: Format the guard \(repair\): artifacts\/3{64}$/m);
+    assert.match(report, /applies in order to a tree at the scope with `git am --keep-cr`:\n\n1\. chore: apply the lint check's rewrite \(the lint check\), src\/a\.ts modified: artifacts\/1{64}\n2\. fix: Guard the null in parse \(finding 1, c1-1\), src\/a\.ts modified, test\/a\.test\.ts created: artifacts\/2{64}\n3\. style: Format the guard \(repair\), src\/a\.ts modified: artifacts\/3{64}$/m);
   });
 
   it('adds the strays and the fixers\' validation and suite lines to the notes of the run, and names a check not available as a gap of the brief', () => {
@@ -78,7 +74,6 @@ describe('the report of a fix run', () => {
     assert.match(report, /^- Files no answer names, left in the tree and in no patch: notes\.txt\.$/m);
     assert.ok(report.includes(' No typecheck check ran: nothing names it. '), 'a gap under the table of the checks (R4 of the report for the person)');
     assert.doesNotMatch(report, /Checks not available/);
-    assert.match(report, /^- Validation of RIPPLE-1 \(c1-1\), old-code, test\/a\.test\.ts: failed on the old code for the null, passed on the fix$/m);
     assert.match(report, /^- Fixer c1-1 ran its own suite: pass \(npm test\)\.$/m);
     assert.match(report, /^- The repair ran its own suite: pass \(npm test\)\.$/m);
     assert.match(report, /^- Worktree checks: \d+, none found a difference from what the run expected\.$/m);
@@ -206,40 +201,44 @@ describe('the report of a fix run', () => {
     assert.match(render({ ...state, review: { ...state.review!, fix: unchanged } }), /^- After the fixes: not run, since no fix changed a file\.$/m);
   });
 
-  it('marks a column whose runs checked a tree a later fix changed, never for an answer pass, and says what came after (TD3 of resumable runs)', () => {
+  it('marks the runs of a phase that checked a tree a later fix changed, never for an answer pass, and says what came after (TD3 of resumable runs)', () => {
     const state = fixRun().fold();
     const fix = state.review!.fix!;
     const later = (phase: string): RunState => ({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [...fix.revisions, { ...fix.revisions[1]!, phase } as never] } } });
-    const header = (report: string): string => report.slice(report.indexOf('\n## Checks\n')).split('\n').find((line) => line.startsWith('| Check |'))!;
-    assert.doesNotMatch(header(render()), /an earlier tree/);
+    const checks = (report: string): string => report.slice(report.indexOf('\n## Checks\n'), report.indexOf('\n## Patches\n'));
+    assert.doesNotMatch(checks(render()), /an earlier tree/);
     const refixed = render(later('fixes'));
-    assert.match(header(refixed), /\| After the fixes \(an earlier tree\) \| After the repair \(an earlier tree\) \|$/);
+    assert.match(checks(refixed), /^- After the fixes, on an earlier tree: /m);
+    assert.match(checks(refixed), /^- After the fixes for the checks, on an earlier tree: /m);
     assert.match(refixed, /^- After the fixes: its runs checked an earlier tree, which a later revision of the fixes changed\.$/m);
-    assert.doesNotMatch(header(render(later('answer'))), /an earlier tree/, 'the column after answers shows the tree an answer pass left');
-    assert.match(header(render(later('repair'))), /\| After the fixes \| After the repair \(an earlier tree\) \|$/);
+    assert.doesNotMatch(checks(render(later('answer'))), /an earlier tree/, 'the runs after answers show the tree an answer pass left');
+    const repaired = checks(render(later('repair')));
+    assert.match(repaired, /^- After the fixes: /m);
+    assert.doesNotMatch(repaired, /^- After the fixes, on an earlier tree/m);
+    assert.match(repaired, /^- After the fixes for the checks, on an earlier tree: /m);
     // A revision of the documentation step after the checks, as a reopening that gives its unit back makes, is named as its own (R10 of the documentation step).
     const documented = render(later('documentation'));
-    assert.match(header(documented), /\| After the fixes \(an earlier tree\) \| After the repair \(an earlier tree\) \|$/);
+    assert.match(checks(documented), /^- After the fixes, on an earlier tree: /m);
     assert.match(documented, /^- After the fixes: its runs checked an earlier tree, which a later revision of the documentation step changed\.$/m);
-    assert.match(render(later('repair')), /^- After the repair: its runs checked an earlier tree, which a later revision of the repair changed\.$/m);
+    assert.match(render(later('repair')), /^- After the fixes for the checks: its runs checked an earlier tree, which a later revision of the fixes for the checks changed\.$/m);
   });
 
   it('says why the checks after the repair did not run: no failure to repair, a repair not attempted, or one that changed nothing (TD11 of resumable runs)', () => {
     const state = fixRun().fold();
     const fix = state.review!.fix!;
     const without = (change: Partial<typeof fix>): string => render({ ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'repair-checks': [] } }, ...change } } });
-    assert.match(without({}), /^- After the repair: not run, since the repair changed no file\.$/m);
-    assert.match(without({ notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the repair: not run, since the repair was not attempted\.$/m);
-    assert.match(without({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: fix.checks.runs.checks.map((run) => ({ ...run, outcome: 'passed' as const })), 'repair-checks': [] } } }), /^- After the repair: not run, since no check failed after the fixes\.$/m);
+    assert.match(without({}), /^- After the fixes for the checks: not run, since the fixes for the checks changed no file\.$/m);
+    assert.match(without({ notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the fixes for the checks: not run, since the fixes for the checks were not attempted: [^\n]*spent\.$/m);
+    assert.match(without({ checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: fix.checks.runs.checks.map((run) => ({ ...run, outcome: 'passed' as const })), 'repair-checks': [] } } }), /^- After the fixes for the checks: not run, since no check failed after the fixes\.$/m);
     // An answer pass's later revision makes the runs after the fixes old, but they are still the ones the repair read.
     const answerRevision = { ...fix.revisions.at(-1)!, phase: 'answer' as const };
-    assert.match(without({ revisions: [...fix.revisions, answerRevision] }), /^- After the repair: not run, since the repair changed no file\.$/m);
-    assert.match(without({ revisions: [...fix.revisions, answerRevision], notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the repair: not run, since the repair was not attempted\.$/m);
+    assert.match(without({ revisions: [...fix.revisions, answerRevision] }), /^- After the fixes for the checks: not run, since the fixes for the checks changed no file\.$/m);
+    assert.match(without({ revisions: [...fix.revisions, answerRevision], notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget', reason: 'spent' } } } }), /^- After the fixes for the checks: not run, since the fixes for the checks were not attempted: [^\n]*spent\.$/m);
   });
 
   it('renders a run without the fix pass with none of these sections', () => {
     const report = renderReport(reported().fold(), reportInput);
-    for (const heading of ['## Fixes', '## Checks', '## Changed files']) assert.ok(!report.includes(heading), heading);
+    for (const heading of ['## Documentation updates', '## Checks', '## Patches']) assert.ok(!report.includes(heading), heading);
     assert.doesNotMatch(report, /^Fix pass:/m);
   });
 });
@@ -249,21 +248,22 @@ describe('the report of a fix run with the decision step (R8 of the decision ste
 
   it('says of a finding no fixer saw that the decision left it, with the reason, and counts it so in the header', () => {
     const report = render(decidedOf(fixRun()).fold());
-    assert.match(report, /^### 2\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
+    assert.match(report, /^### 2\. extract the helper\n\nLeft as is\. Minor, PLAUSIBLE, which no verifier examined\.\n/m);
+    assert.match(report, /^- Decision: left, outside the change, and not a regression: [^\n]+\n\n## Documentation updates$/m, 'a finding no fixer saw has no fix line');
     assert.match(report, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is; 3 patches; the edits are in the working tree, uncommitted$/m);
     assert.doesNotMatch(report, /held for the author/);
   });
 
   it('says of an ask whose default keeps the code that no fixer saw it and the author is asked', () => {
     const report = render(decidedOf(fixRun(), [decisions[0], askDecision('SWEEP-1', false)]).fold());
-    assert.match(report, /^### 2\. SWEEP-1 asked, kept as is\n\nNo fixer saw it: the decision step asks the author, and its default keeps the code as it is\. See Decisions\.$/m);
+    assert.match(report, /^### 2\. extract the helper\n\nA question for you\. /m);
     assert.match(report, /0 left by decision, 1 asked, kept as is;/);
   });
 
   const superseded = { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
 
   it('names the superseding finding of a finding left as superseded, and what its fixer reported', () => {
-    assert.match(render(decidedOf(fixRun(), [decisions[0], superseded]).fold()), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fixer reported it applied\. See Decisions\.$/m);
+    assert.match(render(decidedOf(fixRun(), [decisions[0], superseded]).fold()), /^- Fix: none of its own; its removal was finding 1's fix, whose fixer reported it applied\.$/m);
   });
 
   it('says a superseded finding may still stand when its superseder\'s fixer deferred, or no fixer answered for it', () => {
@@ -272,10 +272,10 @@ describe('the report of a fix run with the decision step (R8 of the decision ste
     const answer = fix.answers.fixes['c1-1']!;
     const withAnswers = (fixes: typeof fix.answers.fixes): RunState => ({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes } } } });
     const deferred = render(withAnswers({ 'c1-1': { ...answer, findings: answer.findings.map((finding) => ({ ...finding, status: 'deferred' as const })) } }));
-    assert.match(deferred, /^### 2\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fixer reported it deferred\. Its removal depended on RIPPLE-1's fix, so this finding may still stand\. See Decisions\.$/m);
+    assert.match(deferred, /^- Fix: none of its own; its removal was finding 1's fix, whose fixer reported it deferred\. This finding may still stand\.$/m);
     // The header still counts it as left by decision; the line above is what keeps the report from saying it was handled.
     assert.match(deferred, /^Fix pass: 0 applied, 0 already applied, 1 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is;/m);
-    assert.match(render(withAnswers({})), /^No fixer saw it: the decision step left it, superseded by RIPPLE-1, whose fix was not attempted\. Its removal depended on RIPPLE-1's fix, so this finding may still stand\. See Decisions\.$/m);
+    assert.match(render(withAnswers({})), /^- Fix: none of its own; its removal was finding 1's fix, whose fixer did not attempt it\. This finding may still stand\.$/m);
   });
 });
 
@@ -471,7 +471,7 @@ describe('the Documentation section of the report', () => {
   /** The section Documentation of a run's report, up to the section after it. */
   const section = (state: RunState): string => {
     const report = renderReport(state, { ...reportInput, statistics: fixStatistics, fix: { patches: state.review!.fix!.revisions.map((_, index) => reference(String(index + 1))), continueCommand: null } });
-    const start = report.indexOf('\n## Documentation\n');
+    const start = report.indexOf('\n## Documentation updates\n');
     assert.ok(start > 0, 'the report has the section');
     return report.slice(start + 1, report.indexOf('\n## Checks\n'));
   };
@@ -492,7 +492,7 @@ describe('the Documentation section of the report', () => {
   it('gives each item its outcome, its document, its note, its commit, files and patch, the lines it took and its validation, then what the step found at its end', () => {
     const text = section(documentedFixRun([line('./docs/a.md', 'parse throws on a null'), line('../outside.md', 'parse throws')], answeredStep).fold());
     assert.equal(text, [
-      '## Documentation',
+      '## Documentation updates',
       '',
       'The documentation step answered for 2 documents the fixers named, and for its own search.',
       '',
@@ -542,9 +542,8 @@ describe('the Documentation section of the report', () => {
     assert.match(section(state), /^- CHANGES\.md: the bytes are always translated$/m);
     assert.doesNotMatch(report, /Validation of search/);
     assert.match(report, /^- The documentation step ran its own suite: not-run\.$/m);
-    const fixes = report.slice(report.indexOf('\n## Fixes\n'), report.indexOf('\n## Documentation\n'));
-    assert.doesNotMatch(fixes, /The documentation the fixers say their edits made stale/);
-    assert.doesNotMatch(fixes, /test\/doc\.test\.ts/);
+    const patchesPart = report.slice(report.indexOf('\n## Patches\n'), report.indexOf('\n## What the review covered\n'));
+    assert.doesNotMatch(patchesPart, /test\/doc\.test\.ts/, 'the step\'s tests are not a fixer\'s');
   });
 
   it('says why the step did not run, and gives an item not attempted its reason', () => {
@@ -555,12 +554,9 @@ describe('the Documentation section of the report', () => {
     assert.match(section(documentedFixRun().fold()), /^The documentation step answered for 0 documents the fixers named, and for its own search\.$/m);
   });
 
-  it('lists the lines no item took, with who reported each, and leaves them out of the Fixes section, which points to this one', () => {
+  it('lists the lines no item took, with who reported each', () => {
     const report = renderReport(fixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: null } });
-    assert.match(report, /\n## Documentation\n\nThe documentation step did not run: an engine before the documentation step configured this run\.\n\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- README\.md: parse no longer throws on null \(c1-1\)\n\n## Checks\n/);
-    const fixes = report.slice(report.indexOf('\n## Fixes\n'), report.indexOf('\n## Documentation\n'));
-    assert.match(fixes, /\nThe documentation the fixers say their edits made stale is under Documentation, with what became of it\.\n/);
-    assert.doesNotMatch(fixes, /README\.md: parse no longer throws/);
+    assert.match(report, /\n## Documentation updates\n\nThe documentation step did not run: an engine before the documentation step configured this run\.\n\nDocumentation the workers of this run say their edits made stale, which no step of this run took:\n\n- README\.md: parse no longer throws on null \(c1-1\)\n\n## Checks\n/);
   });
 
   it('names the repair and an answer pass for a line after the step, and has no section for a run before the step with no line', () => {
@@ -572,7 +568,7 @@ describe('the Documentation section of the report', () => {
     const late = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair }, answer: { 'pass-1': passed } } } } } as RunState;
     assert.match(section(late), /\nDocumentation the repair or an answer pass says its edits made stale, after the documentation step:\n\n- README\.md: parse throws \(the repair\)\n- docs\/a\.md: the example prints 4 \(answer pass 1\)\n/);
     const report = renderReport(decidedFixRun().fold(), { ...reportInput, statistics: fixStatistics, fix: { patches: [reference('1')], continueCommand: null } });
-    assert.doesNotMatch(report, /\n## Documentation\n/, 'an older run whose fixers named nothing');
+    assert.doesNotMatch(report, /\n## Documentation updates\n/, 'an older run whose fixers named nothing');
   });
 
   it('names no fixer in the heading of the lines no step took when only the repair reported one', () => {
@@ -591,48 +587,47 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
   /** The Checks section of the report of a run whose checks end as `checks` says, its scope a branch's. */
   const checksOf = (checks: ChecksOfRun): string => {
     const report = render(onBranch(checkedRun(checks)));
-    return report.slice(report.indexOf('\n## Checks\n'), report.indexOf('\n## Changed files\n'));
+    return report.slice(report.indexOf('\n## Checks\n'), report.indexOf('\n## Patches\n'));
   };
   const output = 'output artifacts\\/c{64}, artifacts\\/d{64}';
   const same = { kind: 'lint', reading: 'same', words: 'the same two lint errors as on the base' };
   const failing = { before: { lint: 'failed' }, after: { lint: 'failed' } } as const;
   const gitError = 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied';
 
-  it('gives the runs on the base a column after the fixes, each cell with the repair\'s reading and its words and no mark of a failure before the fix pass', () => {
+  it('gives each check its run on the base, with a model\'s comparison and its words and no mark of a failure before the fix pass', () => {
     const text = checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] });
-    assert.match(text, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \| On the base \|$/m);
-    assert.match(text, /^\| build \| npm run build \| [^|]+ \| passed, 4\.0 s \| passed, 4\.0 s \| passed, 4\.0 s \|$/m);
-    assert.match(text, new RegExp(`^\\| lint \\| npm run lint \\| [^|]+ \\| failed, 4\\.0 s; ${output} \\| failed, 4\\.0 s; ${output} \\(failing before the fix pass\\) \\| failed, 4\\.0 s; ${output}; the repair's reading: the change has no failure that the base does not have \\(the same two lint errors as on the base\\) \\|$`, 'm'));
-    assert.match(text, /^\| test \| npm run test \| [^|]+ \| passed, 4\.0 s \| passed, 4\.0 s \| - \|$/m);
+    assert.match(text, /^### build\n\n- Command: `npm run build`\n- Source: [^\n]+\n- As submitted: passed, 4\.0 s\n- After the fixes: passed, 4\.0 s\n- On the base: passed, 4\.0 s$/m);
+    assert.match(text, new RegExp(`^- After the fixes: failed, 4\\.0 s; ${output} \\(failing before the fix pass\\)\\n- On the base: failed, 4\\.0 s; ${output}; a model's comparison: the change has no failure that the base does not have \\(the same two lint errors as on the base\\)$`, 'm'));
+    assert.match(text, /^### test\n\n- Command: `npm run test`\n- Source: [^\n]+\n- As submitted: passed, 4\.0 s\n- After the fixes: passed, 4\.0 s\n\n/m, 'no run on the base for a kind not taken there');
     assert.match(text, /^- On the base: the base of the change is the merge base with origin\/main \(2247b35e\)\.$/m);
   });
 
-  it('says in each cell what the repair read, or that it gave no comparison', () => {
-    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds', words: 'two errors the base does not have' }] }), /; the repair's reading: the change has a failure that the base does not have \(two errors the base does not have\) \|$/m);
-    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'timeout']], comparisons: [{ ...same, reading: 'unknown', words: 'the base lacks the tool' }] }), /^\| lint \| .* \| timeout, 4\.0 s; [^|]*; the repair's reading: the outputs cannot be compared \(the base lacks the tool\) \|$/m);
-    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), /^\| lint \| .* \| failed, 4\.0 s; [^|]*; the repair gave no comparison \|$/m);
+  it('says what a model read of the comparison, or that it gave none', () => {
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds', words: 'two errors the base does not have' }] }), /; a model's comparison: the change has a failure that the base does not have \(two errors the base does not have\)$/m);
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'timeout']], comparisons: [{ ...same, reading: 'unknown', words: 'the base lacks the tool' }] }), /^- On the base: timeout, 4\.0 s; [^\n]*; a model's comparison: the outputs cannot be compared \(the base lacks the tool\)$/m);
+    assert.match(checksOf({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), /^- On the base: failed, 4\.0 s; [^\n]*; the worker that compared the failures gave no comparison$/m);
   });
 
   it('says why a kind did not run on the base, with the error in the facts of the run alone', () => {
     const report = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', gitError]] })));
-    assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
+    assert.match(report, /^- On the base: skipped: no worktree of the base could be made$/m);
     assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error\.$/m);
     assert.match(report, /^Worktree of the base: could not be made: fatal: could not create work tree dir '\/home\/me\/\.cache\/x': Permission denied$/m);
     const refused = render(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'The worktree of the base (/w/tmp) is inside the reviewed tree (/w).']] })));
     assert.match(refused, /^Worktree of the base: could not be made: The worktree of the base \(\/w\/tmp\) is inside the reviewed tree \(\/w\)\.$/m);
     assert.doesNotMatch(refused, /git could not|error of git/, 'a refusal of the engine is not blamed on git');
-    assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## The run\n'), 'the path is in the facts of the run alone');
+    assert.ok(report.indexOf('/home/me/.cache/x') > report.indexOf('\n## About this run\n'), 'the path is in the facts of the run alone');
     assert.equal(report.split('/home/me/.cache/x').length, 2, 'once');
     assert.match(checksOf({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }), /^- On the base: lint did not run there, since the build did not pass on the base\.$/m);
     const timedOut = checksOf({ ...failing, base: [['build', 'timeout'], ['lint', 'skipped', 'build-failed']] });
-    assert.match(timedOut, /^\| build \| .* \| timeout, 4\.0 s; [^|]* \|$/m);
-    assert.match(timedOut, /^\| lint \| .* \| skipped: the build did not pass on the base \|$/m, 'words true of a build that timed out on the base');
+    assert.match(timedOut, /^- On the base: timeout, 4\.0 s; [^\n]*$/m);
+    assert.match(timedOut, /^- On the base: skipped: the build did not pass on the base$/m, 'words true of a build that timed out on the base');
     assert.match(checksOf({ ...failing, base: [] }), /^- On the base: lint did not run there\.$/m);
   });
 
   it('says why a kind did not run on the base by its skipReason, whatever words its error recorded (TD17 of the facts before a merge)', () => {
     const report = render(rewordedOnBase(onBranch(checkedRun({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'fatal: x']] })), 'the base could not be checked out: fatal: x'));
-    assert.match(report, /^\| lint \| .* \| skipped: no worktree of the base could be made \|$/m);
+    assert.match(report, /^- On the base: skipped: no worktree of the base could be made$/m);
     assert.match(report, /^- On the base: lint did not run there, since no worktree of the base could be made; the facts of the run give the error\.$/m);
     assert.match(report, /^Worktree of the base: could not be made: the base could not be checked out: fatal: x$/m, 'the error it recorded, whole');
     const unbuilt = render(rewordedOnBase(onBranch(checkedRun({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] })), 'no worktree of the base could be made: fatal: x'));

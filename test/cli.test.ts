@@ -434,7 +434,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     // The report starts with the brief, titled from the scope when the triage gave no account, and ends with the facts of the run (R12 of the brief of a run).
     const report = readFileSync(reportPath, 'utf8');
     assert.match(report, /^# The commit [0-9a-f]{8}\n/);
-    assert.match(report, /\n## The run\n\nRepository: /);
+    assert.match(report, /\n## About this run\n\nRepository: /);
     assert.match(result.stderr, /run [0-9a-f-]+: created\n/);
     assert.match(result.stderr, /phase triage: started \(attempt 1\)/);
     assert.match(result.stderr, /worker triage triage:SCAN: completed in [0-9.]+ s, 0\.00 USD/);

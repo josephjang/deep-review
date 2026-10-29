@@ -16,10 +16,9 @@ import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
-import { baseWords, briefChecksOf, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
-import { leftAs } from './decision-report.ts';
+import { baseWords, briefChecksOf, notComparedPlainWords, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
 import { stepNotRunCause, stepNotRunSentence, unheldDriftLines, type UnheldLine } from './documents.ts';
-import { capitalized, codeSpan, counted, inlineText, listed, tableCell } from './markdown.ts';
+import { codeSpan, counted, findingWords, inlineText, listed, quoted, tableCell } from './markdown.ts';
 import { rankedFindings } from './state.ts';
 import { checkSourceCell, unavailableCell } from './survey-report.ts';
 import { baseSkipReasons, checkPhases, documentationUnitKey, editingPhases, lostClaimWords, repairUnitKey, type BaseReading, type CheckKind, type CheckPhase, type EditingPhase } from './vocabulary.ts';
@@ -127,19 +126,6 @@ export function findingOutcomes(review: ReviewState, fix: FixState, id: string):
   return { last: last.outcome, byAnswerPass: last.pass !== null, fixPass: fateOf(review, fix, id, 'skipped').outcome, unattempted };
 }
 
-/**
- * The line of a finding left as superseded: the superseding finding's
- * outcome, since its fix was to remove this one, and when that fix did
- * not land, that this finding may still stand. "No fixer saw it" is not
- * true of it, since the superseding finding's fixer is shown it:
- * https://github.com/josephjang/deep-review/issues/28
- */
-function supersededLine(leave: NonNullable<RecordedDecision['leave']>, superseder: NonNullable<FindingFate['superseder']>): string {
-  const outcome = superseder.outcome === 'not attempted' ? 'whose fix was not attempted' : `whose fixer reported it ${superseder.outcome}`;
-  const landed = superseder.outcome === 'applied' || superseder.outcome === 'already applied';
-  return `No fixer saw it: the decision step left it, ${leftAs(leave)}, ${outcome}.${landed ? '' : ` Its removal depended on ${superseder.id}'s fix, so this finding may still stand.`} See Decisions.`;
-}
-
 /** The 1-based numbers of the patches whose revisions of a phase hold a finding (or, for the repair, a check kind). */
 function patchesOf(fix: FixState, id: string, phase: EditingPhase): number[] {
   return fix.revisions.flatMap((revision, index) => (revision.phase === phase && revision.change.findings.includes(id) ? [index + 1] : []));
@@ -150,27 +136,48 @@ const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 
 /** Every fixer's recorded answer, phase by phase in `editingPhases` order, so an editing phase added there is reported too. */
 const allFixerAnswers = (fix: FixState): FixRecorded[] => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
 
-/** The lines one finding's fate prints under its heading. */
-function fateLines(fix: FixState, fate: FindingFate): string[] {
-  if (fate.outcome === 'held for the author') return ['A PLAUSIBLE finding from a design angle: held for the author, and no fixer saw it.'];
-  if (fate.outcome === 'left by decision' && fate.decision?.decision === 'leave' && fate.superseder !== null) return [supersededLine(fate.decision.leave, fate.superseder)];
-  if (fate.outcome === 'left by decision' && fate.decision?.decision === 'leave') return [`No fixer saw it: the decision step left it, ${leftAs(fate.decision.leave)}. See Decisions.`];
-  if (fate.outcome === 'asked, kept as is') return ['No fixer saw it: the decision step asks the author, and its default keeps the code as it is. See Decisions.'];
+/** What a fixer's text can name, for its quotes: the numbers of the findings, the finding the block is about, and the findings of its batch in the order its task numbered them. */
+export interface FixQuote {
+  readonly numbers: ReadonlyMap<string, number>;
+  readonly own: number;
+}
+
+/**
+ * The lines of a finding's block on its fix (R6 of the report for the
+ * person): what the fixer said and the subject of its commit message, its
+ * patches, or why no fixer answered for it; the corrections the fixer made
+ * to the plan, the files it needed from another cluster, the second round,
+ * the answer pass that worked it, and each validation the fixer reports.
+ * A fixer's text is quoted with the numbers of the findings it names, its
+ * batch indexes among them. A finding no fixer saw has none: its decision
+ * says why.
+ */
+export function fixBlockLines(review: ReviewState, fix: FixState, id: string, quote: FixQuote): string[] {
+  const fate = fateOf(review, fix, id);
+  if (fate.outcome === 'held for the author') return ['Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it.'];
+  if (fate.outcome === 'left by decision' || fate.outcome === 'asked, kept as is') {
+    if (fate.superseder === null) return [];
+    const by = `finding ${String(quote.numbers.get(fate.superseder.id) ?? fate.superseder.id)}`;
+    const landed = fate.superseder.outcome === 'applied' || fate.superseder.outcome === 'already applied';
+    return [`Fix: none of its own; its removal was ${by}'s fix, whose fixer ${fate.superseder.outcome === 'not attempted' ? 'did not attempt it' : `reported it ${fate.superseder.outcome}`}.${landed ? '' : ' This finding may still stand.'}`];
+  }
+  const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own, batch: fate.batch?.findingIds ?? null }));
   const lines: string[] = [];
   if (fate.answer !== null) {
-    lines.push(`Note: ${inlineText(fate.answer.note)}`);
-    if (fate.answer.message !== null) lines.push(`Commit message: ${inlineText(fate.answer.message.subject)}`);
+    lines.push(`Fix: ${fate.outcome}; ${said(fate.answer.note)}`);
+    if (fate.answer.message !== null) lines.push(`Commit message: ${said(fate.answer.message.subject)}`);
   } else if (fate.reason !== null) {
     lines.push(`Not attempted: ${inlineText(fate.reason)}`);
   }
-  // The cluster and the batch that held it are in `report --stats` (R9 of the report for the person).
-  if (fate.batch !== null) lines.push(capitalized(patchNote(patchesOf(fix, fate.id, 'fixes'))));
-  if (fate.pass !== null) lines.push(`Answer pass: ${fate.pass.key}, opened on ${fate.pass.at}; ${patchNote(patchesOf(fix, fate.id, 'answer'))}`);
-  for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${inlineText(correction.anchor)}: ${inlineText(correction.claim)} -> ${inlineText(correction.fact)} (${inlineText(correction.evidence)})`);
+  const patches = fix.revisions.flatMap((revision, index) => (revision.change.findings.includes(id) ? [index + 1] : []));
+  if (fate.answer !== null || patches.length > 0) lines.push(`Patch: ${patches.length === 0 ? 'none' : patches.join(', ')}`);
+  if (fate.pass !== null) lines.push(`Answer pass: ${fate.pass.key}, opened on ${fate.pass.at}`);
+  for (const correction of fate.answer?.corrections ?? []) lines.push(`Correction: ${inlineText(correction.file)} ${said(correction.anchor)}: ${said(correction.claim)} -> ${said(correction.fact)} (${said(correction.evidence)})`);
   if (fate.answer !== null && fate.answer.requiredFiles.length > 0) lines.push(`Needs, from another cluster: ${fate.answer.requiredFiles.map(inlineText).join(', ')}`);
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   // A finding the first round blocked has no second round while the run budget left a batch of the first, until a reopen runs it (PD13 of resumable runs).
   if (fate.answer?.status === 'blocked' && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push('Second round not planned: the run budget stopped the first round');
+  for (const validation of fate.answer?.validation ?? []) lines.push(`Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${said(validation.evidence)}`);
   return lines;
 }
 
@@ -226,23 +233,6 @@ export function stopLimitations(review: ReviewState, evidencePath: (reference: A
   return lines;
 }
 
-/**
- * The fixers' own lines of the Fixes section: the tests they added, and
- * where the documentation their edits made stale is, which the section
- * Documentation lists with what became of it (R10 of the documentation
- * step).
- */
-function answerLines(fix: FixState): string[] {
-  // The documentation step's own drift and tests are not a fixer's: the section Documentation reports its answer.
-  const answers = allFixerAnswers(fix).filter((answer) => answer.phase !== 'documentation');
-  const drift = answers.some((answer) => answer.drift.length > 0);
-  const tests = answers.flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
-  return [
-    ...(drift ? ['', 'The documentation the fixers say their edits made stale is under Documentation, with what became of it.'] : []),
-    ...(tests.length === 0 ? [] : ['', 'Tests the fixers say they added or tightened:', '', ...tests]),
-  ];
-}
-
 /** Who reported a `drift` line no item took, as the evidence names it: a batch by its key, the repair, or an answer pass by its number. */
 const reporterWords = (line: UnheldLine): string => (line.phase === 'repair' ? 'the repair' : line.phase === 'answer' ? `answer pass ${String(line.time)}` : line.key);
 
@@ -285,7 +275,7 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
   const found = (answer?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)}`);
   const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)} (${reporterWords(line)})`);
   const lines = [
-    '## Documentation',
+    '## Documentation updates',
     '',
     cause === null
       ? `The documentation step answered for ${counted(planned.filter(isDocumentItem).length, 'document', 'documents')} the fixers named, and for its own search.`
@@ -320,34 +310,11 @@ function committedWords(fix: FixState): string {
   return `${head}; ${rest.subject}, ${passes}, ${rest.verb} in the working tree, uncommitted`;
 }
 
-/** The Fixes section: every ranked finding in rank order with its fate, the repair's checks, the fixers' test lines, and where the documentation they say their edits made stale is. */
-function fixesSection(review: ReviewState, fix: FixState): string[] {
-  const findings = rankedFindings(review);
-  const blocks = findings.flatMap((entry, index) => {
-    const fate = fateOf(review, fix, entry.finding.id);
-    return [`### ${String(index + 1)}. ${entry.finding.id} ${fate.outcome}`, '', ...fateLines(fix, fate), ''];
-  });
-  const repair = fix.answers.repair[repairUnitKey];
-  const repairLines = repair === undefined
-    ? isNotAttempted(fix, 'repair', repairUnitKey) ? ['### Repair', '', `Not attempted: ${inlineText(notAttemptedNote(fix, 'repair', repairUnitKey)!)}`, ''] : []
-    : ['### Repair', '', ...repair.findings.map((finding) => `- ${finding.id} check ${statusWords[finding.status]}: ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`), ''];
-  const lines = [
-    '## Fixes',
-    '',
-    `What the fix pass${review.answerPasses.length === 0 ? '' : ', and the answer passes after it,'} did with each finding, in rank order. ${capitalized(committedWords(fix))}; a patch number is one of the series under Changed files.`,
-    '',
-    ...(findings.length === 0 ? ['No finding to fix.', ''] : blocks),
-    ...repairLines,
-    ...answerLines(fix),
-  ];
-  // One blank line between blocks, however the blocks above end.
-  return lines.filter((line, index) => line !== '' || lines[index - 1] !== '');
-}
-
-const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'Before the fixes', checks: 'After the fixes', 'base-checks': 'On the base', 'repair-checks': 'After the repair', 'answer-checks': 'After answers' };
+/** Each checks phase as Checks names it, in the words of the brief (R4 of the report for the person). */
+const phaseTitles: Readonly<Record<CheckPhase, string>> = { 'baseline-checks': 'As submitted', checks: 'After the fixes', 'base-checks': 'On the base', 'repair-checks': 'After the fixes for the checks', 'answer-checks': 'After your answers' };
 
 /** Whose revision changed the tree a run checked, as the note under the Checks table names it. */
-const revisionOwners: Readonly<Record<EditingPhase, string>> = { fixes: 'the fixes', documentation: 'the documentation step', repair: 'the repair', answer: 'an answer pass' };
+const revisionOwners: Readonly<Record<EditingPhase, string>> = { fixes: 'the fixes', documentation: 'the documentation step', repair: 'the fixes for the checks', answer: 'an answer pass' };
 
 const runSeconds = (run: CheckRan): string => `${((Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 1000).toFixed(1)} s`;
 
@@ -417,13 +384,13 @@ export function baseWorktreeLines(review: ReviewState): string[] {
 }
 
 /**
- * The Checks section: a row per kind and a column per checks phase that
- * ran a check, a kind with no command saying why. A surveyed run's table
- * also says where each command came from (R10, R15 of the repository
- * survey); one configured before the survey renders as it did. The column
- * of the runs on the base gives each cell the repair's reading of it and
- * its words, and no mark of a failure before the fix pass, which each
- * kind there has (R8 of the facts before a merge).
+ * The Checks section (R8 of the report for the person): one block per
+ * kind, with the anchor the table of the brief links to, its command or
+ * why it has none, where a surveyed run's command came from (R10, R15 of
+ * the repository survey), the last run of each checks phase with its
+ * result, its time and the output of one that did not pass, the
+ * comparison with the base and its words (R8 of the facts before a
+ * merge), and the fix of the check; then why a phase ran nothing.
  */
 function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
   const { survey } = review;
@@ -431,7 +398,6 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
   // The last baseline run, which never grows old, with not-started among the failures the mark names.
   const failingBeforeFixes = (kind: CheckKind): boolean => ['failed', 'timeout', 'not-started'].includes(lastFreshRun(fix, 'baseline-checks', kind)?.outcome ?? '');
-  const sourceCell = (check: (typeof planned)[number]): string[] => (survey === null ? [] : [checkSourceCell(survey, check)]);
   // Each column shows the last run of each kind, and is marked when a later edit changed the tree its runs checked.
   const shown = (phase: CheckPhase, kind: CheckKind): CheckRunState | null => lastRecordedRun(fix, phase, kind);
   const edits = new Map(ran.map((phase) => [phase, planned.map((check) => shown(phase, check.kind)).flatMap((run) => (run === null ? [] : [earlierTreeEdit(fix, phase, run)])).find((edit) => edit !== null) ?? null]));
@@ -440,110 +406,94 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
   const baseNote = (kind: CheckKind): string => {
     const comparison = comparisons.find((entry) => entry.kind === kind);
-    if (comparison !== undefined) return `; the repair's reading: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
-    return checks.find((check) => check.kind === kind)?.base?.reason === 'no-comparison' ? `; ${notComparedWords['no-comparison']}` : '';
+    if (comparison !== undefined) return `; a model's comparison: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
+    return checks.find((check) => check.kind === kind)?.base?.reason === 'no-comparison' ? `; ${notComparedPlainWords['no-comparison']}` : '';
   };
   const note = (phase: CheckPhase, kind: CheckKind): string => {
     if (phase === 'base-checks') return baseNote(kind);
     return phase !== 'baseline-checks' && failingBeforeFixes(kind) ? ' (failing before the fix pass)' : '';
   };
-  const rows = planned.map((check) => {
-    if (check.command === null) return `| ${[check.kind, unavailableCell(survey, check), ...sourceCell(check), ...ran.map(() => '-')].join(' | ')} |`;
-    const cells = ran.map((phase) => checkCell(shown(phase, check.kind), evidencePath, note(phase, check.kind)));
-    return `| ${[check.kind, tableCell(check.command), ...sourceCell(check), ...cells].join(' | ')} |`;
+  const repaired = fix.answers.repair[repairUnitKey];
+  const blocks = planned.flatMap((check) => {
+    const head = [`<a id="check-${check.kind}"></a>`, '', `### ${check.kind}`, ''];
+    const source = survey === null ? [] : [`- Source: ${checkSourceCell(survey, check)}`];
+    if (check.command === null) return [...head, `- Command: ${unavailableCell(survey, check)}`, ...source, ''];
+    const runs = ran.flatMap((phase) => {
+      const run = shown(phase, check.kind);
+      return run === null ? [] : [`- ${phaseTitles[phase]}${edits.get(phase) === null ? '' : ', on an earlier tree'}: ${checkCell(run, evidencePath, note(phase, check.kind))}`];
+    });
+    const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).map((finding) => `- Its fix: ${statusWords[finding.status]}, ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`);
+    return [...head, `- Command: ${codeSpan(check.command)}`, ...source, ...runs, ...fixed, ''];
   });
   const answered = review.answerPasses.length > 0;
   // Why a checks phase ran nothing: with no kind given a command, none ever runs, whatever the fixes did; otherwise the phase's own condition.
-  const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? 'the repair was not attempted' : 'the repair changed no file';
+  const repairWhy = repairTargets(fix, 'recorded').length === 0 ? 'no check failed after the fixes' : isNotAttempted(fix, 'repair', repairUnitKey) ? `the fixes for the checks were not attempted: ${inlineText(notAttemptedNote(fix, 'repair', repairUnitKey) ?? 'no reason recorded')}` : 'the fixes for the checks changed no file';
   const notRun = planned.every((check) => check.command === null)
     ? ['- No check ran in any phase, since no kind has a command.']
     : [
         ...(fix.checks.runs.checks.length === 0 ? ['- After the fixes: not run, since no fix changed a file.'] : []),
-        ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the repair: not run, since ${repairWhy}.`] : []),
-        ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After answers: not run, since no answer pass changed a file.'] : []),
+        ...(fix.checks.runs['repair-checks'].length === 0 ? [`- After the fixes for the checks: not run, since ${repairWhy}.`] : []),
+        ...(answered && fix.checks.runs['answer-checks'].length === 0 ? ['- After your answers: not run, since no answer pass changed a file.'] : []),
         ...baseNotes(review, fix, checks, scope),
       ];
   const earlier = ran.flatMap((phase) => {
     const edit = edits.get(phase) ?? null;
     return edit === null ? [] : [`- ${phaseTitles[phase]}: its runs checked an earlier tree, which a later revision of ${revisionOwners[edit]} changed.`];
   });
-  // One list of columns gives the header and the separator, so the two cannot disagree on the count.
-  const columns = ['Check', 'Command', ...(survey === null ? [] : ['Source']), ...ran.map((phase) => `${phaseTitles[phase]}${edits.get(phase) === null ? '' : ' (an earlier tree)'}`)];
-  return [
-    '## Checks',
-    '',
-    `| ${columns.join(' | ')} |`,
-    `|${columns.map(() => '---').join('|')}|`,
-    ...rows,
-    ...(notRun.length + earlier.length === 0 ? [] : ['', ...notRun, ...earlier]),
-  ];
+  const lines = ['## Checks', '', ...blocks, ...notRun, ...earlier];
+  return lines.at(-1) === '' ? lines.slice(0, -1) : lines;
 }
 
-/** Who a revision's source is, as Changed files names it. */
-function revisedBy(revision: TreeRevised): string {
+/** Who made a revision, as Patches names it: the findings it fixes by number with the fixer, a check, or a fixer that did not finish. */
+function revisedBy(revision: TreeRevised, numbers: ReadonlyMap<string, number>): string {
+  const findings = revision.change.findings.flatMap((id) => (numbers.has(id) ? [numbers.get(id)!] : []));
+  const of = findings.length === 0 ? '' : `${findingWords(findings)}, `;
   switch (revision.source.kind) {
     case 'fix':
-      return revision.source.key;
+      return `${of}${revision.source.key}`;
     case 'check':
-      return `${revision.source.check} check`;
+      return `the ${revision.source.check} check`;
     case 'attempt':
-      return `${revision.source.key}, unfinished attempt`;
+      return `${of}a fixer of ${revision.source.key} that did not finish`;
   }
 }
 
-/** What the revisions did to one path: who revised it and its entries, each in ledger order. */
-interface PathRevisions {
-  readonly by: Set<string>;
-  readonly files: TreeRevised['files'][number][];
-}
+/** What a revision did to a file, as Patches names it. */
+const fileStatus = (file: TreeRevised['files'][number]): string => (file.before === null ? 'created' : file.after === null ? 'deleted' : 'modified');
 
-/** Every path the revisions name, with what they did to it, in one pass over them however many paths a check revision brings. */
-function revisionsByPath(revisions: readonly TreeRevised[]): Map<string, PathRevisions> {
-  const paths = new Map<string, PathRevisions>();
-  for (const revision of revisions) {
-    for (const file of revision.files) {
-      const entry = paths.get(file.path) ?? { by: new Set<string>(), files: [] };
-      entry.by.add(revisedBy(revision));
-      entry.files.push(file);
-      paths.set(file.path, entry);
-    }
-  }
-  return paths;
-}
-
-/** The status a path ends the run with: created, modified or deleted against what it held before its first revision, or removed again when it was created and then deleted. */
-function finalStatus(files: PathRevisions['files']): string {
-  const existedBefore = (files[0]?.before ?? null) !== null;
-  const existsAfter = (files.at(-1)?.after ?? null) !== null;
-  if (existedBefore) return existsAfter ? 'modified' : 'deleted';
-  return existsAfter ? 'created' : 'created, then deleted';
-}
-
-/** The Changed files section: every path a revision names, once, with its final status and who changed it, then the patch series; who held it is in `report --stats`. */
-function changedFilesSection(fix: FixState, patches: readonly string[]): string[] {
-  const revised = revisionsByPath(fix.revisions);
-  const paths = [...revised.keys()].sort();
-  const rows = paths.map((path) => {
-    const { by, files } = revised.get(path)!;
-    return `| ${tableCell(path)} | ${finalStatus(files)} | ${tableCell([...by].join(', '))} |`;
-  });
-  // A revision after a committed series names the pass that made it, which a later series commits (R15 of resumable runs).
+/**
+ * The Patches section (R8 of the report for the person): the patch
+ * series in the order of the commits, each with its subject, who made it,
+ * the files it changes, the commit that holds it once `deep-review commit`
+ * made one, and its file in the store; then the tests the fixers say they
+ * added. A revision after a committed series names the pass that made it,
+ * which a later series commits (R15 of resumable runs).
+ */
+function patchesSection(fix: FixState, patches: readonly string[], numbers: ReadonlyMap<string, number>): string[] {
   const committed = committedRevisions(fix);
-  const series = fix.revisions.map((revision, index) => `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision)}${committed > 0 && index >= committed ? `, ${laterPass(revision)} after the commits` : ''}): ${patches[index] ?? 'not written'}`);
+  const commitOf = new Map(fix.commits.flatMap((series) => series.commits.flatMap((commit) => (commit.revision === 'change' ? [] : [[commit.revision, commit.sha] as const]))));
+  const series = fix.revisions.map((revision, index) => {
+    const files = revision.files.map((file) => `${inlineText(file.path)} ${fileStatus(file)}`).join(', ');
+    const sha = commitOf.get(index);
+    const later = committed > 0 && index >= committed ? `, ${laterPass(revision)} after the commits` : '';
+    return `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision, numbers)}${later}), ${files === '' ? 'no file' : files}${sha === undefined ? '' : `, committed as ${sha.slice(0, 8)}`}: ${patches[index] ?? 'not written'}`;
+  });
+  // The documentation step's own tests are not a fixer's: Documentation updates reports its answer.
+  const tests = allFixerAnswers(fix).filter((answer) => answer.phase !== 'documentation').flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
   return [
-    '## Changed files',
+    '## Patches',
     '',
-    ...(paths.length === 0 ? ['No file was changed.'] : ['| Path | Status | Changed by |', '|---|---|---|', ...rows]),
-    ...(series.length === 0 ? [] : ['', 'The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:', '', ...series]),
+    ...(series.length === 0 ? ['No fix changed a file.'] : ['The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:', '', ...series]),
+    ...(tests.length === 0 ? [] : ['', 'Tests the fixers say they added or tightened:', '', ...tests]),
   ];
 }
 
-/** The sections the fix pass adds after Findings, in order: Fixes, Documentation when the run has the step or a drift line, Checks, Changed files; none for a run without it. */
-export function fixSections(state: RunState, evidencePath: (reference: { sha256: string; bytes: number }) => string, patches: readonly string[]): string[][] {
+/** The parts of the evidence the fix pass adds after the findings, in order: Documentation updates when the run has the step or a drift line, Checks, Patches; none for a run without it. */
+export function fixSections(state: RunState, evidencePath: (reference: { sha256: string; bytes: number }) => string, patches: readonly string[], numbers: ReadonlyMap<string, number>): string[][] {
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [fixesSection(review, fix), documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath), changedFilesSection(fix, patches)].filter((section) => section.length > 0);
+  return [documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 
 /**
@@ -624,11 +574,7 @@ export function fixLimitations(review: ReviewState): string[] {
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   // A check not available is a gap of the brief, and the Checks table says why, with what the operator dropped and the tool this machine lacked (R15 of the repository survey; R10 of the brief of a run).
   for (const answer of allFixerAnswers(fix)) {
-    // The documentation step's validation is under Documentation, with the item it validates (R10 of the documentation step).
-    const validated = answer.phase === 'documentation' ? [] : answer.findings;
-    for (const finding of validated) {
-      for (const validation of finding.validation) lines.push(`- Validation of ${finding.id} (${answer.key}), ${validation.method}, ${inlineText(validation.source)}: ${inlineText(validation.evidence)}`);
-    }
+    // Each validation is in the block of its finding (R6 of the report for the person), and the documentation step's under Documentation updates (R10 of the documentation step).
     const failures = answer.suite.failures.trim() === '' ? '' : `: ${inlineText(answer.suite.failures)}`;
     lines.push(`- ${fixerTitle(answer.phase, answer.key)} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
   }

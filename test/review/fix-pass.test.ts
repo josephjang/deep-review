@@ -102,19 +102,18 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     // One patch per revision (R13), and the report says what the fix pass did.
     assert.equal(review.report!.patches.length, 2);
     assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is; 2 patches; the edits are in the working tree, uncommitted$/m);
-    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nPatch \d$/m);
+    assert.match(text, /^- Fix: applied; fake applied \[0\]( \(finding 1\))?\n- Commit message: fix\(a\): Return 0 for a null text\n- Patch: \d$/m);
     // The cluster, the batch and who held each path are in `report --stats` (R9 of the report for the person).
     assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^- 1\. SCAN-1: cluster c1, batch c1-1 \(src\/a\.ts\)$/m);
-    assert.match(text, /^### 3\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
-    assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 2 to fix, 1 to leave, 0 to ask the author\./m);
-    // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
-    assert.match(text, /^\| build \| ".*fake-check\.ts" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
-    assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
+    assert.match(text, /^- Decision: left, outside the change, and not a regression: /m);
+    // The flags named every check, so each source is --check, where a check the survey chose names its file.
+    assert.match(text, /^### build\n\n- Command: `".*fake-check\.ts" build`\n- Source: --check\n- As submitted: passed, [\d.]+ s\n- After the fixes: passed, [\d.]+ s$/m);
+    assert.match(text, /^### Conventions\n\nThe survey found no file that states conventions/m);
     // c1's fixer wrote the test without claiming it first, so its answer claimed it late (R6 of commit series integrity).
-    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
+    assert.match(text, /^\d\. [^\n]* \(finding \d, c1-1\), [^\n]*test\/a\.test\.ts created/m);
     assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| test\/a\.test\.ts \| c1 \(claimed late\) \|$/m);
     for (const patch of review.report!.patches) assert.ok(text.includes(`artifacts/${patch.sha256}`), 'the report names each patch by its name in the store');
-    assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);
+    assert.match(text, /^- After the fixes for the checks: not run, since no check failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
     const events = box.events(state.id);
     const launched = (cluster: string): number => events.findIndex(([kind, payload]) => kind === 'worker.launched' && payload.label === `fixer fixes:${cluster}`);
@@ -217,7 +216,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(state.review!.blocker, null);
     assert.ok(box.logs.some((line) => /^phase fixes: c1-2 not attempted \(budget\): spent/.test(line)), box.logs.join('\n'));
     // The report says what the budget left undone; the checks still ran on the fixed tree.
-    assert.match(text, /^### 2\. SCAN-2 not attempted\n\nNot attempted: the run budget was reached first: spent 5\.\d\d USD of the 1\.00 USD run budget/m);
+    assert.match(text, /^- Not attempted: the run budget was reached first: spent 5\.\d\d USD of the 1\.00 USD run budget/m);
     assert.match(text, /^Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 1 not attempted, 0 left by decision, 0 asked, kept as is;/m);
     assert.equal(fix.checks.runs.checks.length > 0, true);
   });
@@ -336,7 +335,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       ['c2-1', ['SCAN-2'], ['src/b.ts']],
       ['c3-1', ['SCAN-1'], ['src/a.ts', 'src/b.ts']],
     ]);
-    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nPatch \d$/m);
+    assert.match(text, /^- Fix: applied; fake applied \[0\]( \(finding 1\))?\n- Commit message: fix\(a\): Return 0 for a null text\n- Patch: \d$/m);
     assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^- 1\. SCAN-1: cluster c1, batch c1-1 \(src\/a\.ts\); then cluster c3, batch c3-1 \(src\/a\.ts, src\/b\.ts\); first blocked on src\/b\.ts, which the second round gave it$/m);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
@@ -432,7 +431,7 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     });
     const text = reportText(await box.fix('claude'));
     assert.match(text, /^- Claimed late: src\/gone\.ts by c1-1, edited before it was claimed \(R6 of commit series integrity\)\.$/m);
-    assert.match(text, /^\| src\/gone\.ts \| created \| c1-1 \|$/m);
+    assert.match(text, /^1\. [^\n]* \(finding 1, c1-1\), src\/gone\.ts created: /m);
     const state = box.run();
     assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| src\/gone\.ts \| c1 \(claimed late\) \|$/m);
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
@@ -518,8 +517,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.match(box.promptOf(state, 'fixer fixes:c1-1'), /^These failed before any fixer edited the tree; their output then is at the paths given\. [^\n]*\n- lint: \S/m);
     // The repair changed no file, so nothing runs the checks again on a tree the checks after the fixes already checked (TD11 of resumable runs).
     assert.deepEqual(fix.checks.runs['repair-checks'], [], 'the repair changed no file');
-    assert.match(text, /^- lint check deferred: every failure was there before the fixes; no patch$/m);
-    assert.match(text, /^- After the repair: not run, since the repair changed no file.$/m);
+    assert.match(text, /^- Its fix: deferred, every failure was there before the fixes; no patch$/m);
+    assert.match(text, /^- After the fixes for the checks: not run, since the fixes for the checks changed no file.$/m);
   });
 
   it('never sends the repair a check that failed before any edit and passes after', async (t) => {
@@ -653,9 +652,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.equal(fix.checks.runs.checks.find((run) => run.kind === 'test')?.outcome, 'failed');
     assert.deepEqual(fix.checks.runs['repair-checks'], []);
     assert.equal(box.run().review!.phases['repair-checks'].status, 'completed');
-    assert.match(text, /^\| Check \| Command \| Source \| Before the fixes \| After the fixes \|$/m);
-    assert.match(text, /^\| test \| .* \| passed, [\d.]+ s \| failed, [\d.]+ s; output [^|]+, [^|]+ \|$/m);
-    assert.match(text, /^- After the repair: not run, since the repair changed no file.$/m);
+    assert.match(text, /^### test\n\n- Command: [^\n]+\n- Source: [^\n]+\n- As submitted: passed, [\d.]+ s\n- After the fixes: failed, [\d.]+ s; output [^\n]+$/m);
+    assert.match(text, /^- After the fixes for the checks: not run, since the fixes for the checks changed no file.$/m);
   });
 
   it('blocks with drift naming HEAD when a commit lands during the fixes, whatever the files say', async (t) => {

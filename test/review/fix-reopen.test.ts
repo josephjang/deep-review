@@ -317,9 +317,8 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     const { box, stopped } = await stoppedRun(t);
     const first = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
     const text = reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
-    assert.match(text, /^What the fix pass did with each finding, in rank order\. Patch 1 is committed; patch 2, the reopened fix pass's, is in the working tree, uncommitted;/m);
-    assert.match(text, /^2\. fix\(a\): Pass a text to parse \(c1-2, the reopened fix pass after the commits\): /m);
-    assert.match(text, /^1\. fix\(a\): Return 0 for a null text \(c1-1\): /m);
+    assert.match(text, /^2\. fix\(a\): Pass a text to parse \(finding \d, c1-2, the reopened fix pass after the commits\), /m);
+    assert.match(text, /^1\. fix\(a\): Return 0 for a null text \(finding \d, c1-1\), [^\n]*, committed as [0-9a-f]{8}: /m);
     const later = commitRun({ checkpoint: box.checkpoint, worktree: box.repo });
     assert.equal(git(box.repo, 'rev-parse', `${later.commits[0]!.sha}^`), first.commits.at(-1)!.sha);
     assert.deepEqual(later.commits.map((commit) => commit.subject), ['fix(a): Pass a text to parse']);
@@ -388,7 +387,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     };
     const { box, stopped, text } = await stoppedRun(t, script);
     assert.equal(stopped.review!.fix!.secondRound, null);
-    assert.match(text, /^### 1\. SCAN-1 blocked\n\nNote: needs src\/b\.ts\n[\s\S]*?^Second round not planned: the run budget stopped the first round$/m);
+    assert.match(text, /^- Fix: blocked; needs src\/b\.ts\n[\s\S]*?^- Second round not planned: the run budget stopped the first round$/m);
     reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
     const state = box.checkpoint.fold(stopped.id);
     assert.deepEqual(state.review!.fix!.secondRound?.batches.map((batch) => batch.key), ['c3-1'], 'planned from the whole first round');
@@ -396,7 +395,7 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(state.review!.report!.report), 'utf8'), /Second round not planned/);
   });
 
-  it('marks the After answers column of a run reopened after an answer pass, whose reopened batch changed the tree since (R15 of resumable runs)', async (t) => {
+  it('marks the runs after your answers of a run reopened after an answer pass, whose reopened batch changed the tree since (R15 of resumable runs)', async (t) => {
     const script: Script = {
       ...budgetScript,
       decider: { output: deciderAnswer([{ departs: true }, {}]) },
@@ -407,8 +406,8 @@ describe('the work of a reopened fix pass', { timeout: 900_000, concurrency: san
     assert.equal((await answerRun(answerOptions(box, departingOf(stopped), { kind: 'reject' }))).next, 'pass');
     reportText(await box.review('claude', { flags: { budgetUsd: 100 } }));
     const text = reportText(await box.fix('claude', { flags: { budgetUsd: 100 } }));
-    assert.match(text, /\| After answers \(an earlier tree\) \|/);
-    assert.match(text, /^- After answers: its runs checked an earlier tree, which a later revision of the fixes changed\.$/m);
+    assert.match(text, /^- After your answers, on an earlier tree: /m);
+    assert.match(text, /^- After your answers: its runs checked an earlier tree, which a later revision of the fixes changed\.$/m);
   });
 });
 

@@ -3,7 +3,8 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefBlock, briefChatForm, briefFates, briefLineLimit, briefMarkdown, briefOf, changeLineLimit, changeShapeOf, chatLineLimit, cutAtWord, findingWords, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
+import { briefChatForm, briefFates, briefLineLimit, briefMarkdown, briefOf, changeLineLimit, changeShapeOf, chatLineLimit, cutAtWord, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
+import { findingWords } from '../../src/review/markdown.ts';
 import { shortRunId } from '../../src/review/runs.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
@@ -68,7 +69,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       const first = 'The change: The parser returns no value for an empty input, where it threw before.';
       const before = 'The change before the fixes: The parser returns no value for an empty input, where it threw before.';
 
-it('marks the account of a fix run with an applied fix, in its paragraph of whose account it is and on the line of the change, and keeps the title line', () => {
+      it('marks the account of a fix run with an applied fix, in its paragraph of whose account it is and on the line of the change, and keeps the title line', () => {
         const state = withAccount(decidedFixRun().fold(), given());
         assert.deepEqual(marked(state), { beforeEdits: true, line: before, sentence: true });
         assert.equal(briefChatForm(briefOf(state))[0], `Parse an empty input (run ${state.id.slice(0, 8)})`);
@@ -285,7 +286,7 @@ it('marks the account of a fix run with an applied fix, in its paragraph of whos
       ]);
     });
 
-it('leaves out of what needs you a departure a person accepted or rejected, and keeps one nobody reviewed', () => {
+    it('leaves out of what needs you a departure a person accepted or rejected, and keeps one nobody reviewed', () => {
       for (const review of ['accept', 'reject'] as const) {
         const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', review)).fold();
         assert.ok(!briefOf(state).look.some((entry) => entry.condition === 'departure'), review);
@@ -731,14 +732,6 @@ describe('the brief for the person', () => {
     assert.equal(changeLine('Is it new? Yes.'), 'The change: Is it new?');
   });
 
-  it('gives the item of a question or a fix against a written rule under the heading of its finding, open or answered, and none for any other finding (R7)', () => {
-    const brief = briefOf(answerable());
-    assert.deepEqual(briefBlock(brief, 'SWEEP-1')!.slice(0, 3), ['## Finding 2', '', '1. **Finding 2 asks you a question, and deep-review\'s choice is not its default.** Should parse accept an empty input?']);
-    assert.equal(briefBlock(brief, 'RIPPLE-1')![2], '1. **Finding 1 would be fixed against a written rule.** This run only reviewed, so the fix pass applies it.');
-    const answered = briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold());
-    assert.match(briefBlock(answered, 'SWEEP-1')!.at(-1)!, /^Answered: option 2 on [^;]+; not yet applied\.$/);
-    assert.equal(briefBlock(briefOf(readOnlyReported().fold()), 'SWEEP-1'), null);
-  });
 
   it('names a finding by its number, with a run of three or more as a span', () => {
     assert.equal(findingWords([3]), 'finding 3');

@@ -1,22 +1,20 @@
 /**
- * The report's account of the decision step (R8 of the decision step),
- * rendered from the fold alone like the rest of the report: how each
- * question the decider asked stands, its default or once answered the
- * answer (R10 of answers), the question itself being in the brief; what it
- * decided to fix and how, with any rule it departed from and whether the
- * author accepted or rejected the departure, or the command that reviews
- * it; and what it left and why. A run configured before the decision step
- * has none of these.
+ * The report's account of the decision step (R8 of the decision step; R6
+ * of the report for the person), rendered from the fold alone like the
+ * rest of the report, in the block of each finding: what it decided and
+ * why, the plan of a fix and the rule it goes against, the options of a
+ * question, and the answer a person gave (R10 of answers) or the command
+ * that answers. A run configured before the decision step has none of
+ * these.
  */
 import { answerWords, madeTheEdit, passOf, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { RecordedDecision } from '../checkpoint/events.ts';
-import { appliedOptionOf, lastFixesAnswerOf, type DecidedAsk } from '../checkpoint/fix-state.ts';
+import { appliedOptionOf, lastFixesAnswerOf } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
-import { codeSpan, counted, inlineText, sentenceText as sentence } from './markdown.ts';
+import { codeSpan, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
 import { answerCommand } from './needs.ts';
-import { rankedFindings } from './state.ts';
-import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
+import type { LeaveReason } from './vocabulary.ts';
 
 /** Why a finding was left, as the report words it. */
 export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
@@ -28,28 +26,9 @@ export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
 /** The words for a left finding's reason, naming the finding that supersedes one. */
 export const leftAs = (leave: NonNullable<RecordedDecision['leave']>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${leave.supersededBy}`);
 
-/**
- * The line under a departure: whether the author accepted or rejected it,
- * when, and what applied the answer, or the command that reviews it (R10
- * of answers). A held acceptance is the departing fix the tree holds; a
- * held rejection is the fix that follows the rule, which an earlier
- * rejection a pass applied left in the tree.
- */
-function reviewedLine(review: ReviewState, run: string, id: string, number: number): string {
-  const standing = standingAnswer(review, id);
-  if (standing === null) return `  - Review with: \`${answerCommand(run, number, '--accept')}\` or \`--reject\``;
-  return `  - Reviewed: ${answerSummary(review, standing, standing.answer.kind === 'reject' ? 'the rule-following fix the tree held' : 'the departure the tree held')}`;
-}
-
 /** A standing answer as the report says it after its label: the answer, when it was recorded, what applied it, `held` when the tree held it, and its note. */
 function answerSummary(review: Pick<ReviewState, 'answerPasses'>, standing: RecordedAnswer, held: string): string {
   return `${answerWords(standing.answer)} on ${standing.at}; ${appliedWords(review, standing, held)}${standing.note === null ? '' : `. Note: ${inlineText(standing.note)}`}`;
-}
-
-/** The option an ask takes as its default, and whether the default edits the code. */
-function defaultOption(ask: DecidedAsk): string {
-  const chosen = appliedOptionOf(ask);
-  return `${inlineText(chosen.option)}${chosen.edits ? '' : ' (no edit)'}`;
 }
 
 /**
@@ -98,75 +77,57 @@ export const answerArguments = (finding: string, choice: string): string => `ans
 export const answerAtTerminal = (engineEntry: string): string =>
   `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments('<number>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
-/** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
-export function decisionLine(decision: RecordedDecision): string {
-  const grounds = inlineText(decision.grounds);
-  switch (decision.decision) {
-    case 'leave':
-      return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
-    case 'ask':
-      return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see What needs you: ${grounds}`;
-    case 'fix':
-      return `Decision: fix${decision.departure === null ? '' : ', departing from a rule'}: ${grounds}`;
-  }
+/** What a decision's text can name, for its quotes: the run its commands name and the number of each finding. */
+export interface DecisionQuote {
+  readonly run: string;
+  readonly numbers: ReadonlyMap<string, number>;
+  readonly own: number;
 }
 
 /**
- * The Decisions section, the evidence after the core of the change (R8
- * of the decision step; R12 of the brief of a run): a line counting the
- * decisions, what an answer does, then how each question stands, the
- * findings to fix with their approach, and the findings left with their
- * reason, each under the number and id the Findings section gives it. The
- * questions themselves, with their options, are in the brief. Null for a
- * run whose decision phase is skipped, and for one that ranked no
- * finding, which had nothing to decide.
+ * The lines of a finding's block on its decision (R6 of the report for the
+ * person; R8 of the decision step): what was decided and on what grounds;
+ * for a fix, its plan, the options it rejected and the rule it goes
+ * against; for a question, why it asks, each option with its cost, the
+ * rule it makes and its marks, and where deep-review looked; and the
+ * answer a person gave, with what applied it, or the command that answers.
+ * A decider's text is quoted with the numbers of the findings it names.
  */
-export function decisionsSection(review: ReviewState, runId: string): string[] | null {
-  if (review.phases.decision.status === 'skipped') return null;
-  const findings = rankedFindings(review);
-  if (findings.length === 0) return null;
-  if (review.decisions === null) throw new Error('The report renders a run that ranked findings and decided none');
-  const decidedFor = new Map(review.decisions.map((decision) => [decision.id, decision]));
-  const numbered = findings.flatMap((entry, index) => {
-    const decision = decidedFor.get(entry.finding.id);
-    return decision === undefined ? [] : [{ number: index + 1, decision }];
-  });
-  const departures = numbered.filter((entry) => entry.decision.departure !== null).length;
-  // The stop after the number is escaped, as paragraphText escapes it, so `- 1. ID` cannot open an ordered list inside its bullet.
-  const label = (entry: (typeof numbered)[number]): string => `${String(entry.number)}\\. ${entry.decision.id}`;
-
-  // Each question is in the brief, with its options, its rules, where the decider looked and its grounds (R8 of the brief of a run); this section keeps how it stands.
-  const questions = numbered.flatMap((entry) => {
-    const { decision } = entry;
-    if (decision.decision !== 'ask') return [];
-    const standing = standingAnswer(review, decision.id);
-    // A default is in place only when the tree holds it, as the brief says it (R7 of the brief of a run).
-    const unanswered = defaultInPlace(review, decision) ? `the default in place is ${defaultOption(decision.ask)}` : `the default is ${defaultOption(decision.ask)}, which this run did not apply`;
-    return [`- ${label(entry)}: ${standing === null ? `not answered; ${unanswered}` : `answered ${answerSummary(review, standing, 'the option the tree held')}`}`];
-  });
-  const fixes = numbered.flatMap((entry) => {
-    const { decision } = entry;
-    if (decision.decision !== 'fix') return [];
-    const { fix, departure } = decision;
-    return [
-      `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(decision.grounds)}`,
-      ...fix.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
-      ...(departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`, reviewedLine(review, runId, decision.id, entry.number)]),
-    ];
-  });
-  const left = numbered.flatMap(({ number, decision }) => (decision.decision === 'leave' ? [`- ${label({ number, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []));
-  const defaults = review.fix === null ? 'This run does not fix: no fixer ran, and the tree is unchanged.' : 'A fixer edits a default that edits the code into the tree, and Fixes says whether it did; a default that keeps the code changes nothing.';
-  // What an answer does, and that it is not yet carried to the next review (PD3 of answers); how a person types it at a terminal is in the facts of the run, which name the engine's path (R15 of the brief of a run).
-  const answering = questions.length === 0 && departures === 0 ? [] : ['', 'An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it. Nothing yet carries an answer to the next review, which may ask the same question again.'];
-  return [
-    '## Decisions',
-    '',
-    `Before any fix, the decision step decided each finding: ${decisionCountWords(decisionCounts(numbered.map((entry) => entry.decision)))}${departures === 0 ? '' : `; ${counted(departures, 'fix departs', 'fixes depart')} from a rule the repository states`}. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left.`,
-    ...answering,
-    ...(questions.length === 0 ? [] : ['', '### Asked', '', `None of these held the run up: each has a default, and an answer is needed only to go another way. ${defaults} The brief at the top of this report gives each question with its options.`, '', ...questions]),
-    ...(fixes.length === 0 ? [] : ['', '### To fix', '', ...fixes]),
-    ...(left.length === 0 ? [] : ['', '### Left', '', ...left]),
-  ];
+export function decisionBlockLines(review: ReviewState, decision: RecordedDecision, quote: DecisionQuote): string[] {
+  const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own }));
+  const standing = standingAnswer(review, decision.id);
+  switch (decision.decision) {
+    case 'leave': {
+      const by = decision.leave.supersededBy === null ? '' : ` by finding ${String(quote.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`;
+      return [`Decision: left, ${leaveReasonWords[decision.leave.reason]}${by}: ${said(decision.grounds)}`];
+    }
+    case 'fix': {
+      const { fix, departure } = decision;
+      const reviewed = departure === null ? [] : standing === null
+        ? [`To review: \`${answerCommand(quote.run, quote.own, '--accept')}\` keeps the fix and changes the rule, \`${answerCommand(quote.run, quote.own, '--reject')}\` follows the rule`]
+        : [`Answer: ${answerSummary(review, standing, standing.answer.kind === 'reject' ? 'the rule-following fix the tree held' : 'the departure the tree held')}`];
+      return [
+        `Decision: fix: ${said(decision.grounds)}`,
+        `Plan: ${sentence(said(fix.approach))}`,
+        ...fix.rejected.map((option) => `Rejected: ${said(option.option)}: ${said(option.reason)}`),
+        ...(departure === null ? [] : [`Against a written rule: ${said(departure.rule)} (${said(departure.source)}): ${said(departure.reason)}`]),
+        ...reviewed,
+      ];
+    }
+    case 'ask': {
+      const { ask } = decision;
+      // A default is in place only when the tree holds it (R7 of the brief of a run).
+      const held = defaultInPlace(review, decision) ? 'in place now' : 'which the tree does not hold';
+      const marks = (index: number): string => [`Option ${String(index + 1)}`, ...(index === ask.applied ? [`the default, ${held}`] : []), ...(index === ask.recommended ? ['deep-review\'s choice'] : [])].join(', ');
+      return [
+        `Decision: ask you; why it asks: ${said(decision.grounds)}`,
+        `Question: ${said(ask.question)}`,
+        ...ask.options.map((option, index) => `${marks(index)}: ${sentence(said(option.option))} Cost: ${sentence(said(option.cost))} Rule: ${sentence(said(option.rule))}`),
+        `Where deep-review looked: ${ask.searched.map(said).join('; ')}`,
+        standing === null ? `To answer: \`${answerCommand(quote.run, quote.own, '--option <n>')}\`, with the number of the option` : `Answer: ${answerSummary(review, standing, 'the option the tree held')}`,
+      ];
+    }
+  }
 }
 
 /**

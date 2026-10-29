@@ -13,7 +13,7 @@ const run = (checks: ChecksOfRun = {}): RunState => onBranch(checkedRun(checks).
 const check = (brief: Brief, kind: string) => brief.changed.checks.find((entry) => entry.kind === kind)!;
 const meaning = (brief: Brief, kind: string): string => brief.checks.find((entry) => entry.kind === kind)!.meaning;
 /** The row of a check in the table of "Before you merge". */
-const row = (brief: Brief, kind: string): string => briefMarkdown(brief).find((line) => line.startsWith(`| ${kind} |`))!;
+const row = (brief: Brief, kind: string): string => briefMarkdown(brief, 'chat').find((line) => line.startsWith(`| ${kind} |`))!;
 /** The lead and the rest of each item of a condition. */
 const items = (brief: Brief, condition: NeedCondition): string[] => brief.needs.filter((need) => need.condition === condition).map((need) => need.lines.join('\n'));
 /** The paragraph under the table of the checks. */
@@ -46,7 +46,7 @@ describe('when the last run of each check ran (R3 of the facts before a merge)',
 
   it('gives each check its result on the base, as submitted and in its last run with when it ran, and a timeout in plain words', () => {
     const brief = briefOf(run());
-    assert.deepEqual(briefMarkdown(brief).filter((line) => line.startsWith('| ')).slice(0, 2), ['| Check | On the base | As submitted | Last run | What it means |', '| build | not run | passed | passed, after the fixes | passes |']);
+    assert.deepEqual(briefMarkdown(brief, 'chat').filter((line) => line.startsWith('| ')).slice(0, 2), ['| Check | On the base | As submitted | Last run | What it means |', '| build | not run | passed | passed, after the fixes | passes |']);
     assert.equal(row(briefOf(run({ after: { lint: 'timeout' } })), 'lint'), '| lint | not run | passed | timed out, after the fixes | the edits of this run made it fail |');
   });
 });

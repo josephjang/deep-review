@@ -5,9 +5,9 @@
  * (PD9 of the report for the person); the brief's table gives them too.
  */
 import type { RunState } from '../checkpoint/fold.ts';
-import { briefOf, cutAtWord, fateWordsOf, findingWords, firstSentence, fixFateWords, shortLineLimit } from './brief.ts';
+import { briefOf, cutAtWord, fateWordsOf, firstSentence, fixFateWords, shortLineLimit } from './brief.ts';
 import { lastFixAnswer } from './fix-report.ts';
-import { inlineText } from './markdown.ts';
+import { findingWords, inlineText } from './markdown.ts';
 import { findingNumbers, rankedFindings } from './state.ts';
 
 /**

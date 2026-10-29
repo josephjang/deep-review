@@ -52,7 +52,8 @@ import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
-import { briefBlock, briefMarkdown, briefOf, briefChatForm } from './review/brief.ts';
+import { briefMarkdown, briefOf, briefChatForm } from './review/brief.ts';
+import { findingBlockOf } from './review/report.ts';
 import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, reportInputOf, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
@@ -922,8 +923,8 @@ function reportFormOf(values: Values): ReportForm {
  * line for each fix (R6) in place of the short form, with `--stats` the
  * statistics, the angles, the digest of the roles and the clusters of the
  * fix pass (R9 of the report for the person), with `--brief` the
- * brief as a chat shows it, and with `--finding <id>` its block of one
- * question or fix that goes against a written rule (R7); or with `--json`
+ * brief as a chat shows it, and with `--finding <number>` the block of
+ * any finding (R7 of the report for the person); or with `--json`
  * version 4 of the JSON form, which names those runs in `notShown`. A
  * worktree with no run is refused with exit 2, naming `status`; one whose
  * runs have no report with the state of the newest, naming `status --all`;
@@ -969,8 +970,8 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       else if (form === 'finding') {
         const id = findingIdOf(review, values.finding!);
         if (id === null) throw new UsageError(`run ${state.id} has ${String(review.ranking?.length ?? 0)} finding${review.ranking?.length === 1 ? '' : 's'}, so it has no finding ${values.finding!}`);
-        const block = briefBlock(brief, id);
-        if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${values.finding!}; for any fix, deep-review report --fixes gives its line`);
+        const block = findingBlockOf(state, id);
+        if (block === null) throw new UsageError(`run ${state.id} has no finding ${values.finding!}; deep-review report --run ${state.id} names each finding by its number`);
         body = block;
       } else body = briefChatForm(brief);
       // Each text form is told of the later runs it passed over and ends with the path, so no form can drop the warning (R8 of the questions in the chat).
