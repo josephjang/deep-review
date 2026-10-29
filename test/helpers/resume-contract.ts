@@ -292,18 +292,19 @@ const runId = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
 
 /**
  * The report with what a resume changes by its nature left out (R1): the
- * header lines that name the run, the repository and its commits, every
- * duration, path of the evidence and commit hash, the Statistics table,
+ * header lines that name the run, the repository and its commits, the
+ * first 8 characters of the run's id that the brief and its commands name,
+ * every duration, path of the evidence and commit hash, the Statistics table,
  * the spend, the workers with no reported cost, the count of the checks of
  * the tree, and the lines of R15 that say what a stop did. It also leaves
  * out how the edits of a fixer that the stop cut are split among patches:
  * the revision of its unfinished attempt holds them (R20 of the fix pass),
  * so the notes of the patches, the patch series and the attempt in Changed
  * files are left out, and the patches are compared by what they change in
- * each path instead (`Outcome.revised`); the brief's count of the patches
- * is left out with them. A file of the evidence store is named by its name
- * in the store, `artifacts/<hash>`, or by its path in a report an older
- * engine wrote. The notes of the run, and the facts of the run after them,
+ * each path instead (`Outcome.revised`); the brief's count of the patches,
+ * and the patches it names to read first, are left out with them. A file
+ * of the evidence store is named by its name in the store,
+ * `artifacts/<hash>`, or by its path in a report an older engine wrote. The notes of the run, and the facts of the run after them,
  * are compared as a set, since some of their lines follow the order the
  * workers ended in; so are the lines after Limitations in such an older
  * report.
@@ -318,9 +319,10 @@ export function normalizedReport(text: string, sandbox: string): string {
     .filter((line) => !/^The run budget stopped the fix pass: /.test(line))
     .map((line) => line.split(sandbox).join('<sandbox>'))
     .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>').replace(/\bartifacts\/[0-9a-f]{64}\b/g, '<artifact>'))
-    .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>'))
+    .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>').replace(/\b(run|--run) [0-9a-f]{8}\b/g, '$1 <run>'))
     .filter((line) => !/^\d+\. .*: <artifact>$/.test(line))
     .map((line) => line.replace(/Its (\d+ patches are|patch is) not committed: `deep-review commit` commits (them|it)\./, 'Its <patches> are not committed.'))
+    .map((line) => line.replace(/ Read first .*?\. If you do nothing, the fixes stay uncommitted/, ' Read first <patches>. If you do nothing, the fixes stay uncommitted'))
     .map((line) => line.replace(/; (no patch|patch(es)? [\d, -]+)$/, '; <patches>').replace(/, unfinished attempt\b/g, '').replace(/\b\d+ patch(es)?\b/, '<n> patches'));
   const notes = [lines.indexOf('## Notes of the run'), lines.indexOf('## Limitations')].find((index) => index !== -1) ?? -1;
   return notes === -1 ? lines.join('\n') : [...lines.slice(0, notes + 1), ...lines.slice(notes + 1).sort()].join('\n');

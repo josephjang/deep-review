@@ -13,27 +13,27 @@ const withRipple = (state: RunState, change: Record<string, unknown>): RunState 
   return { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answered, findings } } } } } };
 };
 
-describe('fixLines (R6 of the questions in the chat)', () => {
+describe('fixLines (R6 of the questions in the chat; R7 of the report for the person)', () => {
   it('gives a fix of the fix pass with what became of it and the subject of its commit message', () => {
-    assert.deepEqual(fixLines(decidedFixRun().fold()), ['RIPPLE-1, applied: fix: Guard the null']);
+    assert.deepEqual(fixLines(decidedFixRun().fold()), ['Finding 1, applied: fix: Guard the null']);
   });
 
   it('gives a fix an answer pass applied with the subject of that pass\'s message, the answer that gave its last outcome', () => {
     const passed = passToReport(decidedFixRun(answerableDecisions(), 'deferred').add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 1).fold();
-    assert.deepEqual(fixLines(passed), ['RIPPLE-1, put off by its fixer: RIPPLE-1 deferred', 'SWEEP-1, applied: fix: Answer SWEEP-1']);
+    assert.deepEqual(fixLines(passed), ['Finding 1, put off by its fixer: RIPPLE-1 deferred', 'Finding 2, applied: fix: Answer SWEEP-1']);
   });
 
   it('gives the first sentence of the note of an answer with no message, and the words of each fate', () => {
-    assert.deepEqual(fixLines(withRipple(decidedFixRun(answerableDecisions(), 'deferred').fold(), { note: 'The fix needs the format of the record. The next change sets it.' })), ['RIPPLE-1, put off by its fixer: The fix needs the format of the record.']);
-    assert.deepEqual(fixLines(decidedFixRun(answerableDecisions(), 'blocked').fold()), ['RIPPLE-1, not applied by its fixer: RIPPLE-1 blocked']);
-    assert.deepEqual(fixLines(decidedFixRun(answerableDecisions(), 'already-applied').fold()), ['RIPPLE-1, already in the tree: RIPPLE-1 already-applied']);
+    assert.deepEqual(fixLines(withRipple(decidedFixRun(answerableDecisions(), 'deferred').fold(), { note: 'The fix needs the format of the record. The next change sets it.' })), ['Finding 1, put off by its fixer: The fix needs the format of the record.']);
+    assert.deepEqual(fixLines(decidedFixRun(answerableDecisions(), 'blocked').fold()), ['Finding 1, not applied by its fixer: RIPPLE-1 blocked']);
+    assert.deepEqual(fixLines(decidedFixRun(answerableDecisions(), 'already-applied').fold()), ['Finding 1, already in the tree: RIPPLE-1 already-applied']);
   });
 
   it('gives why no fixer attempted a fix with no answer', () => {
     const state = decidedFixRun().fold();
     const fix = state.review!.fix!;
     const unattempted: RunState = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: {} }, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget', reason: 'spent 61.00 USD of 60.00 USD' } as never } } } } };
-    assert.deepEqual(fixLines(unattempted), ['RIPPLE-1, not attempted: the run budget was reached first: spent 61.00 USD of 60.00 USD']);
+    assert.deepEqual(fixLines(unattempted), ['Finding 1, not attempted: the run budget was reached first: spent 61.00 USD of 60.00 USD']);
   });
 
   it('cuts a line past 200 characters at a word, and keeps it on one line', () => {
@@ -42,7 +42,7 @@ describe('fixLines (R6 of the questions in the chat)', () => {
   });
 
   it('names no finding a decision left or asked with a default that keeps the code, which no fixer saw', () => {
-    assert.deepEqual(fixLines(decidedFixRun(decisions).fold()), ['RIPPLE-1, applied: fix: Guard the null'], 'SWEEP-1 was left');
+    assert.deepEqual(fixLines(decidedFixRun(decisions).fold()), ['Finding 1, applied: fix: Guard the null'], 'SWEEP-1 was left');
   });
 
   it('says of a fix run that gave no finding to a fixer that it applied no fix, with what it left', () => {
@@ -58,10 +58,10 @@ describe('fixLines (R6 of the questions in the chat)', () => {
         fix: { ...fix, plan: { ...fix.plan!, routes: fix.plan!.routes.map((route) => ({ ...route, route: 'held' as const })), clusters: [], batches: [] }, answers: { ...fix.answers, fixes: {} } },
       },
     };
-    assert.deepEqual(fixLines(allLeft), ['This run gave no finding to a fixer, so it applied no fix. It left 2 findings: RIPPLE-1 and SWEEP-1.']);
+    assert.deepEqual(fixLines(allLeft), ['This run gave no finding to a fixer, so it applied no fix. It left findings 1 and 2 as is.']);
   });
 
   it('says of a run that only reviewed that it changed nothing, with the fixes it decided', () => {
-    assert.deepEqual(fixLines(readOnlyReported(answerableDecisions()).fold()), ['This run only reviewed: it changed nothing. It decided to fix 1 finding, which `review --fix` applies: RIPPLE-1.']);
+    assert.deepEqual(fixLines(readOnlyReported(answerableDecisions()).fold()), ['This run only reviewed: it changed nothing. It would fix finding 1.']);
   });
 });

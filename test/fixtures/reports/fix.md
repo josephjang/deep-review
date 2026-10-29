@@ -1,30 +1,33 @@
 # The uncommitted change on 22222222
 
-1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.
+deep-review recorded no account of this change, because an engine before this change reviewed it.
 
-## The change
+deep-review's fix run run-1 has 2 findings. It fixed 1 in your working tree. It left 1 finding as is.
 
-The triage of this run did not record the core of the change, because an engine before this change reviewed it.
+## What needs you
 
-## Documents left out of date (1)
+Before a merge: 1 document out of date and 3 patches to commit. The edits of this run made no check fail, and the run left no work unfinished.
 
-The edits of this run made each document below out of date, and the run did not bring it in line. Bring each in line before a merge.
+1. **`README.md` is out of date.** Parse no longer throws on null (a fixer). The documentation step did not run: an engine before the documentation step configured this run. If you do nothing, the document stays out of date.
+2. **Review the 3 uncommitted patches, then commit them.** If you do nothing, the fixes stay uncommitted in your working tree. To commit them: `deep-review commit --run run-1`.
 
-- `README.md`: parse no longer throws on null (a fixer). The documentation step did not run: an engine before the documentation step configured this run.
+Ask your agent with the deep-review skill to run a command, or type it at a terminal as the end of the report shows. `deep-review report --run run-1 --finding <number>` prints any finding.
 
-## What the review did not cover
+## Before you merge
 
-- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found.
-- No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE.
-- No typecheck check ran: nothing names it.
+| Check | As submitted | Last run | What it means |
+|---|---|---|---|
+| build | passed | passed, after the fixes for the checks | passes |
+| lint | passed | passed, after the fixes for the checks | passes |
+| test | failed | failed, after the fixes for the checks | fails |
 
-## Where to look
+The footguns review pass did not run, and a later pass looked for what it would have found. No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible. No typecheck check ran: nothing names it. Left as is: finding 2, held for the author.
 
-No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.
+## What deep-review fixed
 
-## What deep-review changed
-
-deep-review applied 1 fix ([RIPPLE-1](#finding-ripple-1)). Its 3 patches are not committed: `deep-review commit` commits them. It left 1 finding: [SWEEP-1](#finding-sweep-1). The fixers report that a test validated the fix: it fails on the code before the fix, or on a mutation of the fix. The checks: build passed before the fixes and after the repair; lint passed before the fixes and after the repair; test failed before the fixes and after the repair.
+| Finding | The fix | How its fixer reports checking it | Patch |
+|---|---|---|---|
+| [1](#finding-1), major | fix: Guard the null in parse | a new test fails on the code before the fix | 2 |
 
 ---
 
@@ -32,7 +35,7 @@ The evidence for each statement above follows.
 
 ## Findings
 
-<a id="finding-ripple-1"></a>
+<a id="finding-1"></a>
 
 ### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
 
@@ -43,7 +46,7 @@ Evidence: line 4 dereferences null
 Angle: RIPPLE, SCAN
 Also at: SWEEP-2 src/a.ts:7
 
-<a id="finding-sweep-1"></a>
+<a id="finding-2"></a>
 
 ### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
 
@@ -115,6 +118,7 @@ None.
 
 ## Notes of the run
 
+- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout).
 - Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates (SWEEP-1, SWEEP-2) are a gap of the brief.
 - Worktree checks: 16, none found a difference from what the run expected.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.

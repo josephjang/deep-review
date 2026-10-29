@@ -52,7 +52,7 @@ import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
-import { briefBlock, briefMarkdown, briefOf, briefShortForm } from './review/brief.ts';
+import { briefBlock, briefMarkdown, briefOf, briefChatForm } from './review/brief.ts';
 import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
 import { refreshReportCopy, reportCopyPath, reportInputOf, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
@@ -972,7 +972,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
         const block = briefBlock(brief, id);
         if (block === null) throw new UsageError(`run ${state.id} has no question and no fix that goes against a written rule named ${values.finding!}; for any fix, deep-review report --fixes gives its line`);
         body = block;
-      } else body = briefShortForm(brief);
+      } else body = briefChatForm(brief);
       // Each text form is told of the later runs it passed over and ends with the path, so no form can drop the warning (R8 of the questions in the chat).
       io.stdout(`${[...notShownLines(choice.passedOver), ...body, copy ?? record].join('\n')}\n`);
       return 0;

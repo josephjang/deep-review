@@ -86,8 +86,8 @@ function findingBlock(position: number, entry: ReportFinding, decision: Recorded
   const { finding, primary, members, resolution } = entry;
   const also = members.length === 0 ? '' : ` (also ${members.map((member) => member.id).join(', ')})`;
   const lines = [
-    // A fixed anchor by the id, so each item of the brief links to the finding (R12 of the brief of a run).
-    `<a id="${findingAnchor(finding.id)}"></a>`,
+    // A fixed anchor by the number, so each mention of the finding links to it (R6 of the report for the person).
+    `<a id="${findingAnchor(position)}"></a>`,
     '',
     `### ${String(position)}. [${finding.severity}] ${resolution.verdict}  ${finding.id}${also}  ${shortLocation(primary)}${marks(primary, resolution.unverified)}`,
     '',
@@ -231,6 +231,8 @@ export function limitBlockLines(review: Pick<ReviewState, 'limitBlocks'>): strin
 function notesOfRun(state: RunState, scope: ScopeState, review: ReviewState, input: ReportInput): string[] {
   const lines: string[] = [];
   // The brief names the candidates no verifier examined, never the group or its phase, which the evidence keeps (R12 of the brief of a run).
+  // The brief says that a review pass did not run, by its plain name; why is evidence, which the brief leaves here (R10 of the report for the person).
+  for (const [angle, reason] of Object.entries(review.anglesNotRun)) lines.push(`- The ${angle} angle did not run (${inlineText(reason)}).`);
   for (const group of unverifiedGroupsOf(review)) lines.push(`- Group ${group.groupId} of ${group.phase} was not verified (${inlineText(group.reason)}): its candidates (${group.candidateIds.join(', ')}) are a gap of the brief.`);
   const drifted = review.checks.map((check, index) => ({ check, index })).filter(({ check }) => check.drifted);
   // A fix run's tree is compared with what the run expected, the change and every revision since; a read-only run's with the change alone.
@@ -364,7 +366,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const refutedList = refuted(review);
   const brief = [...briefMarkdown(briefOf(state)), '', '---', '', 'The evidence for each statement above follows.'];
   // A run with the decision step says what it decided first in the evidence; one configured before the step has no such section.
-  const decisions = decisionsSection(review);
+  const decisions = decisionsSection(review, state.id);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
   const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));

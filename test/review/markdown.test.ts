@@ -104,10 +104,10 @@ describe('tableCell', () => {
   });
 });
 
-describe('findingAnchor and findingLink (R12 of the brief of a run)', () => {
-  it('anchors a finding by its id in lower case, and links to it with the id as the text', () => {
-    assert.equal(findingAnchor('RIPPLE-12'), 'finding-ripple-12');
-    assert.equal(findingLink('SWEEP-1'), '[SWEEP-1](#finding-sweep-1)');
+describe('findingAnchor and findingLink (R6 of the report for the person)', () => {
+  it('anchors a finding by its number, and links to it with the number as the text', () => {
+    assert.equal(findingAnchor(12), 'finding-12');
+    assert.equal(findingLink(1), '[finding 1](#finding-1)');
   });
 });
 

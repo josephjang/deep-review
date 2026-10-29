@@ -1,30 +1,33 @@
 /**
- * The brief of a run (R1, R2 of the brief of a run): the part of its
- * result a person reads first, as one value computed from the fold alone.
- * It holds the core of the change, the questions only a person can
- * answer, the fixes that go against a written rule, the documents the
- * run left out of date (R7 of the documentation step), what the run did
- * not cover, where a person must look, and what deep-review changed. Nothing
- * records it: each command computes it again, so it is current after an
- * answer or a commit, and the same engine computes the same brief from
- * the same ledger. The report, the output of a command and the JSON form
- * each render this one value.
+ * The brief of a run (R1, R2 of the brief of a run; R1 to R5 of the report
+ * for the person): the part of its result a person reads first, as one
+ * value computed from the fold alone. It holds the account of the change
+ * as submitted, a status line, what needs the person before a merge from
+ * the table of needs (needs.ts), each check with its meaning, and the
+ * fixes with how their fixers report checking them. Nothing records it:
+ * each command computes it again, so it is current after an answer or a
+ * commit, and the same engine computes the same brief from the same
+ * ledger. The report, the chat form of a command and the JSON form each
+ * render this one value. The headline, the gaps, what was covered, where
+ * to look and what changed remain for version 4 of the JSON form alone.
  */
 import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
-import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState } from '../checkpoint/events.ts';
+import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
 import { allBatches, budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
-import { answerCommandOf, defaultInPlace } from './decision-report.ts';
+import { baseNameOf } from '../scope/scope-line.ts';
+import { defaultInPlace, leaveReasonWords } from './decision-report.ts';
 import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
-import { briefChecksOf, checkGap, checksLine, checksSentence, outcomeVerbs, validationOf, validationSentence, type BriefCheck, type BriefValidation } from './brief-checks.ts';
+import { baseWords, briefChecksOf, checkGap, meaningRowOf, outcomeVerbs, validationKindsOf, validationOf, validationWords, type BriefCheck, type BriefValidation, type ComparedBy } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
-import { codeSpan, counted, findingLink, inlineText, listed, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, counted, findingAnchor, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
+import { answerCommand, departureItem, lastMomentWords, needsCountLine, needsOf, questionItem, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
 import { shortRunId } from './runs.ts';
-import { ranAgain, rankedFindings, type ReportFinding } from './state.ts';
+import { findingNumbers, ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import { documentationUnitKey, type CheckKind, type CheckOutcome } from './vocabulary.ts';
+import { documentationUnitKey, type Angle, type CheckKind, type CheckOutcome, type EditingPhase, type Severity, type ValidationMethod, type Verdict } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -172,9 +175,78 @@ export interface BriefChanged {
 /** A document the edits of the run left out of date (R7 of the documentation step), as `leftDocumentsOf` gives it. */
 export type BriefDocument = LeftDocument;
 
+/** What became of a finding, as the first line of its block and the status line count it (R1, R6 of the report for the person). */
+export const findingStatuses = ['question', 'fixed', 'fixed-against-rule', 'not-fixed', 'left', 'planned', 'planned-against-rule'] as const;
+export type FindingStatus = (typeof findingStatuses)[number];
+
+/** A finding as the brief names it: its number, its rank from 1, the ids of the engine it stands for, and what became of it (R6 of the report for the person). */
+export interface BriefFinding {
+  readonly number: number;
+  readonly id: string;
+  /** The ids of the candidates merged into it, which name it too. */
+  readonly merged: readonly string[];
+  readonly severity: Severity;
+  readonly verdict: Verdict;
+  readonly status: FindingStatus;
+  /** The first sentence of its summary, as the finder wrote it. */
+  readonly summary: string;
+}
+
+/** The status line (R1, R14 of the report for the person): the kind of run and the counts of its findings by what became of them, and the sentence. */
+export interface BriefStatus {
+  readonly kind: 'fix' | 'review';
+  readonly findings: number;
+  readonly fixed: number;
+  readonly againstRule: number;
+  readonly alreadyInTree: number;
+  readonly notFixed: number;
+  readonly questions: number;
+  /** The findings whose answer the run follows, by number. */
+  readonly answered: readonly number[];
+  readonly left: number;
+  readonly toFix: number;
+  /** Whether the patches are committed: none, some, or all of them. */
+  readonly committed: 'none' | 'some' | 'all';
+  readonly text: string;
+}
+
+/** A check as "Before you merge" gives it: its facts, its meaning from `checkMeanings`, and who compared its failures (R4 of the report for the person). */
+export interface BriefMergeCheck extends BriefCheck {
+  readonly meaning: string;
+  readonly comparedBy: ComparedBy | null;
+}
+
+/** One row of "What deep-review fixed" (R5 of the report for the person): the finding by its number, or null for a documentation update, the subject of the fix, the kinds of the validations its fixer reports, and its patches. */
+export interface BriefFix {
+  readonly finding: number | null;
+  readonly severity: Severity | null;
+  readonly plausible: boolean;
+  readonly againstRule: boolean;
+  readonly subject: string;
+  readonly kinds: readonly ValidationMethod[];
+  readonly patches: readonly number[];
+}
+
 export interface Brief {
   readonly run: string;
   readonly title: string;
+  /** Each finding in rank order, by its number. */
+  readonly findings: readonly BriefFinding[];
+  readonly status: BriefStatus;
+  /** The items of "What needs you", in the order of its table, and the line that counts them (R2 of the report for the person). */
+  readonly needs: readonly BriefNeed[];
+  readonly needsLine: string;
+  /** Each check with a command with its meaning; none in a run that only reviewed. */
+  readonly checks: readonly BriefMergeCheck[];
+  /** Whether the run takes its checks to the base, and the base as the brief names it (R10 of the facts before a merge). */
+  readonly baseChecks: boolean;
+  readonly base: string;
+  /** The rows of "What deep-review fixed", or in a run that only reviewed, of what it would fix. */
+  readonly fixes: readonly BriefFix[];
+  /** What the run did not examine, each gap of R10 of the brief of a run that is not an item of "What needs you", in plain words. */
+  readonly notExamined: readonly string[];
+  /** The findings left as is, by their reason, as one sentence, or null for none. */
+  readonly leftAs: string | null;
   /** How many open questions, unreviewed departures, documents left out of date and checks the edits of the run made fail need the person (R4 of the facts before a merge), and the sentence that says so. */
   readonly headline: { readonly questions: number; readonly departures: number; readonly documents: number; readonly checks: number; readonly text: string };
   readonly change: BriefChange;
@@ -259,6 +331,8 @@ interface BriefContext {
   readonly documents: readonly BriefDocument[];
   /** Each check with a command, none in a run that only reviewed (R3 to R5 of the facts before a merge). */
   readonly checks: readonly BriefCheck[];
+  /** The number of each finding by its id and its merged ids. */
+  readonly numbers: ReadonlyMap<string, number>;
 }
 
 function contextOf(state: RunState, review: ReviewState): BriefContext {
@@ -267,7 +341,7 @@ function contextOf(state: RunState, review: ReviewState): BriefContext {
   const fix = review.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review, fix, entry.finding.id)] as const));
   const checks = fix === null ? [] : briefChecksOf({ ...review, fix }, state.scope!);
-  return { state, review, findings, outcomes, documents: leftDocumentsOf(review), checks };
+  return { state, review, findings, outcomes, documents: leftDocumentsOf(review), checks, numbers: findingNumbers(review) };
 }
 
 /** The decisions of a kind, in rank order. */
@@ -295,7 +369,7 @@ function questionsOf(context: BriefContext): BriefQuestion[] {
       lookedIn: ask.searched,
       grounds: decision.grounds,
       answer: standing === null ? null : answerOf(standing),
-      command: answerCommandOf(decision.id, `--option ${String(ask.recommended + 1)}`),
+      command: answerCommand(context.state.id, context.numbers.get(decision.id)!, `--option ${String(ask.recommended + 1)}`),
     };
   });
 }
@@ -315,8 +389,8 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
       // A decided fix is given to a fixer, so its outcome is a fixer's or not attempted; a run that only reviewed has none.
       fate: context.review.fix === null ? 'not-fixed' : (outcome === undefined ? undefined : fateWordsOf[outcome]) ?? 'not-attempted',
       review: standing === null ? null : answerOf(standing),
-      accept: answerCommandOf(decision.id, '--accept'),
-      reject: answerCommandOf(decision.id, '--reject'),
+      accept: answerCommand(context.state.id, context.numbers.get(decision.id)!, '--accept'),
+      reject: answerCommand(context.state.id, context.numbers.get(decision.id)!, '--reject'),
     }];
   });
 }
@@ -540,6 +614,280 @@ function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
   return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
 }
 
+/**
+ * Findings by their numbers as a sentence names them: one as `finding 3`,
+ * several as `findings 2, 5 and 9`, with a run of three or more as
+ * `11 to 19`.
+ */
+export function findingWords(numbers: readonly number[]): string {
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let at = 0; at < sorted.length;) {
+    let end = at;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end]! + 1) end += 1;
+    if (end - at >= 2) runs.push(`${String(sorted[at])} to ${String(sorted[end])}`);
+    else for (let index = at; index <= end; index += 1) runs.push(String(sorted[index]));
+    at = end + 1;
+  }
+  return `${sorted.length === 1 ? 'finding' : 'findings'} ${listed(runs)}`;
+}
+
+/** What became of a finding (R6 of the report for the person): a question still open, fixed or not, left, or in a run that only reviewed, planned. */
+function findingStatusOf(context: BriefContext, id: string, decision: RecordedDecision | null): FindingStatus {
+  const standing = standingAnswer(context.review, id);
+  if (decision?.decision === 'ask' && standing === null) return 'question';
+  const departs = decision?.decision === 'fix' && decision.departure !== null && standing?.answer.kind !== 'reject';
+  if (context.review.fix === null) {
+    if (decision?.decision === 'fix' || (decision?.decision === 'ask' && standing !== null)) return departs ? 'planned-against-rule' : 'planned';
+    return 'left';
+  }
+  const outcome = context.outcomes.get(id)?.last;
+  if (outcome === 'applied' || outcome === 'already applied') return departs ? 'fixed-against-rule' : 'fixed';
+  if (outcome === 'deferred' || outcome === 'blocked' || outcome === 'not attempted') return 'not-fixed';
+  return 'left';
+}
+
+/** The numbers of the findings whose fix a revision holds, from the ids it names. */
+const revisionFindings = (context: BriefContext, findings: readonly string[]): number[] => findings.flatMap((id) => {
+  const number = context.numbers.get(id);
+  return number === undefined ? [] : [number];
+});
+
+/** The patches, numbered from 1, whose revisions hold the edits of a finding or an item of the documentation step. */
+const patchesHolding = (fix: FixState, id: string): number[] => fix.revisions.flatMap((revision, index) => (revision.change.findings.includes(id) ? [index + 1] : []));
+
+/** Whether the unit of a revision of an unfinished attempt answered later, so a later attempt of the same work finished it (R20 of the fix pass). */
+const answeredLater = (fix: FixState, revision: TreeRevised): boolean => revision.source.kind === 'attempt' && (fix.answers[revision.phase as EditingPhase] as Readonly<Record<string, unknown>> | undefined)?.[revision.source.key] !== undefined;
+
+/** Why a fix no fixer applied was not, as the clause of its item: its fixer put it off or could not apply it, the run budget stopped it, its fixer failed twice, or no fixer attempted it. */
+function unappliedWhy(outcomes: FindingOutcomes): string {
+  switch (outcomes.last) {
+    case 'deferred':
+      return 'its fixer put it off';
+    case 'blocked':
+      return 'its fixer could not apply it';
+    default:
+      if (outcomes.unattempted === 'budget') return 'the run budget stopped the fixes before it, and the end of the report gives the command that continues them';
+      if (outcomes.unattempted === 'failures') return 'its fixer failed twice and gave no answer';
+      return 'no fixer attempted it';
+  }
+}
+
+/** The facts the table of needs reads, each computed once from the context (R2 of the report for the person). */
+function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[], departures: readonly BriefDeparture[], checks: readonly BriefMergeCheck[], base: string, findings: readonly BriefFinding[]): NeedsFacts {
+  const { review } = context;
+  const fix = review.fix;
+  const number = (id: string): number => context.numbers.get(id)!;
+  const committed = fix === null ? 0 : committedRevisions(fix);
+  const allCommitted = fix !== null && fix.revisions.length > 0 && committed >= fix.revisions.length;
+  const openDepartures = departures.filter((departure) => departure.review === null);
+  const departing = new Set(openDepartures.map((departure) => departure.id));
+  const decisionOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+  const unapplied = fix === null ? [] : [...context.outcomes].flatMap(([id, outcomes]) => {
+    if (!['deferred', 'blocked', 'not attempted'].includes(outcomes.last) || departing.has(id)) return [];
+    // A question whose default no fixer applied says so in its own item; an answer an answer pass did not apply is unfinished work.
+    if (decisionOf.get(id)?.decision === 'ask' && !outcomes.byAnswerPass) return [];
+    return [{ finding: number(id), why: unappliedWhy(outcomes), answer: outcomes.byAnswerPass }];
+  });
+  const unfinishedEdits = fix === null ? [] : fix.revisions.flatMap((revision, index) => (revision.source.kind === 'attempt' && !answeredLater(fix, revision) ? [{ patch: index + 1, finding: revisionFindings(context, revision.change.findings)[0] ?? null }] : []));
+  const plausible = new Set(findings.filter((finding) => finding.verdict === 'PLAUSIBLE').map((finding) => finding.id));
+  const readFirst = fix === null ? [] : fix.revisions.flatMap((revision, index) => {
+    if (index < committed) return [];
+    if (revision.source.kind === 'attempt') return answeredLater(fix, revision) ? [`patch ${String(index + 1)}, edits of a fixer that did not finish, which a later fixer of the same work completed`] : [];
+    if (revision.source.kind !== 'fix') return [];
+    const unconfirmed = revision.change.findings.filter((id) => plausible.has(id)).map(number);
+    return unconfirmed.length === 0 ? [] : [`patch ${String(index + 1)}, the fix of ${findingWords(unconfirmed)}, which the verifier did not confirm`];
+  });
+  const uncommitted = fix === null ? 0 : fix.revisions.length - committed;
+  const departureFate = (departure: BriefDeparture): NeedDeparture['fate'] => {
+    switch (departure.fate) {
+      case 'not-fixed':
+        return { kind: 'review-only' };
+      case 'already-in-tree':
+        return { kind: 'already-in-tree' };
+      case 'applied':
+        return fix !== null && patchesHolding(fix, departure.id).every((patch) => patch <= committed) ? { kind: 'committed' } : { kind: 'applied' };
+      default: {
+        // Why its fixer did not apply it, the run budget among the reasons, as a fix that goes against no rule says it.
+        const outcomes = context.outcomes.get(departure.id);
+        return { kind: 'not-applied', why: outcomes === undefined ? fateClause(departure.fate) : unappliedWhy(outcomes) };
+      }
+    }
+  };
+  return {
+    run: context.state.id,
+    fixed: fix !== null,
+    committed: allCommitted,
+    base,
+    checks,
+    checkRanks: new Map(checks.map((check) => [check.kind, meaningRowOf(check, review).rank])),
+    unfinishedEdits,
+    unapplied,
+    documents: context.documents,
+    departures: openDepartures.map((departure) => ({ finding: number(departure.id), rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
+    questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, number(question.id), fix !== null)),
+    uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
+    toFix: fix === null ? decisionsOf(context, 'fix').length : 0,
+    numbers: context.numbers,
+  };
+}
+
+/** A question of the brief as its item of "What needs you" takes it. */
+export function needQuestionOf(question: BriefQuestion, number: number, fixed: boolean): NeedQuestion {
+  return {
+    finding: number,
+    question: question.question,
+    default: question.default,
+    defaultHeld: question.defaultApplied ? 'held' : fixed ? 'not-applied' : 'review-only',
+    choice: question.choice,
+    options: question.options.map((option) => ({ number: option.number, option: option.option, cost: option.cost, rule: option.rule })),
+  };
+}
+
+/** The status line (R1, R14 of the report for the person): the kind of run and its id, and its findings counted by what became of them. */
+function statusOf(context: BriefContext, findings: readonly BriefFinding[]): BriefStatus {
+  const fix = context.review.fix;
+  const count = (...statuses: FindingStatus[]): number => findings.filter((finding) => statuses.includes(finding.status)).length;
+  const answered = findings.filter((finding) => standingAnswer(context.review, finding.id) !== null).map((finding) => finding.number);
+  const alreadyInTree = [...context.outcomes.values()].filter((outcomes) => outcomes.last === 'already applied').length;
+  const committed = fix === null ? 0 : committedRevisions(fix);
+  const counts = {
+    kind: fix === null ? ('review' as const) : ('fix' as const),
+    findings: findings.length,
+    fixed: count('fixed', 'fixed-against-rule') - alreadyInTree,
+    againstRule: count('fixed-against-rule', 'planned-against-rule'),
+    alreadyInTree,
+    notFixed: count('not-fixed'),
+    questions: count('question'),
+    answered,
+    left: count('left'),
+    toFix: count('planned', 'planned-against-rule'),
+    committed: fix === null || committed === 0 ? ('none' as const) : committed >= fix.revisions.length ? ('all' as const) : ('some' as const),
+  };
+  const run = `deep-review's ${counts.kind} run ${shortRunId(context.state.id)}`;
+  if (counts.findings === 0) return { ...counts, text: `${run} has no finding.${fix === null ? ' It changed no file and ran no check.' : ''}` };
+  const done = fix === null ? counts.toFix : counts.fixed;
+  const ofThem = counts.againstRule === 0 ? '' : counts.againstRule === done ? `, ${done === 1 ? 'against a written rule' : 'each against a written rule'}` : `, ${counts.againstRule === 1 ? 'one' : String(counts.againstRule)} of them against a written rule`;
+  const rest = [
+    ...(counts.questions === 0 ? [] : [`asks you ${counted(counts.questions, 'question', 'questions')}`]),
+    ...(answered.length === 0 ? [] : [`follows your answers to ${findingWords(answered)}`]),
+    ...(counts.alreadyInTree === 0 ? [] : [`found ${String(counts.alreadyInTree)} already fixed in the tree`]),
+    ...(counts.notFixed === 0 ? [] : [`did not fix ${String(counts.notFixed)}`]),
+    ...(counts.left === 0 ? [] : [`left ${counted(counts.left, 'finding', 'findings')} as is`]),
+  ];
+  let fixedWords: string;
+  if (fix === null) fixedWords = `It changed no file and ran no check.${counts.toFix === 0 ? '' : ` It would fix ${String(counts.toFix)}${ofThem}.`}`;
+  else if (counts.fixed === 0) fixedWords = 'It fixed no finding.';
+  else if (counts.committed === 'none') fixedWords = `It fixed ${String(counts.fixed)} in your working tree${ofThem}.`;
+  else if (counts.committed === 'all') fixedWords = `It fixed ${String(counts.fixed)}${ofThem}, and the fixes are committed.`;
+  else fixedWords = `It fixed ${String(counts.fixed)}${ofThem}; ${String(fix.revisions.length - committed)} of its ${String(fix.revisions.length)} patches are not committed yet.`;
+  return { ...counts, text: `${run} has ${counted(counts.findings, 'finding', 'findings')}. ${fixedWords}${rest.length === 0 ? '' : ` It ${listed(rest)}.`}` };
+}
+
+/** The rows of "What deep-review fixed" (R5 of the report for the person): each applied fix in rank order, then each update of the documentation step; in a run that only reviewed, each fix it decided, with its plan. */
+function fixesOf(context: BriefContext, findings: readonly BriefFinding[]): BriefFix[] {
+  const { review } = context;
+  const fix = review.fix;
+  const byId = new Map(findings.map((finding) => [finding.id, finding]));
+  if (fix === null) {
+    return decisionsOf(context, 'fix').map((decision) => {
+      const finding = byId.get(decision.id)!;
+      return { finding: finding.number, severity: finding.severity, plausible: finding.verdict === 'PLAUSIBLE', againstRule: decision.departure !== null, subject: firstSentence(decision.fix.approach), kinds: [], patches: [] };
+    });
+  }
+  const fixed = findings.filter((finding) => finding.status === 'fixed' || finding.status === 'fixed-against-rule').map((finding) => {
+    const answer = lastFixAnswer(review, fix, finding.id).answer;
+    return {
+      finding: finding.number,
+      severity: finding.severity,
+      plausible: finding.verdict === 'PLAUSIBLE',
+      againstRule: finding.status === 'fixed-against-rule',
+      subject: answer === null ? '' : answer.message?.subject ?? firstSentence(answer.note),
+      kinds: validationKindsOf((answer?.validation ?? []).map((entry) => entry.method)),
+      patches: patchesHolding(fix, finding.id),
+    };
+  });
+  const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).filter((item) => (item.status === 'applied' || item.status === 'already-applied') && item.files.length > 0).map((item) => ({
+    finding: null,
+    severity: null,
+    plausible: false,
+    againstRule: false,
+    subject: item.message?.subject ?? firstSentence(item.note),
+    kinds: validationKindsOf(item.validation.map((entry) => entry.method)),
+    patches: patchesHolding(fix, item.id),
+  }));
+  return [...fixed, ...documentation];
+}
+
+/** The plain name of each review pass, which the brief names a pass by (R10 of the report for the person). */
+const passNames: Readonly<Record<Angle, string>> = { SCAN: 'first', REMOVALS: 'removals', RIPPLE: 'ripple effects', FOOTGUNS: 'footguns', WRAPPERS: 'wrappers', EFFICIENCY: 'efficiency', DESIGN: 'design', DUPLICATION: 'duplication', ALTITUDE: 'altitude', CONVENTIONS: 'conventions' };
+
+/**
+ * What the run did not examine, in plain words (R4, R10 of the report for
+ * the person; R10 of the brief of a run): the review passes that did not
+ * run, the findings no verifier examined, the paths the settings left out,
+ * the files too large to freeze, the checks with no command, the work a
+ * stop ended, the steps the run budget stopped, and a documentation step
+ * that did not run. What needs the person is an item of "What needs you",
+ * not a gap.
+ */
+function notExaminedOf(context: BriefContext): string[] {
+  const { state, review } = context;
+  const scope = state.scope!;
+  const gaps: string[] = [];
+  for (const angle of Object.keys(review.anglesNotRun) as Angle[]) gaps.push(`The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
+  // A candidate of a group no verifier examined is a finding of its own, or merged into one whose verdict another candidate may give.
+  const primaries = new Set(context.findings.map(({ entry }) => entry.finding.id));
+  for (const group of unverifiedGroupsOf(review)) {
+    const own = group.candidateIds.filter((id) => primaries.has(id)).map((id) => context.numbers.get(id)!);
+    const merged = group.candidateIds.filter((id) => !primaries.has(id) && context.numbers.has(id)).map((id) => context.numbers.get(id)!);
+    const others = group.candidateIds.length - own.length - merged.length;
+    const parts = [
+      ...(own.length === 0 ? [] : [findingWords(own)]),
+      ...(merged.length === 0 ? [] : [`${merged.length === 1 ? 'a candidate' : 'candidates'} merged into ${findingWords(merged)}`]),
+      ...(others === 0 ? [] : [counted(others, 'candidate', 'candidates')]),
+    ];
+    gaps.push(`No verifier examined ${listed(parts)}${own.length === 0 ? '' : `; ${own.length === 1 ? 'it counts' : 'each counts'} as plausible`}.`);
+  }
+  if (scope.excluded.count > 0) gaps.push(`${capitalized(counted(scope.excluded.count, 'changed path', 'changed paths'))} under ${scope.request.exclude.join(', ')}, which the settings leave out.`);
+  const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
+  if (oversized.length > 0) gaps.push(`${capitalized(counted(oversized.length, 'file', 'files'))} too large to freeze, which no worker was given: ${oversized.join(', ')}.`);
+  const fix = review.fix;
+  if (fix !== null) {
+    for (const check of fix.checks.planned?.checks ?? []) {
+      if (check.command === null) gaps.push(`No ${check.kind} check ran: ${droppedByOperator(review.survey, check) ?? check.reason ?? 'the run has no command for it'}.`);
+    }
+    const stopped = budgetStoppedUnits(fix);
+    const steps = [...(stopped.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the fixes for the checks'] : [])];
+    if (steps.length > 0) gaps.push(`The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
+    if (fix.openSeries !== null) gaps.push('A stop cut `deep-review commit` short; the next command completes the commits or drops them.');
+    const cause = stepNotRunCause(review);
+    if (review.documentationStep && cause !== null && cause !== 'no-edits') gaps.push(stepNotRunSentence(cause));
+  }
+  const workers = Object.values(state.workers);
+  const ended = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !ranAgain(workers, worker));
+  if (ended.length > 0) gaps.push(`A stop ended ${counted(ended.length, 'worker', 'workers')} whose work did not run again; the end of the report names ${ended.length === 1 ? 'it' : 'them'}.`);
+  return gaps;
+}
+
+/** Why the findings left as is were left, as one sentence: each reason with its findings; null when the run left none. */
+function leftAsOf(context: BriefContext, findings: readonly BriefFinding[]): string | null {
+  const reasons = new Map<string, number[]>();
+  const add = (reason: string, number: number): void => {
+    reasons.set(reason, [...(reasons.get(reason) ?? []), number]);
+  };
+  const decided = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+  for (const finding of findings.filter((entry) => entry.status === 'left')) {
+    const decision = decided.get(finding.id) ?? null;
+    if (decision?.decision === 'leave') add(decision.leave.supersededBy === null ? leaveReasonWords[decision.leave.reason] : `${leaveReasonWords[decision.leave.reason]} by finding ${String(context.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`, finding.number);
+    else if (decision?.decision === 'ask') add('your answer keeps the code as it is', finding.number);
+    // A run configured before the decision step held a finding for the author when it fixed, and decided nothing when it only reviewed.
+    else add(context.review.fix === null && context.review.decisions === null ? 'with no decision, since an engine before the decision step reviewed this run' : 'held for the author', finding.number);
+  }
+  if (reasons.size === 0) return null;
+  return `Left as is: ${[...reasons].map(([reason, numbers]) => `${findingWords(numbers)}, ${reason}`).join('; ')}.`;
+}
+
 /** The brief of a run, from its fold alone (R1). The run must be configured for review and have its scope. */
 export function briefOf(state: RunState): Brief {
   const review = state.review;
@@ -554,9 +902,35 @@ export function briefOf(state: RunState): Brief {
   const changed = changedOf(context);
   // A fixer applied a fix, or an answer pass applied an answer, after the triage wrote its account (R5 of the questions in the chat).
   const edited = changed.applied.length > 0 || review.answers.some((answer) => answer.appliedBy !== null && answer.appliedBy !== 'tree');
+  const findings = context.findings.map(({ entry, decision }, index): BriefFinding => ({
+    number: index + 1,
+    id: entry.finding.id,
+    merged: entry.members.map((member) => member.id),
+    severity: entry.finding.severity,
+    verdict: entry.resolution.verdict,
+    status: findingStatusOf(context, entry.finding.id, decision),
+    summary: firstSentence(entry.finding.summary),
+  }));
+  const base = baseWords({ commit: state.scope.base, name: baseNameOf(state.scope.mode, state.scope.request) });
+  const checks = context.checks.map((check) => {
+    const row = meaningRowOf(check, review);
+    return { ...check, meaning: row.meaning(check), comparedBy: row.comparedBy };
+  });
+  const facts = needsFactsOf(context, questions, departures, checks, base, findings);
+  const needs = needsOf(facts);
   return {
     run: state.id,
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
+    findings,
+    status: statusOf(context, findings),
+    needs,
+    needsLine: needsCountLine(needs, facts),
+    checks,
+    baseChecks: review.baseChecksStep,
+    base,
+    fixes: fixesOf(context, findings),
+    notExamined: notExaminedOf(context),
+    leftAs: leftAsOf(context, findings),
     headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review.fix !== null) },
     change: changeOf(review.change, edited),
     questions,
@@ -605,237 +979,209 @@ const fateClause = (fate: BriefFate): string => {
   return `${words.charAt(0).toLowerCase()}${words.slice(1).replace(/[.]$/, '')}`;
 };
 
-/** How a person runs a command the brief gives, said once, with no path (R8 of the brief of a run). */
-export const howToAnswer = 'To answer, ask your agent with the deep-review skill, or type the command at a terminal as the end of this report shows.';
-
-/** How a person answers in a chat, where no end of a report follows (R7 of the questions in the chat). */
-export const howToAnswerInChat = 'To answer, ask your agent with the deep-review skill.';
-
 /**
- * Where the brief is read (R7 of the questions in the chat): in the
- * report, a file, or in a chat, as `report --brief` and
- * `report --finding` print it. In a chat an id is plain text, since no
- * evidence follows to link to; the details the report folds under a
- * `<details>` tag follow a bold label; and the person answers by asking
- * the agent.
+ * Where the brief is read (R12 of the report for the person): in the
+ * report, a file, where the table of the fixes links each finding to its
+ * block; or in a chat, as `report --brief` prints it, where a finding is
+ * plain text, since no evidence follows to link to.
  */
 export type BriefForm = 'report' | 'chat';
 
-/** What a form changes in the words of the brief. */
-interface FormWords {
-  readonly link: (id: string) => string;
-  readonly details: (summary: string, lines: readonly string[]) => string[];
-  readonly howToAnswer: string;
-}
-
-const formWords: Readonly<Record<BriefForm, FormWords>> = {
-  report: { link: findingLink, details: (summary, lines) => [`<details><summary>${summary}</summary>`, '', ...lines, '', '</details>'], howToAnswer },
-  chat: { link: (id) => id, details: (_summary, lines) => ['**Details.**', '', ...lines], howToAnswer: howToAnswerInChat },
-};
-
-/** An answer a person gave, as a line of the brief. */
-const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
-
-/** Why a run has no account of the change, by the state of the account: the one sentence of the brief's part "The change" and of the evidence's "The change, in full". */
+/** Why a run has no account of the change, by the state of the account: the one sentence of the account in the brief. */
 export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>> = {
-  unrecorded: 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.',
-  none: 'The triage of this run gave no account of the change.',
+  unrecorded: 'deep-review recorded no account of this change, because an engine before this change reviewed it.',
+  none: 'deep-review gave no account of this change.',
 };
 
-/** The sentence that ends the part "The change" of a run whose fixes or answers changed the code after the account was written (R5 of the questions in the chat). */
-export const beforeEditsSentence = 'The title and this account describe the change before the fixes and the answers of this run; What deep-review changed names the fixes.';
+/** The number of each finding of a brief by its id and its merged ids, for the aliases of a quote. */
+const numbersOf = (brief: Pick<Brief, 'findings'>): ReadonlyMap<string, number> => new Map(brief.findings.flatMap((finding) => [finding.id, ...finding.merged].map((id) => [id, finding.number] as const)));
 
-/** The part "The change": the core of the change, marked as the triage's unverified account, and as the change before the fixes when a fix was applied, or why the run has none. */
-function changePart(change: BriefChange): string[] {
-  const lines = ['## The change', ''];
-  switch (change.state) {
-    case 'unrecorded':
-    case 'none':
-      return [...lines, missingAccountWords[change.state]];
-    case 'given': {
-      const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
-      const why = change.why === null
-        ? 'The change states no reason.'
-        : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? 'the triage named no source' : `from ${sources(change.whyFrom)}`}).`;
-      const restsOn = change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`;
-      return [...lines, paragraphText(change.what), '', paragraphText(why), '', `This is the triage's account of the change, which no verifier examined.${restsOn}`, ...(change.beforeEdits ? ['', beforeEditsSentence] : [])];
-    }
+/** The number of the finding an id names in a brief, by its id or a merged one. */
+export function numberIn(brief: Pick<Brief, 'findings'>, id: string): number {
+  const found = brief.findings.find((finding) => finding.id === id || finding.merged.includes(id));
+  if (found === undefined) throw new Error(`The brief names a finding it does not hold: ${id}`);
+  return found.number;
+}
+
+/**
+ * The account of the change as submitted (R1 of the report for the
+ * person; R3 of the brief of a run): what it does, why in its own words,
+ * then deep-review's judgments of it, whose account it is and what it
+ * rests on, each a paragraph of one line; or why the run has none.
+ */
+function accountPart(brief: Brief): string[] {
+  const { change } = brief;
+  if (change.state !== 'given') return [missingAccountWords[change.state]];
+  const said = (text: string): string => inlineText(quoted(text, { numbers: numbersOf(brief) }));
+  const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
+  const why = change.why === null ? 'The change states no reason.' : `Why, in the change's own words: ${said(change.why)} (${change.whyFrom.length === 0 ? 'it names no source' : `from ${sources(change.whyFrom)}`}).`;
+  const judged = [
+    ...(change.publicInterface.holds ? [`It changes a public interface, in deep-review's judgment${judgedWords(change.publicInterface)}.`] : []),
+    ...(change.wideEffect.holds ? [`It affects many files beyond those it changes, in deep-review's judgment${judgedWords(change.wideEffect)}.`] : []),
+  ];
+  const judgments = judged.length === 0 ? ['In deep-review\'s judgment, it changes no public interface and affects no file beyond its own.'] : judged;
+  const whose = `deep-review wrote this account of the change as submitted${change.beforeEdits ? ', before its fixes' : ''}, and no verifier examined it.${change.restsOn.length === 0 ? '' : ` It rests on ${sources(change.restsOn)}.`}`;
+  return [paragraphText(said(change.what)), '', paragraphText(why), '', [...judgments, whose].join(' ')];
+}
+
+/** An item as a list item of its number: its lead, then each line after it as a line of a list under it. */
+const itemLines = (number: number, lines: readonly string[]): string[] => [`${String(number)}. ${lines[0]!}`, ...lines.slice(1).map((line) => `   - ${line}`)];
+
+/**
+ * The items of "What needs you" as the brief shows them (R2, R3, TD9 of the
+ * report for the person): every item of ranks 1 to 3 and 8, at most
+ * `shownUnfinished` of rank 4 and `shownDecisions` of ranks 5 to 7, each
+ * cap with one more item that names the others.
+ */
+function shownNeeds(brief: Brief): (readonly string[])[] {
+  const shown: (readonly string[])[] = [];
+  const unfinished = brief.needs.filter((need) => need.rank === 4);
+  const decisions = brief.needs.filter((need) => need.rank >= 5 && need.rank <= 7);
+  const name = (need: BriefNeed): string => (need.document !== null ? codeSpan(need.document) : need.finding !== null ? `finding ${String(need.finding)}` : `patch ${String(need.patch)}`);
+  for (const need of brief.needs) {
+    if (need.rank === 4) {
+      const index = unfinished.indexOf(need);
+      if (index < shownUnfinished) shown.push(need.lines);
+      if (index === shownUnfinished) {
+        const others = unfinished.slice(shownUnfinished);
+        shown.push([`**${String(others.length)} more:** ${listed(others.map(name))}.`]);
+      }
+    } else if (need.rank >= 5 && need.rank <= 7) {
+      const index = decisions.indexOf(need);
+      if (index < shownDecisions) shown.push(need.lines);
+      if (index === shownDecisions) {
+        const others = decisions.slice(shownDecisions);
+        shown.push([`**${counted(others.length, 'more decision', 'more decisions')}:** ${findingWords(others.map((other) => other.finding!))}. \`deep-review report --finding <number>\` prints each with its options and commands.`]);
+      }
+    } else shown.push(need.lines);
   }
+  return shown;
 }
 
-/** One question as a block of the brief: its words, the option in place now and deep-review's choice, the options, the command, and the details one step below. */
-function questionBlock(question: BriefQuestion, position: number, fixed: boolean, words: FormWords): string[] {
-  const { answer } = question;
-  // What stands: the answer a person gave, else the default, in place or, when it edits the code and no fixer applied it, only the default.
-  const answered = answer?.option ?? null;
-  const standing = answer !== null
-    ? `${answeredWords(answer)} deep-review's choice was option ${String(question.choice)}.`
-    : question.defaultApplied
-      ? question.default === question.choice
-        ? `In place now: option ${String(question.default)}, which is also deep-review's choice, because it is the easiest to take back.`
-        : `In place now: option ${String(question.default)}, because it is the easiest to take back. deep-review's choice: option ${String(question.choice)}.`
-      : `The default: option ${String(question.default)}, because it is the easiest to take back; ${fixed ? 'its fixer did not apply it' : 'this run only reviewed, so `review --fix` applies it'}. deep-review's choice: option ${String(question.choice)}.`;
-  const defaultLabel = question.defaultApplied ? 'in place now' : 'the default';
-  const label = (option: BriefOption): string => [
-    String(option.number),
-    ...(answer === null && option.number === question.default ? [defaultLabel] : []),
-    ...(option.number === answered ? ['your answer'] : []),
-    ...(option.number === question.choice ? ['deep-review\'s choice'] : []),
-  ].join(', ');
-  return [
-    `### ${String(position)}. ${inlineText(question.question)} (${words.link(question.id)})`,
-    '',
-    standing,
-    '',
-    '| Option | What it does | What it costs |',
-    '|---|---|---|',
-    ...question.options.map((option) => `| ${label(option)} | ${tableCell(option.option)} | ${tableCell(option.cost)} |`),
-    ...(answer === null ? ['', `To take deep-review's choice: \`${question.command}\`. For another option, give its number.`] : []),
-    '',
-    ...words.details('The rule that each option makes, where deep-review looked, and why it asks', [
-      ...question.options.map((option) => `- Option ${String(option.number)} makes this rule: ${inlineText(option.rule)}`),
-      `- Where deep-review looked: ${question.lookedIn.map(inlineText).join('; ')}`,
-      `- Why it asks: ${inlineText(question.grounds)}`,
-    ]),
-  ];
+/** The part "What needs you" (R2, R3 of the report for the person): the count line, the items, and the line that says how to act on them. */
+function needsPart(brief: Brief): string[] {
+  const lines = ['## What needs you', '', brief.needsLine];
+  if (brief.needs.length === 0) return lines;
+  const asks = brief.needs.some((need) => need.condition === 'question-other' || need.condition === 'question-choice');
+  const how = `${asks ? 'Each question has a default, the option that is the easiest to reverse, so no item here holds up the run. ' : ''}Ask your agent with the deep-review skill to run a command, or type it at a terminal as the end of the report shows. \`deep-review report --run ${shortRunId(brief.run)} --finding <number>\` prints any finding.`;
+  return [...lines, '', ...shownNeeds(brief).flatMap((item, index) => itemLines(index + 1, item)), '', how];
 }
+
+/** How a run of a check ended, as a cell of "Before you merge". */
+const outcomeCells: Readonly<Record<CheckOutcome, string>> = { passed: 'passed', failed: 'failed', timeout: 'timed out', 'not-started': 'did not start', skipped: 'skipped', cut: 'cut short' };
 
 /**
- * One fix that goes against a written rule as a block of the brief: the
- * rule and where it is written, the decider's reason with what the fix does
- * instead, its fate, and the commands that review it. The approach the
- * fixer was given is in the evidence's Decisions, not here (R9).
+ * The paragraph under the table of the checks (R4 of the report for the
+ * person): the base, the fixed sentence on a failure the base shares and
+ * who compares, what the run did not examine or that it examined all, and
+ * the findings left as is.
  */
-function departureBlock(departure: BriefDeparture, position: number, fixed: boolean, words: FormWords): string[] {
-  const { review } = departure;
-  const reviewLine = review === null
-    ? `To keep the fix and change the rule: \`${departure.accept}\`. To follow the rule: \`${departure.reject}\`.`
-    : answeredWords(review);
-  // A rejection replaces the departing fix with one that follows the rule, so the fate of the departing fix no longer stands.
-  const fate = review?.kind !== 'reject'
-    ? fateWords[departure.fate]
-    : `You chose to follow the rule instead; ${review.applied ? 'the tree holds the fix that follows it' : fixed ? 'no fixer has applied the fix that follows it yet' : '`review --fix` applies the fix that follows it'}.`;
+function mergeParagraph(brief: Brief): string {
+  const shared = brief.checks.some((check) => check.fault === 'base-has');
+  const byModel = brief.checks.some((check) => check.comparedBy === 'model');
+  const ranAfter = brief.checks.every((check) => check.last !== null);
+  const covered = brief.status.kind === 'review' || brief.checks.length === 0
+    ? 'Every review pass ran, and a verifier examined each candidate.'
+    : ranAfter ? 'Every review pass ran, a verifier examined each candidate, and each check ran as submitted and after the fixes.' : 'Every review pass ran, a verifier examined each candidate, and each check ran as submitted; no fix changed a file, so none ran after the fixes.';
   return [
-    `### ${String(position)}. ${words.link(departure.id)}`,
-    '',
-    `The rule: ${inlineText(departure.rule)} (${inlineText(departure.source)}).`,
-    '',
-    `Why deep-review went against it: ${sentenceText(departure.fact)} ${fate}`,
-    '',
-    reviewLine,
-  ];
-}
-
-/** The part "Where to look": each condition of principle 8 that holds, with its findings linked, or one line that none does. */
-function lookPart(brief: Brief, words: FormWords): string[] {
-  const lines = ['## Where to look', ''];
-  if (brief.look.length > 0) return [...lines, ...brief.look.map((entry) => `- ${inlineText(entry.text)}${entry.findings.length === 0 ? '' : `: ${idWords(entry.findings, words.link)}`}.`)];
-  const judged = brief.change.state === 'given' ? ' The triage judged that the change alters no public interface and affects no file beyond its own.' : '';
-  return [...lines, `No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.${judged}`];
-}
-
-/** The sentence of what deep-review changed that names the findings a run left, each id as `show` gives it, with a space before it; none when it left none. */
-const leftSentence = (changed: BriefChanged, show: (id: string) => string): string =>
-  (changed.left.length === 0 ? '' : ` It left ${counted(changed.left.length, 'finding', 'findings')}: ${idWords(changed.left, show)}.`);
-
-/** What a run that only reviewed changed, as the one sentence of the part "What deep-review changed": nothing, what it decided to fix, which `review --fix` applies, and what it left, each id as `show` gives it. */
-export function readOnlyChangedSentence(changed: BriefChanged, show: (id: string) => string): string {
-  const toFix = !changed.decided ? '' : changed.toFix.length === 0 ? ' It decided to fix no finding.' : ` It decided to fix ${counted(changed.toFix.length, 'finding', 'findings')}, which \`review --fix\` applies: ${idWords(changed.toFix, show)}.`;
-  return `This run only reviewed: it changed nothing.${toFix}${leftSentence(changed, show)}`;
-}
-
-/** The paragraph "What deep-review changed" (R2 of the brief of a run). */
-function changedPart(changed: BriefChanged, { link }: FormWords): string[] {
-  const lines = ['## What deep-review changed', ''];
-  if (!changed.fixed) return [...lines, readOnlyChangedSentence(changed, link)];
-  const part = (ids: readonly string[], words: string): string[] => (ids.length === 0 ? [] : [`${words} ${String(ids.length)} (${idWords(ids, link)})`]);
-  const outcomes = [
-    `deep-review applied ${counted(changed.applied.length, 'fix', 'fixes')}${changed.applied.length === 0 ? '' : ` (${idWords(changed.applied, link)})`}`,
-    ...part(changed.alreadyInTree, 'found already in the tree'),
-    ...part(changed.deferred, 'its fixers put off'),
-    ...part(changed.blocked, 'its fixers could not apply'),
-    ...part(changed.notAttempted, 'no fixer attempted'),
-  ];
-  const commits = changed.patches === 0
-    ? 'No fix changed a file.'
-    : changed.commits === null
-      ? (changed.patches === 1 ? 'Its patch is not committed: `deep-review commit` commits it.' : `Its ${String(changed.patches)} patches are not committed: \`deep-review commit\` commits them.`)
-      : `They are in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, and ${counted(changed.commits.uncommittedPatches, 'later patch is', 'later patches are')} not committed yet`}.`;
-  const validation = validationSentence(changed.validation, (ids) => idWords(ids, link));
-  return [...lines, `${outcomes.join('; ')}. ${commits}${leftSentence(changed, link)}${validation === null ? '' : ` ${validation}`} ${checksSentence(changed.checks)}${changed.documentation === null ? '' : ` ${changed.documentation}`}`];
+    ...(brief.baseChecks && brief.status.kind === 'fix' && brief.checks.length > 0 ? [`The base is ${brief.base}.`] : []),
+    ...(shared ? ['A check that fails the same way on the base has no failure that the change adds.'] : []),
+    ...(byModel ? ['A model\'s comparison is the reading of the worker that compared the failures of the change with those of the base.'] : []),
+    ...(brief.notExamined.length === 0 ? [covered] : brief.notExamined),
+    ...(brief.leftAs === null ? [] : [brief.leftAs]),
+  ].join(' ');
 }
 
 /**
- * The part "Documents left out of date" (R7 of the documentation step):
- * after the departures, one sentence, then each document with its facts,
- * each with who reported it, and its reasons; none when the run left none.
+ * The part "Before you merge" (R4 of the report for the person): one row
+ * per check with its result on the base, as submitted and in its last
+ * run with when it ran, and its meaning, then the paragraph; a run that
+ * only reviewed says that no check ran and names its major findings.
  */
-function documentsPart(documents: readonly BriefDocument[]): string[] {
-  if (documents.length === 0) return [];
-  const line = (document: BriefDocument): string => {
-    const facts = document.facts.length === 0 ? '' : `: ${document.facts.map((fact) => `${inlineText(fact.what).replace(/[.]+$/, '')} (${fact.by})`).join('; ')}`;
-    return `- ${codeSpan(document.file)}${facts}. ${document.reasons.map((reason) => inlineText(reason.text)).join(' ')}`;
-  };
-  return [
-    `## Documents left out of date (${String(documents.length)})`,
-    '',
-    'The edits of this run made each document below out of date, and the run did not bring it in line. Bring each in line before a merge.',
-    '',
-    ...documents.map(line),
-  ];
+function mergePart(brief: Brief): string[] {
+  const lines = ['## Before you merge', ''];
+  if (brief.status.kind === 'review') {
+    const major = brief.findings.filter((finding) => finding.severity !== 'minor').map((finding) => finding.number);
+    return [...lines, ['No check ran: this run only reviewed.', ...(major.length === 0 ? [] : [`The major findings stay open: ${findingWords(major)}.`]), mergeParagraph(brief)].join(' ')];
+  }
+  if (brief.checks.length === 0) return [...lines, `No check ran, since the run has no check command. ${mergeParagraph(brief)}`];
+  const columns = ['Check', ...(brief.baseChecks ? ['On the base'] : []), 'As submitted', 'Last run', 'What it means'];
+  const rows = brief.checks.map((check) => {
+    const base = check.base === null || check.base.outcome === null ? 'not run' : outcomeCells[check.base.outcome];
+    const last = check.last === null ? 'did not run' : `${outcomeCells[check.last.outcome]}, ${lastMomentWords[check.last.when]}`;
+    return `| ${[check.kind, ...(brief.baseChecks ? [base] : []), check.before === null ? 'did not run' : outcomeCells[check.before], last, check.meaning].join(' | ')} |`;
+  });
+  return [...lines, `| ${columns.join(' | ')} |`, `|${columns.map(() => '---').join('|')}|`, ...rows, '', mergeParagraph(brief)];
 }
 
-/** The heading of the part of the questions, and the sentence under it that says what a default is and how to answer. */
-const questionsHeading = (brief: Brief, words: FormWords): string[] => [
-  `## Questions for you (${String(brief.questions.length)})`,
-  '',
-  `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${words.howToAnswer}`,
-];
-
-/** The heading of the part of the fixes that go against a written rule, and the sentence under it when no part of questions said how to answer. */
-const departuresHeading = (brief: Brief, words: FormWords, alone: boolean): string[] => [
-  `## Fixes that go against a written rule (${String(brief.departures.length)})`,
-  ...(alone ? ['', `Each fix below went ahead as deep-review decided. Review it only to go another way. ${words.howToAnswer}`] : []),
-];
+/** The most rows of the table of the fixes; one more row names the others (R5, TD9 of the report for the person). */
+export const shownFixes = 10;
 
 /**
- * The Markdown form of the brief (R8 to R12, R15 of the brief of a run):
- * the title, the headline, and the parts in the order of principle 5,
- * then what deep-review changed. It names no local path; it says once,
- * in the first part that gives a command, how a person runs one. In the
- * chat form, which `report --brief` prints, an id is plain text and the
- * details follow a bold label (R7 of the questions in the chat).
+ * The part "What deep-review fixed" (R5 of the report for the person): a
+ * row per fix with its finding, severity and marks, the subject of its
+ * commit message, how its fixer reports checking it and its patches, at
+ * most `shownFixes` and a row of the others; in a run that only reviewed,
+ * what it would fix, with each plan.
+ */
+function fixesPart(brief: Brief, form: BriefForm): string[] {
+  const planned = brief.status.kind === 'review';
+  const lines = [planned ? '## What deep-review would fix' : '## What deep-review fixed', ''];
+  if (brief.fixes.length === 0) return [...lines, planned ? 'deep-review decided to fix no finding.' : 'deep-review fixed no finding.'];
+  const said = (text: string): string => tableCell(inlineText(quoted(text, { numbers: numbersOf(brief) })));
+  const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
+  const name = (fix: BriefFix): string => (fix.finding === null ? 'Documentation' : `${form === 'report' ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity!}${marks(fix)}`);
+  const shown = brief.fixes.slice(0, shownFixes);
+  const others = brief.fixes.slice(shownFixes);
+  const otherFindings = others.flatMap((fix) => (fix.finding === null ? [] : [fix.finding]));
+  const otherDocuments = others.length - otherFindings.length;
+  const otherMarks = others.flatMap((fix) => (fix.finding === null || marks(fix) === '' ? [] : [`finding ${String(fix.finding)}${marks(fix)}`])).join('; ');
+  const othersName = [...(otherFindings.length === 0 ? [] : [findingWords(otherFindings)]), ...(otherDocuments === 0 ? [] : [counted(otherDocuments, 'documentation update', 'documentation updates')])].join(' and ');
+  const table = planned
+    ? ['| Finding | The planned fix |', '|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject)} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} |`])]
+    : ['| Finding | The fix | How its fixer reports checking it | Patch |', '|---|---|---|---|', ...shown.map((fix) => `| ${name(fix)} | ${said(fix.subject)} | ${validationWords(fix.kinds)} | ${fix.patches.length === 0 ? 'none' : fix.patches.join(', ')} |`), ...(others.length === 0 ? [] : [`| ${String(others.length)} more: ${othersName} | ${otherMarks} | | |`])];
+  const plausible = brief.fixes.some((fix) => fix.plausible) ? ['', 'A plausible finding is one that the verifier did not confirm.'] : [];
+  return [...lines, ...table, ...plausible];
+}
+
+/**
+ * The Markdown form of the brief (R1 to R5 of the report for the person):
+ * the title and the account of the change as submitted, the status line,
+ * "What needs you", "Before you merge" and "What deep-review fixed". It
+ * names no local path. In the chat form, which `report --brief` prints, a
+ * finding of the table of the fixes is plain text.
  */
 export function briefMarkdown(brief: Brief, form: BriefForm = 'report'): string[] {
-  const words = formWords[form];
-  const questions = brief.questions.length === 0 ? [] : [
-    ...questionsHeading(brief, words),
-    ...brief.questions.flatMap((question, index) => ['', ...questionBlock(question, index + 1, brief.changed.fixed, words)]),
-  ];
-  const departures = brief.departures.length === 0 ? [] : [
-    ...departuresHeading(brief, words, brief.questions.length === 0),
-    ...brief.departures.flatMap((departure, index) => ['', ...departureBlock(departure, index + 1, brief.changed.fixed, words)]),
-  ];
-  const notCovered = ['## What the review did not cover', '', ...(brief.covered === null ? brief.notCovered.map((gap) => `- ${inlineText(gap.text)}`) : [brief.covered])];
-  const parts = [changePart(brief.change), questions, departures, documentsPart(brief.documents), notCovered, lookPart(brief, words), changedPart(brief.changed, words)].filter((part) => part.length > 0);
-  return [`# ${inlineText(brief.title)}`, '', brief.headline.text, ...parts.flatMap((part) => ['', ...part])];
+  return [`# ${inlineText(brief.title)}`, '', ...accountPart(brief), '', brief.status.text, '', ...needsPart(brief), '', ...mergePart(brief), '', ...fixesPart(brief, form)];
 }
 
+/** An answer a person gave, as a line under its item. */
+const answeredWords = (given: BriefAnswer): string => `Answered: ${given.words} on ${given.at}; ${given.applied ? 'the tree holds it' : 'not yet applied'}.`;
+
 /**
- * The block of one finding of the brief, under the heading of its part
- * and the sentence that says how to answer (R7 of the questions in the
- * chat): a question, open or answered, or a fix that goes against a
- * written rule, numbered as the brief numbers it; null for an id that
- * names neither, a fix that goes against no rule among them. The chat
- * form by default, which `report --finding` prints.
+ * The item of one decision of the brief, a question or a fix that goes
+ * against a written rule, open or answered, under the heading of its
+ * finding (R7 of the questions in the chat), which `report --finding`
+ * prints; null for a finding that is neither.
  */
-export function briefBlock(brief: Brief, id: string, form: BriefForm = 'chat'): string[] | null {
-  const words = formWords[form];
-  const question = brief.questions.findIndex((entry) => entry.id === id);
-  if (question !== -1) return [...questionsHeading(brief, words), '', ...questionBlock(brief.questions[question]!, question + 1, brief.changed.fixed, words)];
-  const departure = brief.departures.findIndex((entry) => entry.id === id);
-  if (departure !== -1) return [...departuresHeading(brief, words, true), '', ...departureBlock(brief.departures[departure]!, departure + 1, brief.changed.fixed, words)];
-  return null;
+export function briefBlock(brief: Brief, id: string): string[] | null {
+  if (!brief.findings.some((finding) => finding.id === id || finding.merged.includes(id))) return null;
+  const number = numberIn(brief, id);
+  const facts = { run: brief.run, numbers: numbersOf(brief) };
+  const question = brief.questions.find((entry) => entry.id === id);
+  const fixed = brief.status.kind === 'fix';
+  if (question !== undefined) {
+    const item = questionItem(facts, needQuestionOf(question, number, fixed));
+    // An answered question no longer waits, so its block drops what doing nothing does and says the answer.
+    const lines = question.answer === null ? item.lines : item.lines.slice(0, -1);
+    return [`## Finding ${String(number)}`, '', ...itemLines(1, lines), ...(question.answer === null ? [] : ['', answeredWords(question.answer)])];
+  }
+  const departure = brief.departures.find((entry) => entry.id === id);
+  if (departure === undefined) return null;
+  const fate: NeedDeparture['fate'] = departure.fate === 'not-fixed' ? { kind: 'review-only' } : departure.fate === 'applied' ? { kind: 'applied' } : departure.fate === 'already-in-tree' ? { kind: 'already-in-tree' } : { kind: 'not-applied', why: fateClause(departure.fate) };
+  const item = departureItem(facts, { finding: number, rule: departure.rule, source: departure.source, reason: departure.fact, fate });
+  const lines = departure.review === null ? item.lines : item.lines.slice(0, -1);
+  return [`## Finding ${String(number)}`, '', ...itemLines(1, lines), ...(departure.review === null ? [] : ['', answeredWords(departure.review)])];
 }
 
 /**
@@ -879,108 +1225,39 @@ export function firstSentence(text: string): string {
   return inline;
 }
 
-/** A condition of principle 8 in a few words, for the short form; a departure in the words of the line `Against a written rule:`, so one thing has one name (R3 of the questions in the chat). */
-const lookWords = (entry: BriefLook): string => {
-  switch (entry.condition) {
-    case 'departure':
-      return counted(entry.findings.length, 'fix that goes against a written rule', 'fixes that go against a written rule');
-    case 'plausible':
-      return `${counted(entry.findings.length, 'fix', 'fixes')} on a PLAUSIBLE verdict`;
-    case 'public-interface':
-      return 'a change to a public interface';
-    case 'wide-effect':
-      return 'an effect on many files';
-  }
-};
-
-/** What deep-review changed, in a few words, for the short form. */
-function changedWords(changed: BriefChanged): string {
-  if (!changed.fixed) return 'nothing; this run only reviewed';
-  const fixes = counted(changed.applied.length, 'fix', 'fixes');
-  const unapplied = changed.deferred.length + changed.blocked.length + changed.notAttempted.length;
-  const rest = unapplied === 0 ? '' : `, ${counted(unapplied, 'fix', 'fixes')} not applied`;
-  const where = changed.patches === 0 ? '' : changed.commits === null ? ', not committed' : `, in ${counted(changed.commits.shas.length, 'commit', 'commits')}${changed.commits.uncommittedPatches === 0 ? '' : `, ${counted(changed.commits.uncommittedPatches, 'patch', 'patches')} not committed`}`;
-  return `${fixes}${rest}${where}`;
-}
-
-/** An option of a question as a line of the short form names it: its number and its words, whole. */
-const optionWords = (question: BriefQuestion, number: number): string => `option ${String(number)}, ${inlineText(question.options[number - 1]?.option ?? '')}`;
-
 /**
- * The lines of one open question in the short form (R1 of the questions
- * in the chat): the question, then the option in place now and
- * deep-review's choice, one line for the two when they are one option.
- * A default that edits the code and that no fixer applied is named as the
- * default, which the tree does not hold. Each line starts with the id of
- * the finding and gives the words of the decider whole.
+ * The chat form of the brief (R12, TD1 of the report for the person),
+ * which `review` and `answer` print after a run and `report` prints with
+ * no flag: the title with the run, the line of the change with its mark
+ * (R4, R5 of the questions in the chat), then the status line, "What needs
+ * you" and "Before you merge" as the brief has them, made by the same
+ * functions, and one line that names `report --fixes`. A finding is plain
+ * text. The caller prints the path of the report after them, the last
+ * line. The caps of the lists hold it to `chatLineLimit` lines.
  */
-function questionLines(question: BriefQuestion): string[] {
-  const id = `  ${question.id}`;
-  const standing = question.defaultApplied ? 'in place now' : 'the default, which the tree does not hold';
-  const both = question.defaultApplied ? 'in place now and deep-review\'s choice' : 'the default and deep-review\'s choice, which the tree does not hold';
+export function briefChatForm(brief: Brief): string[] {
+  const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'deep-review gave no account of it' : 'not recorded; an engine before the account reviewed this run';
+  const run = shortRunId(brief.run);
   return [
-    `${id}: ${inlineText(question.question)}`,
-    ...(question.default === question.choice
-      ? [`${id} ${both}: ${optionWords(question, question.default)}`]
-      : [`${id} ${standing}: ${optionWords(question, question.default)}`, `${id} deep-review's choice: ${optionWords(question, question.choice)}`]),
-  ];
-}
-
-/** The line of one open departure in the short form (R2 of the questions in the chat): where the rule is written, then the rule, whole; a fix no fixer applied, or one of a run that only reviewed, would go against it. */
-function departureLine(departure: BriefDeparture): string {
-  const goes = departure.fate === 'applied' || departure.fate === 'already-in-tree' ? 'goes against' : 'would go against';
-  return `  ${departure.id} ${goes} a rule in ${inlineText(departure.source)}: "${inlineText(departure.rule)}"`;
-}
-
-/** The line that counts the open findings a list of the short form does not name with their words, and names their ids, or none. */
-const moreLine = (ids: readonly string[], one: string, many: string): string[] => (ids.length === 0 ? [] : [`  ${counted(ids.length, one, many)}: ${idWords(ids)}`]);
-
-/**
- * The short form of the brief (R13, PD12 of the brief of a run): seven
- * lines, whatever the number of findings, and two more for a fix run, the
- * documents it left out of date (R7 of the documentation step) and how its
- * checks ended (R6, PD5 of the facts before a merge), each naming its
- * subject in its first words so it keeps its sense when a model rewords
- * it; a list shows at most `shownIds` ids and counts the rest, and a line
- * with nothing to say says so. Under the line `Questions:` come the lines
- * of each open question, at most `shownQuestions`, and under `Against a
- * written rule:` the line of each open departure, at most
- * `shownDepartures`, each list with one more line that counts the others
- * (R1, R2 of the questions in the chat): at most 23 lines in all. A line
- * has at most `shortLineLimit` characters, but the lines of a question, an
- * option and a departure, which give the words of the decider whole, and
- * the line of the change, which gives the first sentence of the account
- * whole up to `changeLineLimit` (R4). The caller prints the path of the
- * report after them, the last line.
- */
-export function briefShortForm(brief: Brief): string[] {
-  const open = brief.questions.filter((question) => question.answer === null);
-  const openQuestions = open.map((question) => question.id);
-  // A default is in place only when the tree holds it, as the headline says it (R7 of the brief of a run); one question reads as one.
-  const inPlace = open.every((question) => question.defaultApplied);
-  const defaults = open.length === 1 ? (inPlace ? 'with its default in place' : 'with a default') : inPlace ? 'each with a default in place' : 'each with a default';
-  const openDepartures = brief.departures.filter((departure) => departure.review === null);
-  const change = brief.change.state === 'given' ? firstSentence(brief.change.what) : brief.change.state === 'none' ? 'the triage gave no account of it' : 'not recorded; an engine before the account reviewed this run';
-  const gaps = brief.notCovered;
-  const notCovered = gaps.length === 0 ? 'nothing' : gaps.length === 1 ? inlineText(gaps[0]!.text) : `${String(gaps.length)} gaps, the first: ${inlineText(gaps[0]!.text)}`;
-  // The lines that give the words of the decider whole are not cut; every other line is.
-  const cut = (line: string): string => cutAtWord(line, shortLineLimit);
-  return [
-    cut(`${inlineText(brief.title)} (run ${shortRunId(brief.run)})`),
+    cutAtWord(`${inlineText(brief.title)} (run ${run})`, shortLineLimit),
     // The title line stays as it is, and the line of the change carries the mark (R5 of the questions in the chat); the limit counts the sentence, not the mark (R4).
     `${brief.change.state === 'given' && brief.change.beforeEdits ? 'The change before the fixes' : 'The change'}: ${cutAtWord(change, changeLineLimit)}`,
-    cut(openQuestions.length === 0 ? `Questions: ${brief.questions.length === 0 ? 'none' : 'none open; each is answered'}` : `Questions: ${String(openQuestions.length)}, ${defaults}`),
-    ...open.slice(0, shownQuestions).flatMap(questionLines),
-    ...moreLine(openQuestions.slice(shownQuestions), 'more question', 'more questions').map(cut),
-    cut(openDepartures.length === 0 ? `Against a written rule: ${brief.departures.length === 0 ? 'no fix' : 'no fix left to review'}` : `Against a written rule: ${counted(openDepartures.length, 'fix', 'fixes')}`),
-    ...openDepartures.slice(0, shownDepartures).map(departureLine),
-    ...moreLine(openDepartures.slice(shownDepartures).map((departure) => departure.id), 'more fix', 'more fixes').map(cut),
-    ...(brief.changed.fixed ? [
-      cut(brief.documents.length === 0 ? 'Documents left out of date: none' : `Documents left out of date: ${String(brief.documents.length)}: ${idWords(brief.documents.map((document) => document.file), inlineText)}`),
-      cut(checksLine(brief.changed.checks, brief.changed.noCommand)),
-    ] : []),
-    cut(`Not covered: ${notCovered}`),
-    cut(`Look at: ${brief.look.length === 0 ? 'nothing' : brief.look.map(lookWords).join(', ')}`),
-    cut(`Changed: ${changedWords(brief.changed)}`),
+    '',
+    brief.status.text,
+    '',
+    ...needsPart(brief),
+    '',
+    ...mergePart(brief),
+    '',
+    `${brief.status.kind === 'review' ? 'What deep-review would fix' : 'What deep-review fixed'}: deep-review report --fixes --run ${run}`,
   ];
 }
+
+/**
+ * The most lines of the chat form before the path, and of the brief, for
+ * any number of findings (R1, R12, TD9 of the report for the person): the
+ * caps of the lists, the shapes of the items and the four kinds of check
+ * set them, and the report puts a blank line after the brief.
+ */
+export const chatLineLimit = 52;
+export const briefLineLimit = 73;

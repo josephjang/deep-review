@@ -250,11 +250,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(second.status, 0, second.stderr);
     const secondId = /run ([0-9a-f-]+): created/.exec(second.stderr)![1]!;
 
-    // The run that ended last, its short form and the path of its copy last.
+    // The run that ended last, its chat form and the path of its copy last (R12 of the report for the person).
     const newest = await run(box, 'report');
     assert.equal(newest.status, 0, newest.stderr);
     const lines = newest.stdout.trim().split('\n');
-    assert.equal(lines.length, 8);
+    assert.ok(lines.includes('## What needs you') && lines.includes('## Before you merge'), newest.stdout);
+    assert.equal(lines.at(-2), `What deep-review would fix: deep-review report --fixes --run ${secondId.slice(0, 8)}`);
     assert.match(lines[0]!, new RegExp(`\\(run ${secondId.slice(0, 8)}\\)$`));
     assert.match(lines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${secondId.slice(0, 8)}\\.md$`));
     assert.ok(existsSync(lines.at(-1)!));
@@ -302,7 +303,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(brief.status, 0, brief.stderr);
     const briefLines = brief.stdout.trimEnd().split('\n');
     assert.match(briefLines[0]!, /^# /);
-    assert.ok(briefLines.includes('## What the review did not cover'), brief.stdout);
+    assert.ok(briefLines.includes('## Before you merge') && briefLines.includes('## What deep-review would fix'), brief.stdout);
     assert.match(briefLines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
     assert.doesNotMatch(brief.stdout, /<details>|\]\(#finding-|end of this report/);
     const newestBrief = await run(box, 'report', '--brief');
@@ -343,7 +344,7 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       const pastLines = past.stdout.trimEnd().split('\n');
       assert.equal(pastLines[0], `Not shown: run ${shortRunId(active.id)}, a later run, never started its review.`);
       assert.match(pastLines[1]!, new RegExp(`\\(run ${shortRunId(secondId)}\\)$`), 'the short form of the run before it follows');
-      assert.equal(pastLines.length, 9);
+      assert.equal(pastLines.at(-2), `What deep-review would fix: deep-review report --fixes --run ${shortRunId(secondId)}`);
       // Every text form names the later run first and the path last.
       for (const flag of ['--fixes', '--brief']) {
         const formLines = (await run(box, 'report', flag)).stdout.trimEnd().split('\n');
@@ -423,10 +424,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     const lines = result.stdout.trim().split('\n');
     const reportPath = lines.at(-1)!;
     assert.ok(existsSync(reportPath), reportPath);
-    // The short form of the brief comes first, seven lines for a run that only reviews, with no line of documents, and the last line is the path of the copy beside the ledger (R13, R14 of the brief of a run; R7 of the documentation step).
-    assert.equal(lines.length, 8, result.stdout);
+    // The chat form of the brief comes first: the title with the run, the line of the change, the status line, what needs you and before you merge, and the line of the fixes; the last line is the path of the copy beside the ledger (R12 of the report for the person).
     assert.match(lines[0]!, /^The commit [0-9a-f]{8} \(run [0-9a-f]{8}\)$/);
-    assert.deepEqual(lines.slice(1, 7).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Not covered', 'Look at', 'Changed']);
+    assert.match(lines[1]!, /^The change: /);
+    assert.match(lines[3]!, /^deep-review's review run [0-9a-f]{8} has no finding\. It changed no file and ran no check\.$/);
+    assert.deepEqual(lines.filter((line) => line.startsWith('## ')), ['## What needs you', '## Before you merge']);
+    assert.match(lines.at(-2)!, /^What deep-review would fix: deep-review report --fixes --run [0-9a-f]{8}$/);
     assert.match(reportPath, /[\\/]deep-review-checkpoint[\\/]reports[\\/]\d{4}-\d{2}-\d{2}-[0-9a-f]{8}\.md$/);
     // The report starts with the brief, titled from the scope when the triage gave no account, and ends with the facts of the run (R12 of the brief of a run).
     const report = readFileSync(reportPath, 'utf8');

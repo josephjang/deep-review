@@ -1,18 +1,26 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { briefMarkdown, briefOf, briefShortForm, shortLineLimit, type Brief } from '../../src/review/brief.ts';
-import type { BriefCheck } from '../../src/review/brief-checks.ts';
+import { briefChatForm, briefMarkdown, briefOf, type Brief } from '../../src/review/brief.ts';
+import { checkMeanings, meaningRowOf, validationKindsOf, validationWords, type BriefCheck } from '../../src/review/brief-checks.ts';
 import { briefJson } from '../../src/review/brief-json.ts';
+import type { NeedCondition } from '../../src/review/needs.ts';
 import { answeredRun, checkedRun, mergeBase, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
-import { answer, answerableDecisions, decidedFixRun, readOnlyReported } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, decidedFixRun } from '../helpers/review-history.ts';
 
-/** The run whose checks end as `checks` says, its scope a branch's, and its question answered, so the headline counts the checks alone. */
+/** The run whose checks end as `checks` says, its scope a branch's, and its question answered, so "What needs you" holds the checks and the patches alone. */
 const run = (checks: ChecksOfRun = {}): RunState => onBranch(checkedRun(checks).add('answer.recorded', answer('SWEEP-1', 0)));
 const check = (brief: Brief, kind: string) => brief.changed.checks.find((entry) => entry.kind === kind)!;
-// The checks of these runs have no typecheck command, which gives a gap of its own in each.
-const checkGaps = (brief: Brief): string[] => brief.notCovered.filter((gap) => gap.kind === 'check' && !gap.text.startsWith('No typecheck check ran')).map((gap) => gap.text);
-const sentence = (brief: Brief): string => briefMarkdown(brief, 'chat').at(-1)!;
+const meaning = (brief: Brief, kind: string): string => brief.checks.find((entry) => entry.kind === kind)!.meaning;
+/** The row of a check in the table of "Before you merge". */
+const row = (brief: Brief, kind: string): string => briefMarkdown(brief).find((line) => line.startsWith(`| ${kind} |`))!;
+/** The lead and the rest of each item of a condition. */
+const items = (brief: Brief, condition: NeedCondition): string[] => brief.needs.filter((need) => need.condition === condition).map((need) => need.lines.join('\n'));
+/** The paragraph under the table of the checks. */
+const paragraph = (brief: Brief): string => {
+  const lines = briefMarkdown(brief);
+  return lines[lines.indexOf('## What deep-review fixed') - 2]!;
+};
 
 const same = { kind: 'lint', reading: 'same', words: 'the same two lint errors as on the base' };
 /** lint failed before the fixes and after them, so it runs on the base after build. */
@@ -20,81 +28,84 @@ const failing = { before: { lint: 'failed' }, after: { lint: 'failed' } } as con
 const where = 'the merge base with origin/main (2247b35e)';
 
 describe('when the last run of each check ran (R3 of the facts before a merge)', () => {
-  it('says after the fixes, after the repair or after your answers by the phase of the last run', () => {
+  it('says after the fixes, after the fixes for the checks or after your answers by the phase of the last run', () => {
     assert.deepEqual(check(briefOf(run()), 'test').last, { outcome: 'passed', when: 'fixes' });
     assert.deepEqual(check(briefOf(run({ after: { lint: 'failed' }, repaired: {} })), 'test').last, { outcome: 'passed', when: 'repair' });
     assert.deepEqual(check(briefOf(onBranch(answeredRun(checkedRun()))), 'test').last, { outcome: 'passed', when: 'answers' });
+    assert.equal(row(briefOf(run({ after: { lint: 'failed' }, repaired: {} })), 'test'), '| test | not run | passed | passed, after the fixes for the checks | passes |');
   });
 
   it('says a test that fails after an answer pass failed after your answers, not after the fixes, in a run configured before the checks on the base too (#78)', () => {
     for (const compared of [true, false]) {
       const brief = briefOf(onBranch(answeredRun(checkedRun({ compared }), { test: 'failed' })));
       assert.deepEqual(check(brief, 'test').last, { outcome: 'failed', when: 'answers' }, String(compared));
-      assert.ok(sentence(brief).includes('test passed before the fixes and failed after your answers.'), sentence(brief));
-      assert.doesNotMatch(sentence(brief), /test passed before the fixes and failed after them/);
+      assert.match(row(brief, 'test'), /\| passed \| failed, after your answers \| the edits of this run made it fail \|$/);
+      assert.deepEqual(items(brief, 'edits'), ['**The test check fails after your answers, and passed after the fixes.** The edits of this run made it fail. If you do nothing, `deep-review commit` commits a tree in which it fails.']);
     }
   });
 
-  it('gives each check its outcome before the fixes and its last outcome with when it ran, in the sentence of what deep-review changed', () => {
-    assert.ok(sentence(briefOf(run())).includes(' The checks passed before and after the fixes. '));
-    const repaired = sentence(briefOf(run({ after: { lint: 'failed' }, repaired: {} })));
-    assert.ok(repaired.includes('The checks: build passed before the fixes and after the repair; lint passed before the fixes and after the repair; test passed before the fixes and after the repair.'), repaired);
-    assert.ok(sentence(briefOf(run({ after: { lint: 'timeout' } }))).includes('lint passed before the fixes and timed out after them; '), 'a timeout in plain words');
+  it('gives each check its result on the base, as submitted and in its last run with when it ran, and a timeout in plain words', () => {
+    const brief = briefOf(run());
+    assert.deepEqual(briefMarkdown(brief).filter((line) => line.startsWith('| ')).slice(0, 2), ['| Check | On the base | As submitted | Last run | What it means |', '| build | not run | passed | passed, after the fixes | passes |']);
+    assert.equal(row(briefOf(run({ after: { lint: 'timeout' } })), 'lint'), '| lint | not run | passed | timed out, after the fixes | the edits of this run made it fail |');
   });
 });
 
-describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
-  it('counts in the headline a check that failed after it passed earlier in the run, a timeout as a failure', () => {
+describe('the fault of each check, and the item it gives (R4, R5 of the facts before a merge; R2, R4 of the report for the person)', () => {
+  it('gives an item of rank 1 to a check that failed after it passed earlier in the run, a timeout as a failure', () => {
     for (const outcome of ['failed', 'timeout']) {
       const brief = briefOf(run({ after: { lint: outcome } }));
       assert.deepEqual([check(brief, 'lint').fault, check(brief, 'lint').earlier.passed], ['edits', 'before'], outcome);
-      assert.equal(brief.headline.checks, 1);
-      assert.equal(brief.headline.text, '1 thing needs you: 1 check that the edits of the run made fail. Nothing waits for you: the run went on as it decided.');
+      assert.deepEqual(items(brief, 'edits'), ['**The lint check fails after the fixes, and passed as submitted.** The edits of this run made it fail. If you do nothing, `deep-review commit` commits a tree in which it fails.']);
+      assert.match(brief.needsLine, /^Before a merge: 1 check that the edits of this run made fail and \d+ patch(es)? to commit\. The run left no work unfinished and no document out of date\.$/);
     }
-    const two = briefOf(run({ after: { lint: 'failed', test: 'failed' } }));
-    assert.match(two.headline.text, /^2 things need you: 2 checks that the edits of the run made fail\./);
+    assert.match(briefOf(run({ after: { lint: 'failed', test: 'failed' } })).needsLine, /^Before a merge: 2 checks that the edits of this run made fail /);
   });
 
-  it('counts a check that failed before the fixes, passed after them and failed after an answer pass, by its pass after the fixes', () => {
+  it('gives an item to a check that failed before the fixes, passed after them and failed after an answer pass, by its pass after the fixes', () => {
     const brief = briefOf(onBranch(answeredRun(checkedRun({ before: { lint: 'failed' } }), { lint: 'failed' })));
     assert.deepEqual([check(brief, 'lint').fault, check(brief, 'lint').earlier, check(brief, 'lint').base], ['edits', { passed: 'fixes', failed: 'before' }, null]);
-    assert.equal(brief.headline.checks, 1);
+    assert.equal(items(brief, 'edits').length, 1);
   });
 
-  it('counts a check that passed after an earlier answer pass and failed after the last one', () => {
+  it('gives an item to a check that passed after an earlier answer pass and failed after the last one', () => {
     const brief = briefOf(onBranch(answeredRun(answeredRun(checkedRun()), { test: 'failed' }, 2)));
     assert.deepEqual([check(brief, 'test').fault, check(brief, 'test').earlier.passed], ['edits', 'answers']);
-    assert.equal(briefShortForm(brief).find((line) => line.startsWith('Checks:')), 'Checks: test failed after your answers, and passed after earlier answers; no typecheck check; build and lint passed');
+    assert.deepEqual(items(brief, 'edits'), ['**The test check fails after your answers, and passed after earlier answers.** The edits of this run made it fail. If you do nothing, `deep-review commit` commits a tree in which it fails.']);
   });
 
-  it('counts no check that failed before the fixes and never passed since, whatever the base says, and says that its edits made no check fail when none did', () => {
+  it('gives no item of rank 1 to a check that failed before the fixes and never passed since, whatever the base says, and says that the edits made no check fail', () => {
     for (const checks of [{ ...failing, base: [['build', 'passed'], ['lint', 'passed']] }, { ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }, { ...failing, compared: false }] as const) {
-      assert.equal(briefOf(run(checks)).headline.checks, 0, JSON.stringify(checks));
+      const brief = briefOf(run(checks));
+      assert.deepEqual(items(brief, 'edits'), [], JSON.stringify(checks));
+      assert.match(brief.needsLine, / The edits of this run made no check fail, and the run left no work unfinished and no document out of date\.$/);
     }
-    assert.equal(briefOf(run()).headline.text, 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.');
   });
 
-  it('says the change breaks a check that passes on the base, and lists it in what the review did not cover, not in the headline (PD4)', () => {
+  it('gives an item of rank 2 to a check the change breaks, which passes on the base (PD4 of the report for the person)', () => {
     const brief = briefOf(run({ ...failing, base: [['build', 'passed'], ['lint', 'passed']] }));
     assert.equal(check(brief, 'lint').fault, 'change-breaks');
     assert.deepEqual(check(brief, 'lint').base, { commit: `2247b35e${'0'.repeat(32)}`, name: 'the merge base with origin/main', outcome: 'passed', reading: null, reason: null });
-    assert.deepEqual(checkGaps(brief), [`The lint check fails on the change and passes on its base, ${where}. No step of the run fixes a failure that the change brings.`]);
-    assert.equal(brief.headline.checks, 0);
-    assert.ok(sentence(brief).includes(`lint failed before and after the fixes, and it passes on the base, ${where}; `), sentence(brief));
+    assert.deepEqual(items(brief, 'change-breaks'), [`**The lint check fails because of the change.** It passes on the base, ${where}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`]);
+    assert.equal(row(brief, 'lint'), '| lint | passed | failed | failed, after the fixes | fails because of the change |');
+    assert.match(brief.needsLine, /^Before a merge: 1 check fails because of the change and /);
+    assert.equal(brief.checks.find((entry) => entry.kind === 'lint')!.comparedBy, 'engine');
   });
 
-  it('says the change adds failures to those of the base, as the repair reads it, and lists it in what the review did not cover', () => {
+  it('gives an item of rank 2 to a check the change adds failures to, as a model compared them', () => {
     const brief = briefOf(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds' }] }));
     assert.equal(check(brief, 'lint').fault, 'change-adds');
-    assert.deepEqual(checkGaps(brief), [`The lint check fails on the change with failures that its base, ${where}, does not have, by the repair's reading. No step of the run fixes a failure that the change brings.`]);
-    assert.ok(sentence(brief).includes(`lint failed before and after the fixes, and the change has failures that the base, ${where}, does not have, by the repair's reading; `), sentence(brief));
+    assert.deepEqual(items(brief, 'change-breaks'), [`**The lint check has failures that the base does not have, by a model's comparison.** The base is ${where}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`]);
+    assert.equal(meaning(brief, 'lint'), 'fails on the base too, and the change adds failures, by a model\'s comparison');
+    assert.ok(paragraph(brief).includes('A model\'s comparison is the reading of the worker that compared the failures of the change with those of the base.'), paragraph(brief));
   });
 
-  it('says the base has the same failures, as the repair reads it, and lists no gap for it, since the run covered it', () => {
+  it('gives no item to a check whose base has the same failures, as a model compared them, and says what that means under the table', () => {
     const brief = briefOf(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }));
     assert.equal(check(brief, 'lint').fault, 'base-has');
-    assert.deepEqual(checkGaps(brief), []);
-    assert.ok(sentence(brief).includes(`lint failed before and after the fixes, and the base, ${where}, has the same failures, by the repair's reading; `), sentence(brief));
+    assert.deepEqual(brief.needs.filter((need) => need.check !== null), []);
+    assert.equal(row(brief, 'lint'), '| lint | failed | failed | failed, after the fixes | fails the same way on the base, by a model\'s comparison |');
+    assert.ok(paragraph(brief).startsWith(`The base is ${where}. A check that fails the same way on the base has no failure that the change adds.`), paragraph(brief));
     assert.equal(check(briefOf(run({ ...failing, base: [['build', 'passed'], ['lint', 'timeout']], comparisons: [same] })), 'lint').fault, 'base-has', 'a timeout on the base is compared as a failure is');
   });
 
@@ -107,42 +118,36 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     }
   });
 
-  it('says why the run could not compare a check it took to the base, in fixed words, for each reason', () => {
+  it('gives an item of rank 3 to a check the run took to the base and could not compare, with why in fixed words, for each reason', () => {
     const notCompared = (checks: ChecksOfRun, state: (history: ReturnType<typeof checkedRun>) => RunState = onBranch): string[] => {
       const brief = briefOf(state(checkedRun({ ...failing, ...checks })));
       assert.equal(check(brief, 'lint').fault, 'not-compared', JSON.stringify(checks));
-      return checkGaps(brief);
+      return items(brief, 'not-compared');
     };
-    const gap = (reason: string, base = where): string => `The lint check failed before and after the fixes, and the run could not compare it with the base, ${base}: ${reason}.`;
+    const item = (reason: string): string => `**The lint check fails, and the run did not compare it with the base.** ${reason}. If you do nothing, nobody knows whether the change causes the failure.`;
     const emptyTree = (history: ReturnType<typeof checkedRun>): RunState => { const state = onBranch(history); return { ...state, scope: { ...state.scope!, base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904' } }; };
-    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'empty-tree']] }, emptyTree), [gap('the base of the change is the empty tree', 'the empty tree')]);
-    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'no-worktree', 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] }), [gap('no worktree of the base could be made')]);
-    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }), [gap('the build did not pass on the base')]);
-    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'not-started']] }), [gap('the check did not start on the base')]);
-    assert.deepEqual(notCompared({ base: [] }), [gap('the check did not run on the base')]);
-    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), [gap('the repair gave no comparison')]);
-    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: null }), [gap('the repair gave no comparison')], 'a repair the run budget stopped');
-    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'unknown' }] }), [gap('the repair could not compare the outputs')]);
+    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'empty-tree']] }, emptyTree), [item('The base of the change is the empty tree')]);
+    assert.deepEqual(notCompared({ base: [['lint', 'skipped', 'no-worktree', 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] }), [item('No worktree of the base could be made')]);
+    assert.deepEqual(notCompared({ base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }), [item('The build did not pass on the base')]);
+    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'not-started']] }), [item('The check did not start on the base')]);
+    assert.deepEqual(notCompared({ base: [] }), [item('The check did not run on the base')]);
+    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }), [item('The worker that compared the failures gave no comparison')]);
+    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: null }), [item('The worker that compared the failures gave no comparison')], 'a repair the run budget stopped');
+    assert.deepEqual(notCompared({ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'unknown' }] }), [item('The worker that compared the failures could not compare the outputs')]);
   });
 
-  it('says how a check not compared with the base ended before and after the fixes, a timeout as timed out, in its gap, its clause and the sentence alike', () => {
-    const ran: [ChecksOfRun, string][] = [
-      [{ before: { lint: 'timeout' }, after: { lint: 'timeout' } }, 'timed out before and after the fixes'],
-      [{ before: { lint: 'failed' }, after: { lint: 'timeout' } }, 'failed before the fixes and timed out after them'],
-    ];
-    for (const [outcomes, words] of ran) {
+  it('says how a check not compared with the base ended as submitted and in its last run, a timeout as timed out', () => {
+    for (const [outcomes, cells] of [[{ before: { lint: 'timeout' }, after: { lint: 'timeout' } }, '| timed out | timed out, after the fixes |'], [{ before: { lint: 'failed' }, after: { lint: 'timeout' } }, '| failed | timed out, after the fixes |']] as const) {
       const brief = briefOf(run({ ...outcomes, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }));
-      assert.equal(check(brief, 'lint').fault, 'not-compared', words);
-      assert.deepEqual(checkGaps(brief).filter((gap) => gap.includes('could not compare')), [`The lint check ${words}, and the run could not compare it with the base, ${where}: the repair gave no comparison.`]);
-      assert.equal(briefShortForm(brief).find((line) => line.startsWith('Checks:')), `Checks: lint ${words}, not compared with the base; no typecheck check; build and test passed`);
-      assert.ok(sentence(brief).includes(`lint ${words}, and the run could not compare it with the base, ${where}, since the repair gave no comparison; `), sentence(brief));
+      assert.equal(check(brief, 'lint').fault, 'not-compared');
+      assert.ok(row(brief, 'lint').includes(`${cells} fails, not compared with the base, since the worker that compared the failures gave no comparison |`), row(brief, 'lint'));
     }
   });
 
-  it('gives the build that only prepares the base no fault and no gap of its own', () => {
+  it('gives the build that only prepares the base no fault and no item of its own', () => {
     const brief = briefOf(run({ ...failing, base: [['build', 'failed'], ['lint', 'skipped', 'build-failed']] }));
     assert.deepEqual([check(brief, 'build').base, check(brief, 'build').fault], [null, null]);
-    assert.equal(checkGaps(brief).length, 1);
+    assert.deepEqual(brief.needs.filter((need) => need.check !== null).map((need) => need.check), ['lint']);
   });
 
   it('takes the first fault that holds for a kind two rows match: the edits of the run over what the base says', () => {
@@ -150,7 +155,7 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
       const brief = briefOf(onBranch(answeredRun(checkedRun({ ...failing, ...base, repaired: {} }), { lint: 'failed' })));
       assert.deepEqual([check(brief, 'lint').fault, check(brief, 'lint').earlier.passed], ['edits', 'repair'], JSON.stringify(base));
       assert.notEqual(check(brief, 'lint').base, null, 'the base still says what it said');
-      assert.deepEqual(checkGaps(brief), [], 'no gap for a fault of the change it does not have');
+      assert.deepEqual(brief.needs.filter((need) => need.check !== null).map((need) => need.condition), ['edits'], 'one item per check');
     }
   });
 
@@ -160,33 +165,27 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     assert.equal(check(brief, 'lint').last?.when, 'answers');
   });
 
-  it('gives a check that an answer pass made pass no fault from the base and no gap, whatever the base says, since it passes now', () => {
-    const bases: [ChecksOfRun, string][] = [
-      [{ base: [['build', 'passed'], ['lint', 'passed']] }, `it passes on the base, ${where}`],
-      [{ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }, `the base, ${where}, has the same failures, by the repair's reading`],
-      [{ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds' }] }, `the change has failures that the base, ${where}, does not have, by the repair's reading`],
-      [{ base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }, `the run could not compare it with the base, ${where}, since the repair gave no comparison`],
-    ];
-    for (const [base, fact] of bases) {
+  it('gives a check that an answer pass made pass no fault and no item, whatever the base says, since it passes now', () => {
+    for (const base of [{ base: [['build', 'passed'], ['lint', 'passed']] }, { base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }, { base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds' }] }, { base: [['build', 'passed'], ['lint', 'failed']], comparisons: [] }] as const) {
       const brief = briefOf(onBranch(answeredRun(checkedRun({ ...failing, ...base }))));
       assert.deepEqual([check(brief, 'lint').last, check(brief, 'lint').fault], [{ outcome: 'passed', when: 'answers' }, null], JSON.stringify(base));
-      assert.deepEqual(checkGaps(brief), [], 'no gap says that no step of the run fixed its failure');
-      assert.equal(brief.headline.checks, 0);
-      assert.equal(briefShortForm(brief).find((line) => line.startsWith('Checks:')), 'Checks: lint failed before the fixes and passes now; no typecheck check; build and test passed');
-      assert.ok(sentence(brief).includes(`lint failed before the fixes and passed after your answers, and ${fact}; `), 'the comparison stays a fact of the change as submitted');
+      assert.deepEqual(brief.needs.filter((need) => need.check !== null), []);
+      assert.ok(row(brief, 'lint').endsWith('| failed | passed, after your answers | passes; it failed as submitted |'), row(brief, 'lint'));
     }
   });
 
-  it('gives a kind skipped after a failed build no fault from the base, and the one gap of a check that did not finish', () => {
+  it('gives a kind skipped after a failed build no fault from the base, and the meaning of a check that did not finish', () => {
     const brief = briefOf(run({ before: { lint: 'failed' }, after: { build: 'failed', lint: 'skipped' } }));
     assert.deepEqual([check(brief, 'lint').base, check(brief, 'lint').fault], [null, null]);
-    assert.deepEqual(checkGaps(brief).filter((gap) => gap.includes('lint')), ['The lint check did not finish: it was skipped.']);
+    assert.equal(meaning(brief, 'lint'), 'did not finish its last run');
   });
 
-  it('gives a run configured before the checks on the base no fact of the base and no check not compared, and the fault of the edits (R10)', () => {
+  it('gives a run configured before the checks on the base no column and no fact of the base, no item of rank 3, and the fault of the edits (R10)', () => {
     const older = briefOf(run({ ...failing, compared: false }));
     assert.deepEqual([check(older, 'lint').base, check(older, 'lint').fault], [null, null]);
+    assert.equal(row(older, 'lint'), '| lint | failed | failed, after the fixes | fails |');
     assert.doesNotMatch(briefMarkdown(older).join('\n'), /the base/);
+    assert.deepEqual(older.needs.filter((need) => need.check !== null), []);
     assert.equal(check(briefOf(run({ after: { lint: 'failed' }, compared: false })), 'lint').fault, 'edits');
   });
 
@@ -194,86 +193,63 @@ describe('the fault of each check (R4, R5 of the facts before a merge)', () => {
     const state = run({ ...failing, base: [['lint', 'skipped', 'no-worktree', 'fatal: could not create work tree dir \'/home/me/.cache/x\': Permission denied']] });
     const brief = briefOf(state);
     const json = { ...briefJson(brief, { copy: null, record: '/r', repository: '/w', store: '/s', continueCommand: null }, []), local: null };
-    for (const text of [briefMarkdown(brief, 'report').join('\n'), briefMarkdown(brief, 'chat').join('\n'), briefShortForm(brief).join('\n'), JSON.stringify(json)]) {
+    for (const text of [briefMarkdown(brief, 'report').join('\n'), briefMarkdown(brief, 'chat').join('\n'), briefChatForm(brief).join('\n'), JSON.stringify(json)]) {
       assert.doesNotMatch(text, /\/home\/me|Permission denied|fatal/);
     }
   });
 });
 
-describe('the line Checks: of the short form (R6, PD5 of the facts before a merge)', () => {
-  /** The run with only the kinds that have a command, so no line names a kind with none. */
-  const commanded = (state: RunState): RunState => {
-    const fix = state.review!.fix!;
-    const planned = fix.checks.planned!;
-    return { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.filter((entry) => entry.command !== null) } } } } };
+describe('the meanings of the checks (R4, TD3 of the report for the person)', () => {
+  const base = { commit: mergeBase, name: 'the merge base with origin/main', outcome: 'failed', reading: null, reason: null } as const;
+  const of = (facts: Partial<BriefCheck>, baseChecksStep = true): { meaning: string; rank: number | null; comparedBy: string | null } => {
+    const entry: BriefCheck = { kind: 'lint', before: 'passed', last: { outcome: 'passed', when: 'fixes' }, earlier: { passed: null, failed: null }, base: null, fault: null, ...facts };
+    const found = meaningRowOf(entry, { baseChecksStep });
+    return { meaning: found.meaning(entry), rank: found.rank, comparedBy: found.comparedBy };
   };
-  const lineOf = (brief: Brief): string => briefShortForm(brief).find((entry) => entry.startsWith('Checks:'))!;
-  const line = (state: RunState): string => lineOf(briefOf(state));
-  /** The decided fix run whose fixer deferred RIPPLE-1, so no fix changed a file and no check ran after the fixes, with lint before the fixes as `lint` says. */
-  const unchanged = (lint: 'passed' | 'failed' = 'passed'): RunState => {
+
+  it('gives each row its meaning, its rank and who compared, the first row that holds', () => {
+    const rows: [Partial<BriefCheck>, boolean, string, number | null, string | null][] = [
+      [{ last: { outcome: 'failed', when: 'answers' }, earlier: { passed: 'fixes', failed: null }, fault: 'edits' }, true, 'the edits of this run made it fail', 1, null],
+      [{ before: 'failed', last: { outcome: 'failed', when: 'fixes' }, base: { ...base, outcome: 'passed' }, fault: 'change-breaks' }, true, 'fails because of the change', 2, 'engine'],
+      [{ before: 'failed', last: { outcome: 'failed', when: 'fixes' }, base: { ...base, reading: 'adds' }, fault: 'change-adds' }, true, 'fails on the base too, and the change adds failures, by a model\'s comparison', 2, 'model'],
+      [{ before: 'failed', last: { outcome: 'failed', when: 'fixes' }, base: { ...base, reason: 'no-comparison' }, fault: 'not-compared' }, true, 'fails, not compared with the base, since the worker that compared the failures gave no comparison', 3, null],
+      [{ before: 'failed', last: { outcome: 'failed', when: 'fixes' }, base: { ...base, reading: 'same' }, fault: 'base-has' }, true, 'fails the same way on the base, by a model\'s comparison', null, 'model'],
+      [{ before: 'failed', last: { outcome: 'failed', when: 'fixes' } }, false, 'fails', null, null],
+      [{ before: 'failed', last: null }, false, 'fails', null, null],
+      [{ before: 'failed', last: null }, true, 'fails as submitted, not compared with the base', 3, null],
+      [{}, true, 'passes', null, null],
+      [{ before: 'failed' }, true, 'passes; it failed as submitted', null, null],
+      [{ before: 'timeout' }, true, 'passes; it failed as submitted', null, null],
+      [{ last: null }, true, 'passes as submitted; no check ran after the fixes', null, null],
+      [{ last: { outcome: 'cut', when: 'fixes' } }, true, 'did not finish its last run', null, null],
+      [{ last: { outcome: 'skipped', when: 'repair' } }, true, 'did not finish its last run', null, null],
+      [{ before: 'not-started', last: null }, true, 'did not finish its last run', null, null],
+      [{ before: null, last: null }, true, 'did not run', null, null],
+    ];
+    for (const [facts, baseChecksStep, expected, rank, comparedBy] of rows) assert.deepEqual(of(facts, baseChecksStep), { meaning: expected, rank, comparedBy }, JSON.stringify(facts));
+  });
+
+  it('says of every meaning that rests on the comparison of a model that it does', () => {
+    for (const row of checkMeanings.filter((entry) => entry.comparedBy === 'model')) {
+      const entry: BriefCheck = { kind: 'lint', before: 'failed', last: { outcome: 'failed', when: 'fixes' }, earlier: { passed: null, failed: null }, base: { ...base, reading: 'same' }, fault: null };
+      assert.match(row.meaning(entry), /by a model's comparison$/);
+    }
+  });
+
+  it('gives a check with no last run in a fix run that changed no file an item of rank 3, in a run that takes its checks to the base', () => {
     const state = decidedFixRun(answerableDecisions(), 'deferred').fold();
     const fix = state.review!.fix!;
-    const runs = fix.checks.runs['baseline-checks'].map((entry) => (entry.kind === 'lint' ? { ...entry, outcome: lint } : entry));
-    return { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'baseline-checks': runs } } } } };
-  };
-
-  it('says each example of the proposal, with lint where it names typecheck', () => {
-    assert.equal(line(commanded(run())), 'Checks: each passed before and after the fixes');
-    assert.equal(line(commanded(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same] }))), 'Checks: lint failed, as it does on the base (2247b35e), by the repair\'s reading; build and test passed');
-    assert.equal(line(commanded(onBranch(answeredRun(checkedRun({ ...failing, base: [['build', 'passed'], ['lint', 'passed']] }), { test: 'failed', lint: 'failed' })))), 'Checks: test failed after your answers, and passed after the fixes; lint fails on the change and passes on the base (2247b35e); build passed');
-    assert.equal(line(commanded(run({ ...failing, base: [['build', 'passed'], ['lint', 'failed']] }))), 'Checks: lint failed before and after the fixes, not compared with the base; build and test passed');
-    assert.equal(line(commanded(unchanged())), 'Checks: each passed before the fixes; no check ran after them, since no fix changed a file');
+    const runs = fix.checks.runs['baseline-checks'].map((entry) => (entry.kind === 'lint' ? { ...entry, outcome: 'failed' as const } : entry));
+    const brief = briefOf({ ...state, review: { ...state.review!, baseChecksStep: true, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'baseline-checks': runs } } } } });
+    assert.deepEqual(items(brief, 'not-compared'), ['**The lint check fails as submitted, and the run did not compare it with the base.** No fix changed a file, so no check ran after the fixes and none ran on the base. If you do nothing, nobody knows whether the change causes the failure.']);
+    assert.equal(meaning(brief, 'test'), 'passes as submitted; no check ran after the fixes');
   });
+});
 
-  it('gives each other row its clause', () => {
-    const clauses: [ChecksOfRun, string][] = [
-      [{ after: { lint: 'timeout' } }, 'Checks: lint timed out after the fixes, and passed before the fixes; build and test passed'],
-      [{ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [{ ...same, reading: 'adds' }] }, 'Checks: lint fails on the change with failures that the base (2247b35e) does not have, by the repair\'s reading; build and test passed'],
-      [{ before: { lint: 'failed' } }, 'Checks: lint failed before the fixes and passes now; build and test passed'],
-      [{ after: { lint: 'failed' }, repaired: {} }, 'Checks: lint failed after the fixes and passed after the repair; build and test passed'],
-      [{ before: { lint: 'failed' }, after: { build: 'failed', lint: 'skipped' } }, 'Checks: build failed after the fixes, and passed before the fixes; lint did not finish; test passed'],
-      [{ ...failing, compared: false }, 'Checks: lint failed before and after the fixes; build and test passed'],
-    ];
-    for (const [checks, expected] of clauses) assert.equal(line(commanded(run(checks))), expected, JSON.stringify(checks));
-    assert.equal(line(commanded(unchanged('failed'))), 'Checks: lint failed before the fixes and did not run again; build and test passed; no check ran after the fixes, since no fix changed a file');
-  });
-
-  it('names the kinds in the order of the rows, two kinds of one row in the order of the kinds, and a kind with no command before the kinds that passed', () => {
-    assert.equal(line(run({ before: { lint: 'failed' }, after: { build: 'failed', lint: 'failed' }, base: [['build', 'passed'], ['lint', 'passed']] })), 'Checks: build failed after the fixes, and passed before the fixes; lint fails on the change and passes on the base (2247b35e); no typecheck check; test passed');
-    assert.equal(line(run({ after: { test: 'failed', build: 'failed' } })), 'Checks: build failed after the fixes, and passed before the fixes; test failed after the fixes, and passed before the fixes; no typecheck check; lint passed');
-    assert.equal(line(run()), 'Checks: no typecheck check; build, lint and test passed');
-  });
-
-  it('gives a kind that two rows match the clause of the first: the edits of the run over what the base says', () => {
-    const state = commanded(onBranch(answeredRun(checkedRun({ ...failing, base: [['build', 'passed'], ['lint', 'failed']], comparisons: [same], repaired: {} }), { lint: 'failed' })));
-    assert.equal(line(state), 'Checks: lint failed after your answers, and passed after the repair; build and test passed');
-  });
-
-  it('says so of a run with no check command', () => {
-    const state = run();
-    const fix = state.review!.fix!;
-    const planned = fix.checks.planned!;
-    const none = { ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.map((entry) => ({ ...entry, command: null })) } } } } };
-    assert.equal(line(none), 'Checks: none, since the run has no check command');
-  });
-
-  it('comes after the line of the documents and before Not covered, in a fix run alone', () => {
-    const lines = briefShortForm(briefOf(run()));
-    const at = lines.findIndex((entry) => entry.startsWith('Checks:'));
-    assert.ok(lines[at - 1]!.startsWith('Documents left out of date: ') && lines[at + 1]!.startsWith('Not covered: '), lines.join('\n'));
-    assert.ok(!briefShortForm(briefOf(readOnlyReported().fold())).some((entry) => entry.startsWith('Checks:')), 'a run that only reviews has no such line');
-  });
-
-  it('is cut at a word at 200 characters, and the cut keeps the kinds that need the person', () => {
-    const brief = briefOf(run());
-    const base = { commit: mergeBase, name: 'the merge base with origin/main', outcome: 'failed', reading: 'adds', reason: null } as const;
-    const checks: BriefCheck[] = [
-      { kind: 'build', before: 'failed', last: { outcome: 'failed', when: 'repair' }, earlier: { passed: null, failed: 'fixes' }, base: { ...base, reading: null, reason: 'no-comparison' }, fault: 'not-compared' },
-      { kind: 'lint', before: 'failed', last: { outcome: 'failed', when: 'repair' }, earlier: { passed: null, failed: 'fixes' }, base, fault: 'change-adds' },
-      { kind: 'test', before: 'passed', last: { outcome: 'timeout', when: 'answers' }, earlier: { passed: 'answers', failed: null }, base: null, fault: 'edits' },
-    ];
-    const cut = lineOf({ ...brief, changed: { ...brief.changed, checks } });
-    assert.ok(cut.length <= shortLineLimit && cut.endsWith('...'), cut);
-    assert.ok(cut.startsWith('Checks: test timed out after your answers, and passed after earlier answers; lint fails on the change with failures that the base (2247b35e) does not have'), cut);
+describe('the kinds of validation (R5 of the report for the person)', () => {
+  it('lists the kinds a fixer reports, each once, the strongest first, and none when it reported none', () => {
+    assert.deepEqual(validationKindsOf(['limited', 'existing', 'old-code', 'existing']), ['old-code', 'existing', 'limited']);
+    assert.equal(validationWords(['static', 'mutation']), 'a test fails when the fix is undone; read against the source');
+    assert.equal(validationWords([]), 'none reported');
   });
 });

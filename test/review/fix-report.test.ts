@@ -76,7 +76,7 @@ describe('the report of a fix run', () => {
   it('adds the strays and the fixers\' validation and suite lines to the notes of the run, and names a check not available as a gap of the brief', () => {
     const report = render();
     assert.match(report, /^- Files no answer names, left in the tree and in no patch: notes\.txt\.$/m);
-    assert.match(report, /^- No typecheck check ran: nothing names it\.$/m);
+    assert.ok(report.includes(' No typecheck check ran: nothing names it. '), 'a gap under the table of the checks (R4 of the report for the person)');
     assert.doesNotMatch(report, /Checks not available/);
     assert.match(report, /^- Validation of RIPPLE-1 \(c1-1\), old-code, test\/a\.test\.ts: failed on the old code for the null, passed on the fix$/m);
     assert.match(report, /^- Fixer c1-1 ran its own suite: pass \(npm test\)\.$/m);
@@ -210,7 +210,7 @@ describe('the report of a fix run', () => {
     const state = fixRun().fold();
     const fix = state.review!.fix!;
     const later = (phase: string): RunState => ({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [...fix.revisions, { ...fix.revisions[1]!, phase } as never] } } });
-    const header = (report: string): string => report.split('\n').find((line) => line.startsWith('| Check |'))!;
+    const header = (report: string): string => report.slice(report.indexOf('\n## Checks\n')).split('\n').find((line) => line.startsWith('| Check |'))!;
     assert.doesNotMatch(header(render()), /an earlier tree/);
     const refixed = render(later('fixes'));
     assert.match(header(refixed), /\| After the fixes \(an earlier tree\) \| After the repair \(an earlier tree\) \|$/);

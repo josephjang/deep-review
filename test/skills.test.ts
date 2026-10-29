@@ -144,7 +144,7 @@ describe('the skill texts', () => {
       for (const flag of ['brief', 'fixes', 'finding', 'all']) assert.ok(usage.includes(`'${flag}'`), `--${flag} is a flag the engine takes`);
       assert.ok(usage.includes('[--json | --brief | --fixes | --stats | --finding <number>]') && usage.includes('deep-review status  --all'), 'the usage names them');
       assert.ok(read('src/review/runs.ts').includes('export const shortRunIdLength = 8;'), '--run takes the eight characters the brief shows');
-      assert.ok(read('src/review/brief.ts').includes('`, in ${counted(changed.commits.shas.length, \'commit\', \'commits\')}'), 'the line Changed names the commits once a run has them');
+      assert.ok(read('src/review/brief.ts').includes(', and the fixes are committed.'), 'the status line says once a run committed its fixes (R14 of the report for the person)');
     });
 
     // R2 and PD1 of the skill surface corrections: the user sees the scope, the budget and the fix choice before the run, and nothing waits for the user.

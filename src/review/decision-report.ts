@@ -14,6 +14,7 @@ import { appliedOptionOf, lastFixesAnswerOf, type DecidedAsk } from '../checkpoi
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, counted, inlineText, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
+import { answerCommand } from './needs.ts';
 import { rankedFindings } from './state.ts';
 import { decisionCounts, decisionCountWords, type LeaveReason } from './vocabulary.ts';
 
@@ -34,9 +35,9 @@ export const leftAs = (leave: NonNullable<RecordedDecision['leave']>): string =>
  * held rejection is the fix that follows the rule, which an earlier
  * rejection a pass applied left in the tree.
  */
-function reviewedLine(review: ReviewState, id: string): string {
+function reviewedLine(review: ReviewState, run: string, id: string, number: number): string {
   const standing = standingAnswer(review, id);
-  if (standing === null) return `  - Review with: \`${reviewCommand(id)}\` or \`--reject\``;
+  if (standing === null) return `  - Review with: \`${answerCommand(run, number, '--accept')}\` or \`--reject\``;
   return `  - Reviewed: ${answerSummary(review, standing, standing.answer.kind === 'reject' ? 'the rule-following fix the tree held' : 'the departure the tree held')}`;
 }
 
@@ -82,14 +83,8 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
   }
 }
 
-/** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that every command the report names is built from. */
-export const answerArguments = (id: string, choice: string): string => `answer --finding ${id} ${choice}`;
-
-/** The command that answers `id` with `choice`, such as `--option 2` or `--accept`, as the report and the brief name it: with no path, since no executable named deep-review is installed (R8 of the brief of a run). */
-export const answerCommandOf = (id: string, choice: string): string => `deep-review ${answerArguments(id, choice)}`;
-
-/** The command that reviews a departure, its finding filled in, as a reader runs it. */
-export const reviewCommand = (id: string): string => answerCommandOf(id, '--accept');
+/** The answer command's arguments after the program, for a finding and a choice such as `--accept`: the one spelling of its flags that the line of the facts of the run is built from. */
+export const answerArguments = (finding: string, choice: string): string => `answer --finding ${finding} ${choice}`;
 
 
 /**
@@ -101,7 +96,7 @@ export const reviewCommand = (id: string): string => answerCommandOf(id, '--acce
  * reader cites and no other part names a local path.
  */
 export const answerAtTerminal = (engineEntry: string): string =>
-  `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments('<id>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
+  `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments('<number>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
 /** A finding's decision as one line of its block under Findings: what was decided and on what grounds. */
 export function decisionLine(decision: RecordedDecision): string {
@@ -110,7 +105,7 @@ export function decisionLine(decision: RecordedDecision): string {
     case 'leave':
       return `Decision: left, ${leftAs(decision.leave)}: ${grounds}`;
     case 'ask':
-      return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see Questions for you: ${grounds}`;
+      return `Decision: ask the author, defaulting to ${defaultOption(decision.ask)}; see What needs you: ${grounds}`;
     case 'fix':
       return `Decision: fix${decision.departure === null ? '' : ', departing from a rule'}: ${grounds}`;
   }
@@ -126,7 +121,7 @@ export function decisionLine(decision: RecordedDecision): string {
  * run whose decision phase is skipped, and for one that ranked no
  * finding, which had nothing to decide.
  */
-export function decisionsSection(review: ReviewState): string[] | null {
+export function decisionsSection(review: ReviewState, runId: string): string[] | null {
   if (review.phases.decision.status === 'skipped') return null;
   const findings = rankedFindings(review);
   if (findings.length === 0) return null;
@@ -156,7 +151,7 @@ export function decisionsSection(review: ReviewState): string[] | null {
     return [
       `- ${label(entry)}: ${sentence(fix.approach)} Grounds: ${inlineText(decision.grounds)}`,
       ...fix.rejected.map((option) => `  - Rejected: ${inlineText(option.option)}: ${inlineText(option.reason)}`),
-      ...(departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`, reviewedLine(review, decision.id)]),
+      ...(departure === null ? [] : [`  - Departs from: ${inlineText(departure.rule)} (${inlineText(departure.source)}): ${inlineText(departure.reason)}`, reviewedLine(review, runId, decision.id, entry.number)]),
     ];
   });
   const left = numbered.flatMap(({ number, decision }) => (decision.decision === 'leave' ? [`- ${label({ number, decision })}, ${leftAs(decision.leave)}: ${inlineText(decision.grounds)}`] : []));
