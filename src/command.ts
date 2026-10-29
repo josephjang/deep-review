@@ -37,7 +37,7 @@ import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths
 import { checkSettingNames, fileLayers, type FileLayer } from './config/settings.ts';
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
-import { answerRun } from './review/answer.ts';
+import { answeredName, answerRun } from './review/answer.ts';
 import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
 import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
@@ -532,7 +532,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       },
     });
     // A number names its finding by both, so the line says which finding the ledger recorded it on.
-    const named = finding === outcome.standing.id ? finding : `finding ${finding} (${outcome.standing.id})`;
+    const named = answeredName(finding, outcome.standing.id);
     io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${named} ${answerWords(given)}\n`);
     switch (outcome.next) {
       case 'read-only':
