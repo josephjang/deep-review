@@ -422,10 +422,10 @@ answer pass lists the documents the run left out of date. A run
 configured by an engine before the step never gets it, also when a newer
 engine continues it.
 
-The brief counts in its headline each document the run knows its edits
-made stale and did not bring in line: one the step left or found out of
-date at its end, every `drift` line of the fixes when the step did not
-run, and one the repair or an answer pass reported after it. A part of
+Each document the run knows its edits made stale and did not bring in
+line is an item of What needs you in the brief, counted in the line
+above the items: one the step left or found out of date at its end,
+every `drift` line of the fixes when the step did not run, and one the repair or an answer pass reported after it. A part of
 the brief lists each with its file, what is stale and why it was left,
 and the count of one ends when a later answer pass edits its file and
 reports it stale no more. See
