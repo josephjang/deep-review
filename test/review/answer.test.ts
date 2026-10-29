@@ -45,6 +45,13 @@ const answerable: Script = {
   'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA } }], output: fixerAnswer([{ files: ['src/a.ts'], subject: 'fix(a): Return 0 for a null text' }]) },
 };
 
+/** A review whose merge and rank merges its three candidates into one finding, which the decider asks about, its default keeping the code. */
+const merging: Script = {
+  triage: { output: { candidates: [found('src/a.ts', 2, 'text is dereferenced when null'), found('src/a.ts', 5, 'other passes null to parse'), found('src/b.ts', 1, 'b calls parse without importing it')], leads: noLeads, change: null } },
+  'merge-rank': { output: { findings: [{ primary: 0, members: [1, 2], severity: 'minor', summary: 'parse takes a null it dereferences', reason: 'one root cause' }] } },
+  decider: { output: deciderAnswer([{ decision: 'ask', edits: false }]) },
+};
+
 /** The answer pass's fixer of pass `n`, applying each of its findings with an edit of the file it is located in. */
 const passFixer = (n: number, files: readonly (readonly [path: string, content: string])[]): Script => ({
   [`fixer:answer:pass-${String(n)}`]: {
@@ -170,6 +177,22 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const again = await run(box, '--finding', departing, '--accept');
     assert.equal(again.status, 2);
     assert.match(again.stderr, new RegExp(`^refused: ${departing} is already answered accepted on run `));
+  });
+
+  it('takes the id of a candidate merged into a finding for that finding, as report --finding does (R7 of the report for the person)', async (t) => {
+    const box = ReviewSandbox.forTest(t, merging);
+    reportText(await box.review('claude'));
+    const finished = box.run();
+    const [merged] = rankedFindings(finished.review!);
+    assert.equal(merged!.members.length, 2, 'the three candidates are one finding');
+    const member = merged!.members[0]!.id;
+
+    const recorded = await answerRun(optionsOf(box, member, { kind: 'option', option: 0 }));
+    assert.equal(recorded.standing.id, merged!.finding.id, 'the answer is recorded on the finding the candidate was merged into');
+    assert.deepEqual(box.run().review!.answers.map((answer) => answer.id), [merged!.finding.id]);
+    const given = await run(box, '--finding', merged!.members[1]!.id, '--option', '2');
+    assert.equal(given.status, 0, given.stderr);
+    assert.match(given.stdout, new RegExp(`^answer recorded: run ${finished.id}, finding ${merged!.members[1]!.id} \\(${merged!.finding.id}\\) option 2\n`));
   });
 
   it('applies an answer on a fix run with one fixer, the checks again and a second report, and a later answer with a second pass (R5, R7, R10)', async (t) => {

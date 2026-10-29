@@ -167,11 +167,13 @@ export const findingNumberPattern = /^[1-9][0-9]{0,5}$/;
 
 /**
  * The id of the finding `given` names (R7 of the report for the person):
- * a number, its finding's id, or null past the last finding; an id, as it
- * is, for the caller to look up, since an id from an earlier copy, a pull
- * request or a commit still names its finding.
+ * a number, its finding's id, or null past the last finding; the id of a
+ * candidate merged into a finding, that finding's id, as `findingNumbers`
+ * keys it; any other id, as it is, for the caller to look up, since an id
+ * from an earlier copy, a pull request or a commit still names its finding.
  */
 export function findingIdOf(review: ReviewState, given: string): string | null {
-  if (!findingNumberPattern.test(given)) return given;
-  return rankedFindings(review)[Number(given) - 1]?.finding.id ?? null;
+  const findings = rankedFindings(review);
+  if (findingNumberPattern.test(given)) return findings[Number(given) - 1]?.finding.id ?? null;
+  return findings.find((entry) => entry.members.some((member) => member.id === given))?.finding.id ?? given;
 }

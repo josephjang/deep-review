@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { FixState } from '../../src/checkpoint/fix-state.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { budgetStoppedRun, compareFindings, currentPhase, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { budgetStoppedRun, compareFindings, currentPhase, findingIdOf, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
 import { baselined, configured, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -160,5 +160,24 @@ describe('mergedResolution and the ranking order', () => {
     const reversed = rankedFindings(review, [...review.ranking!].reverse());
     assert.deepEqual(reversed.map((entry) => entry.finding.id), ['RIPPLE-1', 'SWEEP-1']);
     assert.throws(() => rankedFindings(review, [{ id: 'GHOST-1', members: [], severity: 'minor', summary: 's', reason: 'r' }]), /never recorded/);
+  });
+});
+
+describe('findingIdOf (R7 of the report for the person)', () => {
+  const review = ranked().review();
+
+  it('takes a number for the finding of that rank, and none past the last', () => {
+    assert.equal(findingIdOf(review, '1'), 'RIPPLE-1');
+    assert.equal(findingIdOf(review, '2'), 'SWEEP-1');
+    assert.equal(findingIdOf(review, '3'), null);
+  });
+
+  it('takes the id of a candidate merged into a finding for that finding\'s id, as the numbers key it', () => {
+    assert.equal(findingIdOf(review, 'SWEEP-2'), 'RIPPLE-1');
+    assert.equal(findingIdOf(review, 'RIPPLE-1'), 'RIPPLE-1');
+  });
+
+  it('leaves an id the run does not rank as it is, for the caller to refuse', () => {
+    assert.equal(findingIdOf(review, 'SCAN-99'), 'SCAN-99');
   });
 });
