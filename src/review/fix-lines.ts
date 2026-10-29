@@ -8,7 +8,6 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { briefOf, cutAtWord, fateWordsOf, firstSentence, fixFateWords, shortLineLimit } from './brief.ts';
 import { lastFixAnswer } from './fix-report.ts';
 import { findingWords, inlineText } from './markdown.ts';
-import { findingNumbers, rankedFindings } from './state.ts';
 
 /**
  * One line for each fix of a fix run that a fixer was given, in rank
@@ -30,12 +29,11 @@ export function fixLines(state: RunState): string[] {
     const planned = brief.findings.filter((finding) => finding.status === 'planned' || finding.status === 'planned-against-rule').map((finding) => finding.number);
     return [`This run only reviewed: it changed nothing.${planned.length === 0 ? '' : ` It would fix ${findingWords(planned)}.`}${leftWords}`];
   }
-  const numbers = findingNumbers(review);
-  // The fixes are the ranked findings whose last outcome has a fate in the brief's words.
-  const fixes = rankedFindings(review).flatMap(({ finding }) => {
-    const { outcome, answer, reason } = lastFixAnswer(review, fix, finding.id);
+  // The fixes are the brief's findings, in rank order, whose last outcome has a fate in the brief's words.
+  const fixes = brief.findings.flatMap(({ number, id }) => {
+    const { outcome, answer, reason } = lastFixAnswer(review, fix, id);
     const fate = fateWordsOf[outcome];
-    return fate === undefined ? [] : [{ number: numbers.get(finding.id)!, fate, answer, reason }];
+    return fate === undefined ? [] : [{ number, fate, answer, reason }];
   });
   if (fixes.length === 0) return [`This run gave no finding to a fixer, so it applied no fix.${leftWords}`];
   return fixes.map(({ number, fate, answer, reason }) => {
