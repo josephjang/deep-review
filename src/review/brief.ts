@@ -381,14 +381,25 @@ const patchesHolding = (fix: FixState, id: string): number[] => fix.revisions.fl
 /** Whether the unit of a revision of an unfinished attempt answered later, so a later attempt of the same work finished it (R20 of the fix pass). */
 const answeredLater = (fix: FixState, revision: TreeRevised): boolean => revision.source.kind === 'attempt' && (fix.answers[revision.phase as EditingPhase] as Readonly<Record<string, unknown>> | undefined)?.[revision.source.key] !== undefined;
 
-/** Why a fix no fixer applied was not, as the clause of its item: its fixer put it off or could not apply it, the run budget stopped it, its fixer failed twice, or no fixer attempted it. */
-function unappliedWhy(outcomes: FindingOutcomes): string {
+/**
+ * Why a fix no fixer applied was not, as the clause of its item: its fixer
+ * put it off or could not apply it, the run budget stopped it, its fixer
+ * failed twice, or no fixer attempted it. `started` says a fixer left
+ * unfinished edits for it, so a fixer did start on it and the clause says
+ * what stopped another attempt instead.
+ */
+function unappliedWhy(outcomes: FindingOutcomes, started: boolean): string {
   switch (outcomes.last) {
     case 'deferred':
       return 'its fixer put it off';
     case 'blocked':
       return 'its fixer could not apply it';
     default:
+      if (started) {
+        if (outcomes.unattempted === 'budget') return 'its fixer did not finish, and the run budget stopped another attempt; the end of the report gives the command that continues the fixes';
+        if (outcomes.unattempted === 'failures') return 'its fixer did not finish, and a second failure stopped another attempt';
+        return 'its fixer did not finish';
+      }
       if (outcomes.unattempted === 'budget') return 'the run budget stopped the fixes before it, and the end of the report gives the command that continues them';
       if (outcomes.unattempted === 'failures') return 'its fixer failed twice and gave no answer';
       return 'no fixer attempted it';
@@ -406,15 +417,18 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
   const departing = new Set(openDepartures.map((departure) => departure.id));
   const decisionOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
   const owed = new Map(owedAnswers(review).map((answer) => [answer.id, answer]));
+  const unfinished = fix === null ? [] : fix.revisions.flatMap((revision, index) => (revision.source.kind === 'attempt' && !answeredLater(fix, revision) ? [{ revision, patch: index + 1 }] : []));
+  const unfinishedEdits = unfinished.map(({ revision, patch }) => ({ patch, finding: revisionFindings(context, revision.change.findings)[0] ?? null }));
+  // A finding whose fixer left unfinished edits was started on, so its own item says what stopped another attempt.
+  const started = new Set(unfinished.flatMap(({ revision }) => revision.change.findings));
   const unapplied = fix === null ? [] : [...context.outcomes].flatMap(([id, outcomes]) => {
     if (departing.has(id)) return [];
     // A question whose default no fixer applied says so in its own item; an answer an answer pass did not apply is unfinished work.
-    if (['deferred', 'blocked', 'not attempted'].includes(outcomes.last) && (decisionOf.get(id)?.decision !== 'ask' || outcomes.byAnswerPass)) return [{ finding: number(id), why: unappliedWhy(outcomes), answer: outcomes.byAnswerPass }];
+    if (['deferred', 'blocked', 'not attempted'].includes(outcomes.last) && (decisionOf.get(id)?.decision !== 'ask' || outcomes.byAnswerPass)) return [{ finding: number(id), why: unappliedWhy(outcomes, started.has(id)), answer: outcomes.byAnswerPass }];
     // An answer recorded only, or whose pass was refused, owes its edit until the same answer is given again without `--record-only`.
     const answer = owed.get(id);
     return answer === undefined ? [] : [{ finding: number(id), why: `no answer pass applied it yet, and ${codeSpan(answerCommand(context.state.id, number(id), choiceFlag(answer)))} applies it`, answer: true }];
   });
-  const unfinishedEdits = fix === null ? [] : fix.revisions.flatMap((revision, index) => (revision.source.kind === 'attempt' && !answeredLater(fix, revision) ? [{ patch: index + 1, finding: revisionFindings(context, revision.change.findings)[0] ?? null }] : []));
   const plausible = new Set(findings.filter((finding) => finding.verdict === 'PLAUSIBLE').map((finding) => finding.id));
   const readFirst = fix === null ? [] : fix.revisions.flatMap((revision, index) => {
     if (index < committed) return [];
@@ -438,7 +452,7 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
       default: {
         // Why its fixer did not apply it, the run budget among the reasons, as a fix that goes against no rule says it.
         const outcomes = context.outcomes.get(departure.id);
-        return { kind: 'not-applied', why: outcomes === undefined ? fateClause(departure.fate) : unappliedWhy(outcomes) };
+        return { kind: 'not-applied', why: outcomes === undefined ? fateClause(departure.fate) : unappliedWhy(outcomes, started.has(departure.id)) };
       }
     }
   };
@@ -781,7 +795,8 @@ function shownNeeds(brief: Brief): (readonly string[])[] {
       if (index < shownUnfinished) shown.push(need.lines);
       if (index === shownUnfinished) {
         const others = unfinished.slice(shownUnfinished);
-        shown.push([`**${String(others.length)} more:** ${listed(others.map(name))}.`]);
+        // A finding whose fixer left unfinished edits and whose fix is not applied has an item of each, and is named once.
+        shown.push([`**${String(others.length)} more:** ${listed([...new Set(others.map(name))])}.`]);
       }
     } else if (need.rank >= 5 && need.rank <= 7) {
       const index = decisions.indexOf(need);
