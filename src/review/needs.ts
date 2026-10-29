@@ -8,7 +8,7 @@
  * finding and its condition in its first words, says what happens if the
  * person does nothing, and gives the command that acts when one exists.
  */
-import type { BriefCheck, CheckMoment, LastMoment } from './brief-checks.ts';
+import type { BriefCheck, CheckMeaningRow, CheckMoment, LastMoment } from './brief-checks.ts';
 import { notComparedPlainWords } from './brief-checks.ts';
 import type { LeftDocument } from './documents.ts';
 import { capitalized, codeSpan, counted, inlineText, listed, quoted, sentenceText } from './markdown.ts';
@@ -75,9 +75,8 @@ export interface NeedsFacts {
   readonly committed: boolean;
   /** The base as the brief names it. */
   readonly base: string;
-  readonly checks: readonly BriefCheck[];
-  /** The rank each check's meaning gives it, by its kind, or null for none. */
-  readonly checkRanks: ReadonlyMap<CheckKind, 1 | 2 | 3 | null>;
+  /** Each check with the rank its meaning gives it, or null for none, from the one row `briefOf` read its meaning from. */
+  readonly checks: readonly (BriefCheck & Pick<CheckMeaningRow, 'rank'>)[];
   /** The edits of a fixer that did not finish and that no later fixer of the same work answered for (R20 of the fix pass). */
   readonly unfinishedEdits: readonly { readonly patch: number; readonly finding: number | null }[];
   /** Each fix no fixer applied, with why in a clause, and whether the run budget stopped it or it was a person's answer. */
@@ -186,7 +185,7 @@ interface NeedRow {
 }
 
 /** The checks whose meaning gives them a rank, in the order of the checks. */
-const ranked = (facts: NeedsFacts, rank: 1 | 2 | 3): BriefCheck[] => facts.checks.filter((check) => facts.checkRanks.get(check.kind) === rank);
+const ranked = (facts: NeedsFacts, rank: 1 | 2 | 3): BriefCheck[] => facts.checks.filter((check) => check.rank === rank);
 
 /**
  * The table of R2, in the order of what doing nothing costs. A check has

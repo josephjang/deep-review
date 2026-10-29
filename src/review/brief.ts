@@ -465,7 +465,6 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
     committed: allCommitted,
     base,
     checks,
-    checkRanks: new Map(checks.map((check) => [check.kind, check.rank])),
     unfinishedEdits,
     unapplied,
     documents: context.documents,
