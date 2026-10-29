@@ -18,7 +18,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
-import { defaultInPlace, leaveReasonWords } from './decision-report.ts';
+import { defaultInPlace, leaveWords } from './decision-report.ts';
 import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
@@ -648,7 +648,7 @@ function leftAsOf(context: BriefContext, findings: readonly BriefFinding[]): str
   const decided = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
   for (const finding of findings.filter((entry) => entry.status === 'left')) {
     const decision = decided.get(finding.id) ?? null;
-    if (decision?.decision === 'leave') add(decision.leave.supersededBy === null ? leaveReasonWords[decision.leave.reason] : `${leaveReasonWords[decision.leave.reason]} by finding ${String(context.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`, finding.number);
+    if (decision?.decision === 'leave') add(leaveWords(decision.leave, context.numbers), finding.number);
     else if (decision?.decision === 'ask' && !chosenEdits(decision, standingAnswer(context.review, finding.id))) add('your answer keeps the code as it is', finding.number);
     // A run configured before the decision step held a finding for the author when it fixed, and decided nothing when it only reviewed.
     else add(context.review.fix === null && context.review.decisions === null ? 'with no decision, since an engine before the decision step reviewed this run' : 'held for the author', finding.number);

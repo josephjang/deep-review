@@ -11,7 +11,7 @@ import { answerWords, madeTheEdit, passOf, standingAnswer, type RecordedAnswer }
 import type { RecordedDecision } from '../checkpoint/events.ts';
 import { appliedOptionOf, lastFixesAnswerOf } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
-import { codeSpan, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
+import { codeSpan, findingNamed, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
 import { answerCommand } from './needs.ts';
 import type { LeaveReason } from './vocabulary.ts';
@@ -22,9 +22,6 @@ export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
   superseded: 'superseded',
   intended: 'intended, as the repository states',
 };
-
-/** Another finding as the report names it: `finding` and its number, or its id when the run numbered none. */
-export const findingNamed = (numbers: ReadonlyMap<string, number>, id: string): string => `finding ${String(numbers.get(id) ?? id)}`;
 
 /** The words for a left finding's reason, naming the finding that supersedes one by its number. */
 export const leaveWords = (leave: NonNullable<RecordedDecision['leave']>, numbers: ReadonlyMap<string, number>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`);
