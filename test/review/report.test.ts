@@ -252,7 +252,7 @@ describe('renderReport', () => {
       const after = report.slice(facts);
       assert.match(after, /^Repository: \/w$/m);
       assert.match(after, /^Runtime: claude [^\n]* at \/usr\/local\/bin\/claude$/m);
-      assert.match(after, /^Evidence store: \/w\/\.git\/deep-review-checkpoint\/artifacts; a name such as artifacts\/<hash> in this report is the file <hash> in it\.$/m);
+      assert.match(after, /^Evidence store: \/w\/\.git\/deep-review-checkpoint\/artifacts; a name such as `artifacts\/<hash>` in this report is the file `<hash>` in it\.$/m);
     });
 
     it('ends with the facts of the run, which name the command that continues a fix pass the run budget stopped', () => {

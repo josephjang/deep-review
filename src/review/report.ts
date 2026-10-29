@@ -416,7 +416,7 @@ function aboutSection(state: RunState, scope: ScopeState, review: ReviewState, i
     ...[fixHeaderLine(review)].filter((line) => line !== null),
     totalsLine(input.statistics),
     ...baseWorktreeLines(review),
-    `Evidence store: ${inlineText(input.store)}; a name such as ${evidenceDirectoryName}/<hash> in this report is the file <hash> in it.`,
+    `Evidence store: ${inlineText(input.store)}; a name such as ${codeSpan(`${evidenceDirectoryName}/<hash>`)} in this report is the file ${codeSpan('<hash>')} in it.`,
     '',
     ...aboutNotes(state, review, input),
     ...(answering.length === 0 ? [] : ['', ...answering]),

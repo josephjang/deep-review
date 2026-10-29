@@ -142,7 +142,7 @@ Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 Findings by number: 1 RIPPLE-1 (also SWEEP-2); 2 SWEEP-1
 Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
 Totals: 9 workers, 22.5 wall seconds, 4.50 USD; `deep-review report --stats` gives each phase
-Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.
+Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as `artifacts/<hash>` in this report is the file `<hash>` in it.
 
 - Worktree checks: 16, none found a difference from what the run expected.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.
