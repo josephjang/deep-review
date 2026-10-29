@@ -91,6 +91,14 @@ describe('renderReport', () => {
     assert.match(report, /Findings: 0 \(0 CONFIRMED, 0 PLAUSIBLE\); 1 refuted at verification/);
   });
 
+  it('counts one worker and several alike in the totals line and the cost cells of the statistics', () => {
+    const one = { ...statistics, total: { ...statistics.total, workers: 1, costUnreported: 2 } };
+    assert.match(renderReport(reported().fold(), { ...reportInput, statistics: one }), /^Totals: 1 worker, 22\.5 wall seconds, 4\.50 USD;/m);
+    const stats = renderStats(reported().fold(), one).join('\n');
+    assert.match(stats, /^\| finders \| 1 \| 2\.5 \| 0\.50 \(1 worker unreported\) \|/m);
+    assert.match(stats, /^\| Total \| 1 \| 22\.5 \| 4\.50 \(2 workers unreported\) \|/m);
+  });
+
   it('names the run budget in force at the end, not the one the run was configured with', () => {
     const raised = ranked().add('limits.changed', { concurrency: 4, runBudgetUsd: 75.5 }).fold();
     assert.equal(raised.review!.configuration.runBudgetUsd, 30);
