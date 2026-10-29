@@ -158,6 +158,12 @@ describe('quoted (R6, PD13, TD5 of the report for the person)', () => {
     assert.equal(quoted('see RIPPLE-3 (finding 1)', { numbers }), 'see RIPPLE-3 (finding 1)', 'once');
   });
 
+  it('leaves an id inside a path or a URL as written, and numbers one that ends a sentence', () => {
+    assert.equal(quoted('see notes/RIPPLE-3.md and https://x.io/RIPPLE-3/a', { numbers }), 'see notes/RIPPLE-3.md and https://x.io/RIPPLE-3/a');
+    assert.equal(quoted('see RIPPLE-3/notes, RIPPLE-3.md, C:\\notes\\RIPPLE-3 and page#RIPPLE-3', { numbers }), 'see RIPPLE-3/notes, RIPPLE-3.md, C:\\notes\\RIPPLE-3 and page#RIPPLE-3');
+    assert.equal(quoted('as in RIPPLE-3. Then REMOVALS-6.', { numbers }), 'as in RIPPLE-3 (finding 1). Then REMOVALS-6 (finding 2).');
+  });
+
   it('adds the number after a batch index that stands alone, and not after a name with an index', () => {
     const batch = ['REMOVALS-6', 'RIPPLE-3'];
     assert.equal(quoted('fixed [0] and [1]; [2] is not in the batch', { numbers, batch }), 'fixed [0] (finding 2) and [1] (finding 1); [2] is not in the batch');
