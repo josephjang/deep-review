@@ -11,7 +11,7 @@
  * stopped fix pass; and the later runs `report` passed over.
  */
 import { z } from 'zod';
-import { briefFates, findingStatuses, gapKinds, lookConditions, numberIn, type Brief, type BriefAnswer } from './brief.ts';
+import { briefFates, findingStatuses, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
 import { checkFaults, lastMoments, notComparedReasons, validationStrengths, type ValidationStrength } from './brief-checks.ts';
 import { leftReasonKinds } from './documents.ts';
 import type { PassedOver } from './report-choice.ts';
@@ -253,7 +253,7 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
     leftAs: brief.leftAs,
     questions: brief.questions.map((question) => ({
       id: question.id,
-      finding: numberIn(brief, question.id),
+      finding: question.finding,
       question: question.question,
       default: question.default,
       defaultApplied: question.defaultApplied,
@@ -264,7 +264,7 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
       answer: answerJson(question.answer),
       command: question.command,
     })),
-    departures: brief.departures.map((departure) => ({ ...departure, finding: numberIn(brief, departure.id), review: answerJson(departure.review) })),
+    departures: brief.departures.map((departure) => ({ id: departure.id, rule: departure.rule, source: departure.source, fact: departure.fact, fix: departure.fix, fate: departure.fate, review: answerJson(departure.review), accept: departure.accept, reject: departure.reject, finding: departure.finding })),
     documents: brief.documents.map((document) => ({ file: document.file, facts: document.facts.map((fact) => ({ ...fact })), reasons: document.reasons.map((reason) => ({ ...reason })) })),
     local: { ...local },
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state })),

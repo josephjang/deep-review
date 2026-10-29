@@ -81,6 +81,8 @@ export interface BriefAnswer {
 /** A question only a person can answer (R7, R8 of the brief of a run). */
 export interface BriefQuestion {
   readonly id: string;
+  /** The number of its finding. */
+  readonly finding: number;
   readonly question: string;
   /** The default, the option that is the easiest to take back. */
   readonly default: number;
@@ -111,6 +113,8 @@ export type BriefFate = (typeof briefFates)[number];
 /** A fix that goes against a written rule (R9 of the brief of a run). */
 export interface BriefDeparture {
   readonly id: string;
+  /** The number of its finding. */
+  readonly finding: number;
   readonly rule: string;
   readonly source: string;
   /** The decider's reason, in plain words: why the rule does not reach this case, and what the fix does instead. */
@@ -192,6 +196,8 @@ export interface Brief {
   readonly title: string;
   /** Each finding in rank order, by its number. */
   readonly findings: readonly BriefFinding[];
+  /** The number of each finding by its id and its merged ids, as `findingNumbers` gives it. */
+  readonly numbers: ReadonlyMap<string, number>;
   readonly status: BriefStatus;
   /** The items of "What needs you", in the order of its table, and the line that counts them (R2 of the report for the person). */
   readonly needs: readonly BriefNeed[];
@@ -309,8 +315,10 @@ function questionsOf(context: BriefContext): BriefQuestion[] {
   return decisionsOf(context, 'ask').map((decision) => {
     const { ask } = decision;
     const standing = standingAnswer(context.review, decision.id);
+    const finding = context.numbers.get(decision.id)!;
     return {
       id: decision.id,
+      finding,
       question: ask.question,
       default: ask.applied + 1,
       defaultApplied: defaultInPlace(context.review, decision),
@@ -319,7 +327,7 @@ function questionsOf(context: BriefContext): BriefQuestion[] {
       lookedIn: ask.searched,
       grounds: decision.grounds,
       answer: standing === null ? null : answerOf(standing),
-      command: answerCommand(context.state.id, context.numbers.get(decision.id)!, `--option ${String(ask.recommended + 1)}`),
+      command: answerCommand(context.state.id, finding, `--option ${String(ask.recommended + 1)}`),
     };
   });
 }
@@ -330,8 +338,10 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
     const standing = standingAnswer(context.review, decision.id);
     // The fate of the decided fix is the fix pass's: an answer pass after it worked the person's answer, not the fix.
     const outcome = context.outcomes.get(decision.id)?.fixPass;
+    const finding = context.numbers.get(decision.id)!;
     return [{
       id: decision.id,
+      finding,
       rule: decision.departure.rule,
       source: decision.departure.source,
       fact: decision.departure.reason,
@@ -339,8 +349,8 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
       // A decided fix is given to a fixer, so its outcome is a fixer's or not attempted; a run that only reviewed has none.
       fate: context.review.fix === null ? 'not-fixed' : (outcome === undefined ? undefined : fateWordsOf[outcome]) ?? 'not-attempted',
       review: standing === null ? null : answerOf(standing),
-      accept: answerCommand(context.state.id, context.numbers.get(decision.id)!, '--accept'),
-      reject: answerCommand(context.state.id, context.numbers.get(decision.id)!, '--reject'),
+      accept: answerCommand(context.state.id, finding, '--accept'),
+      reject: answerCommand(context.state.id, finding, '--reject'),
     }];
   });
 }
@@ -466,8 +476,8 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
     unfinishedEdits,
     unapplied,
     documents: context.documents,
-    departures: openDepartures.map((departure) => ({ finding: number(departure.id), rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
-    questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, number(question.id), fix !== null)),
+    departures: openDepartures.map((departure) => ({ finding: departure.finding, rule: departure.rule, source: departure.source, reason: departure.fact, fate: departureFate(departure) })),
+    questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, fix !== null)),
     uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
     toFix: fix === null ? findings.filter(isPlanned).length : 0,
     numbers: context.numbers,
@@ -475,9 +485,9 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
 }
 
 /** A question of the brief as its item of "What needs you" takes it. */
-export function needQuestionOf(question: BriefQuestion, number: number, fixed: boolean): NeedQuestion {
+export function needQuestionOf(question: BriefQuestion, fixed: boolean): NeedQuestion {
   return {
-    finding: number,
+    finding: question.finding,
     question: question.question,
     default: question.default,
     defaultHeld: question.defaultApplied ? 'held' : fixed ? 'not-applied' : 'review-only',
@@ -686,6 +696,7 @@ export function briefOf(state: RunState): Brief {
     run: state.id,
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
     findings,
+    numbers: context.numbers,
     status: statusOf(context, findings),
     needs,
     needsLine: needsCountLine(needs, facts),
@@ -741,16 +752,6 @@ export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>
   none: 'deep-review gave no account of this change.',
 };
 
-/** The number of each finding of a brief by its id and its merged ids, for the aliases of a quote. */
-const numbersOf = (brief: Pick<Brief, 'findings'>): ReadonlyMap<string, number> => new Map(brief.findings.flatMap((finding) => [finding.id, ...finding.merged].map((id) => [id, finding.number] as const)));
-
-/** The number of the finding an id names in a brief, by its id or a merged one. */
-export function numberIn(brief: Pick<Brief, 'findings'>, id: string): number {
-  const found = brief.findings.find((finding) => finding.id === id || finding.merged.includes(id));
-  if (found === undefined) throw new Error(`The brief names a finding it does not hold: ${id}`);
-  return found.number;
-}
-
 /**
  * The account of the change as submitted (R1 of the report for the
  * person; R3 of the brief of a run): what it does, why in its own words,
@@ -760,7 +761,7 @@ export function numberIn(brief: Pick<Brief, 'findings'>, id: string): number {
 function accountPart(brief: Brief): string[] {
   const { change } = brief;
   if (change.state !== 'given') return [missingAccountWords[change.state]];
-  const said = (text: string): string => inlineText(quoted(text, { numbers: numbersOf(brief) }));
+  const said = (text: string): string => inlineText(quoted(text, { numbers: brief.numbers }));
   const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
   const why = change.why === null ? 'The change states no reason.' : `Why, in the change's own words: ${said(change.why)} (${change.whyFrom.length === 0 ? 'it names no source' : `from ${sources(change.whyFrom)}`}).`;
   const judged = [
@@ -882,7 +883,7 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   const planned = brief.status.kind === 'review';
   const lines = [planned ? '## What deep-review would fix' : '## What deep-review fixed', ''];
   if (brief.fixes.length === 0) return [...lines, planned ? 'deep-review decided to fix no finding.' : 'deep-review fixed no finding.'];
-  const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: numbersOf(brief), own })));
+  const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: brief.numbers, own })));
   // A row of a finding still a question is the default a fixer applied, which the question's answer may change.
   const asked = new Set(brief.findings.filter((finding) => finding.status === 'question').map((finding) => finding.number));
   const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.finding !== null && asked.has(fix.finding) ? ['the default of a question'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
