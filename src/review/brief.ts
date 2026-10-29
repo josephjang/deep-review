@@ -11,7 +11,7 @@
  * render this one value. The headline, the gaps, what was covered, where
  * to look and what changed remain for version 4 of the JSON form alone.
  */
-import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
+import { answerWords, owedAnswers, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
 import { budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -161,7 +161,7 @@ export interface BriefStatus {
   readonly alreadyInTree: number;
   readonly notFixed: number;
   readonly questions: number;
-  /** The findings whose answer the run follows, by number. */
+  /** The findings whose answer the run follows, by number: in a fix run, those whose answer the tree holds. */
   readonly answered: readonly number[];
   readonly left: number;
   readonly toFix: number;
@@ -263,6 +263,9 @@ function scopeTitle(state: RunState): string {
 /** An answer as the brief says it: its words, when, and whether the tree holds it. */
 const answerOf = (answer: RecordedAnswer): BriefAnswer => ({ kind: answer.answer.kind, option: answer.answer.kind === 'option' ? answer.answer.option + 1 : null, words: answerWords(answer.answer), at: answer.at, applied: answer.appliedBy !== null });
 
+/** The flag of the answer command that gives an answer again: its option, numbered from 1, or the acceptance or rejection. */
+const choiceFlag = (answer: RecordedAnswer): string => (answer.answer.kind === 'option' ? `--option ${String(answer.answer.option + 1)}` : `--${answer.answer.kind}`);
+
 /** A fix pass's outcome of a finding in the brief's vocabulary; a finding no fixer was given has none. */
 export const fateWordsOf: Readonly<Partial<Record<FindingOutcome, Exclude<BriefFate, 'not-fixed'>>>> = {
   applied: 'applied',
@@ -345,6 +348,9 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
 /** A judgment of the triage as the text of its condition: what, and the files that show it. */
 const judgedWords = (condition: ChangeCondition): string => `${condition.what === null ? '' : `: ${condition.what.trim().replace(/[.]+$/, '')}`}${condition.files.length === 0 ? '' : ` (${condition.files.join(', ')})`}`;
 
+/** Whether the option a person chose for a question edits the code; false for a decision that is no question or an answer that is no option. */
+const chosenEdits = (decision: RecordedDecision | null, standing: RecordedAnswer | null): boolean => decision?.decision === 'ask' && standing?.answer.kind === 'option' && decision.ask.options[standing.answer.option]?.edits === true;
+
 /** What became of a finding (R6 of the report for the person): a question still open, fixed or not, left, or in a run that only reviewed, planned. */
 function findingStatusOf(context: BriefContext, id: string, decision: RecordedDecision | null): FindingStatus {
   const standing = standingAnswer(context.review, id);
@@ -352,13 +358,14 @@ function findingStatusOf(context: BriefContext, id: string, decision: RecordedDe
   const departs = decision?.decision === 'fix' && decision.departure !== null && standing?.answer.kind !== 'reject';
   if (context.review.fix === null) {
     // An answered question is planned when the option the person chose edits the code; one that keeps it leaves the finding as it is.
-    const edits = decision?.decision === 'ask' && standing?.answer.kind === 'option' && decision.ask.options[standing.answer.option]?.edits === true;
-    if (decision?.decision === 'fix' || edits) return departs ? 'planned-against-rule' : 'planned';
+    if (decision?.decision === 'fix' || chosenEdits(decision, standing)) return departs ? 'planned-against-rule' : 'planned';
     return 'left';
   }
   const outcome = context.outcomes.get(id)?.last;
   if (outcome === 'applied' || outcome === 'already applied') return departs ? 'fixed-against-rule' : 'fixed';
   if (outcome === 'deferred' || outcome === 'blocked' || outcome === 'not attempted') return 'not-fixed';
+  // An answer recorded only, or whose pass was refused, still owes its edit, so the finding is not left as the person asked.
+  if (standing !== null && standing.appliedBy === null) return 'not-fixed';
   return 'left';
 }
 
@@ -398,11 +405,14 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
   const openDepartures = departures.filter((departure) => departure.review === null);
   const departing = new Set(openDepartures.map((departure) => departure.id));
   const decisionOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision]));
+  const owed = new Map(owedAnswers(review).map((answer) => [answer.id, answer]));
   const unapplied = fix === null ? [] : [...context.outcomes].flatMap(([id, outcomes]) => {
-    if (!['deferred', 'blocked', 'not attempted'].includes(outcomes.last) || departing.has(id)) return [];
+    if (departing.has(id)) return [];
     // A question whose default no fixer applied says so in its own item; an answer an answer pass did not apply is unfinished work.
-    if (decisionOf.get(id)?.decision === 'ask' && !outcomes.byAnswerPass) return [];
-    return [{ finding: number(id), why: unappliedWhy(outcomes), answer: outcomes.byAnswerPass }];
+    if (['deferred', 'blocked', 'not attempted'].includes(outcomes.last) && (decisionOf.get(id)?.decision !== 'ask' || outcomes.byAnswerPass)) return [{ finding: number(id), why: unappliedWhy(outcomes), answer: outcomes.byAnswerPass }];
+    // An answer recorded only, or whose pass was refused, owes its edit until the same answer is given again without `--record-only`.
+    const answer = owed.get(id);
+    return answer === undefined ? [] : [{ finding: number(id), why: `no answer pass applied it yet, and ${codeSpan(answerCommand(context.state.id, number(id), choiceFlag(answer)))} applies it`, answer: true }];
   });
   const unfinishedEdits = fix === null ? [] : fix.revisions.flatMap((revision, index) => (revision.source.kind === 'attempt' && !answeredLater(fix, revision) ? [{ patch: index + 1, finding: revisionFindings(context, revision.change.findings)[0] ?? null }] : []));
   const plausible = new Set(findings.filter((finding) => finding.verdict === 'PLAUSIBLE').map((finding) => finding.id));
@@ -466,7 +476,13 @@ export function needQuestionOf(question: BriefQuestion, number: number, fixed: b
 function statusOf(context: BriefContext, findings: readonly BriefFinding[]): BriefStatus {
   const fix = context.review.fix;
   const count = (...statuses: FindingStatus[]): number => findings.filter((finding) => statuses.includes(finding.status)).length;
-  const answered = findings.filter((finding) => standingAnswer(context.review, finding.id) !== null).map((finding) => finding.number);
+  // A fix run follows an answer the tree holds; one recorded only, or whose pass was refused, still owes its edit. A run that only reviewed plans every answer.
+  const standing = findings.flatMap((finding) => {
+    const answer = standingAnswer(context.review, finding.id);
+    return answer === null ? [] : [{ number: finding.number, owed: fix !== null && answer.appliedBy === null }];
+  });
+  const answered = standing.filter((answer) => !answer.owed).map((answer) => answer.number);
+  const owed = standing.filter((answer) => answer.owed).map((answer) => answer.number);
   const alreadyInTree = [...context.outcomes.values()].filter((outcomes) => outcomes.last === 'already applied').length;
   const committed = fix === null ? 0 : committedRevisions(fix);
   const counts = {
@@ -489,6 +505,7 @@ function statusOf(context: BriefContext, findings: readonly BriefFinding[]): Bri
   const rest = [
     ...(counts.questions === 0 ? [] : [`asks you ${counted(counts.questions, 'question', 'questions')}`]),
     ...(answered.length === 0 ? [] : [`follows your answers to ${findingWords(answered)}`]),
+    ...(owed.length === 0 ? [] : [`has not yet applied your answers to ${findingWords(owed)}`]),
     ...(counts.alreadyInTree === 0 ? [] : [`found ${String(counts.alreadyInTree)} already fixed in the tree`]),
     ...(counts.notFixed === 0 ? [] : [`did not fix ${String(counts.notFixed)}`]),
     ...(counts.left === 0 ? [] : [`left ${counted(counts.left, 'finding', 'findings')} as is`]),
@@ -598,7 +615,7 @@ function leftAsOf(context: BriefContext, findings: readonly BriefFinding[]): str
   for (const finding of findings.filter((entry) => entry.status === 'left')) {
     const decision = decided.get(finding.id) ?? null;
     if (decision?.decision === 'leave') add(decision.leave.supersededBy === null ? leaveReasonWords[decision.leave.reason] : `${leaveReasonWords[decision.leave.reason]} by finding ${String(context.numbers.get(decision.leave.supersededBy) ?? decision.leave.supersededBy)}`, finding.number);
-    else if (decision?.decision === 'ask') add('your answer keeps the code as it is', finding.number);
+    else if (decision?.decision === 'ask' && !chosenEdits(decision, standingAnswer(context.review, finding.id))) add('your answer keeps the code as it is', finding.number);
     // A run configured before the decision step held a finding for the author when it fixed, and decided nothing when it only reviewed.
     else add(context.review.fix === null && context.review.decisions === null ? 'with no decision, since an engine before the decision step reviewed this run' : 'held for the author', finding.number);
   }
