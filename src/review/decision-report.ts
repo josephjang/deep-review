@@ -13,7 +13,7 @@ import { appliedOptionOf, lastFixesAnswerOf } from '../checkpoint/fix-state.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, findingNamed, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
-import { answerCommand } from './needs.ts';
+import { answerCommand, optionLine } from './needs.ts';
 import type { LeaveReason } from './vocabulary.ts';
 
 /** Why a finding was left, as the report words it. */
@@ -116,11 +116,10 @@ export function decisionBlockLines(review: ReviewState, decision: RecordedDecisi
       const { ask } = decision;
       // A default is in place only when the tree holds it (R7 of the brief of a run).
       const held = defaultInPlace(review, decision) ? 'in place now' : 'which the tree does not hold';
-      const marks = (index: number): string => [`Option ${String(index + 1)}`, ...(index === ask.applied ? [`the default, ${held}`] : []), ...(index === ask.recommended ? ['deep-review\'s choice'] : [])].join(', ');
       return [
         `Decision: ask you; why it asks: ${said(decision.grounds)}`,
         `Question: ${said(ask.question)}`,
-        ...ask.options.map((option, index) => `${marks(index)}: ${sentence(said(option.option))} Cost: ${sentence(said(option.cost))} Rule: ${sentence(said(option.rule))}`),
+        ...ask.options.map((option, index) => optionLine(index + 1, index === ask.applied ? held : null, index === ask.recommended, { option: said(option.option), cost: said(option.cost), rule: said(option.rule) })),
         `Where deep-review looked: ${ask.searched.map(said).join('; ')}`,
         standing === null ? `To answer: \`${answerCommand(quote.run, quote.own, '--option <n>')}\`, with the number of the option` : `Answer: ${answerSummary(review, standing, 'the option the tree held')}`,
       ];
