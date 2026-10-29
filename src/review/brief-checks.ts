@@ -1,12 +1,12 @@
 /**
- * The facts of a fix run's checks and fixes that the brief gives before a
- * merge (R3 to R7 of the facts before a merge), each computed from the
- * fold alone, so nothing records them and a run an engine before that
- * change configured gets them too (TD9): each check's outcome before the
- * fixes and at its last run with when it ran, what its base says, and
- * the fault of the table of the design that it has; their words in the
- * brief; and the sentence on how the fixers validated the fixes they
- * applied.
+ * The facts of a fix run's checks that the brief gives before a merge (R3
+ * to R5 of the facts before a merge; R4, R5 of the report for the person),
+ * each computed from the fold alone, so nothing records them and a run an
+ * engine before that change configured gets them too (TD9): each check's
+ * outcome before the fixes and at its last run with when it ran, what its
+ * base says, the fault of the table of the design that it has, and its
+ * meaning from the ordered table `checkMeanings`; and the kinds of the
+ * validations a fixer reports, in the order of their strength.
  */
 import type { ScopeState } from '../checkpoint/events.ts';
 import { kindsTakenToBase, lastCurrentRun, lastRecordedRun, type CheckRunState, type FixState } from '../checkpoint/fix-state.ts';
@@ -203,71 +203,15 @@ export function briefChecksOf(review: Pick<ReviewState, 'answerPasses' | 'baseCh
 /** The base as the brief names it (R5): its name and its first 8 characters, as the line `Scope:` does, or the empty tree, which has no other name. */
 export const baseWords = (base: Pick<BriefBase, 'commit' | 'name'>): string => (isEmptyTree(base.commit) ? 'the empty tree' : `${base.name} (${commitWords(base.commit)})`);
 
-/** How a run ended, as the verb the brief says it with. */
-export const outcomeVerbs: Readonly<Record<CheckOutcome, string>> = { passed: 'passed', failed: 'failed', timeout: 'timed out', 'not-started': 'did not start', skipped: 'was skipped', cut: 'was cut short' };
-
-/** When a check's last run ran, as the words after its verb (R3): an answer pass is the person's. */
-const lastWords: Readonly<Record<LastMoment, string>> = { fixes: 'after the fixes', repair: 'after the repair', answers: 'after your answers' };
-
-/** A check's outcome before the fixes and at its last run, with when that ran (R3), as the words after its kind. */
-function ranWords({ before, last }: BriefCheck): string {
-  if (last !== null && before === last.outcome && last.when === 'fixes') return `${outcomeVerbs[last.outcome]} before and after the fixes`;
-  const first = before === null ? 'did not run before the fixes' : `${outcomeVerbs[before]} before the fixes`;
-  if (last === null) return `${first} and did not run after them`;
-  const when = last.when === 'fixes' ? 'after them' : lastWords[last.when];
-  return `${first} and ${before === last.outcome ? when : `${outcomeVerbs[last.outcome]} ${when}`}`;
-}
-
-/**
- * The gap of "What the review did not cover" that a check's fault gives
- * (R5): a check the change breaks, or that the run took to the base and
- * could not compare, with the reason; none for any other fault, since the
- * headline counts a check the edits of the run made fail and the run
- * covered a check whose base has the same failures.
- */
-export function checkGap(check: BriefCheck): string | null {
-  const { kind, base, fault } = check;
-  if (base === null) return null;
-  const where = baseWords(base);
-  switch (fault) {
-    case 'change-breaks':
-      return `The ${kind} check fails on the change and passes on its base, ${where}. No step of the run fixes a failure that the change brings.`;
-    case 'change-adds':
-      return `The ${kind} check fails on the change with failures that its base, ${where}, does not have, by the repair's reading. No step of the run fixes a failure that the change brings.`;
-    case 'not-compared':
-      return base.reason === null ? null : `The ${kind} check ${ranWords(check)}, and the run could not compare it with the base, ${where}: ${notComparedWords[base.reason]}.`;
-    default:
-      return null;
-  }
-}
-
 /**
  * How strongly a fixer validated a fix, the strongest first (TD12 of the
- * facts before a merge): a test that fails on the code before the fix or
- * on a mutation of it, the tests that already exist, a check of the
- * source, a limit the fixer named, or no validation at all.
+ * facts before a merge), as version 4 of the JSON form names them: a test
+ * that fails on the code before the fix or on a mutation of it, the tests
+ * that already exist, a check of the source, a limit the fixer named, or
+ * no validation at all. The brief names the kinds (`validationKinds`).
  */
 export const validationStrengths = ['test', 'existing', 'static', 'limited', 'none'] as const;
 export type ValidationStrength = (typeof validationStrengths)[number];
-
-/** The strength of each method a fixer reports (fixer-validation.md). */
-const strengthOfMethod: Readonly<Record<ValidationMethod, Exclude<ValidationStrength, 'none'>>> = {
-  'old-code': 'test',
-  mutation: 'test',
-  existing: 'existing',
-  static: 'static',
-  limited: 'limited',
-};
-
-/** The applied fixes under the strongest validation of each, in the order they are given (R7). */
-export type BriefValidation = Readonly<Record<ValidationStrength, readonly string[]>>;
-
-/** Each applied fix under the strongest method of the validation that applied it, or `none` when that answer gave no entry (TD12). */
-export function validationOf(applied: readonly { readonly id: string; readonly methods: readonly ValidationMethod[] }[]): BriefValidation {
-  const strongest = (methods: readonly ValidationMethod[]): ValidationStrength => validationStrengths.find((strength) => methods.some((method) => strengthOfMethod[method] === strength)) ?? 'none';
-  const byFix = applied.map((fix) => ({ id: fix.id, strength: strongest(fix.methods) }));
-  return Object.fromEntries(validationStrengths.map((strength) => [strength, byFix.filter((fix) => fix.strength === strength).map((fix) => fix.id)])) as Record<ValidationStrength, string[]>;
-}
 
 /** Who compared the failures of a check with those of the base, when the meaning of the check rests on a comparison (R4 of the report for the person): the engine, from the outcome on the base, or a model, the worker that compared the failures. */
 export type ComparedBy = 'engine' | 'model';

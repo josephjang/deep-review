@@ -1,0 +1,417 @@
+{
+  "read-only": {
+    "version": 4,
+    "run": "run-1",
+    "title": "The uncommitted change on 22222222",
+    "headline": {
+      "questions": 1,
+      "departures": 1,
+      "documents": 0,
+      "checks": 0,
+      "text": "2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: the question has a default in place."
+    },
+    "changeState": "unrecorded",
+    "change": null,
+    "questions": [
+      {
+        "id": "SWEEP-1",
+        "question": "Should parse accept an empty input?",
+        "default": 1,
+        "defaultApplied": true,
+        "choice": 2,
+        "options": [
+          {
+            "option": "keep accepting it",
+            "cost": "callers that pass one now see the change",
+            "rule": "parse rejects an empty input",
+            "edits": false
+          },
+          {
+            "option": "accept it and return an empty result",
+            "cost": "an empty input passes silently",
+            "rule": "parse accepts an empty input",
+            "edits": true
+          }
+        ],
+        "lookedIn": [
+          "the change's commit message",
+          "README.md",
+          "test/a.test.ts"
+        ],
+        "grounds": "nothing in the repository states which behavior is meant",
+        "answer": null,
+        "command": "deep-review answer --run run-1 --finding 2 --option 2"
+      }
+    ],
+    "departures": [
+      {
+        "id": "RIPPLE-1",
+        "rule": "parse throws on a null input",
+        "source": "docs/parse.md",
+        "fact": "every caller passes the null on an empty input",
+        "fix": "guard the null once, before parse reads it",
+        "fate": "not-fixed",
+        "review": null,
+        "accept": "deep-review answer --run run-1 --finding 1 --accept",
+        "reject": "deep-review answer --run run-1 --finding 1 --reject"
+      }
+    ],
+    "documents": [],
+    "notCovered": [
+      {
+        "kind": "angle",
+        "text": "The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found."
+      },
+      {
+        "kind": "unverified",
+        "text": "No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE."
+      }
+    ],
+    "covered": null,
+    "look": [
+      {
+        "condition": "departure",
+        "findings": [
+          "RIPPLE-1"
+        ],
+        "text": "1 fix goes against a written rule"
+      }
+    ],
+    "changed": {
+      "fixed": false,
+      "decided": true,
+      "applied": [],
+      "alreadyInTree": [],
+      "deferred": [],
+      "blocked": [],
+      "notAttempted": [],
+      "toFix": [
+        "RIPPLE-1"
+      ],
+      "commits": null,
+      "patches": 0,
+      "left": [],
+      "checks": [],
+      "validation": {
+        "test": [],
+        "existing": [],
+        "static": [],
+        "limited": [],
+        "none": []
+      }
+    },
+    "local": {
+      "copy": "/repo/.git/deep-review-checkpoint/reports/2026-09-27-run-1.md",
+      "record": "/repo/.git/deep-review-checkpoint/artifacts/abc",
+      "repository": "/repo",
+      "store": "/repo/.git/deep-review-checkpoint/artifacts",
+      "continueCommand": null
+    },
+    "notShown": []
+  },
+  "fixed": {
+    "version": 4,
+    "run": "run-1",
+    "title": "The uncommitted change on 22222222",
+    "headline": {
+      "questions": 1,
+      "departures": 1,
+      "documents": 0,
+      "checks": 0,
+      "text": "2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: the question has a default in place."
+    },
+    "changeState": "unrecorded",
+    "change": null,
+    "questions": [
+      {
+        "id": "SWEEP-1",
+        "question": "Should parse accept an empty input?",
+        "default": 1,
+        "defaultApplied": true,
+        "choice": 2,
+        "options": [
+          {
+            "option": "keep accepting it",
+            "cost": "callers that pass one now see the change",
+            "rule": "parse rejects an empty input",
+            "edits": false
+          },
+          {
+            "option": "accept it and return an empty result",
+            "cost": "an empty input passes silently",
+            "rule": "parse accepts an empty input",
+            "edits": true
+          }
+        ],
+        "lookedIn": [
+          "the change's commit message",
+          "README.md",
+          "test/a.test.ts"
+        ],
+        "grounds": "nothing in the repository states which behavior is meant",
+        "answer": null,
+        "command": "deep-review answer --run run-1 --finding 2 --option 2"
+      }
+    ],
+    "departures": [
+      {
+        "id": "RIPPLE-1",
+        "rule": "parse throws on a null input",
+        "source": "docs/parse.md",
+        "fact": "every caller passes the null on an empty input",
+        "fix": "guard the null once, before parse reads it",
+        "fate": "applied",
+        "review": null,
+        "accept": "deep-review answer --run run-1 --finding 1 --accept",
+        "reject": "deep-review answer --run run-1 --finding 1 --reject"
+      }
+    ],
+    "documents": [],
+    "notCovered": [
+      {
+        "kind": "angle",
+        "text": "The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found."
+      },
+      {
+        "kind": "unverified",
+        "text": "No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE."
+      },
+      {
+        "kind": "check",
+        "text": "No typecheck check ran: no typecheck step."
+      }
+    ],
+    "covered": null,
+    "look": [
+      {
+        "condition": "departure",
+        "findings": [
+          "RIPPLE-1"
+        ],
+        "text": "1 fix goes against a written rule"
+      }
+    ],
+    "changed": {
+      "fixed": true,
+      "decided": true,
+      "applied": [
+        "RIPPLE-1"
+      ],
+      "alreadyInTree": [],
+      "deferred": [],
+      "blocked": [],
+      "notAttempted": [],
+      "toFix": [],
+      "commits": null,
+      "patches": 1,
+      "left": [],
+      "checks": [
+        {
+          "kind": "build",
+          "before": "passed",
+          "last": {
+            "outcome": "passed",
+            "when": "fixes"
+          },
+          "base": null,
+          "fault": null
+        },
+        {
+          "kind": "lint",
+          "before": "passed",
+          "last": {
+            "outcome": "passed",
+            "when": "fixes"
+          },
+          "base": null,
+          "fault": null
+        },
+        {
+          "kind": "test",
+          "before": "passed",
+          "last": {
+            "outcome": "passed",
+            "when": "fixes"
+          },
+          "base": null,
+          "fault": null
+        }
+      ],
+      "validation": {
+        "test": [],
+        "existing": [],
+        "static": [],
+        "limited": [],
+        "none": [
+          "RIPPLE-1"
+        ]
+      }
+    },
+    "local": {
+      "copy": "/repo/.git/deep-review-checkpoint/reports/2026-09-27-run-1.md",
+      "record": "/repo/.git/deep-review-checkpoint/artifacts/abc",
+      "repository": "/repo",
+      "store": "/repo/.git/deep-review-checkpoint/artifacts",
+      "continueCommand": null
+    },
+    "notShown": []
+  },
+  "on-the-base": {
+    "version": 4,
+    "run": "run-1",
+    "title": "The change from 2247b35e to 22222222, with the working tree",
+    "headline": {
+      "questions": 0,
+      "departures": 0,
+      "documents": 0,
+      "checks": 1,
+      "text": "1 thing needs you: 1 check that the edits of the run made fail. Nothing waits for you: the run went on as it decided."
+    },
+    "changeState": "unrecorded",
+    "change": null,
+    "questions": [
+      {
+        "id": "SWEEP-1",
+        "question": "Should parse accept an empty input?",
+        "default": 1,
+        "defaultApplied": false,
+        "choice": 2,
+        "options": [
+          {
+            "option": "keep accepting it",
+            "cost": "callers that pass one now see the change",
+            "rule": "parse rejects an empty input",
+            "edits": false
+          },
+          {
+            "option": "accept it and return an empty result",
+            "cost": "an empty input passes silently",
+            "rule": "parse accepts an empty input",
+            "edits": true
+          }
+        ],
+        "lookedIn": [
+          "the change's commit message",
+          "README.md",
+          "test/a.test.ts"
+        ],
+        "grounds": "nothing in the repository states which behavior is meant",
+        "answer": {
+          "kind": "option",
+          "option": 2,
+          "words": "option 2",
+          "at": "2026-09-27T00:00:28.000Z",
+          "applied": true
+        },
+        "command": "deep-review answer --run run-1 --finding 2 --option 2"
+      }
+    ],
+    "departures": [],
+    "documents": [],
+    "notCovered": [
+      {
+        "kind": "angle",
+        "text": "The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found."
+      },
+      {
+        "kind": "unverified",
+        "text": "No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE."
+      },
+      {
+        "kind": "check",
+        "text": "No typecheck check ran: no typecheck step."
+      },
+      {
+        "kind": "check",
+        "text": "The lint check fails on the change and passes on its base, the merge base with origin/main (2247b35e). No step of the run fixes a failure that the change brings."
+      }
+    ],
+    "covered": null,
+    "look": [
+      {
+        "condition": "plausible",
+        "findings": [
+          "SWEEP-1"
+        ],
+        "text": "1 fix rests on a verdict that is only PLAUSIBLE"
+      }
+    ],
+    "changed": {
+      "fixed": true,
+      "decided": true,
+      "applied": [
+        "RIPPLE-1",
+        "SWEEP-1"
+      ],
+      "alreadyInTree": [],
+      "deferred": [],
+      "blocked": [],
+      "notAttempted": [],
+      "toFix": [],
+      "commits": null,
+      "patches": 2,
+      "left": [],
+      "checks": [
+        {
+          "kind": "build",
+          "before": "passed",
+          "last": {
+            "outcome": "passed",
+            "when": "answers"
+          },
+          "base": null,
+          "fault": null
+        },
+        {
+          "kind": "lint",
+          "before": "failed",
+          "last": {
+            "outcome": "failed",
+            "when": "answers"
+          },
+          "base": {
+            "commit": "2247b35e00000000000000000000000000000000",
+            "name": "the merge base with origin/main",
+            "outcome": "passed",
+            "reading": null,
+            "reason": null
+          },
+          "fault": "change-breaks"
+        },
+        {
+          "kind": "test",
+          "before": "passed",
+          "last": {
+            "outcome": "failed",
+            "when": "answers"
+          },
+          "base": null,
+          "fault": "edits"
+        }
+      ],
+      "validation": {
+        "test": [],
+        "existing": [],
+        "static": [],
+        "limited": [],
+        "none": [
+          "RIPPLE-1",
+          "SWEEP-1"
+        ]
+      }
+    },
+    "local": {
+      "copy": "/repo/.git/deep-review-checkpoint/reports/2026-09-27-run-1.md",
+      "record": "/repo/.git/deep-review-checkpoint/artifacts/abc",
+      "repository": "/repo",
+      "store": "/repo/.git/deep-review-checkpoint/artifacts",
+      "continueCommand": null
+    },
+    "notShown": [
+      {
+        "run": "r",
+        "state": "is in progress"
+      }
+    ]
+  }
+}

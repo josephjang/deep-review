@@ -4,18 +4,19 @@
  * agent, or a check a pull request must pass. Its shape is a contract, so
  * `briefJsonV1` states it as a schema with a version, and a change of the
  * shape is a new version, as for an event of the ledger, and the engine
- * writes the newest alone, version 4 since the facts before a merge.
+ * writes the newest alone, version 5 since the report for the person.
  * Beside the brief it carries the local facts of the run, which the brief
  * itself never names: the paths of the copy and of the record, the
  * repository, the evidence store, and the command that continues a
  * stopped fix pass; and the later runs `report` passed over.
  */
 import { z } from 'zod';
-import { briefFates, gapKinds, lookConditions, type Brief, type BriefAnswer } from './brief.ts';
+import { briefFates, findingStatuses, gapKinds, lookConditions, numberIn, type Brief, type BriefAnswer } from './brief.ts';
 import { checkFaults, lastMoments, notComparedReasons, validationStrengths, type ValidationStrength } from './brief-checks.ts';
 import { leftReasonKinds } from './documents.ts';
 import type { PassedOver } from './report-choice.ts';
-import { baseReadings, checkKinds } from './vocabulary.ts';
+import { needConditions } from './needs.ts';
+import { baseReadings, checkKinds, severities, validationMethods } from './vocabulary.ts';
 
 const text = z.string();
 const ids = z.array(z.string());
@@ -148,23 +149,111 @@ export const briefJsonV4 = z.strictObject({
 });
 export type BriefJsonV4 = z.infer<typeof briefJsonV4>;
 
+/** A question as version 5 gives it: version 4's, with the number of its finding. */
+const questionV5 = z.strictObject({ ...briefJsonV1.shape.questions.element.shape, finding: z.number().int().min(1) });
+/** A fix that goes against a written rule as version 5 gives it: version 4's, with the number of its finding. */
+const departureV5 = z.strictObject({ ...briefJsonV1.shape.departures.element.shape, finding: z.number().int().min(1) });
+const count = z.number().int().min(0);
+
+/**
+ * Version 5 of the JSON form of the brief (R13, TD8 of the report for the
+ * person), a schema of its own: the run, the title, the state and the
+ * account of the change, the questions, the departures, the documents,
+ * the local facts and the runs passed over as version 4 has them, each
+ * question and departure with the number of its finding; and in place of
+ * the headline, the gaps, what was covered, where to look and what
+ * changed: the status line with its counts, each finding with its number,
+ * its ids, its verdict and its status, the items of "What needs you" with
+ * their rank and condition and their count line, each check with its
+ * results, its meaning and who compared it, each fix with the kinds of its
+ * validations and its patches, what the run did not examine, and the
+ * findings left as is.
+ */
+export const briefJsonV5 = z.strictObject({
+  version: z.literal(5),
+  run: text,
+  title: text,
+  changeState: briefJsonV4.shape.changeState,
+  change: briefJsonV4.shape.change,
+  status: z.strictObject({
+    kind: z.enum(['fix', 'review']),
+    findings: count,
+    fixed: count,
+    againstRule: count,
+    alreadyInTree: count,
+    notFixed: count,
+    questions: count,
+    answered: z.array(z.number().int().min(1)),
+    left: count,
+    toFix: count,
+    committed: z.enum(['none', 'some', 'all']),
+    text,
+  }),
+  findings: z.array(z.strictObject({ number: z.number().int().min(1), id: text, merged: ids, severity: z.enum(severities), verdict: z.enum(['CONFIRMED', 'PLAUSIBLE']), status: z.enum(findingStatuses), summary: text })),
+  needs: z.array(z.strictObject({
+    rank: z.number().int().min(1).max(8),
+    condition: z.enum(needConditions),
+    finding: z.number().int().min(1).nullable(),
+    check: z.enum(checkKinds).nullable(),
+    document: text.nullable(),
+    patch: z.number().int().min(1).nullable(),
+    lines: z.array(text),
+  })),
+  needsLine: text,
+  checks: z.array(z.strictObject({
+    ...briefJsonV4.shape.changed.shape.checks.element.shape,
+    meaning: text,
+    comparedBy: z.enum(['engine', 'model']).nullable(),
+  })),
+  baseChecks: z.boolean(),
+  base: text,
+  fixes: z.array(z.strictObject({
+    finding: z.number().int().min(1).nullable(),
+    severity: z.enum(severities).nullable(),
+    plausible: z.boolean(),
+    againstRule: z.boolean(),
+    subject: text,
+    kinds: z.array(z.enum(validationMethods)),
+    patches: z.array(z.number().int().min(1)),
+  })),
+  notExamined: z.array(text),
+  leftAs: text.nullable(),
+  questions: z.array(questionV5),
+  departures: z.array(departureV5),
+  documents: briefJsonV4.shape.documents,
+  local: briefJsonV4.shape.local,
+  notShown: briefJsonV4.shape.notShown,
+});
+export type BriefJsonV5 = z.infer<typeof briefJsonV5>;
+
 /** The local facts the JSON form carries beside the brief: the copy's path, or null when it could not be written, the record's, the repository, the store and the continue command or null. */
-export type BriefLocal = BriefJsonV4['local'];
+export type BriefLocal = BriefJsonV5['local'];
 
-const answerJson = (given: BriefAnswer | null): BriefJsonV4['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
+const answerJson = (given: BriefAnswer | null): BriefJsonV5['questions'][number]['answer'] => (given === null ? null : { kind: given.kind, option: given.option, words: given.words, at: given.at, applied: given.applied });
 
-/** The brief as version 4 of its JSON form, with the run's local facts and the later runs `report` passed over; the sentences on the documentation step and on the validation are the Markdown's, and the documents and the validation's lists say what they say. */
-export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly PassedOver[]): BriefJsonV4 {
-  const { change, changed } = brief;
+/** The brief as version 5 of its JSON form, with the run's local facts and the later runs `report` passed over (R13 of the report for the person). */
+export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly PassedOver[]): BriefJsonV5 {
+  const { change } = brief;
   return {
-    version: 4,
+    version: 5,
     run: brief.run,
     title: brief.title,
-    headline: { ...brief.headline },
     changeState: change.state,
     change: change.state !== 'given' ? null : { what: change.what, why: change.why, whyFrom: [...change.whyFrom], restsOn: [...change.restsOn], publicInterface: { ...change.publicInterface, files: [...change.publicInterface.files] }, wideEffect: { ...change.wideEffect, files: [...change.wideEffect.files] }, beforeEdits: change.beforeEdits },
+    status: { ...brief.status, answered: [...brief.status.answered] },
+    findings: brief.findings.map((finding) => ({ ...finding, merged: [...finding.merged] })),
+    needs: brief.needs.map((need) => ({ ...need, lines: [...need.lines] })),
+    needsLine: brief.needsLine,
+    // When a check passed and failed before its last run is for the words of the brief; its fault and meaning say what a program needs of it.
+    checks: brief.checks.map((check) => ({ kind: check.kind, before: check.before, last: check.last === null ? null : { ...check.last }, base: check.base === null ? null : { ...check.base }, fault: check.fault, meaning: check.meaning, comparedBy: check.comparedBy })),
+    baseChecks: brief.baseChecks,
+    base: brief.base,
+    fixes: brief.fixes.map((fix) => ({ ...fix, kinds: [...fix.kinds], patches: [...fix.patches] })),
+    notExamined: [...brief.notExamined],
+    leftAs: brief.leftAs,
     questions: brief.questions.map((question) => ({
       id: question.id,
+      finding: numberIn(brief, question.id),
       question: question.question,
       default: question.default,
       defaultApplied: question.defaultApplied,
@@ -175,27 +264,8 @@ export function briefJson(brief: Brief, local: BriefLocal, notShown: readonly Pa
       answer: answerJson(question.answer),
       command: question.command,
     })),
-    departures: brief.departures.map((departure) => ({ ...departure, review: answerJson(departure.review) })),
+    departures: brief.departures.map((departure) => ({ ...departure, finding: numberIn(brief, departure.id), review: answerJson(departure.review) })),
     documents: brief.documents.map((document) => ({ file: document.file, facts: document.facts.map((fact) => ({ ...fact })), reasons: document.reasons.map((reason) => ({ ...reason })) })),
-    notCovered: brief.notCovered.map((gap) => ({ ...gap })),
-    covered: brief.covered,
-    look: brief.look.map((entry) => ({ ...entry, findings: [...entry.findings] })),
-    changed: {
-      fixed: changed.fixed,
-      decided: changed.decided,
-      applied: [...brief.changed.applied],
-      alreadyInTree: [...brief.changed.alreadyInTree],
-      deferred: [...brief.changed.deferred],
-      blocked: [...brief.changed.blocked],
-      notAttempted: [...brief.changed.notAttempted],
-      toFix: [...brief.changed.toFix],
-      commits: brief.changed.commits === null ? null : { shas: [...brief.changed.commits.shas], uncommittedPatches: brief.changed.commits.uncommittedPatches },
-      patches: changed.patches,
-      left: [...brief.changed.left],
-      // When a check passed and failed before its last run is for the words of the brief; its fault says what a program needs of it.
-      checks: changed.checks.map((check) => ({ kind: check.kind, before: check.before, last: check.last === null ? null : { ...check.last }, base: check.base === null ? null : { ...check.base }, fault: check.fault })),
-      validation: Object.fromEntries(validationStrengths.map((strength) => [strength, [...changed.validation[strength]]])) as Record<ValidationStrength, string[]>,
-    },
     local: { ...local },
     notShown: notShown.map((entry) => ({ run: entry.run, state: entry.state })),
   };

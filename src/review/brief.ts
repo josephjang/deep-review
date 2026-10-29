@@ -13,21 +13,21 @@
  */
 import { answerWords, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
-import { allBatches, budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
+import { budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { defaultInPlace, leaveReasonWords } from './decision-report.ts';
-import { leftByStep, leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
-import { baseWords, briefChecksOf, checkGap, meaningRowOf, outcomeVerbs, validationKindsOf, validationOf, validationWords, type BriefCheck, type BriefValidation, type ComparedBy } from './brief-checks.ts';
+import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
+import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
 import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { capitalized, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
 import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
 import { shortRunId } from './runs.ts';
 import { findingNumbers, ranAgain, rankedFindings, type ReportFinding } from './state.ts';
 import { droppedByOperator } from './survey-report.ts';
-import { documentationUnitKey, type Angle, type CheckKind, type CheckOutcome, type EditingPhase, type Severity, type ValidationMethod, type Verdict } from './vocabulary.ts';
+import { documentationUnitKey, type Angle, type CheckOutcome, type EditingPhase, type Severity, type ValidationMethod } from './vocabulary.ts';
 
 /** The core of the change: the triage's whole account, uncut (R3), or why the run has none. */
 export type BriefChange =
@@ -127,50 +127,9 @@ export interface BriefDeparture {
 export const gapKinds = ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation'] as const;
 export type GapKind = (typeof gapKinds)[number];
 
-/** One thing the run did not cover, in plain words. */
-export interface BriefGap {
-  readonly kind: GapKind;
-  readonly text: string;
-}
-
 /** The conditions of principle 8 that the brief names (R11 of the brief of a run). */
 export const lookConditions = ['departure', 'plausible', 'public-interface', 'wide-effect'] as const;
 export type LookCondition = (typeof lookConditions)[number];
-
-/** A condition of principle 8 that holds, with its findings and its words. */
-export interface BriefLook {
-  readonly condition: LookCondition;
-  readonly findings: readonly string[];
-  readonly text: string;
-}
-
-/** What deep-review changed (R2 of the brief of a run). */
-export interface BriefChanged {
-  /** Whether the run fixed; a run that only reviewed changed nothing. */
-  readonly fixed: boolean;
-  /** Whether the run decided its findings: false for a run configured before the decision step, and for one that ranked none. */
-  readonly decided: boolean;
-  readonly applied: readonly string[];
-  readonly alreadyInTree: readonly string[];
-  readonly deferred: readonly string[];
-  readonly blocked: readonly string[];
-  readonly notAttempted: readonly string[];
-  /** The findings decided to fix in a run that only reviewed, which `review --fix` applies; empty in a run that fixed. */
-  readonly toFix: readonly string[];
-  /** The commits that hold the edits, oldest first, and how many patches no commit holds yet; null before any commit. */
-  readonly commits: { readonly shas: readonly string[]; readonly uncommittedPatches: number } | null;
-  /** How many patches the run made; 0 in a run that only reviewed. */
-  readonly patches: number;
-  readonly left: readonly string[];
-  /** Each check with a command: its outcome before the fixes, its last run with when it ran, what its base says, and its fault (R3 to R5 of the facts before a merge); none in a run that only reviewed. */
-  readonly checks: readonly BriefCheck[];
-  /** The kinds of check the run has no command for, which the line `Checks:` names (R6 of the facts before a merge); none in a run that only reviewed. */
-  readonly noCommand: readonly CheckKind[];
-  /** What the documentation step did, as one sentence, or null in a run that only reviewed or that an engine before the step configured (R10 of the documentation step). */
-  readonly documentation: string | null;
-  /** The applied fixes under the strongest validation the answer that applied each reported (R7 of the facts before a merge); each list empty in a run that only reviewed. */
-  readonly validation: BriefValidation;
-}
 
 /** A document the edits of the run left out of date (R7 of the documentation step), as `leftDocumentsOf` gives it. */
 export type BriefDocument = LeftDocument;
@@ -186,7 +145,8 @@ export interface BriefFinding {
   /** The ids of the candidates merged into it, which name it too. */
   readonly merged: readonly string[];
   readonly severity: Severity;
-  readonly verdict: Verdict;
+  /** The verdict as the verifier gave it; a finding that survived verification is never refuted. */
+  readonly verdict: 'CONFIRMED' | 'PLAUSIBLE';
   readonly status: FindingStatus;
   /** The first sentence of its summary, as the finder wrote it. */
   readonly summary: string;
@@ -247,18 +207,11 @@ export interface Brief {
   readonly notExamined: readonly string[];
   /** The findings left as is, by their reason, as one sentence, or null for none. */
   readonly leftAs: string | null;
-  /** How many open questions, unreviewed departures, documents left out of date and checks the edits of the run made fail need the person (R4 of the facts before a merge), and the sentence that says so. */
-  readonly headline: { readonly questions: number; readonly departures: number; readonly documents: number; readonly checks: number; readonly text: string };
   readonly change: BriefChange;
   readonly questions: readonly BriefQuestion[];
   readonly departures: readonly BriefDeparture[];
   /** The documents the edits of a fix run left out of date, none in a run that only reviewed (R7 of the documentation step). */
   readonly documents: readonly BriefDocument[];
-  readonly notCovered: readonly BriefGap[];
-  /** The sentence that says the run covered everything R10 names, or null when a gap is listed. */
-  readonly covered: string | null;
-  readonly look: readonly BriefLook[];
-  readonly changed: BriefChanged;
 }
 
 /**
@@ -349,12 +302,6 @@ function decisionsOf<K extends RecordedDecision['decision']>(context: BriefConte
   return context.findings.flatMap(({ decision }) => (decision !== null && decision.decision === kind ? [decision as Extract<RecordedDecision, { decision: K }>] : []));
 }
 
-/** The ids of the findings a fix run left with `outcome` as Fixes names it, the last pass's, in rank order. */
-const withOutcome = (context: BriefContext, outcome: FindingOutcome): string[] => [...context.outcomes].filter(([, found]) => found.last === outcome).map(([id]) => id);
-
-/** The ids of the findings whose last outcome is `fate` in the brief's vocabulary, in rank order. */
-const withFate = (context: BriefContext, fate: BriefFate): string[] => [...context.outcomes].filter(([, found]) => fateWordsOf[found.last] === fate).map(([id]) => id);
-
 function questionsOf(context: BriefContext): BriefQuestion[] {
   return decisionsOf(context, 'ask').map((decision) => {
     const { ask } = decision;
@@ -395,224 +342,8 @@ function departuresOf(context: BriefContext): BriefDeparture[] {
   });
 }
 
-/** The outcomes of a check that did not finish, which the brief names as a gap. */
-const unfinishedOutcomes: readonly CheckOutcome[] = ['timeout', 'skipped', 'not-started'];
-
-/** What an unfinished check did, in the brief's verb for its outcome, or null for one that ran to an outcome. */
-const unfinishedWords = (outcome: CheckOutcome | null): string | null => (outcome !== null && unfinishedOutcomes.includes(outcome) ? outcomeVerbs[outcome] : null);
-
-/**
- * The gaps of a fix run: each check that did not run or finish, each
- * check the change breaks or that the run took to the base and did not
- * compare (R5 of the facts before a merge), each fix no fixer applied,
- * the work the run budget did not start, and a commit a stop cut short.
- */
-function fixGaps(context: BriefContext, fix: FixState): BriefGap[] {
-  const gaps: BriefGap[] = [];
-  for (const check of fix.checks.planned?.checks ?? []) {
-    // A check the project defines that the operator dropped says so, with the tool this machine lacked (R15 of the repository survey).
-    if (check.command === null) gaps.push({ kind: 'check', text: `No ${check.kind} check ran: ${droppedByOperator(context.review.survey, check) ?? check.reason ?? 'the run has no command for it'}.` });
-  }
-  for (const check of context.checks) {
-    const unfinished = [check.before, check.last?.outcome ?? null].map(unfinishedWords).filter((words) => words !== null);
-    if (unfinished.length > 0) gaps.push({ kind: 'check', text: `The ${check.kind} check did not finish: it ${unfinished.join(', then ')}.` });
-  }
-  for (const text of context.checks.map(checkGap)) {
-    if (text !== null) gaps.push({ kind: 'check', text });
-  }
-  // A fix not attempted says why, as the fold records it, in plain words that name no batch (R12); a deferred or blocked one says its fate.
-  const unappliedWords = (fate: BriefFate, id: string): string => {
-    if (fate !== 'not-attempted') return fateClause(fate);
-    switch (context.outcomes.get(id)?.unattempted) {
-      case 'budget':
-        return `${fateClause(fate)} before the run budget was reached`;
-      case 'failures':
-        return 'its fixer failed twice and gave no answer';
-      default:
-        return fateClause(fate);
-    }
-  };
-  // What went to a fixer: a person's answer, when an answer pass gave the outcome; else by its decision, a fix, the default of a question that edits the code, or for a run configured before the decision step, a finding the run routed.
-  const decidedOf = new Map(context.findings.map(({ entry, decision }) => [entry.finding.id, decision?.decision ?? null]));
-  const wentToFixer = (id: string): string => {
-    if (context.outcomes.get(id)?.byAnswerPass === true) return `The answer on ${id} went to a fixer`;
-    switch (decidedOf.get(id)) {
-      case 'ask':
-        return `The default of the question on ${id} went to a fixer`;
-      case 'fix':
-        return `${id} was decided as a fix`;
-      default:
-        return `${id} went to a fixer`;
-    }
-  };
-  for (const fate of ['deferred', 'blocked', 'not-attempted'] as const) {
-    for (const id of withFate(context, fate)) gaps.push({ kind: 'fix', text: `${wentToFixer(id)}, and ${unappliedWords(fate, id)}.` });
-  }
-  const stopped = budgetStoppedUnits(fix);
-  if (stopped.length > 0) {
-    // In plain words, the findings the stopped batches hold, since the brief names no batch (R12): those left not attempted, as the gaps above list them, not a second-round batch's that the first round answered.
-    const keys = new Set(stopped.filter((unit) => unit.phase === 'fixes').map((unit) => unit.key));
-    const findings = new Set(allBatches(fix).filter((batch) => keys.has(batch.key)).flatMap((batch) => batch.findingIds).filter((id) => context.outcomes.get(id)?.last === 'not attempted')).size;
-    const parts = [
-      ...(keys.size === 0 ? [] : [findings === 0 ? 'some of the fixes' : counted(findings, 'finding', 'findings')]),
-      ...(stopped.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []),
-      ...(stopped.some((unit) => unit.phase === 'repair') ? ['the repair of the checks'] : []),
-    ];
-    const verb = parts.length === 1 && (findings === 1 || keys.size === 0) ? 'was' : 'were';
-    gaps.push({ kind: 'budget', text: `The run budget stopped the fixes before ${listed(parts)} ${verb} attempted. The facts of the run at the end of the report give the command that continues them.` });
-  }
-  if (fix.openSeries !== null) gaps.push({ kind: 'stop', text: 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.' });
-  // A step that did not answer brought no document in line; one whose fixes changed no file had nothing to do, and a run an engine before the step configured never had one, though its brief counts its lines (R7, R8, R11 of the documentation step).
-  const cause = stepNotRunCause(context.review);
-  if (context.review.documentationStep && cause !== null && cause !== 'no-edits') gaps.push({ kind: 'documentation', text: `${stepNotRunSentence(cause)}${context.documents.length === 0 ? '' : ' The documents left are in Documents left out of date.'}` });
-  return gaps;
-}
-
-/** What the run did not cover (R10 of the brief of a run), in plain words, each gap with its kind. */
-function gapsOf(context: BriefContext): BriefGap[] {
-  const { state, review } = context;
-  const scope = state.scope!;
-  const gaps: BriefGap[] = [];
-  for (const [angle, reason] of Object.entries(review.anglesNotRun)) gaps.push({ kind: 'angle', text: `The ${angle} angle did not run (${reason}). A later pass looked for what it would have found.` });
-  for (const group of unverifiedGroupsOf(review)) gaps.push({ kind: 'unverified', text: `No verifier examined ${group.candidateIds.join(', ')} (${group.reason}); each counts as PLAUSIBLE.` });
-  if (scope.excluded.count > 0) gaps.push({ kind: 'excluded', text: `${counted(scope.excluded.count, 'changed path', 'changed paths')} under ${scope.request.exclude.join(', ')}, which the settings leave out.` });
-  const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
-  if (oversized.length > 0) gaps.push({ kind: 'oversized', text: `${counted(oversized.length, 'file', 'files')} too large to freeze, which no worker was given: ${oversized.join(', ')}.` });
-  if (review.fix !== null) gaps.push(...fixGaps(context, review.fix));
-  // A worker a stop ended, by a kill or with its engine, whose unit no later worker of the same label ran again.
-  const workers = Object.values(state.workers);
-  const stopped = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !ranAgain(workers, worker));
-  if (stopped.length > 0) gaps.push({ kind: 'stop', text: `A stop ended ${counted(stopped.length, 'worker', 'workers')} whose work did not run again; the notes of the run name ${stopped.length === 1 ? 'it' : 'them'}.` });
-  return gaps;
-}
-
 /** A judgment of the triage as the text of its condition: what, and the files that show it. */
 const judgedWords = (condition: ChangeCondition): string => `${condition.what === null ? '' : `: ${condition.what.trim().replace(/[.]+$/, '')}`}${condition.files.length === 0 ? '' : ` (${condition.files.join(', ')})`}`;
-
-/**
- * The conditions of principle 8 that hold (R11 of the brief of a run),
- * each with its findings: the fixes that go against a written rule and
- * that no person has accepted or rejected yet; the fixes a fixer applied
- * on a verdict that is only PLAUSIBLE, or in a run that only reviewed,
- * the findings decided as fixes on one; and the two judgments of the
- * triage, marked as its own.
- */
-function lookOf(context: BriefContext, departures: readonly BriefDeparture[]): BriefLook[] {
-  const { review } = context;
-  const look: BriefLook[] = [];
-  // A departure a person reviewed has been looked at; the departures part says what they decided.
-  const unreviewed = departures.filter((departure) => departure.review === null);
-  if (unreviewed.length > 0) look.push({ condition: 'departure', findings: unreviewed.map((departure) => departure.id), text: `${counted(unreviewed.length, 'fix goes', 'fixes go')} against a written rule` });
-  const plausible = context.findings
-    .filter(({ entry, decision }) => entry.resolution.verdict === 'PLAUSIBLE' && (review.fix === null ? decision?.decision === 'fix' : context.outcomes.get(entry.finding.id)?.last === 'applied'))
-    .map(({ entry }) => entry.finding.id);
-  if (plausible.length > 0) {
-    const what = review.fix === null ? counted(plausible.length, 'finding decided as a fix rests', 'findings decided as fixes rest') : counted(plausible.length, 'fix rests', 'fixes rest');
-    look.push({ condition: 'plausible', findings: plausible, text: `${what} on a verdict that is only PLAUSIBLE` });
-  }
-  if (review.change.kind === 'given') {
-    const { publicInterface, wideEffect } = review.change.reading;
-    if (publicInterface.holds) look.push({ condition: 'public-interface', findings: [], text: `The change alters a public interface, in the triage's judgment${judgedWords(publicInterface)}` });
-    if (wideEffect.holds) look.push({ condition: 'wide-effect', findings: [], text: `The change affects many files beyond the ones it changes, in the triage's judgment${judgedWords(wideEffect)}` });
-  }
-  return look;
-}
-
-function changedOf(context: BriefContext): BriefChanged {
-  const fix = context.review.fix;
-  const left = decisionsOf(context, 'leave').map((decision) => decision.id);
-  if (fix === null) {
-    const toFix = decisionsOf(context, 'fix').map((decision) => decision.id);
-    return { fixed: false, decided: context.review.decisions !== null, applied: [], alreadyInTree: [], deferred: [], blocked: [], notAttempted: [], toFix, commits: null, patches: 0, left, checks: [], noCommand: [], documentation: null, validation: validationOf([]) };
-  }
-  const shas = fix.commits.flatMap((series) => series.commits.map((commit) => commit.sha));
-  const applied = withOutcome(context, 'applied');
-  return {
-    fixed: true,
-    decided: context.review.decisions !== null,
-    applied,
-    alreadyInTree: withOutcome(context, 'already applied'),
-    deferred: withOutcome(context, 'deferred'),
-    blocked: withOutcome(context, 'blocked'),
-    notAttempted: withOutcome(context, 'not attempted'),
-    toFix: [],
-    commits: shas.length === 0 ? null : { shas, uncommittedPatches: fix.revisions.length - committedRevisions(fix) },
-    patches: fix.revisions.length,
-    // A finding a run configured before the decision step held for the author was left by no decision, and counts with those left.
-    left: [...left, ...withOutcome(context, 'held for the author')],
-    checks: context.checks,
-    noCommand: (fix.checks.planned?.checks ?? []).filter((check) => check.command === null).map((check) => check.kind),
-    documentation: context.review.documentationStep ? documentationWords(context.review, fix) : null,
-    // The answer that gave each fix its last outcome applied it: the fix pass's, or an answer pass's.
-    validation: validationOf(applied.map((id) => ({ id, methods: (lastFixAnswer(context.review, fix, id).answer?.validation ?? []).map((entry) => entry.method) }))),
-  };
-}
-
-/**
- * What the documentation step did, as the one sentence of what
- * deep-review changed (R10 of the documentation step): how many documents
- * it updated and how many it left, which its answer says, or why it did
- * not run.
- */
-function documentationWords(review: ReviewState, fix: FixState): string {
-  const cause = stepNotRunCause(review);
-  if (cause !== null) return stepNotRunSentence(cause);
-  // A fix run's step with no cause answered.
-  const answer = fix.answers.documentation[documentationUnitKey]!;
-  // What it updated: every file an item edited, whatever its status, since a deferred item may hold a partial change.
-  const updated = new Set(answer.findings.flatMap((finding) => finding.files)).size;
-  // What it left, by the identity the list of documents left groups it by, so two spellings of one document count once and two documents twice.
-  const leftFiles = new Set(leftByStep(fix).map((left) => left.key)).size;
-  if (updated === 0 && leftFiles === 0) return 'The documentation step found no document out of date.';
-  if (updated === 0) return `The documentation step left ${counted(leftFiles, 'document', 'documents')} out of date.`;
-  return `The documentation step updated ${counted(updated, 'document', 'documents')}${leftFiles === 0 ? '' : ` and left ${String(leftFiles)}`}.`;
-}
-
-/**
- * The headline's sentence: how many things need the person, the documents
- * the run left out of date (PD6 of the documentation step) and the checks
- * its edits made fail (R4, PD4 of the facts before a merge) among them,
- * and that nothing waits. A fix run with nothing to count says too that
- * it left no document out of date that it knows of and that its edits
- * made no check fail; a run that only reviewed edits nothing, so its
- * sentence says nothing of either.
- */
-function headlineText(counts: Omit<Brief['headline'], 'text'>, defaultsInPlace: boolean, fixed: boolean): string {
-  const { questions, departures, documents, checks } = counts;
-  const total = questions + departures + documents + checks;
-  if (total === 0) {
-    return fixed
-      ? 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.'
-      : 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.';
-  }
-  const parts = [
-    ...(questions === 0 ? [] : [counted(questions, 'question', 'questions')]),
-    ...(departures === 0 ? [] : [counted(departures, 'fix that goes against a written rule', 'fixes that go against a written rule')]),
-    ...(documents === 0 ? [] : [counted(documents, 'document that the edits of the run left out of date', 'documents that the edits of the run left out of date')]),
-    ...(checks === 0 ? [] : [counted(checks, 'check that the edits of the run made fail', 'checks that the edits of the run made fail')]),
-  ];
-  const waits = questions === 0 ? 'Nothing waits for you: the run went on as it decided.' : `Nothing waits for you: ${questions === 1 ? 'the' : 'each'} question has a default${defaultsInPlace ? ' in place' : ''}.`;
-  return `${counted(total, 'thing needs', 'things need')} you: ${listed(parts)}. ${waits}`;
-}
-
-/**
- * The sentence that says the run covered everything R10 names, for a run
- * with no gap: the checks of a fix run ran before the fixes, and after
- * them unless no fix changed a file, when no check runs again.
- */
-function coveredText(context: BriefContext): string {
-  if (context.review.fix === null) return 'Each angle ran, and a verifier examined each candidate.';
-  return context.checks.every((check) => check.last !== null)
-    ? 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.'
-    : 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.';
-}
-
-/** The core of the change from the triage's whole account, or why the run has none; `beforeEdits` says whether a fixer or an answer pass applied a fix since the account was written. */
-function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
-  if (account.kind !== 'given') return { state: account.kind };
-  const { reading } = account;
-  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
-}
 
 /** What became of a finding (R6 of the report for the person): a question still open, fixed or not, left, or in a run that only reviewed, planned. */
 function findingStatusOf(context: BriefContext, id: string, decision: RecordedDecision | null): FindingStatus {
@@ -872,6 +603,13 @@ function leftAsOf(context: BriefContext, findings: readonly BriefFinding[]): str
   return `Left as is: ${[...reasons].map(([reason, numbers]) => `${findingWords(numbers)}, ${reason}`).join('; ')}.`;
 }
 
+/** The core of the change from the triage's whole account, or why the run has none; `beforeEdits` says whether a fixer or an answer pass applied a fix since the account was written. */
+function changeOf(account: TriageAccount, beforeEdits: boolean): BriefChange {
+  if (account.kind !== 'given') return { state: account.kind };
+  const { reading } = account;
+  return { state: 'given', what: reading.what, why: reading.why, whyFrom: reading.whyFrom, restsOn: reading.restsOn, publicInterface: reading.publicInterface, wideEffect: reading.wideEffect, beforeEdits };
+}
+
 /** The brief of a run, from its fold alone (R1). The run must be configured for review and have its scope. */
 export function briefOf(state: RunState): Brief {
   const review = state.review;
@@ -879,19 +617,14 @@ export function briefOf(state: RunState): Brief {
   const context = contextOf(state, review);
   const questions = questionsOf(context);
   const departures = departuresOf(context);
-  const openQuestions = questions.filter((question) => question.answer === null).length;
-  const openDepartures = departures.filter((departure) => departure.review === null).length;
-  const notCovered = gapsOf(context);
-  const counts = { questions: openQuestions, departures: openDepartures, documents: context.documents.length, checks: context.checks.filter((check) => check.fault === 'edits').length };
-  const changed = changedOf(context);
   // A fixer applied a fix, or an answer pass applied an answer, after the triage wrote its account (R5 of the questions in the chat).
-  const edited = changed.applied.length > 0 || review.answers.some((answer) => answer.appliedBy !== null && answer.appliedBy !== 'tree');
+  const edited = [...context.outcomes.values()].some((outcomes) => outcomes.last === 'applied') || review.answers.some((answer) => answer.appliedBy !== null && answer.appliedBy !== 'tree');
   const findings = context.findings.map(({ entry, decision }, index): BriefFinding => ({
     number: index + 1,
     id: entry.finding.id,
     merged: entry.members.map((member) => member.id),
     severity: entry.finding.severity,
-    verdict: entry.resolution.verdict,
+    verdict: entry.resolution.verdict === 'CONFIRMED' ? 'CONFIRMED' : 'PLAUSIBLE',
     status: findingStatusOf(context, entry.finding.id, decision),
     summary: firstSentence(entry.finding.summary),
   }));
@@ -915,27 +648,11 @@ export function briefOf(state: RunState): Brief {
     fixes: fixesOf(context, findings),
     notExamined: notExaminedOf(context),
     leftAs: leftAsOf(context, findings),
-    headline: { ...counts, text: headlineText(counts, questions.every((question) => question.answer !== null || question.defaultApplied), review.fix !== null) },
     change: changeOf(review.change, edited),
     questions,
     departures,
     documents: context.documents,
-    notCovered,
-    covered: notCovered.length === 0 ? coveredText(context) : null,
-    look: lookOf(context, departures),
-    changed,
   };
-}
-
-/** The most ids a list of the brief shows; it counts the rest (R13 of the brief of a run). */
-export const shownIds = 8;
-
-/** Ids as the brief lists them: the first `shownIds`, each as `show` gives it, then how many more. */
-export function idWords(ids: readonly string[], show: (id: string) => string = (id) => id): string {
-  const named = ids.slice(0, shownIds).map(show);
-  const more = ids.length - named.length;
-  if (more > 0) return `${named.join(', ')} and ${String(more)} more`;
-  return listed(named);
 }
 
 /** What became of a decided fix, in the brief's plain words (the table of plain words of the design). */
