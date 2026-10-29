@@ -144,7 +144,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     it('shows the rule, its source, the fact against it, the fix and the commands that accept and reject it', () => {
       const [found] = briefOf(answerable()).departures;
       assert.deepEqual(found, {
-        id: 'RIPPLE-1', rule: departure.rule, source: departure.source, fact: departure.reason, fix: decisions[0]!.fix!.approach,
+        id: 'RIPPLE-1', finding: 1, rule: departure.rule, source: departure.source, fact: departure.reason, fix: decisions[0]!.fix!.approach,
         fate: 'not-fixed', review: null,
         accept: `deep-review answer --run ${shortRunId(answerable().id)} --finding 1 --accept`, reject: `deep-review answer --run ${shortRunId(answerable().id)} --finding 1 --reject`,
       });
