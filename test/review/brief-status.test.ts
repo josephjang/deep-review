@@ -108,3 +108,12 @@ describe('the fixes a run that only reviewed would apply in the brief', () => {
     assert.deepEqual(brief.fixes.map((fix) => [fix.finding, fix.subject]), [[1, 'guard the null once, before parse reads it'], [2, 'accept it and return an empty result']]);
   });
 });
+
+describe('the items of what needs you in the brief', () => {
+  it('indents the lines under an item by the width of its number, so item 10 keeps its options and commands', () => {
+    const brief = briefOf(decidedFixRun().fold());
+    const needs = Array.from({ length: 10 }, (_, index) => ({ rank: 1 as const, condition: 'edits' as const, finding: null, check: null, document: null, patch: null, lines: [`Lead ${String(index + 1)}.`, `Under ${String(index + 1)}.`] }));
+    const lines = briefMarkdown({ ...brief, needs });
+    assert.deepEqual(lines.slice(lines.indexOf('9. Lead 9.'), lines.indexOf('9. Lead 9.') + 4), ['9. Lead 9.', '   - Under 9.', '10. Lead 10.', '    - Under 10.']);
+  });
+});
