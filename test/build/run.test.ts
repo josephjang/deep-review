@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -104,6 +104,21 @@ describe('runBuild', () => {
     await assert.rejects(runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent, engine: null }), /source does not exist/);
     assert.equal(readFileSync(join(repository, 'dist/alpha/SKILL.md'), 'utf8'), 'alpha\r\n', 'alpha was assembled but must not be published');
     assert.deepEqual(readdirSync(stagingParent), []);
+  });
+
+  it('build mode publishes a tree staged on another filesystem than the repository', async (t) => {
+    const elsewhere = '/dev/shm';
+    if (!existsSync(elsewhere) || statSync(elsewhere).dev === statSync(repository).dev) return t.skip(`${elsewhere} is not a filesystem apart from ${tmpdir()} here`);
+    seedMatchingRepository(repository);
+    write(repository, 'skill/alpha/SKILL.md', 'alpha changed\n');
+    const staging = mkdtempSync(join(elsewhere, 'deep-review-run-'));
+    try {
+      await runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent: staging, engine: null });
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+    assert.equal(readFileSync(join(repository, 'dist/alpha/SKILL.md'), 'utf8'), 'alpha changed\n');
+    assert.deepEqual(readdirSync(join(repository, 'dist')), ['alpha', 'beta'], 'nothing of the publish is left beside the artifacts');
   });
 
   it('defaults to the repository targets', async () => {
