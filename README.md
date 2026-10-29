@@ -223,7 +223,7 @@ meaning that says who compared the failures; and What deep-review fixed,
 one row per fix with how its fixer reports checking it and its patch.
 Each finding is named by its number, its rank in the run. One block per
 finding follows, from where it is and why to its decision, its fix, its
-patch and each validation its fixer reports; then the evidence:
+patch and each validation its fixers report; then the evidence:
 Documentation updates, Checks, Patches, What the review covered, Refuted
 at verification, and About this run, with the repository, the commits,
 the engine, the runtime, the models and the settings, the one part that
