@@ -48,10 +48,12 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
   it('refuses an answer the flags do not spell with the usage and exit 1, before reading any run (R1 of answers)', async (t) => {
     const box = ReviewSandbox.forTest(t);
     const help = await run(box, '--help');
-    assert.ok(help.stdout.includes('deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]'), 'the usage names the answer command');
+    assert.ok(help.stdout.includes('deep-review answer  --finding <number> (--option <n> | --accept | --reject) [--note <text>]'), 'the usage names the answer command');
     for (const [args, message] of [
-      [['answer', '--option', '1'], /--finding takes a finding's id as the report prints it, such as RIPPLE-2, not ""/],
-      [['answer', '--finding', 'ripple-2', '--option', '1'], /--finding takes a finding's id [^\n]*, not "ripple-2"/],
+      [['answer', '--option', '1'], /--finding takes a finding's number as the report prints it, such as 2, or its id, such as RIPPLE-2, not ""/],
+      [['answer', '--finding', 'ripple-2', '--option', '1'], /--finding takes a finding's number [^\n]*, not "ripple-2"/],
+      [['answer', '--finding', '0', '--option', '1'], /--finding takes a finding's number [^\n]*, not "0"/],
+      [['answer', '--finding', '02', '--option', '1'], /--finding takes a finding's number [^\n]*, not "02"/],
       [['answer', '--finding', 'RIPPLE-2'], /give exactly one of --option <n>, --accept and --reject/],
       [['answer', '--finding', 'RIPPLE-2', '--accept', '--reject'], /give exactly one of --option <n>, --accept and --reject/],
       [['answer', '--finding', 'RIPPLE-2', '--option', '2', '--accept'], /give exactly one of/],

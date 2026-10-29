@@ -24,7 +24,7 @@ import { acquireRunLock, acquireStartLock } from './lock.ts';
 import type { PolicyFlags } from './policy.ts';
 import { latestFirst, readableRuns, runIdOf } from './runs.ts';
 import { budgetBlocker } from './steps.ts';
-import { rankedFindings, reviewStatus } from './state.ts';
+import { findingIdOf, findingNumbers, rankedFindings, reviewStatus } from './state.ts';
 import type { ExpectedMatch } from './tree.ts';
 
 /** What `answer` needs; the roles, platform, environment and preflight limits are the ones the pass's resume holds the run with, checked before the pass opens. */
@@ -34,7 +34,7 @@ export interface AnswerOptions extends Pick<PinnedOptions, 'rolesRoot' | 'platfo
   readonly worktree: string;
   /** The run to answer on; when absent, the newest complete decided run of this worktree, by its last event in the ledger (`chooseAnswerRun`). */
   readonly runId?: string;
-  /** The finding answered, by its id as the report prints it. */
+  /** The finding answered, by its number as the report prints it, or by its id (R7 of the report for the person). */
   readonly finding: string;
   readonly answer: Answer;
   readonly note: string | null;
@@ -104,8 +104,9 @@ const flagOf = (answer: Answer): string => (answer.kind === 'option' ? `--option
 function requireAdmitted(run: RunState, finding: string, answer: Answer): RecordedDecision {
   const decision = run.review!.decisions!.find((candidate) => candidate.id === finding);
   if (decision === undefined) {
-    const ids = answerable(run).map((entry) => entry.id);
-    throw new ReviewRefusedError(`run ${run.id} has no finding ${finding}; ${ids.length === 0 ? 'it asked no question and no fix of it departs from a rule' : `the findings it can answer are ${ids.join(', ')}`}`);
+    const numbers = findingNumbers(run.review!);
+    const named = answerable(run).map((entry) => `${String(numbers.get(entry.id))} (${entry.id})`);
+    throw new ReviewRefusedError(`run ${run.id} has no decision of finding ${finding}; ${named.length === 0 ? 'it asked no question and no fix of it departs from a rule' : `the findings it can answer are ${named.join(', ')}`}`);
   }
   if (!admits(decision, answer)) throw new ReviewRefusedError(`${finding} was decided ${decision.decision}${departs(decision) ? ', departing from a rule' : ''}, which admits ${admitted(decision)}, not ${flagOf(answer)}`);
   return decision;
@@ -212,24 +213,27 @@ export async function answerRun(options: AnswerOptions): Promise<AnswerOutcome> 
       let run = checkpoint.fold(chosen.id);
       const reason = whyNotAnswerable(run, worktree);
       if (reason !== null) throw new ReviewRefusedError(reason);
-      requireAdmitted(run, options.finding, options.answer);
+      // A number names the finding of that rank, which the ledger keys by its id (TD4 of the report for the person).
+      const finding = findingIdOf(run.review!, options.finding);
+      if (finding === null) throw new ReviewRefusedError(`run ${run.id} has ${String(rankedFindings(run.review!).length)} findings, so it has no finding ${options.finding}`);
+      requireAdmitted(run, finding, options.answer);
       const fixes = run.review!.fix !== null;
-      const standing = standingAnswer(run.review!, options.finding);
+      const standing = standingAnswer(run.review!, finding);
       const again = standing !== null && sameAnswer(standing.answer, options.answer);
       const retry = again && standing.appliedBy === null && fixes && !options.recordOnly;
-      if (again && !retry) throw new ReviewRefusedError(`${options.finding} is already answered ${answerWords(options.answer)} on run ${run.id}, on ${standing.at}${standing.appliedBy === null ? '' : ', and the tree holds it'}`);
+      if (again && !retry) throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options.answer)} on run ${run.id}, on ${standing.at}${standing.appliedBy === null ? '' : ', and the tree holds it'}`);
       // A retry is not recorded again (R3), so a note it carries would never reach the pass's fixer, which reads the standing one.
       if (retry && options.note !== null && options.note !== standing.note) {
-        throw new ReviewRefusedError(`${options.finding} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
+        throw new ReviewRefusedError(`${finding} is already answered ${answerWords(options.answer)} on run ${run.id}, ${standing.note === null ? 'with no note' : `with the note "${standing.note}"`}, and applying it again keeps the note it was recorded with; run deep-review answer again without --note to apply it`);
       }
-      if (!retry) run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id: options.finding, answer: options.answer, note: options.note } }]);
+      if (!retry) run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'answer.recorded', version: 1, payload: { id: finding, answer: options.answer, note: options.note } }]);
       try {
-        const recorded = standingAnswer(run.review!, options.finding)!;
+        const recorded = standingAnswer(run.review!, finding)!;
         const outcome = (next: AnswerOutcome['next'], state: RunState): AnswerOutcome => ({ runId: run.id, recorded: !retry, standing: recorded, next, state });
         if (!fixes) return outcome('read-only', run);
         const owed = owedAnswers(run.review!);
         // An answer the tree already holds is applied by no later pass, so recording it only says so as a pass would.
-        if (options.recordOnly) return outcome(owed.some((answer) => answer.id === options.finding) ? 'record-only' : 'nothing-owed', run);
+        if (options.recordOnly) return outcome(owed.some((answer) => answer.id === finding) ? 'record-only' : 'nothing-owed', run);
         // In rank order, as the pass's fixer works them.
         const order = rankedFindings(run.review!).map((entry) => entry.finding.id);
         const ids = owed.map((answer) => answer.id).sort((a, b) => order.indexOf(a) - order.indexOf(b));

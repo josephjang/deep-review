@@ -107,3 +107,76 @@ export function paragraphText(text: string): string {
   if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, '$1\\$2');
   return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
 }
+
+/**
+ * The parts of a text in and out of its code spans, in order, by the
+ * CommonMark rule: a run of backticks opens a span that the next run of
+ * the same length closes, and a run with no such closer is plain text.
+ */
+function codeParts(text: string): { readonly code: boolean; readonly text: string }[] {
+  const parts: { code: boolean; text: string }[] = [];
+  let plain = '';
+  let at = 0;
+  while (at < text.length) {
+    const open = /`+/.exec(text.slice(at));
+    if (open === null) break;
+    const start = at + open.index;
+    const run = open[0];
+    const closer = new RegExp(`(?<!\`)${run}(?!\`)`).exec(text.slice(start + run.length));
+    if (closer === null) {
+      plain += text.slice(at, start + run.length);
+      at = start + run.length;
+      continue;
+    }
+    const end = start + run.length + closer.index + run.length;
+    plain += text.slice(at, start);
+    if (plain !== '') parts.push({ code: false, text: plain });
+    plain = '';
+    parts.push({ code: true, text: text.slice(start, end) });
+    at = end;
+  }
+  plain += text.slice(at);
+  if (plain !== '') parts.push({ code: false, text: plain });
+  return parts;
+}
+
+/**
+ * A worker's text with what a preview of Markdown would hide escaped
+ * outside its code spans (R11, TD6 of the report for the person): a
+ * backslash before `<`, before each `_` of a `__` and before `*`, which
+ * CommonMark reads as the character itself. A character a backslash
+ * already escapes stays as it is.
+ */
+export function escapedText(text: string): string {
+  return codeParts(text).map((part) => (part.code ? part.text : part.text.replaceAll(/(?<!\\)(<|\*|_(?=_)|(?<=_)_)/g, '\\$1'))).join('');
+}
+
+/** What a quote of a worker can name: the number of each finding by its id and its merged ids, the finding the quote is about, and for a fixer's text the findings of its batch, in the order its task numbered them. */
+export interface QuoteContext {
+  readonly numbers: ReadonlyMap<string, number>;
+  readonly own?: number | null;
+  readonly batch?: readonly string[] | null;
+}
+
+/**
+ * A worker's text as the report quotes it (R6, PD13, TD5 of the report for
+ * the person): its words, with the number of a finding added after each id
+ * of the run that names another finding than its own, and after a batch
+ * index such as `[0]` that stands alone and names a finding of the
+ * fixer's batch; outside its code spans, and escaped (`escapedText`). An
+ * id the run does not hold, and a name such as `argv[0]`, stay as they are.
+ */
+export function quoted(text: string, context: QuoteContext): string {
+  const alias = (number: number | undefined): string => (number === undefined || number === context.own ? '' : ` (finding ${String(number)})`);
+  return codeParts(text).map((part) => {
+    if (part.code) return part.text;
+    const named = part.text.replaceAll(/\b[A-Z]+-[1-9][0-9]*\b(?! \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
+    const indexed = context.batch === undefined || context.batch === null
+      ? named
+      : named.replaceAll(/(?<![\w\])>`])\[(0|[1-9][0-9]*)\](?! \(finding \d)/g, (index: string, position: string) => {
+        const id = context.batch![Number(position)];
+        return `${index}${alias(id === undefined ? undefined : context.numbers.get(id))}`;
+      });
+    return escapedText(indexed);
+  }).join('');
+}

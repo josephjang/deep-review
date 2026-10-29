@@ -142,7 +142,7 @@ describe('the skill texts', () => {
       // The flags the skill names are flags of report and status, and the short form that report prints after a commit names the commits.
       const usage = read('src/command.ts');
       for (const flag of ['brief', 'fixes', 'finding', 'all']) assert.ok(usage.includes(`'${flag}'`), `--${flag} is a flag the engine takes`);
-      assert.ok(usage.includes('[--json | --brief | --fixes | --stats | --finding <id>]') && usage.includes('deep-review status  --all'), 'the usage names them');
+      assert.ok(usage.includes('[--json | --brief | --fixes | --stats | --finding <number>]') && usage.includes('deep-review status  --all'), 'the usage names them');
       assert.ok(read('src/review/runs.ts').includes('export const shortRunIdLength = 8;'), '--run takes the eight characters the brief shows');
       assert.ok(read('src/review/brief.ts').includes('`, in ${counted(changed.commits.shas.length, \'commit\', \'commits\')}'), 'the line Changed names the commits once a run has them');
     });
