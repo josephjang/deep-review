@@ -9,7 +9,7 @@
  * run without the fix pass has none of these.
  */
 import { isDocumentItem, type CheckRan, type FixedFinding, type FixRecorded, type RecordedDecision, type ScopeState, type TreeRevised } from '../checkpoint/events.ts';
-import { passOf } from '../checkpoint/answer-state.ts';
+import { passNumber, passOf } from '../checkpoint/answer-state.ts';
 import { allBatches, committedRevisions, cutShortChecks, isCutAttempt, isNotAttempted, killedRun, lastAnswerOf, lastFixesAnswerOf, earlierTreeEdit, lastRecordedRun, lastFreshRun, notAttemptedNote, openStart, repairTargets, revisionMessageOf, secondRoundPlannable, type CheckRunState, type FixState, type PlannedBatch } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
@@ -136,6 +136,24 @@ const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 
 /** Every fixer's recorded answer, phase by phase in `editingPhases` order, so an editing phase added there is reported too. */
 const allFixerAnswers = (fix: FixState): FixRecorded[] => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
 
+/**
+ * Every fixer's answer for a finding, oldest first: the fix pass's
+ * batches, the first round's then the second's, then the answer passes by
+ * number; so the last is the one `lastAnswerOf` reads.
+ */
+function answersFor(fix: FixState, id: string): { readonly phase: 'fixes' | 'answer'; readonly key: string; readonly batch: PlannedBatch | null; readonly finding: FixedFinding }[] {
+  const fixes = allBatches(fix).flatMap((batch) => {
+    const finding = batch.findingIds.includes(id) ? fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id) : undefined;
+    return finding === undefined ? [] : [{ phase: 'fixes' as const, key: batch.key, batch, finding }];
+  });
+  const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(a)! - passNumber(b)!);
+  const answered = passes.flatMap((key) => {
+    const finding = fix.answers.answer[key]!.findings.find((candidate) => candidate.id === id);
+    return finding === undefined ? [] : [{ phase: 'answer' as const, key, batch: null, finding }];
+  });
+  return [...fixes, ...answered];
+}
+
 /** What a fixer's text can name, for its quotes: the numbers of the findings, the finding the block is about, and the findings of its batch in the order its task numbered them. */
 export interface FixQuote {
   readonly numbers: ReadonlyMap<string, number>;
@@ -147,8 +165,9 @@ export interface FixQuote {
  * person): what the fixer said and the subject of its commit message, its
  * patches, or why no fixer answered for it; the corrections the fixer made
  * to the plan, the files it needed from another cluster, the second round,
- * the answer pass that worked it, and each validation the fixer reports.
- * A fixer's text is quoted with the numbers of the findings it names, its
+ * the answer pass that worked it, and each validation its fixers report,
+ * oldest first and each by its fixer when more than one worked it, so the
+ * validation of each patch the block lists stays. A fixer's text is quoted with the numbers of the findings it names, its
  * batch indexes among them. A finding no fixer saw has none: its decision
  * says why.
  */
@@ -161,7 +180,8 @@ export function fixBlockLines(review: ReviewState, fix: FixState, id: string, qu
     const landed = fate.superseder.outcome === 'applied' || fate.superseder.outcome === 'already applied';
     return [`Fix: none of its own; its removal was ${by}'s fix, whose fixer ${fate.superseder.outcome === 'not attempted' ? 'did not attempt it' : `reported it ${fate.superseder.outcome}`}.${landed ? '' : ' This finding may still stand.'}`];
   }
-  const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own, batch: fate.batch?.findingIds ?? null }));
+  const saidIn = (batch: PlannedBatch | null) => (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own, batch: batch?.findingIds ?? null }));
+  const said = saidIn(fate.batch);
   const lines: string[] = [];
   if (fate.answer !== null) {
     lines.push(`Fix: ${fate.outcome}; ${said(fate.answer.note)}`);
@@ -177,7 +197,12 @@ export function fixBlockLines(review: ReviewState, fix: FixState, id: string, qu
   if (fate.secondRoundSkipped !== null) lines.push(`Second round not attempted: ${inlineText(fate.secondRoundSkipped)}`);
   // A finding the first round blocked has no second round while the run budget left a batch of the first, until a reopen runs it (PD13 of resumable runs).
   if (fate.answer?.status === 'blocked' && fix.secondRound === null && !secondRoundPlannable(fix)) lines.push('Second round not planned: the run budget stopped the first round');
-  for (const validation of fate.answer?.validation ?? []) lines.push(`Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${said(validation.evidence)}`);
+  const answers = answersFor(fix, id);
+  for (const { phase, key, batch, finding } of answers) {
+    const by = answers.length === 1 ? 'its fixer' : phase === 'fixes' ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
+    const quote = saidIn(batch);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote(validation.source)}: ${quote(validation.evidence)}`);
+  }
   return lines;
 }
 
