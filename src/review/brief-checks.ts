@@ -232,6 +232,9 @@ export interface CheckMeaningRow {
 /** Whether an outcome counts as a failure, as `faultHolds` counts it: a timeout does. */
 const fails = (outcome: CheckOutcome | null | undefined): boolean => outcome !== null && outcome !== undefined && failedOrTimedOut(outcome);
 
+/** Whether an outcome is of a run that did not finish: it was skipped, did not start, or a kill cut it. */
+const unfinished = (outcome: CheckOutcome | null | undefined): boolean => outcome === 'skipped' || outcome === 'not-started' || outcome === 'cut';
+
 /** The reasons a check was not compared, in the plain words of the brief, which names the worker that compared the failures rather than the step it ran in (R10 of the report for the person). */
 export const notComparedPlainWords: Readonly<Record<NotComparedReason, string>> = {
   ...notComparedWords,
@@ -244,7 +247,9 @@ export const notComparedPlainWords: Readonly<Record<NotComparedReason, string>> 
  * person): the first row that holds gives the meaning. The rows of a fault
  * read the fault that `faultHolds` gave, so a meaning and a fault cannot
  * disagree; the rows after them read the outcomes, and the last holds for
- * any check, so every check has a meaning.
+ * any check, so every check has a meaning. A check that did not finish as
+ * submitted has a row whether its last run passes or fails, so no such
+ * check falls to the last row.
  */
 export const checkMeanings: readonly CheckMeaningRow[] = [
   { holds: (check) => check.fault === 'edits', meaning: () => 'the edits of this run made it fail', rank: 1, comparedBy: null },
@@ -257,7 +262,10 @@ export const checkMeanings: readonly CheckMeaningRow[] = [
   { holds: (check) => check.before === 'passed' && check.last?.outcome === 'passed', meaning: () => 'passes', rank: null, comparedBy: null },
   { holds: (check) => fails(check.before) && check.last?.outcome === 'passed', meaning: () => 'passes; it failed as submitted', rank: null, comparedBy: null },
   { holds: (check) => check.before === 'passed' && check.last === null, meaning: () => 'passes as submitted; no check ran after the fixes', rank: null, comparedBy: null },
-  { holds: (check) => ['skipped', 'not-started', 'cut'].includes((check.last?.outcome ?? check.before) ?? ''), meaning: () => 'did not finish its last run', rank: null, comparedBy: null },
+  { holds: (check) => unfinished(check.last?.outcome ?? check.before), meaning: () => 'did not finish its last run', rank: null, comparedBy: null },
+  { holds: (check) => unfinished(check.before) && check.last?.outcome === 'passed', meaning: () => 'passes; it did not finish as submitted', rank: null, comparedBy: null },
+  // Only a check that neither failed nor passed as submitted fails now with no fault, since the run never took it to the base (R2).
+  { holds: (check, run) => run.baseChecksStep && fails(check.last?.outcome) && check.fault === null, meaning: (check) => `fails, not compared with the base, since ${notComparedPlainWords[check.base?.reason ?? 'not-run']}`, rank: 3, comparedBy: null },
   { holds: () => true, meaning: (check) => (check.before === null && check.last === null ? 'did not run' : 'fails'), rank: null, comparedBy: null },
 ];
 

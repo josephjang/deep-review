@@ -148,6 +148,8 @@ Each command names the run with `--run` and the first 8 characters of its id, an
 | failed as submitted, and passes in its last run | passes; it failed as submitted | none |
 | passed as submitted, and did not run after the fixes, since no fix changed a file | passes as submitted; no check ran after the fixes | none |
 | did not finish its last run: skipped, not started, or cut by a kill | did not finish its last run | none |
+| did not finish as submitted, and passes in its last run | passes; it did not finish as submitted | none |
+| fails in its last run, in a run that takes its checks to the base, which never took it there, since it did not fail as submitted | fails, not compared with the base, and why | 3 |
 | never ran | did not run | none |
 
 Below the table, one paragraph gives a fixed sentence on the shared case, a check that fails the same way on the base has no failure that the change adds; names the base; says what the run did not examine, each gap of R10 of the brief of a run that is not an item; and names the findings left as is, by their reason. The report never says whether to merge. The table replaces the line `Checks:` of the short form and the sentences on the checks of "What deep-review changed" (R6 of the facts before a merge). A run that an engine before the checks on the base configured says nothing of the base, as R10 of the facts before a merge has it: its table has no column for the base, and its rows read the meanings that do not rest on the base.
