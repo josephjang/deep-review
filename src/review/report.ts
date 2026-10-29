@@ -133,9 +133,14 @@ export function findingBlockOf(state: RunState, id: string): string[] | null {
   const numbers = findingNumbers(review);
   const number = numbers.get(id);
   if (number === undefined) return null;
-  const brief = briefOf(state);
-  const entry = rankedFindings(review)[number - 1]!;
-  return findingBlock(state, brief.findings[number - 1]!, entry, review.decisions?.find((decision) => decision.id === entry.finding.id) ?? null, numbers);
+  const finding = briefOf(state).findings.find((entry) => entry.number === number)!;
+  const entry = entriesById(review).get(finding.id)!;
+  return findingBlock(state, finding, entry, review.decisions?.find((decision) => decision.id === finding.id) ?? null, numbers);
+}
+
+/** The ranked findings of a review by the id of each, so a finding of the brief finds its entry by its id rather than by its place in either list. */
+function entriesById(review: ReviewState): ReadonlyMap<string, ReportFinding> {
+  return new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
 }
 
 /** The units the run budget left, as the line that names how to continue them says them: the batches by their count, the documentation step, then the repair. */
@@ -438,14 +443,14 @@ export function renderReport(state: RunState, input: ReportInput): string {
   if (review === null || scope === null) throw new Error(`Run ${state.id} has no review to report on`);
   const places = { worktree: state.worktree, home: input.home };
   const brief = briefOf(state);
-  const findings = rankedFindings(review);
+  const entries = entriesById(review);
   const numbers = findingNumbers(review);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review);
   const findingsSection = [
     '## Findings',
     '',
-    ...(findings.length === 0 ? ['No finding survived verification.'] : findings.flatMap((entry, index) => [...findingBlock(state, brief.findings[index]!, entry, decidedFor.get(entry.finding.id) ?? null, numbers), ''])),
+    ...(brief.findings.length === 0 ? ['No finding survived verification.'] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id)!, decidedFor.get(finding.id) ?? null, numbers), ''])),
   ];
   // The verifiers' prompt names this part, so it keeps its name and its form (R8 of the report for the person).
   const refutedSection = [
