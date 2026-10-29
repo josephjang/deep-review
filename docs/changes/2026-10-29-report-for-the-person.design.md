@@ -154,10 +154,11 @@ The maximum follows from the caps and the shapes of the items. A check has one f
 | A blank line and the paragraph below the table | 2 | 2 |
 | The heading "What deep-review fixed", with a blank line before and after | 3 | none |
 | The table of the fixes: its heading row, its rule, ten rows and the row of the others | 13 | none |
+| A blank line and the sentence that says what a plausible finding is, when a fix of one is in the table | 2 | none |
 | A blank line, then "Findings" in the brief or the line of `--fixes` in the chat | 1 | 2 |
-| In all | 72 | 52 |
+| In all | 74 | 52 |
 
-Each paragraph is one line, so the account, the count line and an item keep their number of lines however long their text, and "What needs you" starts at line 11 of the report. The chat form holds at most 52 lines, then the path; the brief holds at most 72 lines before "Findings". The tests of the maximum replace the tests of the 23 lines.
+Each paragraph is one line, so the account, the count line and an item keep their number of lines however long their text, and "What needs you" starts at line 11 of the report. The chat form holds at most 52 lines, then the path; the brief holds at most 74 lines before "Findings", 73 of them its own and a blank line. The tests of the maximum replace the tests of the 23 lines.
 
 ### The JSON form (R13)
 
@@ -197,7 +198,7 @@ The table gives the new place of each part of today's report.
 
 `src/review/brief.ts` keeps the model and its Markdown, and gains the chat form; the short form leaves. `src/review/needs.ts` holds the table of needs. `src/review/brief-checks.ts` gains the meanings and the kinds of validation. `src/review/report.ts` keeps the order of the report, the blocks and the evidence of the review; `src/review/fix-report.ts` keeps the evidence of the fix pass and gives up what moves to `--stats`. A new `src/review/stats-report.ts` renders `--stats`. `src/review/decision-report.ts` gives its lines to the blocks and loses its section. `quoted` and `escapedText` go in `src/review/markdown.ts`. `src/review/brief-json.ts` gains version 5. `src/command.ts` gains `--stats` and the number for `--finding`, and `src/review/answer.ts` the number for `answer`.
 
-The work goes in commits that each pass `npm run check`, the subtraction first: `--stats`, with the parts that leave the report and the second copy of the account; the numbers and the aliases; the table of needs and the meanings, with the model; the brief, the chat form and `report` with no flag; the blocks; the evidence parts; version 5 of the JSON form; the skills and the README; and the build of `dist/`. The snapshots change in each commit that changes what they render, and each is read by hand before it is committed.
+The work goes in commits that each pass `npm run check`, the subtraction first: `--stats`, with the parts that leave the report and the second copy of the account; the numbers and the aliases; the table of needs and the meanings, with the model; the brief, the chat form and `report` with no flag; the blocks; the evidence parts; version 5 of the JSON form; the skills and the README; and the build of `dist/`. The snapshots change in each commit that changes what they render, and each is read by hand before it is committed. Two steps went together and one went apart as the work went: the blocks and the evidence parts are one commit, since both rewrite the same sections and their tests; and the numbers are two, the commands taking a number first and the report printing numbers with the new brief, since printing them in the old brief would have changed tests that the new brief rewrites.
 
 ### The skills and the README
 
@@ -245,7 +246,7 @@ Each list of the brief has a cap, and one line names what the cap leaves out, as
 
 ### Are the caps right?
 
-The brief shows three decisions, three items of unfinished work and ten fixes in full, and names the others. Rewrites of the reports of the run of PD10 and of the run in Codex have briefs of 53 and 58 lines, under the maximum of 72. The gate runs had at most three questions and seven patches, so none of them reaches a cap; a run that does shows whether the line of the others is enough.
+The brief shows three decisions, three items of unfinished work and ten fixes in full, and names the others. Rewrites of the reports of the run of PD10 and of the run in Codex have briefs of 53 and 58 lines, under the maximum of 74. The gate runs had at most three questions and seven patches, so none of them reaches a cap; a run that does shows whether the line of the others is enough.
 
 ### Do the hosts show the top of the brief as printed?
 
@@ -259,7 +260,7 @@ A fixer may write `[0]` for something else than its batch. The test fixtures hol
 
 ### R1: The order and the maximum of the brief
 
-A test of the shape reads each snapshot and checks that the brief holds its parts in order and that "What needs you" starts at line 11. A test renders a fold that reaches every cap, with four failing checks, four items of rank 4, five decisions with four options each and twelve fixes, and checks the maxima of 72 and 52 lines.
+A test of the shape reads each snapshot and checks that the brief holds its parts in order and that "What needs you" starts at line 11. A test renders a fold that reaches every cap, with four failing checks, four items of rank 4, five decisions with four options each and twelve fixes, and checks the maxima of 74 and 52 lines.
 
 ### R2 and R3: The needs
 
@@ -303,7 +304,15 @@ The gate runs as R16 says. The function that the test of the shape uses reads an
 
 ## Verification
 
-No checks have run yet.
+The work is the series of the pull request of this proposal, from "Move the statistics of a run to report --stats" to "Rebuild the engine and the skills for the report for the person". Each commit of it typechecks and lints, `npm run check` passes at each commit that changes the engine and at the head, with 2,964 tests, `npm run test:contract` passes at the head, its 85 tests reading the new form, and `npm run verify` passes at the head.
+
+The tests of the design are in place but for the gate. The tests of the needs, the meanings, the kinds of validation, the blocks, the numbers, the quotes, the escaping, the chat form and the JSON form are in `test/review/brief.test.ts`, `test/review/brief-checks.test.ts`, `test/review/report.test.ts`, `test/review/markdown.test.ts` and `test/review/brief-json.test.ts`. The test of the maximum renders a brief with every list at its cap and four checks: the brief has 73 lines, and with the blank line before "Findings" 74, against the 72 of the table as first written, which left out the sentence on a plausible finding; the chat form stays under 52. Versions 1 to 4 of the JSON form are held to outputs of the engine before this change, kept in `test/fixtures/brief-json/v4.json`. The test of the shape on the report of each golden checkpoint is not written; the snapshots and the report tests read the order of the parts instead.
+
+Three snapshots were read by hand at each commit that changed them. They have 72, 153 and 174 lines, against 108, 181 and 199 before. The fix run holds two findings, so the snapshots do not show the length on a real run; the gate does.
+
+The contract test leaves out three more facts that a stop changes by its nature: the first 8 characters of the run's id, which the brief and its commands now name; the patches that the item of the uncommitted fixes names to read first, which follow how the edits of a stopped fixer are split among patches; and the line of the totals in About this run, which holds the spend.
+
+The gate of R16 has not run. The run of deep-review on the pull request and the two runs on pallets/click #3878, and the answers of the hosts to the two questions of the person, are still to come, and so are the metrics of the product part, which they measure.
 
 ## Risks & Migration
 
