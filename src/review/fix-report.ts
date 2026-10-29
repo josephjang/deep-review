@@ -390,9 +390,11 @@ export function baseWorktreeLines(review: ReviewState): string[] {
  * the repository survey), the last run of each checks phase with its
  * result, its time and the output of one that did not pass, the
  * comparison with the base and its words (R8 of the facts before a
- * merge), and the fix of the check; then why a phase ran nothing.
+ * merge), and the fix of the check with each validation its fixer
+ * reports, quoted with the numbers of the findings it names; then why a
+ * phase ran nothing.
  */
-function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string): string[] {
+function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string, numbers: ReadonlyMap<string, number>): string[] {
   const { survey } = review;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
@@ -422,7 +424,11 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
       const run = shown(phase, check.kind);
       return run === null ? [] : [`- ${phaseTitles[phase]}${edits.get(phase) === null ? '' : ', on an earlier tree'}: ${checkCell(run, evidencePath, note(phase, check.kind))}`];
     });
-    const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).map((finding) => `- Its fix: ${statusWords[finding.status]}, ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`);
+    const said = (text: string): string => inlineText(quoted(text, { numbers }));
+    const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).flatMap((finding) => [
+      `- Its fix: ${statusWords[finding.status]}, ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`,
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${said(validation.evidence)}`),
+    ]);
     return [...head, `- Command: ${codeSpan(check.command)}`, ...source, ...runs, ...fixed, ''];
   });
   const answered = review.answerPasses.length > 0;
@@ -495,7 +501,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 
 /**
@@ -576,7 +582,7 @@ export function fixLimitations(review: ReviewState): string[] {
   if (strays.length > 0) lines.push(`- Files no answer names, left in the tree and in no patch: ${strays.map(inlineText).join(', ')}.`);
   // A check not available is a gap of the brief, and the Checks table says why, with what the operator dropped and the tool this machine lacked (R15 of the repository survey; R10 of the brief of a run).
   for (const answer of allFixerAnswers(fix)) {
-    // Each validation is in the block of its finding (R6 of the report for the person), and the documentation step's under Documentation updates (R10 of the documentation step).
+    // Each validation is in the block of its finding (R6 of the report for the person), the repair's in the block of its check, and the documentation step's under Documentation updates (R10 of the documentation step).
     const failures = answer.suite.failures.trim() === '' ? '' : `: ${inlineText(answer.suite.failures)}`;
     lines.push(`- ${fixerTitle(answer.phase, answer.key)} ran its own suite: ${answer.suite.result}${answer.suite.command.trim() === '' ? '' : ` (${inlineText(answer.suite.command)})`}${failures}.`);
   }
