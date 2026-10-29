@@ -62,6 +62,17 @@ describe('the report of a fix run', () => {
     assert.match(report, /^\| \[lint\]\(#check-lint\) \| /m, 'the table of the brief links to the block');
   });
 
+  it('gives under a check\'s fix each validation the repair reports, quoted as a worker\'s text, since its findings have no block of their own', () => {
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    const repaired = fix.answers.repair[repairUnitKey]!;
+    const validation = [{ method: 'existing' as const, source: 'npm run lint', evidence: 'passed after RIPPLE-1 read <stdin>' }];
+    const findings = repaired.findings.map((finding) => (finding.id === 'lint' ? { ...finding, validation } : finding));
+    const report = render({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { [repairUnitKey]: { ...repaired, findings } } } } } });
+    assert.match(report, /^- Its fix: applied, formatted the guard; patch 3\n- Validation, as its fixer reports it: existing, npm run lint: passed after RIPPLE-1 \(finding 1\) read \\<stdin>$/m);
+    assert.match(report, /^- Its fix: deferred, every failure was there before the fixes; no patch\n\n/m, 'a fix with no validation has no line of it');
+  });
+
   it('lists the patch series in order, each with who made it and the files it changes, and leaves who held each path to the statistics', () => {
     const report = render();
     const stats = renderStats(fixRun().fold(), fixStatistics).join('\n');
