@@ -112,7 +112,7 @@ Each item says what happens if the person does nothing, in the words of the tabl
 A line above the items counts them, one part for each condition that holds, with the number of its items or, for rank 8, of its patches. An example, from the run of PD10:
 
 ```text
-Before a merge: 1 check fails because of the change, 1 fix against a written rule to review, 1 question whose default is deep-review's choice, and 7 patches to commit. The edits of this run made no check fail, and the run left no work unfinished and no document out of date.
+Before a merge: 1 check fails because of the change, 1 fix against a written rule to review, 1 question whose default is deep-review's choice and 7 patches to commit. The edits of this run made no check fail, and the run left no work unfinished and no document out of date.
 ```
 
 Its second sentence names each of ranks 1 and 4 that does not hold, so the brief still says, after a fix run, that the edits made no check fail and that no document was left out of date, as R4 of the facts before a merge and the documentation step have it say today. When no condition holds, the part says "Nothing needs you" and names the conditions that it checked.
@@ -133,7 +133,7 @@ Each command names the run with `--run` and the first 8 characters of its id, an
 
 ### R4: Before you merge gives each check one meaning
 
-"Before you merge" is a table with one row per check: its result on the base, as submitted, and in its last run, and what it means. The cell of the last run says when it ran: after the fixes, after the repair, or after your answers (R3 of the facts before a merge). The meaning comes from a closed table. The first row that fits the check gives its meaning, and a timeout counts as a failure:
+"Before you merge" is a table with one row per check: its result on the base, as submitted, and in its last run, and what it means. The cell of the last run says when it ran: after the fixes, after the fixes for the checks, or after your answers (R3 of the facts before a merge, which says "after the repair"; R10 keeps the word out of the brief). The meaning comes from a closed table. The first row that fits the check gives its meaning, and a timeout counts as a failure:
 
 | The check | Meaning | Rank in "What needs you" |
 |---|---|---|
