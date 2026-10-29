@@ -108,13 +108,19 @@ export const lastMomentWords: Readonly<Record<LastMoment, string>> = { fixes: 'a
 /** When an earlier run of a check ran, before its last. */
 const earlierMomentWords: Readonly<Record<CheckMoment, string>> = { before: 'as submitted', fixes: 'after the fixes', repair: 'after the fixes for the checks', answers: 'after earlier answers' };
 
-const checkItem = (facts: NeedsFacts, rank: 1 | 2 | 3, condition: NeedCondition, check: BriefCheck, lead: string, rest: string): BriefNeed => ({ rank, condition, finding: null, check: check.kind, document: null, patch: null, lines: [`**${lead}** ${rest}`] });
+/** An item as its row's `items` gives it; the row stamps its own rank and condition on it, so the two cannot disagree. */
+export type NeedItem = Omit<BriefNeed, 'rank' | 'condition'>;
+
+/** An item of its lines, naming the finding, check, document or patch it is given and null for the others. */
+const need = (lines: readonly string[], names: Partial<Pick<BriefNeed, 'finding' | 'check' | 'document' | 'patch'>> = {}): NeedItem => ({ finding: null, check: null, document: null, patch: null, ...names, lines });
+
+const checkItem = (check: BriefCheck, lead: string, rest: string): NeedItem => need([`**${lead}** ${rest}`], { check: check.kind });
 
 /** What a check that the edits of the run made fail costs if the person does nothing: the commit of a tree in which it fails, or the commits that hold one. */
 const editsCost = (facts: NeedsFacts): string => (facts.committed ? 'the commits of this run hold a tree in which it fails' : '`deep-review commit` commits a tree in which it fails');
 
 /** The item of a question (R3): its lead and question, a line per option with its marks, and what happens if the person does nothing with the commands. */
-export function questionItem(facts: ItemFacts, question: NeedQuestion): BriefNeed {
+export function questionItem(facts: ItemFacts, question: NeedQuestion): NeedItem {
   const own = question.finding;
   const choiceIsDefault = question.default === question.choice;
   const lead = choiceIsDefault ? `Finding ${String(own)} asks you a question, and its default is deep-review's choice.` : `Finding ${String(own)} asks you a question, and deep-review's choice is not its default.`;
@@ -130,7 +136,7 @@ export function questionItem(facts: ItemFacts, question: NeedQuestion): BriefNee
   const nothing = choiceIsDefault
     ? `If you do nothing, ${stays}, and it is deep-review's choice. ${another}`
     : `If you do nothing, ${stays}, and deep-review's choice is option ${String(question.choice)}. To take it: ${codeSpan(answerCommand(facts.run, own, `--option ${String(question.choice)}`))}.`;
-  return { rank: choiceIsDefault ? 7 : 6, condition: choiceIsDefault ? 'question-choice' : 'question-other', finding: own, check: null, document: null, patch: null, lines: [`**${lead}** ${said(facts, question.question, own)}`, ...options, nothing] };
+  return need([`**${lead}** ${said(facts, question.question, own)}`, ...options, nothing], { finding: own });
 }
 
 /** Where a fix against a written rule is, as the sentence after the lead of its item. */
@@ -150,40 +156,32 @@ function departureFateWords(fate: NeedDeparture['fate']): string {
 }
 
 /** The item of a fix against a written rule (R3): its lead, the rule, where it is written, why deep-review went against it, and the two commands. */
-export function departureItem(facts: ItemFacts, departure: NeedDeparture): BriefNeed {
+export function departureItem(facts: ItemFacts, departure: NeedDeparture): NeedItem {
   const own = departure.finding;
   const inTree = departure.fate.kind === 'applied' || departure.fate.kind === 'committed' || departure.fate.kind === 'already-in-tree';
   const lead = departure.fate.kind === 'review-only' ? `Finding ${String(own)} would be fixed against a written rule.` : inTree ? `Finding ${String(own)} is fixed against a written rule.` : `The fix of finding ${String(own)} goes against a written rule, and no fixer applied it.`;
   const stays = inTree ? 'the fix stays, and the rule stays as it is written' : departure.fate.kind === 'review-only' ? 'the fix pass applies the fix, and the rule stays as it is written' : 'the rule stays as it is written';
-  return {
-    rank: 5,
-    condition: 'departure',
-    finding: own,
-    check: null,
-    document: null,
-    patch: null,
-    lines: [
-      `**${lead}** ${departureFateWords(departure.fate)}`,
-      `The rule: ${said(facts, departure.rule, own)}`,
-      `Where it is written: ${said(facts, departure.source, own)}`,
-      `Why deep-review went against it: ${said(facts, departure.reason, own)}`,
-      `If you do nothing, ${stays}. To keep the fix and change the rule: ${codeSpan(answerCommand(facts.run, own, '--accept'))}. To follow the rule: ${codeSpan(answerCommand(facts.run, own, '--reject'))}.`,
-    ],
-  };
+  return need([
+    `**${lead}** ${departureFateWords(departure.fate)}`,
+    `The rule: ${said(facts, departure.rule, own)}`,
+    `Where it is written: ${said(facts, departure.source, own)}`,
+    `Why deep-review went against it: ${said(facts, departure.reason, own)}`,
+    `If you do nothing, ${stays}. To keep the fix and change the rule: ${codeSpan(answerCommand(facts.run, own, '--accept'))}. To follow the rule: ${codeSpan(answerCommand(facts.run, own, '--reject'))}.`,
+  ], { finding: own });
 }
 
 /** A document left out of date, as its item says it: the facts with who reported each, and the reasons. */
-function documentItem(facts: ItemFacts, document: LeftDocument): BriefNeed {
+function documentItem(facts: ItemFacts, document: LeftDocument): NeedItem {
   const reported = document.facts.length === 0 ? '' : ` ${capitalized(document.facts.map((fact) => `${said(facts, fact.what).replace(/[.]+$/, '')} (${fact.by})`).join('; '))}.`;
   const reasons = document.reasons.length === 0 ? '' : ` ${document.reasons.map((reason) => inlineText(reason.text)).join(' ')}`;
-  return { rank: 4, condition: 'document', finding: null, check: null, document: document.file, patch: null, lines: [`**${codeSpan(document.file)} is out of date.**${reported}${reasons} If you do nothing, the document stays out of date.`] };
+  return need([`**${codeSpan(document.file)} is out of date.**${reported}${reasons} If you do nothing, the document stays out of date.`], { document: document.file });
 }
 
-/** One row of the table: its rank and condition, its items, and its part of the count line, for one item and for several. */
+/** One row of the table: its rank and condition, which it stamps on each of its items, its items, and its part of the count line, for one item and for several. */
 interface NeedRow {
   readonly rank: NeedRank;
   readonly condition: NeedCondition;
-  readonly items: (facts: NeedsFacts) => BriefNeed[];
+  readonly items: (facts: NeedsFacts) => NeedItem[];
   readonly count: readonly [one: string, many: string];
 }
 
@@ -200,51 +198,35 @@ export const needTable: readonly NeedRow[] = [
   {
     rank: 1,
     condition: 'edits',
-    items: (facts) => ranked(facts, 1).map((check) => checkItem(facts, 1, 'edits', check, `The ${check.kind} check fails ${check.last === null ? '' : lastMomentWords[check.last.when]}, and passed ${check.earlier.passed === null ? 'before' : earlierMomentWords[check.earlier.passed]}.`, `The edits of this run made it fail. If you do nothing, ${editsCost(facts)}.`)),
+    items: (facts) => ranked(facts, 1).map((check) => checkItem(check, `The ${check.kind} check fails ${check.last === null ? '' : lastMomentWords[check.last.when]}, and passed ${check.earlier.passed === null ? 'before' : earlierMomentWords[check.earlier.passed]}.`, `The edits of this run made it fail. If you do nothing, ${editsCost(facts)}.`)),
     count: ['check that the edits of this run made fail', 'checks that the edits of this run made fail'],
   },
   {
     rank: 2,
     condition: 'change-breaks',
     items: (facts) => ranked(facts, 2).map((check) => check.fault === 'change-breaks'
-      ? checkItem(facts, 2, 'change-breaks', check, `The ${check.kind} check fails because of the change.`, `It passes on the base, ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)
-      : checkItem(facts, 2, 'change-breaks', check, `The ${check.kind} check has failures that the base does not have, by a model's comparison.`, `The base is ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)),
+      ? checkItem(check, `The ${check.kind} check fails because of the change.`, `It passes on the base, ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)
+      : checkItem(check, `The ${check.kind} check has failures that the base does not have, by a model's comparison.`, `The base is ${facts.base}. If you do nothing, the check keeps failing, since no step of the run fixes a failure that the change brings.`)),
     count: ['check fails because of the change', 'checks fail because of the change'],
   },
   {
     rank: 3,
     condition: 'not-compared',
     items: (facts) => ranked(facts, 3).map((check) => check.last === null
-      ? checkItem(facts, 3, 'not-compared', check, `The ${check.kind} check fails as submitted, and the run did not compare it with the base.`, 'No fix changed a file, so no check ran after the fixes and none ran on the base. If you do nothing, nobody knows whether the change causes the failure.')
-      : checkItem(facts, 3, 'not-compared', check, `The ${check.kind} check fails, and the run did not compare it with the base.`, `${capitalized(notComparedPlainWords[check.base?.reason ?? 'not-run'])}. If you do nothing, nobody knows whether the change causes the failure.`)),
+      ? checkItem(check, `The ${check.kind} check fails as submitted, and the run did not compare it with the base.`, 'No fix changed a file, so no check ran after the fixes and none ran on the base. If you do nothing, nobody knows whether the change causes the failure.')
+      : checkItem(check, `The ${check.kind} check fails, and the run did not compare it with the base.`, `${capitalized(notComparedPlainWords[check.base?.reason ?? 'not-run'])}. If you do nothing, nobody knows whether the change causes the failure.`)),
     count: ['check not compared with the base', 'checks not compared with the base'],
   },
   {
     rank: 4,
     condition: 'unfinished-edits',
-    items: (facts) => facts.unfinishedEdits.map((edit) => ({
-      rank: 4,
-      condition: 'unfinished-edits',
-      finding: edit.finding,
-      check: null,
-      document: null,
-      patch: edit.patch,
-      lines: [`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? '' : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? 'the commits hold the edits as they are' : '`deep-review commit` commits the edits as they are'}.`],
-    })),
+    items: (facts) => facts.unfinishedEdits.map((edit) => need([`**Patch ${String(edit.patch)} holds edits of a fixer that did not finish${edit.finding === null ? '' : `, for finding ${String(edit.finding)}`}.** No later fixer of the same work answered. If you do nothing, ${facts.committed ? 'the commits hold the edits as they are' : '`deep-review commit` commits the edits as they are'}.`], { finding: edit.finding, patch: edit.patch })),
     count: ['piece of work not finished', 'pieces of work not finished'],
   },
   {
     rank: 4,
     condition: 'unapplied-fix',
-    items: (facts) => facts.unapplied.map((fix) => ({
-      rank: 4,
-      condition: 'unapplied-fix',
-      finding: fix.finding,
-      check: null,
-      document: null,
-      patch: null,
-      lines: [`**${fix.answer ? `Your answer to finding ${String(fix.finding)} is not applied` : `Finding ${String(fix.finding)} is not fixed`}: ${fix.why}.** If you do nothing, the finding stays as it is.`],
-    })),
+    items: (facts) => facts.unapplied.map((fix) => need([`**${fix.answer ? `Your answer to finding ${String(fix.finding)} is not applied` : `Finding ${String(fix.finding)} is not fixed`}: ${fix.why}.** If you do nothing, the finding stays as it is.`], { finding: fix.finding })),
     count: ['piece of work not finished', 'pieces of work not finished'],
   },
   {
@@ -279,17 +261,17 @@ export const needTable: readonly NeedRow[] = [
         if (facts.uncommitted === null) return [];
         const { patches, readFirst } = facts.uncommitted;
         const first = readFirst.length === 0 ? '' : ` Read first ${listed(readFirst)}.`;
-        return [{ rank: 8, condition: 'uncommitted', finding: null, check: null, document: null, patch: null, lines: [`**Review the ${counted(patches, 'uncommitted patch, then commit it', 'uncommitted patches, then commit them')}.**${first} If you do nothing, the fixes stay uncommitted in your working tree. To commit them: ${codeSpan(`deep-review commit --run ${shortRunId(facts.run)}`)}.`] }];
+        return [need([`**Review the ${counted(patches, 'uncommitted patch, then commit it', 'uncommitted patches, then commit them')}.**${first} If you do nothing, the fixes stay uncommitted in your working tree. To commit them: ${codeSpan(`deep-review commit --run ${shortRunId(facts.run)}`)}.`])];
       }
       if (facts.toFix === 0) return [];
-      return [{ rank: 8, condition: 'uncommitted', finding: null, check: null, document: null, patch: null, lines: [`**Apply the ${counted(facts.toFix, 'fix', 'fixes')} that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run \`deep-review review --fix\` on the same change with the same runtime.`] }];
+      return [need([`**Apply the ${counted(facts.toFix, 'fix', 'fixes')} that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run \`deep-review review --fix\` on the same change with the same runtime.`])];
     },
     count: ['patch to commit', 'patches to commit'],
   },
 ];
 
-/** The items of "What needs you", in the order of the table. */
-export const needsOf = (facts: NeedsFacts): BriefNeed[] => needTable.flatMap((row) => row.items(facts));
+/** The items of "What needs you", in the order of the table, each with its row's rank and condition. */
+export const needsOf = (facts: NeedsFacts): BriefNeed[] => needTable.flatMap((row) => row.items(facts).map((item) => ({ rank: row.rank, condition: row.condition, ...item })));
 
 /** The most items of unfinished work, and the most decisions (questions and fixes against a written rule together), that the brief shows in full; one more line names the others (R2, R3, TD9 of the report for the person). */
 export const shownUnfinished = 3;
