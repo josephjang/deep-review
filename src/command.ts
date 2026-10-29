@@ -55,7 +55,8 @@ import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { briefBlock, briefMarkdown, briefOf, briefShortForm } from './review/brief.ts';
 import { briefJson } from './review/brief-json.ts';
 import { rolesPlaceholder } from './review/continue-command.ts';
-import { refreshReportCopy, reportCopyPath, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
+import { refreshReportCopy, reportCopyPath, reportInputOf, stoppedContinueCommand, type CopyContext } from './review/report-copy.ts';
+import { renderStats } from './review/stats-report.ts';
 import { readableRuns, runIdOf } from './review/runs.ts';
 import { fixLines } from './review/fix-lines.ts';
 import { chooseReportRun, noReportWords, notShownLines, type ReportChoice } from './review/report-choice.ts';
@@ -82,7 +83,7 @@ export const usage = `usage:
   deep-review config  init (--repository | --operator | --clone) [--repo <dir>] [--roles <dir>]
   deep-review status  [--run <id>] [--json] [--repo <dir>]
   deep-review status  --all [--every] [--repo <dir>]   (the runs of the checkpoint, newest first: the ${String(listedRuns)} newest, or every run with --every)
-  deep-review report  [--run <id>] [--json | --brief | --fixes | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, or a line for each fix; writes its copy again)
+  deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <id>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
   deep-review answer  --finding <id> (--option <n> | --accept | --reject) [--note <text>]
@@ -133,6 +134,7 @@ const options = {
   note: { type: 'string' },
   'record-only': { type: 'boolean' },
   fixes: { type: 'boolean' },
+  stats: { type: 'boolean' },
   brief: { type: 'boolean' },
   into: { type: 'string' },
   unit: { type: 'string' },
@@ -173,7 +175,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
-  report: ['run', 'json', 'brief', 'fixes', 'finding', 'repo', 'help'],
+  report: ['run', 'json', 'brief', 'fixes', 'stats', 'finding', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
   claim: ['path', 'unit', 'in', 'help'],
   hook: ['help'],
@@ -893,12 +895,12 @@ function runLockForCopy(checkpointRoot: string, runId: string, log: (line: strin
   }
 }
 
-/** What `report` prints of its run: the short form of the brief, the JSON form, the whole brief, a line for each fix, or the block of one finding (R6, R7 of the questions in the chat). */
-type ReportForm = 'short' | 'json' | 'brief' | 'fixes' | 'finding';
+/** What `report` prints of its run: the short form of the brief, the JSON form, the whole brief, a line for each fix, the statistics (R9 of the report for the person), or the block of one finding (R6, R7 of the questions in the chat). */
+type ReportForm = 'short' | 'json' | 'brief' | 'fixes' | 'stats' | 'finding';
 
 /** The form the flags of `report` ask for, at most one of them; `--finding` takes a finding's id. */
 function reportFormOf(values: Values): ReportForm {
-  const given = ([['json', values.json === true], ['brief', values.brief === true], ['fixes', values.fixes === true], ['finding', values.finding !== undefined]] as const).filter(([, on]) => on).map(([form]) => form);
+  const given = ([['json', values.json === true], ['brief', values.brief === true], ['fixes', values.fixes === true], ['stats', values.stats === true], ['finding', values.finding !== undefined]] as const).filter(([, on]) => on).map(([form]) => form);
   if (given.length > 1) throw new UsageError(`--${given[0]!} and --${given[1]!} do not go together; give one`);
   if (values.finding !== undefined && !candidateIdSchema.safeParse(values.finding).success) throw new UsageError(`--finding takes a finding's id as the brief prints it, such as RIPPLE-2, not ${JSON.stringify(values.finding)}`);
   return given[0] ?? 'short';
@@ -912,7 +914,9 @@ function reportFormOf(values: Values): ReportForm {
  * or not while another engine holds it, then prints a `Not shown:` line
  * for each later run of the worktree it passed over, the short form, and
  * the path of the copy, or else of the record, last; with `--fixes`, a
- * line for each fix (R6) in place of the short form, with `--brief` the
+ * line for each fix (R6) in place of the short form, with `--stats` the
+ * statistics, the angles, the digest of the roles and the clusters of the
+ * fix pass (R9 of the report for the person), with `--brief` the
  * brief as a chat shows it, and with `--finding <id>` its block of one
  * question or fix that goes against a written rule (R7); or with `--json`
  * version 4 of the JSON form, which names those runs in `notShown`. A
@@ -955,6 +959,7 @@ function report(values: Values, io: CommandIo, root: string, worktree: string): 
       }
       let body: readonly string[];
       if (form === 'fixes') body = fixLines(state);
+      else if (form === 'stats') body = renderStats(state, reportInputOf(checkpoint, state, context).statistics);
       else if (form === 'brief') body = briefMarkdown(brief, 'chat');
       else if (form === 'finding') {
         const id = values.finding!;

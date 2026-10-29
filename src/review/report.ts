@@ -4,33 +4,33 @@
  * Markdown rendered by the engine from the fold alone, so two engines
  * render the same report from the same ledger and no model rewrites a
  * finding. It starts with the brief of the run (brief.ts; R12 of the
- * brief of a run), and the evidence follows in order: the change in
- * full, for a run with the decision step Decisions (decision-report.ts),
- * Findings, each with its anchor, for a fix run Fixes, Checks and Changed
- * files (fix-report.ts), Angles, for a surveyed run Conventions
- * (survey-report.ts), Refuted at verification, Statistics, the notes of
- * the run, and last the facts of the run, the only section that names a
- * local path the engine writes (R15).
+ * brief of a run), and the evidence follows in order: for a run with the
+ * decision step Decisions (decision-report.ts), Findings, each with its
+ * anchor, for a fix run Fixes, Checks and Changed files (fix-report.ts),
+ * for a surveyed run Conventions (survey-report.ts), Refuted at
+ * verification, the notes of the run, and last the facts of the run, the
+ * only section that names a local path the engine writes (R15). The
+ * statistics, the angles and the digest of the roles are in
+ * `report --stats` (stats-report.ts; R9 of the report for the person).
  */
 import { evidenceDirectoryName, storeNameOf } from '../checkpoint/checkpoint.ts';
-import type { ChangeCondition, RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
+import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { isAnswered, rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
-import { briefMarkdown, briefOf, missingAccountWords } from './brief.ts';
+import { briefMarkdown, briefOf } from './brief.ts';
 import { answeringLine, decisionLine, decisionsSection } from './decision-report.ts';
 import { baseWorktreeLines, fixHeaderLine, fixLimitations, fixSections, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
-import { codeSpan, findingAnchor, inlineText, listed, localPathWords, paragraphText, tableCell } from './markdown.ts';
-import { conditionWords } from './prompts.ts';
+import { codeSpan, findingAnchor, inlineText, listed, localPathWords, paragraphText } from './markdown.ts';
 import { ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
-import { angles, phases, triageUnitKey, type Angle, type Phase } from './vocabulary.ts';
+import type { Phase } from './vocabulary.ts';
 
 /** A Codex Windows sandbox as the ledger records it, which the report renders from rather than from the adapter's vocabulary. */
 type PinnedWindowsSandbox = NonNullable<ReviewConfiguration['codex']>['windowsSandbox'];
@@ -64,10 +64,6 @@ export interface ReportInput {
 }
 
 const usd = (value: number | null): string => (value === null ? '-' : value.toFixed(2));
-const count = (value: number | null): string => (value === null ? '-' : String(value));
-const workersCount = (n: number): string => `${String(n)} worker${n === 1 ? '' : 's'}`;
-/** A cost cell: the reported sum, and how many workers' cost it leaves out. */
-const costCell = (spend: Spend): string => `${usd(spend.costUsd)}${spend.costUnreported === null || spend.costUnreported === 0 ? '' : ` (${workersCount(spend.costUnreported)} unreported)`}`;
 
 /** The finder's own file and line, as one line of text whatever the file's name holds. */
 const rawAt = (candidate: CandidateState): string => inlineText(rawLocation(candidate));
@@ -84,14 +80,6 @@ function marks(candidate: CandidateState, unverified: boolean): string {
 
 /** The location a finding prints: the repository path and line, or the raw one for an unlocated candidate. */
 const shortLocation = (candidate: CandidateState): string => inlineText(repositoryLocation(candidate) ?? rawLocation(candidate));
-
-function angleRow(review: ReviewState, angle: Angle): string {
-  if (angle === 'SCAN') return `| SCAN | ${isAnswered(review, 'triage', triageUnitKey) ? 'run (as the triage)' : 'not run'} | - |`;
-  const notRun = review.anglesNotRun[angle];
-  const lead = review.leads?.find((entry) => entry.angle === angle)?.lead ?? null;
-  const status = notRun !== undefined ? `not run (${tableCell(notRun)})` : isAnswered(review, 'finders', angle) ? 'run' : 'not run';
-  return `| ${angle} | ${status} | ${lead === null ? 'none' : tableCell(lead)} |`;
-}
 
 /** A finding's block under Findings, closed in a run with the decision step by the decision made for it. */
 function findingBlock(position: number, entry: ReportFinding, decision: RecordedDecision | null): string {
@@ -112,18 +100,6 @@ function findingBlock(position: number, entry: ReportFinding, decision: Recorded
   if (members.length > 0) lines.push(`Also at: ${members.map((member) => `${member.id} ${shortLocation(member)}${marks(member, false)}`).join('; ')}`);
   if (decision !== null) lines.push(decisionLine(decision));
   return lines.join('\n');
-}
-
-function statisticsTable(review: ReviewState, input: ReportInput): string {
-  const row = (name: string, spend: Spend): string =>
-    `| ${name} | ${String(spend.workers)} | ${spend.seconds.toFixed(1)} | ${costCell(spend)} | ${count(spend.inputTokens)} | ${count(spend.cachedInputTokens)} | ${count(spend.outputTokens)} |`;
-  return [
-    '| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |',
-    '|---|---|---|---|---|---|---|',
-    // Every phase the run did not skip, in phase order; a phase the statistics have no row for ran no worker.
-    ...phases.filter((phase) => review.phases[phase].status !== 'skipped').map((phase) => row(phase, input.statistics.phases.find((entry) => entry.phase === phase) ?? { workers: 0, seconds: 0, costUsd: null, costUnreported: null, inputTokens: null, cachedInputTokens: null, outputTokens: null })),
-    row('Total', input.statistics.total),
-  ].join('\n');
 }
 
 /** The units the run budget left, as the line that names how to continue them says them: the batches by their count, the documentation step, then the repair. */
@@ -330,37 +306,6 @@ function reopenedLine(review: ReviewState): string[] {
   return [`Reopened: the fix pass past the run budget ${when}, after the report ${storeNameOf(last.reportBefore.report)}`];
 }
 
-/** One judgment of the triage as a line of The change, in full, in the words of the scope block: no, or yes with what and the files. */
-function conditionLine(name: string, condition: ChangeCondition): string {
-  return `- ${name}: ${conditionWords(condition)}`;
-}
-
-/** The first section of the evidence: each field of the triage's account as it gave it, with its sources (R3 of the brief of a run), or why the run has none. */
-function changeInFull(review: ReviewState): string[] {
-  const lines = ['## The change, in full', ''];
-  switch (review.change.kind) {
-    case 'unrecorded':
-    case 'none':
-      return [...lines, missingAccountWords[review.change.kind]];
-    case 'given': {
-      const { reading } = review.change;
-      const sources = (list: readonly string[]): string => (list.length === 0 ? 'none named' : list.map(inlineText).join(', '));
-      return [
-        ...lines,
-        'The triage\'s account, as it gave it. No verifier examined it, and every worker after the triage read it as context.',
-        '',
-        `- Title: ${inlineText(reading.title)}`,
-        `- What it does: ${inlineText(reading.what)}`,
-        `- Why, in the change's own words: ${reading.why === null ? 'the change states no reason' : inlineText(reading.why)}`,
-        ...(reading.why === null ? [] : [`- Where those words are: ${sources(reading.whyFrom)}`]),
-        `- What the account rests on: ${sources(reading.restsOn)}`,
-        conditionLine('Public interface', reading.publicInterface),
-        conditionLine('Wide effect', reading.wideEffect),
-      ];
-    }
-  }
-}
-
 /**
  * The last section, the facts of the run (R12, R15 of the brief of a
  * run): its repository, its commits, its engine, its runtime, its models,
@@ -393,7 +338,6 @@ function factsOfRun(state: RunState, scope: ScopeState, review: ReviewState, inp
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,
     ...(configuration.codex === null ? [] : [`Codex Windows sandbox: ${codexSandboxWords[configuration.codex.windowsSandbox]}`]),
     `Models: strong ${configuration.models.strong}, fast ${configuration.models.fast}`,
-    `Roles digest: ${configuration.rolesDigest}`,
     // A run configured before the settings renders no line of them; status says it is older than them (R17 of the configuration).
     ...(configuration.settings === null && configuration.fixSettings === null ? [] : [inlineText(settingsHeaderLine(configuration))]),
     // What the settings left unexamined or unfollowed, beside the line that names them: each path left out, each value not followed and each setting ignored, whose file may be a local path (R7 of the configuration; R15 of the brief of a run).
@@ -422,7 +366,6 @@ export function renderReport(state: RunState, input: ReportInput): string {
   // A run with the decision step says what it decided first in the evidence; one configured before the step has no such section.
   const decisions = decisionsSection(review);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
-  const anglesSection = ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has no such section.
   const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));
   const findingsSection = [
@@ -435,20 +378,16 @@ export function renderReport(state: RunState, input: ReportInput): string {
     '',
     ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${inlineText(candidate.summary)}\n  Evidence: ${inlineText(evidence)}`)),
   ];
-  const statisticsSection = ['## Statistics', '', statisticsTable(review, input)];
   const notesSection = ['## Notes of the run', '', ...notesOfRun(state, scope, review, input)];
   // A fix run's sections follow its findings; a run without the fix pass has none.
   const fixed = input.fix === undefined ? [] : fixSections(state, storeNameOf, input.fix.patches.map(storeNameOf));
   return [
     brief,
-    changeInFull(review),
     ...(decisions === null ? [] : [decisions]),
     findingsSection,
     ...fixed,
-    anglesSection,
     ...(conventions === null ? [] : [conventions]),
     refutedSection,
-    statisticsSection,
     notesSection,
     factsOfRun(state, scope, review, input),
   ].map((section) => section.join('\n').replace(/\n+$/, '')).join('\n\n') + '\n';

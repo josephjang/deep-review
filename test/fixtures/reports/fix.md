@@ -30,10 +30,6 @@ deep-review applied 1 fix ([RIPPLE-1](#finding-ripple-1)). Its 3 patches are not
 
 The evidence for each statement above follows.
 
-## The change, in full
-
-The triage of this run did not record the core of the change, because an engine before this change reviewed it.
-
 ## Findings
 
 <a id="finding-ripple-1"></a>
@@ -65,7 +61,7 @@ What the fix pass did with each finding, in rank order. Every edit is in the wor
 
 Note: guarded the null before its use
 Commit message: fix: Guard the null in parse
-Cluster: c1, batch c1-1 (src/a.ts); patch 2
+Patch 2
 Correction: src/a.ts parse: parse is at line 4 -> it moved to line 6 (git blame)
 
 ### 2. SWEEP-1 held for the author
@@ -102,10 +98,10 @@ Documentation the workers of this run say their edits made stale, which no step 
 
 ## Changed files
 
-| Path | Status | Changed by | Held by |
-|---|---|---|---|
-| src/a.ts | modified | lint check, c1-1, repair | c1 |
-| test/a.test.ts | created | c1-1 | nobody |
+| Path | Status | Changed by |
+|---|---|---|
+| src/a.ts | modified | lint check, c1-1, repair |
+| test/a.test.ts | created | c1-1 |
 
 The patch series, one patch per change, applies in order to a tree at the scope with `git am --keep-cr`:
 
@@ -113,44 +109,9 @@ The patch series, one patch per change, applies in order to a tree at the scope 
 2. fix: Guard the null in parse (c1-1): artifacts/2222222222222222222222222222222222222222222222222222222222222222
 3. style: Format the guard (repair): artifacts/3333333333333333333333333333333333333333333333333333333333333333
 
-## Angles
-
-| Angle | Ran | Lead from SCAN |
-|---|---|---|
-| SCAN | run (as the triage) | - |
-| REMOVALS | run | none |
-| RIPPLE | run | the callers of parse() |
-| FOOTGUNS | not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout) | none |
-| WRAPPERS | run | none |
-| EFFICIENCY | run | none |
-| DESIGN | run | none |
-| DUPLICATION | run | none |
-| ALTITUDE | run | none |
-| CONVENTIONS | run | none |
-
 ## Refuted at verification
 
 None.
-
-## Statistics
-
-| Phase | Workers | Wall seconds | Cost (USD) | Input tokens | Cached input | Output tokens |
-|---|---|---|---|---|---|---|
-| triage | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| finders | 1 | 2.5 | 0.50 (1 worker unreported) | 100 | 20 | 10 |
-| deduplication | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep-deduplication | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| sweep-verification | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| merge-rank | 1 | 2.5 | 0.50 | 100 | 20 | 10 |
-| baseline-checks | 0 | 8.0 | - | - | - | - |
-| fixes | 1 | 8.0 | - | - | - | - |
-| checks | 0 | 8.0 | - | - | - | - |
-| repair | 1 | 8.0 | - | - | - | - |
-| repair-checks | 0 | 8.0 | - | - | - | - |
-| report | 0 | 8.0 | - | - | - | - |
-| Total | 9 | 22.5 | 4.50 (1 worker unreported) | 900 | 180 | 90 |
 
 ## Notes of the run
 
@@ -175,7 +136,6 @@ Run: run-1
 Engine: 0.0.0+dev (run created by 0.0.0)
 Runtime: claude 2.1.283 at /bin/claude
 Models: strong opus, fast sonnet
-Roles digest: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 Findings: 2 (1 CONFIRMED, 1 PLAUSIBLE); 0 refuted at verification
 Fix pass: 1 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 held for the author; 3 patches; the edits are in the working tree, uncommitted
 Evidence store: /w/.git/deep-review-checkpoint/artifacts; a name such as artifacts/<hash> in this report is the file <hash> in it.

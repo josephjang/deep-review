@@ -109,6 +109,8 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
       [['report', '--brief', '--json'], /--json and --brief do not go together; give one/],
       [['report', '--brief', '--fixes'], /--brief and --fixes do not go together; give one/],
       [['report', '--fixes', '--finding', 'SCAN-1'], /--fixes and --finding do not go together; give one/],
+      [['report', '--fixes', '--stats'], /--fixes and --stats do not go together; give one/],
+      [['status', '--stats'], /--stats does not apply to status/],
       [['status', '--fixes'], /--fixes does not apply to status/],
       // R2 of fix pass continuation: --fresh declines a continuation, which only --fix makes.
       [claudeFlags(box, '--last-commit', '--fresh'), /--fresh applies only with --fix/],
@@ -311,6 +313,16 @@ describe('the deep-review command', { timeout: 900_000, concurrency: sandboxConc
     assert.equal(fixesLines.length, 2, fixes.stdout);
     assert.match(fixesLines[0]!, /^This run only reviewed: it changed nothing\./);
     assert.match(fixesLines[1]!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+
+    // --stats prints what left the report, the statistics, the angles and the digest of the roles, and then the path of the copy (R9 of the report for the person).
+    const stats = await run(box, 'report', '--run', firstId, '--stats');
+    assert.equal(stats.status, 0, stats.stderr);
+    const statsLines = stats.stdout.trimEnd().split('\n');
+    for (const heading of ['## Statistics', '## Angles', '## Roles']) assert.ok(statsLines.includes(heading), heading);
+    assert.ok(!statsLines.includes('## Fix pass'), 'a run that only reviews has no fix pass');
+    assert.match(statsLines.at(-1)!, new RegExp(`[\\\\/]reports[\\\\/]\\d{4}-\\d{2}-\\d{2}-${shortRunId(firstId)}\\.md$`));
+    const report = readFileSync(statsLines.at(-1)!, 'utf8');
+    assert.ok(!report.includes('\n## Statistics\n') && !report.includes('\n## Angles\n') && !report.includes('Roles digest:'), 'the report holds none of them');
     assert.deepEqual([json.headline.documents, json.documents], [0, []], 'a run that only reviews leaves no document out of date');
     assert.match(json.local.copy!, new RegExp(`${firstId.slice(0, 8)}\\.md$`));
     assert.match(json.local.record, /[\\/]artifacts[\\/][0-9a-f]{64}$/);

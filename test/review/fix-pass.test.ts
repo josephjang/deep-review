@@ -12,6 +12,7 @@ import { fixedA, fixedB, found, noLeads, reviewScript } from '../helpers/fix-pas
 import { until } from '../helpers/launcher.ts';
 import { documentationStepEntries } from '../helpers/model.ts';
 import { git, write } from '../helpers/repository.ts';
+import { renderStats } from '../../src/review/stats-report.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 /** The test c1's fixer adds beside its fix of src/a.ts. */
@@ -101,14 +102,17 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     // One patch per revision (R13), and the report says what the fix pass did.
     assert.equal(review.report!.patches.length, 2);
     assert.match(text, /^Fix pass: 2 applied, 0 already applied, 0 deferred, 0 blocked, 0 not attempted, 1 left by decision, 0 asked, kept as is; 2 patches; the edits are in the working tree, uncommitted$/m);
-    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c1, batch c1-1 \(src\/a\.ts\); patch \d$/m);
+    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nPatch \d$/m);
+    // The cluster, the batch and who held each path are in `report --stats` (R9 of the report for the person).
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^- 1\. SCAN-1: cluster c1, batch c1-1 \(src\/a\.ts\)$/m);
     assert.match(text, /^### 3\. SWEEP-1 left by decision\n\nNo fixer saw it: the decision step left it, outside the change, and not a regression\. See Decisions\.$/m);
     assert.match(text, /^## Decisions\n\nBefore any fix, the decision step decided each finding: 2 to fix, 1 to leave, 0 to ask the author\./m);
     // The flags named every check, so each row's source is --check, where a check the survey chose names its file.
     assert.match(text, /^\| build \| ".*fake-check\.ts" build \| --check \| passed, [\d.]+ s \| passed, [\d.]+ s \|$/m);
     assert.match(text, /^## Conventions\n\nThe survey found no file that states conventions/m);
     // c1's fixer wrote the test without claiming it first, so its answer claimed it late (R6 of commit series integrity).
-    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
+    assert.match(text, /^\| test\/a\.test\.ts \| created \| c1-1 \|$/m);
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| test\/a\.test\.ts \| c1 \(claimed late\) \|$/m);
     for (const patch of review.report!.patches) assert.ok(text.includes(`artifacts/${patch.sha256}`), 'the report names each patch by its name in the store');
     assert.match(text, /^- After the repair: not run, since no check failed after the fixes\.$/m);
     // The two clusters' fixers ran at once: both launched before either finished.
@@ -332,7 +336,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
       ['c2-1', ['SCAN-2'], ['src/b.ts']],
       ['c3-1', ['SCAN-1'], ['src/a.ts', 'src/b.ts']],
     ]);
-    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nCluster: c3, batch c3-1 \(src\/a\.ts, src\/b\.ts\); patch \d\nFirst blocked on: src\/b\.ts, which the second round gave it$/m);
+    assert.match(text, /^### 1\. SCAN-1 applied\n\nNote: fake applied \[0\]\nCommit message: fix\(a\): Return 0 for a null text\nPatch \d$/m);
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^- 1\. SCAN-1: cluster c1, batch c1-1 \(src\/a\.ts\); then cluster c3, batch c3-1 \(src\/a\.ts, src\/b\.ts\); first blocked on src\/b\.ts, which the second round gave it$/m);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
     assert.ok(box.logs.includes('phase fixes: second round for SCAN-1, in 1 cluster and 1 batch'), box.logs.join('\n'));
     // The second round counts its own batches from 1 again (R7 of the skill surface corrections).
@@ -427,8 +432,9 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     });
     const text = reportText(await box.fix('claude'));
     assert.match(text, /^- Claimed late: src\/gone\.ts by c1-1, edited before it was claimed \(R6 of commit series integrity\)\.$/m);
-    assert.match(text, /^\| src\/gone\.ts \| created \| c1-1 \| c1 \(claimed late\) \|$/m);
+    assert.match(text, /^\| src\/gone\.ts \| created \| c1-1 \|$/m);
     const state = box.run();
+    assert.match(renderStats(state, state.review!.report!.statistics).join('\n'), /^\| src\/gone\.ts \| c1 \(claimed late\) \|$/m);
     assert.deepEqual(state.review!.fix!.revisions.map((revision) => revision.files.map((file) => `${file.path} ${file.status}`)), [['src/gone.ts created']]);
     assert.ok(state.review!.checks.every((check) => !check.drifted));
     assert.deepEqual(state.review!.fix!.answers.fixes['c1-1']!.violations, []);
