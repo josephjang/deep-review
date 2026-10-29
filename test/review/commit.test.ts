@@ -475,8 +475,8 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
       // The copy of the report says the edits are committed now, which the record of its moment does not (R14 of the brief of a run).
       const committed = box.checkpoint.fold(runId);
       const copy = readFileSync(reportCopyPath(box.checkpoint.root, committed), 'utf8');
-      assert.match(copy, new RegExp(`They are in ${String(committed.review!.fix!.commits.flatMap((series) => series.commits).length)} commits\\.`));
-      assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(committed.review!.report!.report), 'utf8'), /They are in \d+ commits/, 'the record keeps its moment');
+      assert.match(copy, /, and the fixes are committed\./);
+      assert.doesNotMatch(readFileSync(box.checkpoint.evidence.pathOf(committed.review!.report!.report), 'utf8'), /the fixes are committed/, 'the record keeps its moment');
       assert.equal((await run()).status, 2, 'a second invocation is refused');
     });
 

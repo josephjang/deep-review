@@ -3,7 +3,8 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { beforeEditsSentence, briefBlock, briefFates, briefMarkdown, howToAnswer, howToAnswerInChat, briefOf, briefShortForm, changeLineLimit, changeShapeOf, cutAtWord, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
+import { briefBlock, briefChatForm, briefFates, briefLineLimit, briefMarkdown, briefOf, changeLineLimit, changeShapeOf, chatLineLimit, cutAtWord, findingWords, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
+import { shortRunId } from '../../src/review/runs.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
 import { answer, answerableDecisions, askDecision, changeReading, decidedFixRun, decisions, departure, documentationItems, documentationStepAnswering, documentedFixRun, endCheck, launch, passToReport, readOnlyReported, worker } from '../helpers/review-history.ts';
 
@@ -14,8 +15,7 @@ const given = (reading: ChangeReading = changeReading as unknown as ChangeReadin
 /** A read-only run whose decisions ask SWEEP-1 and fix RIPPLE-1 against a written rule. */
 const answerable = (): RunState => readOnlyReported(answerableDecisions()).fold();
 
-/** A fix run whose documentation step left a document out of date, for the line of the documents. */
-const leftDocuments = (): RunState => documentedFixRun([{ file: 'docs/a.md', what: 'stale' }], documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']])).fold();
+
 
 describe('briefOf (R1, R2 of the brief of a run)', () => {
   it('gives the same value for the same fold, twice', () => {
@@ -61,20 +61,20 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         const brief = briefOf(state);
         return {
           beforeEdits: brief.change.state === 'given' ? brief.change.beforeEdits : null,
-          line: briefShortForm(brief)[1]!,
-          sentence: briefMarkdown(brief).includes(beforeEditsSentence),
+          line: briefChatForm(brief)[1]!,
+          sentence: briefMarkdown(brief).some((line) => line.includes('deep-review wrote this account of the change as submitted, before its fixes, and no verifier examined it.')),
         };
       };
       const first = 'The change: The parser returns no value for an empty input, where it threw before.';
       const before = 'The change before the fixes: The parser returns no value for an empty input, where it threw before.';
 
-      it('marks the account of a fix run with an applied fix, in the part The change and on the line of the change, and keeps the title line', () => {
+it('marks the account of a fix run with an applied fix, in its paragraph of whose account it is and on the line of the change, and keeps the title line', () => {
         const state = withAccount(decidedFixRun().fold(), given());
         assert.deepEqual(marked(state), { beforeEdits: true, line: before, sentence: true });
-        assert.equal(briefShortForm(briefOf(state))[0], `Parse an empty input (run ${state.id.slice(0, 8)})`);
+        assert.equal(briefChatForm(briefOf(state))[0], `Parse an empty input (run ${state.id.slice(0, 8)})`);
         const markdown = briefMarkdown(briefOf(state));
-        assert.ok(markdown[markdown.indexOf(beforeEditsSentence) - 2]!.startsWith('This is the triage\'s account of the change, which no verifier examined.'), 'after the sentence that says whose account it is');
-        assert.ok(markdown.indexOf(beforeEditsSentence) < markdown.indexOf('## Questions for you (1)'), 'the last sentence of the part The change');
+        assert.ok(markdown[6]!.includes('deep-review wrote this account of the change as submitted, before its fixes, and no verifier examined it.'), 'the third paragraph of the account, before the status line (R1 of the report for the person)');
+        assert.ok(markdown[8]!.startsWith('deep-review\'s fix run '), String(markdown[8]));
       });
 
       it('leaves the account of a run that only reviewed, and of a fix run with no patch, as it was', () => {
@@ -86,7 +86,8 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       it('leaves the account of a fix run whose only patch is the rewrite of a check, or an edit of the documentation step, as it was', () => {
         const state = withAccount(decidedFixRun(answerableDecisions(), 'deferred').fold(), given());
         const fix = state.review!.fix!;
-        const repaired: RunState = { ...state, review: { ...state.review!, fix: { ...fix, revisions: [{ ...fix.revisions[0]!, phase: 'repair' } as never] } } };
+        const revision = decidedFixRun().fold().review!.fix!.revisions[0]!;
+        const repaired: RunState = { ...state, review: { ...state.review!, fix: { ...fix, revisions: [{ ...revision, phase: 'repair', source: { kind: 'fix', key: 'repair' } } as never] } } };
         assert.deepEqual(marked(repaired), { beforeEdits: false, line: first, sentence: false });
         const documented = withAccount(documentedFixRun([], undefined, answerableDecisions((decisions[0] as Record<string, unknown>))).fold(), given());
         assert.equal(marked(documented).beforeEdits, briefOf(documented).changed.applied.length > 0, 'only a fixer\'s fix marks it');
@@ -101,9 +102,9 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
 
       it('marks no run whose triage gave no account or recorded none, which has no account to mark', () => {
         const fixed = decidedFixRun().fold();
-        assert.equal(briefShortForm(briefOf(withAccount(fixed, { kind: 'none' })))[1], 'The change: the triage gave no account of it');
-        assert.equal(briefShortForm(briefOf(fixed))[1], 'The change: not recorded; an engine before the account reviewed this run');
-        assert.ok(!briefMarkdown(briefOf(fixed)).includes(beforeEditsSentence));
+        assert.equal(briefChatForm(briefOf(withAccount(fixed, { kind: 'none' })))[1], 'The change: deep-review gave no account of it');
+        assert.equal(briefChatForm(briefOf(fixed))[1], 'The change: not recorded; an engine before the account reviewed this run');
+        assert.ok(!briefMarkdown(briefOf(fixed)).some((line) => line.includes('before its fixes')));
       });
     });
 
@@ -151,7 +152,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.equal(question.question, 'Should parse accept an empty input?');
       assert.deepEqual([question.default, question.choice], [1, 2]);
       assert.deepEqual(question.options.map((option) => [option.number, option.option, option.edits]), [[1, 'keep accepting it', false], [2, 'accept it and return an empty result', true]]);
-      assert.equal(question.command, 'deep-review answer --finding SWEEP-1 --option 2');
+      assert.equal(question.command, `deep-review answer --run ${shortRunId(answerable().id)} --finding 2 --option 2`, 'by its number and its run (R3, R7 of the report for the person)');
       assert.equal(question.answer, null);
     });
   });
@@ -162,7 +163,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(found, {
         id: 'RIPPLE-1', rule: departure.rule, source: departure.source, fact: departure.reason, fix: decisions[0]!.fix!.approach,
         fate: 'not-fixed', review: null,
-        accept: 'deep-review answer --finding RIPPLE-1 --accept', reject: 'deep-review answer --finding RIPPLE-1 --reject',
+        accept: `deep-review answer --run ${shortRunId(answerable().id)} --finding 1 --accept`, reject: `deep-review answer --run ${shortRunId(answerable().id)} --finding 1 --reject`,
       });
     });
 
@@ -284,16 +285,16 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       ]);
     });
 
-    it('leaves out a departure a person accepted or rejected, in the brief and in its short form, and keeps one nobody reviewed', () => {
-      const lookAt = (state: RunState): string | undefined => briefShortForm(briefOf(state)).find((line) => line.startsWith('Look at: '));
+it('leaves out of what needs you a departure a person accepted or rejected, and keeps one nobody reviewed', () => {
       for (const review of ['accept', 'reject'] as const) {
         const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', review)).fold();
         assert.ok(!briefOf(state).look.some((entry) => entry.condition === 'departure'), review);
-        assert.equal(briefOf(state).departures.length, 1, `the departures part keeps it with its ${review}`);
-        assert.equal(lookAt(state), 'Look at: nothing', review);
+        assert.equal(briefOf(state).departures.length, 1, `the departures keep it with its ${review}`);
+        assert.ok(!briefOf(state).needs.some((need) => need.condition === 'departure'), review);
       }
       const two = readOnlyReported([{ ...decisions[0], departure }, { ...decisions[0], id: 'SWEEP-1', departure }]).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
       assert.deepEqual(briefOf(two).look.filter((entry) => entry.condition === 'departure').map((entry) => [entry.findings, entry.text]), [[['SWEEP-1'], '1 fix goes against a written rule']], 'the unreviewed one stays, counted alone');
+      assert.deepEqual(briefOf(two).needs.filter((need) => need.condition === 'departure').map((need) => need.finding), [2]);
     });
 
     it('counts in a run that fixed only the fixes a fixer applied on a PLAUSIBLE verdict', () => {
@@ -321,14 +322,6 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
     });
 
-    it('names what a run that only reviewed left in the words a fix run names it with, each id as the form gives it', () => {
-      const brief = briefOf(readOnlyReported().fold());
-      const last = (form: 'report' | 'chat'): string => briefMarkdown(brief, form).at(-1)!;
-      assert.match(last('report'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: \[SWEEP-1\]\(#finding-sweep-1\)\.$/);
-      assert.match(last('chat'), /^This run only reviewed: it changed nothing\.(?: [^.]+\.)* It left 1 finding: SWEEP-1\.$/);
-      assert.ok(briefMarkdown(briefOf(answerable())).at(-1)!.startsWith('This run only reviewed: it changed nothing.'));
-      assert.doesNotMatch(briefMarkdown(briefOf(answerable())).at(-1)!, /It left/, 'a run that left nothing says nothing of it');
-    });
 
     it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
       const applied = briefOf(decidedFixRun().fold()).changed;
@@ -367,26 +360,8 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran' })) }));
         return { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState;
       };
-      const sentence = (brief: Brief): string => briefMarkdown(brief, 'chat').at(-1)!;
-      const tested = 'The fixers report that a test validated the fix: it fails on the code before the fix, or on a mutation of the fix.';
 
-      it('says a test validated a fix whose test fails on the code before it or on a mutation of it', () => {
-        for (const method of ['old-code', 'mutation']) {
-          const brief = briefOf(validated([method]));
-          assert.deepEqual(brief.changed.validation, { test: ['RIPPLE-1'], existing: [], static: [], limited: [], none: [] }, method);
-          assert.ok(sentence(brief).includes(`commits it. ${tested} The checks`), sentence(brief));
-        }
-      });
 
-      it('names a fix no test validated by what it rests on, and one with no entry as one with no validation', () => {
-        const words: [string[], string][] = [
-          [['existing'], 'RIPPLE-1 rests on the tests that already exist.'],
-          [['static'], 'RIPPLE-1 rests on a check of the source.'],
-          [['limited'], 'RIPPLE-1 rests on a limit that its fixer named.'],
-          [[], 'RIPPLE-1 has no validation that its fixer reported.'],
-        ];
-        for (const [methods, rest] of words) assert.ok(sentence(briefOf(validated(methods))).includes(`The fixers report that no test validated the fix. ${rest}`), JSON.stringify(methods));
-      });
 
       it('takes the strongest method of a fix that gives several', () => {
         assert.deepEqual(briefOf(validated(['limited', 'existing', 'mutation'])).changed.validation.test, ['RIPPLE-1']);
@@ -394,25 +369,8 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         assert.deepEqual(briefOf(validated(['limited', 'static'])).changed.validation.static, ['RIPPLE-1']);
       });
 
-      it('counts the fixes a test validated, and names at most 8 of the others under each method, counting the rest', () => {
-        const brief = briefOf(validated(['old-code']));
-        const ids = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, index) => `${prefix}-${String(index + 1)}`);
-        const many = { ...brief, changed: { ...brief.changed, validation: { test: ids('FIX', 5), existing: ['TESTS-3'], static: [], limited: [], none: [] } } };
-        assert.ok(sentence(many).includes('The fixers report that a test validated 5 of the 6 fixes: it fails on the code before the fix, or on a mutation of the fix. TESTS-3 rests on the tests that already exist.'), sentence(many));
-        const more = { ...brief, changed: { ...brief.changed, validation: { test: [], existing: [], static: ids('SRC', 10), limited: ['A-1', 'B-1'], none: [] } } };
-        assert.ok(sentence(more).includes('The fixers report that a test validated none of the 12 fixes. SRC-1, SRC-2, SRC-3, SRC-4, SRC-5, SRC-6, SRC-7, SRC-8 and 2 more rest on a check of the source. A-1 and B-1 rest on limits that their fixers named.'), sentence(more));
-        const each = { ...brief, changed: { ...brief.changed, validation: { test: ids('FIX', 3), existing: [], static: [], limited: [], none: [] } } };
-        assert.ok(sentence(each).includes('The fixers report that a test validated each of the 3 fixes: it fails on the code before the fix, or on a mutation of the fix. The checks'), sentence(each));
-      });
 
-      it('links each id in the report form', () => {
-        assert.ok(briefMarkdown(briefOf(validated(['existing'])), 'report').at(-1)!.includes('[RIPPLE-1](#finding-ripple-1) rests on the tests that already exist.'));
-      });
 
-      it('says nothing of the validation in a run that applied no fix, in a run that only reviewed, or in the short form', () => {
-        for (const state of [decidedFixRun(answerableDecisions(), 'deferred').fold(), readOnlyReported().fold()]) assert.doesNotMatch(briefMarkdown(briefOf(state)).join('\n'), /The fixers report/);
-        assert.doesNotMatch(briefShortForm(briefOf(validated(['old-code']))).join('\n'), /validated|fixers report/);
-      });
     });
 
     it('names the commits that hold the edits once deep-review commit made them', () => {
@@ -441,205 +399,7 @@ describe('cutAtWord', () => {
 });
 
 
-describe('briefShortForm (R13 of the brief of a run)', () => {
-  it('says each part in a line that names its subject first, and each open question and fix against a written rule with its words, for a run that only reviews (R1 to R3 of the questions in the chat)', () => {
-    const lines = briefShortForm(briefOf(withAccount(answerable(), given())));
-    assert.deepEqual(lines, [
-      `Parse an empty input (run ${answerable().id.slice(0, 8)})`,
-      'The change: The parser returns no value for an empty input, where it threw before.',
-      'Questions: 1, with its default in place',
-      '  SWEEP-1: Should parse accept an empty input?',
-      '  SWEEP-1 in place now: option 1, keep accepting it',
-      '  SWEEP-1 deep-review\'s choice: option 2, accept it and return an empty result',
-      'Against a written rule: 1 fix',
-      // A run that only reviewed applied no fix, so the fix would go against the rule.
-      '  RIPPLE-1 would go against a rule in docs/parse.md: "parse throws on a null input"',
-      'Not covered: 2 gaps, the first: The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later...',
-      'Look at: 1 fix that goes against a written rule, a change to a public interface',
-      'Changed: nothing; this run only reviewed',
-    ]);
-    for (const line of lines) assert.ok(line.length <= shortLineLimit, line);
-  });
 
-  it('gives the whole title on its first line, which only the line\'s limit cuts', () => {
-    const run = answerable().id.slice(0, 8);
-    // 98 characters: past the 80 the triage is asked for, which cut the gate run's title in the short form.
-    const title = 'Give each run a brief: the change\'s account, a report that starts with it, and a report command';
-    assert.ok(title.length > accountLimits.title);
-    assert.equal(briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))))[0], `${title} (run ${run})`);
-    const first = briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, title: 'word '.repeat(60).trim() } as unknown as ChangeReading))))[0]!;
-    assert.ok(first.length <= shortLineLimit && first.endsWith('...'), first);
-  });
-
-  it('keeps the first sentence of the change whole up to 400 characters, and cuts a longer one at a word (R4 of the questions in the chat)', () => {
-    const changeLine = (what: string): string => briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
-    assert.equal(changeLineLimit, 400);
-    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
-    const three = sentence(300);
-    assert.equal(changeLine(`${three} More.`), `The change: ${three}`, 'a sentence of 300 characters, past the 200 of the other lines');
-    assert.ok(changeLine(`${three} More.`).length > shortLineLimit);
-    const five = sentence(500);
-    const cut = changeLine(`${five} More.`);
-    assert.ok(cut.startsWith('The change: ') && cut.endsWith('...'), cut);
-    const kept = cut.slice('The change: '.length, -3);
-    assert.ok(kept.length + 3 <= changeLineLimit, 'the limit counts the sentence');
-    assert.ok(five.startsWith(kept) && five[kept.length] === ' ', 'cut at a word, with three periods');
-  });
-
-  it('counts the limit of the line of the change on the sentence alone, past the mark of the change before the fixes (R4, R5 of the questions in the chat)', () => {
-    const changeLine = (state: RunState, what: string): string => briefShortForm(briefOf(withAccount(state, given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
-    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
-    const whole = sentence(changeLineLimit - 10);
-    assert.equal(whole.length, changeLineLimit - 10);
-    assert.equal(changeLine(answerable(), `${whole} More.`), `The change: ${whole}`);
-    assert.equal(changeLine(decidedFixRun().fold(), `${whole} More.`), `The change before the fixes: ${whole}`);
-    const longer = sentence(changeLineLimit + 20);
-    const cut = changeLine(decidedFixRun().fold(), `${longer} More.`);
-    assert.ok(cut.startsWith('The change before the fixes: ') && cut.endsWith('...'), cut);
-    const kept = cut.slice('The change before the fixes: '.length, -3);
-    assert.ok(kept.length + 3 <= changeLineLimit && longer.startsWith(kept) && longer[kept.length] === ' ', 'cut at a word');
-  });
-
-  it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {
-    const changeLine = (what: string): string => briefShortForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
-    assert.equal(changeLine('Adds a flag, e.g. --json, to report. More.'), 'The change: Adds a flag, e.g. --json, to report.');
-    assert.equal(changeLine('Reads i.e. parses the input, vs. the old cf. path. More.'), 'The change: Reads i.e. parses the input, vs. the old cf. path.');
-    assert.equal(changeLine('Keeps the paths, the names, etc. in the report. More.'), 'The change: Keeps the paths, the names, etc. in the report.');
-    assert.equal(changeLine('Keeps the paths, the names, etc. More.'), 'The change: Keeps the paths, the names, etc.', 'etc. ends a sentence before an upper-case word');
-    assert.equal(changeLine('Closes issue No. 5 of the parser. More.'), 'The change: Closes issue No. 5 of the parser.');
-    assert.equal(changeLine('Says No. More follows.'), 'The change: Says No.', 'No. ends a sentence before a word');
-    assert.equal(changeLine('Reads the input\u2028and parses it. More.'), 'The change: Reads the input and parses it.');
-    assert.equal(changeLine('Reads the input \u2029 and parses it'), 'The change: Reads the input and parses it');
-    assert.equal(changeLine('Is it new? Yes.'), 'The change: Is it new?');
-  });
-
-  it('says the defaults are in place only when the tree holds each open one, as the headline does', () => {
-    const questionsLine = (state: RunState): string => briefShortForm(briefOf(state))[2]!;
-    assert.equal(questionsLine(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold()), 'Questions: 1, with a default', 'a run that only reviewed applied no default that edits');
-    const fixed = (status: string): RunState => decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], status).fold();
-    assert.equal(questionsLine(fixed('applied')), 'Questions: 2, each with a default in place');
-    assert.match(briefOf(fixed('applied')).headline.text, /Nothing waits for you: each question has a default in place\.$/, 'several questions read as several');
-    assert.equal(questionsLine(fixed('deferred')), 'Questions: 2, each with a default', 'the fixer put off one default');
-    for (const status of ['applied', 'deferred']) assert.equal(questionsLine(fixed(status)).includes('in place'), briefOf(fixed(status)).headline.text.endsWith('default in place.'), status);
-  });
-
-  it('names at most 3 open questions and 3 open fixes against a rule with their words, counts the others with at most 8 ids, and keeps at most 23 lines however many findings the run has (PD2 of the questions in the chat; R6 of the facts before a merge)', () => {
-    const brief = briefOf(answerable());
-    const question = brief.questions[0]!;
-    const departing = brief.departures[0]!;
-    // 400 characters in each text of the decider, the most its schema takes.
-    const long = (word: string): string => `${word} `.repeat(400).slice(0, 400);
-    const many = {
-      ...brief,
-      title: 'word '.repeat(80),
-      notCovered: [{ kind: 'excluded' as const, text: 'path '.repeat(100) }],
-      questions: Array.from({ length: 12 }, (_, index) => ({ ...question, id: `SWEEP-${String(index + 1)}`, question: long('ask'), options: question.options.map((option) => ({ ...option, option: long('option') })) })),
-      departures: Array.from({ length: 13 }, (_, index) => ({ ...departing, id: `RIPPLE-${String(index + 1)}`, rule: long('rule'), source: long('source') })),
-    };
-    const lines = briefShortForm(many);
-    assert.equal(lines.length, 21, 'the title, the change, 1 + 3 * 3 + 1 lines of questions, 1 + 3 + 1 lines of fixes, and three lines more');
-    assert.equal(lines[2], 'Questions: 12, each with a default in place');
-    assert.equal(lines[12], '  9 more questions: SWEEP-4, SWEEP-5, SWEEP-6, SWEEP-7, SWEEP-8, SWEEP-9, SWEEP-10, SWEEP-11 and 1 more');
-    assert.equal(lines[13], 'Against a written rule: 13 fixes');
-    assert.equal(lines[14], `  RIPPLE-1 would go against a rule in ${long('source')}: "${long('rule')}"`, 'the source, then the rule, each whole');
-    assert.equal(lines[17], '  10 more fixes: RIPPLE-4, RIPPLE-5, RIPPLE-6, RIPPLE-7, RIPPLE-8, RIPPLE-9, RIPPLE-10, RIPPLE-11 and 2 more');
-    // Only the lines of a question, an option and a departure pass the limit, since they give the words of the decider whole.
-    const whole = /^ {2}(SWEEP|RIPPLE)-\d+(:| in place now| deep-review's choice| would go against)/;
-    for (const line of lines) assert.ok(line.length <= shortLineLimit || whole.test(line), line);
-    assert.ok(lines.some((line) => line.length > 400), 'a line of the decider is not cut');
-    // A fix run with the lines of the documents and of the checks: the 9 lines and 14 more, the most there are.
-    const fixed = briefOf(leftDocuments());
-    assert.equal(briefShortForm({ ...many, documents: fixed.documents, changed: fixed.changed }).length, 23);
-  });
-
-  it('gives each line of a question its id first, the option in place now and deep-review\'s choice on two lines, or on one when they are one option (R1 of the questions in the chat)', () => {
-    const brief = briefOf(answerable());
-    const question = brief.questions[0]!;
-    const one = briefShortForm({ ...brief, questions: [{ ...question, choice: question.default }] });
-    assert.deepEqual(one.slice(3, 5), ['  SWEEP-1: Should parse accept an empty input?', '  SWEEP-1 in place now and deep-review\'s choice: option 1, keep accepting it']);
-    assert.equal(one[5], 'Against a written rule: 1 fix');
-    // A question of 400 characters with two options of 400 characters each, given whole.
-    const words = (word: string): string => `${word} `.repeat(400).slice(0, 400);
-    const long = briefShortForm({ ...brief, questions: [{ ...question, question: words('why'), options: [{ ...question.options[0]!, option: words('first') }, { ...question.options[1]!, option: words('second') }] }] });
-    assert.deepEqual(long.slice(3, 6), [`  SWEEP-1: ${words('why')}`, `  SWEEP-1 in place now: option 1, ${words('first')}`, `  SWEEP-1 deep-review's choice: option 2, ${words('second')}`]);
-  });
-
-  it('names a default that edits the code and that no fixer applied as the default the tree does not hold, in a run that only reviewed and in a fix run', () => {
-    const readOnly = briefShortForm(briefOf(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold()));
-    assert.deepEqual(readOnly.slice(2, 6), ['Questions: 1, with a default', '  SWEEP-1: Should parse accept an empty input?', '  SWEEP-1 the default, which the tree does not hold: option 1, reject it with an error', '  SWEEP-1 deep-review\'s choice: option 2, accept it and return an empty result']);
-    const deferred = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'deferred').fold());
-    const lines = briefShortForm(deferred);
-    assert.ok(lines.includes('  RIPPLE-1 the default, which the tree does not hold: option 1, reject it with an error'), lines.join('\n'));
-    assert.ok(lines.includes('  SWEEP-1 in place now: option 1, keep accepting it'), 'a default that keeps the code is in place');
-    const both = briefShortForm({ ...deferred, questions: deferred.questions.map((entry) => ({ ...entry, choice: entry.default })) });
-    assert.ok(both.includes('  RIPPLE-1 the default and deep-review\'s choice, which the tree does not hold: option 1, reject it with an error'), both.join('\n'));
-  });
-
-  it('says that an applied fix goes against its rule, and leaves out an answered question and a reviewed fix (R2 of the questions in the chat)', () => {
-    const lines = briefShortForm(briefOf(decidedFixRun().fold()));
-    assert.ok(lines.includes('  RIPPLE-1 goes against a rule in docs/parse.md: "parse throws on a null input"'), lines.join('\n'));
-    assert.ok(lines.includes('Look at: 1 fix that goes against a written rule'), lines.join('\n'));
-    const deferred = briefShortForm(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold()));
-    assert.ok(deferred.includes('  RIPPLE-1 would go against a rule in docs/parse.md: "parse throws on a null input"'), 'a fix its fixer put off');
-    const answered = briefShortForm(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold()));
-    assert.ok(!answered.some((line) => line.startsWith('  ')), answered.join('\n'));
-    const brief = briefOf(answerable());
-    const four = briefShortForm({ ...brief, questions: ['A', 'B', 'C', 'D'].map((letter) => ({ ...brief.questions[0]!, id: `SWEEP-${letter}` })) });
-    assert.equal(four[3 + 3 * 3], '  1 more question: SWEEP-D');
-    const departures = briefShortForm({ ...brief, departures: ['A', 'B', 'C', 'D'].map((letter) => ({ ...brief.departures[0]!, id: `RIPPLE-${letter}` })) });
-    assert.equal(departures.find((line) => line.startsWith('  1 more')), '  1 more fix: RIPPLE-D');
-  });
-
-  it('says so on a line with nothing to say, and of a run that fixed, what it applied and where the edits are', () => {
-    const state = answerable();
-    const review = state.review!;
-    const quiet = briefShortForm(briefOf({ ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] }, decisions: [decisions[1]!] as never } }));
-    assert.deepEqual(quiet.slice(2), ['Questions: none', 'Against a written rule: no fix', 'Not covered: nothing', 'Look at: nothing', 'Changed: nothing; this run only reviewed']);
-    assert.equal(quiet[1], 'The change: not recorded; an engine before the account reviewed this run');
-    assert.equal(briefShortForm(briefOf(decidedFixRun().fold())).at(-1), 'Changed: 1 fix, not committed');
-    assert.equal(briefShortForm(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold())).at(-1), 'Changed: 0 fixes, 1 fix not applied');
-    const answered = briefShortForm(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold()));
-    assert.deepEqual(answered.slice(2, 4), ['Questions: none open; each is answered', 'Against a written rule: no fix left to review']);
-  });
-});
-
-describe('the brief in a chat, and the block of one finding (R7 of the questions in the chat)', () => {
-  it('gives the chat form with plain ids, the details after a bold label, and the agent to answer, and keeps the report form as it was', () => {
-    const brief = briefOf(withAccount(answerable(), given()));
-    const report = briefMarkdown(brief).join('\n');
-    const chat = briefMarkdown(brief, 'chat').join('\n');
-    assert.equal(briefMarkdown(brief, 'report').join('\n'), report);
-    assert.match(report, /<details><summary>/);
-    assert.match(report, /\[SWEEP-1\]\(#finding-sweep-1\)/);
-    assert.doesNotMatch(chat, /<details>|<\/details>|\]\(#finding-/);
-    assert.ok(!chat.includes(howToAnswer) && chat.includes(howToAnswerInChat), 'no end of a report follows');
-    assert.match(chat, /^### 1\. Should parse accept an empty input\? \(SWEEP-1\)$/m);
-    assert.match(chat, /^\*\*Details\.\*\*\n\n- Option 1 makes this rule: /m);
-    assert.match(chat, /^### 1\. RIPPLE-1$/m);
-  });
-
-  it('gives the block of an open question, an answered question and a departure under the heading of its part', () => {
-    const brief = briefOf(answerable());
-    const question = briefBlock(brief, 'SWEEP-1')!;
-    assert.deepEqual(question.slice(0, 4), ['## Questions for you (1)', '', `Each question has a default, the option that is the easiest to take back. Answer only to choose another one. ${howToAnswerInChat}`, '']);
-    assert.equal(question[4], '### 1. Should parse accept an empty input? (SWEEP-1)');
-    assert.ok(question.some((line) => line.startsWith('To take deep-review\'s choice: `')), 'the command of an open question');
-    assert.ok(question.includes('| 2, deep-review\'s choice | accept it and return an empty result | an empty input passes silently |'), 'the table of its options with their costs');
-    const answered = briefBlock(briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold()), 'SWEEP-1')!;
-    assert.ok(answered.some((line) => line.startsWith('Answered: option 2 on ')), answered.join('\n'));
-    const departure = briefBlock(brief, 'RIPPLE-1')!;
-    assert.equal(departure[0], '## Fixes that go against a written rule (1)');
-    assert.ok(departure.includes('### 1. RIPPLE-1') && departure.includes('The rule: parse throws on a null input (docs/parse.md).'), departure.join('\n'));
-    assert.match(departure[2]!, /Review it only to go another way\. To answer, ask your agent with the deep-review skill\.$/);
-    assert.match(briefBlock(brief, 'SWEEP-1', 'report')!.join('\n'), /\[SWEEP-1\]\(#finding-sweep-1\)/, 'the report form when asked');
-  });
-
-  it('gives no block for a fix that goes against no rule, or an id the brief does not hold', () => {
-    const brief = briefOf(decidedFixRun(decisions).fold());
-    assert.equal(briefBlock(brief, 'RIPPLE-1'), null);
-    assert.equal(briefBlock(brief, 'SCAN-9'), null);
-  });
-});
 
 describe('the line that says the run covered everything (R10 of the brief of a run)', () => {
   /** A fix run with no gap of R10: every angle ran, every group was verified, and each planned check has a command. */
@@ -657,60 +417,6 @@ describe('the line that says the run covered everything (R10 of the brief of a r
   });
 });
 
-describe('the words of a question and a departure once a person answered (R8, R9 of the brief of a run)', () => {
-  const markdown = (state: RunState): string => briefMarkdown(briefOf(state)).join('\n');
-
-  it('says an answered question\'s answer first, and no option in place now', () => {
-    const passed = passToReport(decidedFixRun().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 2).fold();
-    const text = markdown(passed);
-    assert.match(text, /^### 1\. Should parse accept an empty input\? \(\[SWEEP-1\]\(#finding-sweep-1\)\)\n\nAnswered: option 2 on [^;]+; the tree holds it\. deep-review's choice was option 2\.$/m);
-    assert.doesNotMatch(text, /In place now/);
-    assert.match(text, /^\| 2, your answer, deep-review's choice \| /m);
-    assert.equal(briefOf(passed).questions[0]!.answer?.kind, 'option');
-  });
-
-  it('calls a default that edits the code the default, not in place, in a run that only reviewed', () => {
-    const state = readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold();
-    const brief = briefOf(state);
-    assert.equal(brief.questions[0]!.defaultApplied, false);
-    const text = markdown(state);
-    assert.match(text, /^The default: option 1, because it is the easiest to take back; this run only reviewed, so `review --fix` applies it\. deep-review's choice: option 2\.$/m);
-    assert.match(text, /^\| 1, the default \| /m);
-    assert.match(brief.headline.text, /Nothing waits for you: the question has a default\.$/);
-    assert.equal(briefOf(readOnlyReported([decisions[0], askDecision('SWEEP-1', false)]).fold()).questions[0]!.defaultApplied, true, 'a default that keeps the code is in place');
-  });
-
-  it('says a departure a person rejected now follows the rule, and whether the tree holds that fix', () => {
-    const readOnly = readOnlyReported(answerableDecisions()).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
-    assert.match(markdown(readOnly), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; `review --fix` applies the fix that follows it\.$/m);
-    const owed = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).fold();
-    assert.match(markdown(owed), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
-    const held = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2).fold();
-    assert.match(markdown(held), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; the tree holds the fix that follows it\.$/m);
-    assert.doesNotMatch(markdown(held), /A fixer applied it\./);
-    const accepted = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
-    assert.match(markdown(accepted), /^Why deep-review went against it: every caller passes the null on an empty input\. A fixer applied it\.$/m, 'an acceptance keeps the fix as applied');
-  });
-
-  it('keeps a default the fix pass applied in place when an answer pass cannot apply the person\'s answer, and says the answer went to the fixer', () => {
-    const asked = decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)]).add('answer.recorded', answer('RIPPLE-1', 1)).add('answer.pass', { ids: ['RIPPLE-1'] });
-    const brief = briefOf(passToReport(asked, 1, [['RIPPLE-1', 'blocked']], 1).fold());
-    const question = brief.questions.find((entry) => entry.id === 'RIPPLE-1')!;
-    assert.equal(question.defaultApplied, true, 'the fix pass applied the default, and the tree still holds it');
-    assert.equal(question.answer?.applied, false);
-    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
-    assert.deepEqual(brief.changed.blocked, ['RIPPLE-1'], 'the changed lists keep the last pass\'s outcome, as Fixes does');
-  });
-
-  it('keeps the fix pass\'s fate of a departing fix when an answer pass cannot apply the fix a person chose that follows the rule', () => {
-    const rejected = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] });
-    const state = passToReport(rejected, 1, [['RIPPLE-1', 'blocked']], 1).fold();
-    const brief = briefOf(state);
-    assert.equal(brief.departures[0]!.fate, 'applied', 'the fix pass applied the departing fix');
-    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'fix').map((gap) => gap.text), ['The answer on RIPPLE-1 went to a fixer, and its fixer could not apply it.']);
-    assert.match(markdown(state), /^Why deep-review went against it: every caller passes the null on an empty input\. You chose to follow the rule instead; no fixer has applied the fix that follows it yet\.$/m);
-  });
-});
 
 // R7, R10, R11 and PD6 of the documentation step.
 describe('the documents a run left out of date in the brief', () => {
@@ -727,35 +433,8 @@ describe('the documents a run left out of date in the brief', () => {
     assert.equal(briefOf(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']]), decisions).fold()).headline.text, '1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.');
   });
 
-  it('keeps the sentence of a run that only reviews, which edits nothing', () => {
-    const brief = briefOf(readOnlyReported().fold());
-    assert.equal(brief.headline.text, 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.');
-    assert.deepEqual(brief.documents, []);
-    assert.equal(brief.changed.documentation, null);
-    const short = briefShortForm(brief);
-    assert.equal(short.length, 7, 'seven lines');
-    assert.ok(!short.some((entry) => entry.startsWith('Documents')));
-    assert.doesNotMatch(briefMarkdown(brief).join('\n'), /Documents left out of date|documentation step/);
-  });
 
-  it('lists each document after the departures, its facts with who reported each, then why the run left it', () => {
-    const text = briefMarkdown(briefOf(leftOne())).join('\n');
-    assert.match(text, /\n## Documents left out of date \(1\)\n\nThe edits of this run made each document below out of date, and the run did not bring it in line\. Bring each in line before a merge\.\n\n- `docs\/a\.md`: parse throws on a null \(a fixer\)\. The documentation step left it: doc-1 deferred\.\n/);
-    const order = ['\n## Fixes that go against a written rule', '\n## Documents left out of date', '\n## What the review did not cover'].map((marker) => text.indexOf(marker));
-    assert.ok(order.every((position, index) => position > 0 && (index === 0 || order[index - 1]! < position)), JSON.stringify(order));
-  });
 
-  it('gives a fix run an eighth line of the short form, after the departures, naming at most eight files and counting the rest', () => {
-    const short = briefShortForm(briefOf(leftOne()));
-    // The 9 lines of a fix run, and the 3 lines of the open question and the line of the open departure.
-    assert.equal(short.length, 13);
-    const documents = short.findIndex((entry) => entry.startsWith('Documents left out of date: '));
-    assert.equal(short[documents], 'Documents left out of date: 1: docs/a.md');
-    assert.ok(short[documents - 1]!.startsWith('  RIPPLE-1 goes against a rule in '), 'after the lines of the departures');
-    assert.equal(briefShortForm(briefOf(documentedFixRun([], undefined, decisions).fold()))[4], 'Documents left out of date: none');
-    const many = documentedFixRun(Array.from({ length: 10 }, (_, index) => line(`docs/${String(index + 1)}.md`, 'stale')), (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'budget', reason: 'spent' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded'), decisions).fold();
-    assert.equal(briefShortForm(briefOf(many))[4], 'Documents left out of date: 10: docs/1.md, docs/2.md, docs/3.md, docs/4.md, docs/5.md, docs/6.md, docs/7.md, docs/8.md and 2 more', 'a run with no open question and no open departure');
-  });
 
   it('says in what deep-review changed what the step did: how many documents it updated and left, none found, or why it did not run', () => {
     const changed = (state: RunState): string | null => briefOf(state).changed.documentation;
@@ -776,7 +455,7 @@ describe('the documents a run left out of date in the brief', () => {
     assert.equal(changed(documentedFixRun().fold()), 'The documentation step found no document out of date.');
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
     assert.equal(changed(failedTwice), 'The documentation step did not run: its worker failed twice.');
-    assert.match(briefMarkdown(briefOf(failedTwice)).join('\n'), /The checks passed before and after the fixes\. The documentation step did not run: its worker failed twice\.$/m);
+    assert.ok(briefOf(failedTwice).notExamined.includes('The documentation step did not run: its worker failed twice.'), 'a gap of what the run did not examine (R4 of the report for the person)');
   });
 
   it('gives the step that did not answer a gap of its own, and none to one with nothing to do or a run before the step', () => {
@@ -810,16 +489,271 @@ describe('the documents a run left out of date in the brief', () => {
     assert.deepEqual(brief.documents.map((document) => [document.file, document.reasons.map((reason) => reason.kind)]), [['./docs/a.md', ['not-run']]]);
     assert.equal(brief.headline.documents, 1);
     assert.equal(brief.changed.documentation, null);
-    assert.ok(briefShortForm(brief).includes('Documents left out of date: 1: ./docs/a.md'));
+    assert.deepEqual(brief.needs.filter((need) => need.condition === 'document').map((need) => need.document), ['./docs/a.md']);
   });
 
-  it('keeps the short form one line per part when a fixer names a file with a line break', () => {
+});
+
+// R1 to R5, R12, R14 of the report for the person.
+describe('the brief for the person', () => {
+  const plain = (): unknown[] => [decisions[0], askDecision('SWEEP-1', false)];
+  const items = (brief: Brief): string[][] => brief.needs.map((need) => [...need.lines]);
+  const run = (state: RunState): string => shortRunId(state.id);
+
+  it('puts the account, the status line and what needs you first, with what needs you at line 11 (R1)', () => {
+    const state = withAccount(decidedFixRun().fold(), given());
+    const lines = briefMarkdown(briefOf(state));
+    assert.equal(lines[0], '# Parse an empty input');
+    assert.equal(lines[10], '## What needs you');
+    const parts = ['## What needs you', '## Before you merge', '## What deep-review fixed'].map((heading) => lines.indexOf(heading));
+    assert.ok(parts.every((position, index) => position > 0 && (index === 0 || parts[index - 1]! < position)), JSON.stringify(parts));
+    assert.equal(lines[8], `deep-review's fix run ${run(state)} has 2 findings. It fixed 1 in your working tree, against a written rule. It asks you 1 question.`);
+  });
+
+  it('counts the findings of a run by what became of them, in a run that only reviewed, after an answer, and once the fixes are committed (R14)', () => {
+    assert.equal(briefOf(answerable()).status.text, `deep-review's review run ${run(answerable())} has 2 findings. It changed no file and ran no check. It would fix 1, against a written rule. It asks you 1 question.`);
+    const answered = decidedFixRun().add('answer.recorded', answer('SWEEP-1', 0)).fold();
+    assert.equal(briefOf(answered).status.text, `deep-review's fix run ${run(answered)} has 2 findings. It fixed 1 in your working tree, against a written rule. It follows your answers to finding 2 and left 1 finding as is.`);
+    const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
+    const committed = briefOf(decidedFixRun().add('commits.created', series).fold());
+    assert.match(committed.status.text, /It fixed 1, against a written rule, and the fixes are committed\./);
+    assert.ok(!committed.needs.some((need) => need.condition === 'uncommitted'), 'no patch is left to commit');
+    assert.match(committed.needs.find((need) => need.condition === 'departure')!.lines[0]!, /The fix is committed\.$/);
+  });
+
+  it('gives an open question the item of rank 6 when deep-review\'s choice is another option, and of rank 7 when it is the default (R3)', () => {
+    const brief = briefOf(answerable());
+    const [, asked] = items(brief);
+    assert.deepEqual(asked, [
+      '**Finding 2 asks you a question, and deep-review\'s choice is not its default.** Should parse accept an empty input?',
+      'Option 1, the default, in place now: keep accepting it. Cost: callers that pass one now see the change. Rule: parse rejects an empty input.',
+      'Option 2, deep-review\'s choice: accept it and return an empty result. Cost: an empty input passes silently. Rule: parse accepts an empty input.',
+      `If you do nothing, option 1 stays, and deep-review's choice is option 2. To take it: \`deep-review answer --run ${run(answerable())} --finding 2 --option 2\`.`,
+    ]);
+    assert.equal(brief.needs[1]!.rank, 6);
+    const same = { ...askDecision('SWEEP-1', false), ask: { ...(askDecision('SWEEP-1', false).ask as Record<string, unknown>), recommended: 0 } };
+    const choice = briefOf(readOnlyReported([decisions[0], same]).fold());
+    const item = choice.needs.find((need) => need.finding === 2)!;
+    assert.equal(item.rank, 7);
+    assert.equal(item.lines[1], 'Option 1, the default, in place now, deep-review\'s choice: keep accepting it. Cost: callers that pass one now see the change. Rule: parse rejects an empty input.');
+    assert.match(item.lines.at(-1)!, /^If you do nothing, option 1 stays, and it is deep-review's choice\. To take another option: `deep-review answer --run \S+ --finding 2 --option <n>`, with its number\.$/);
+  });
+
+  it('says whether the tree holds the default of a question, in a run that only reviewed and after a fixer that did not apply it, and gives the question one rank (R3)', () => {
+    const readOnly = briefOf(readOnlyReported([decisions[0], askDecision('SWEEP-1', true)]).fold());
+    const item = readOnly.needs.find((need) => need.finding === 2)!;
+    assert.equal(item.lines[1], 'Option 1, the default, which this run did not apply, since it only reviewed: reject it with an error. Cost: callers that pass one now see the change. Rule: parse rejects an empty input.');
+    assert.match(item.lines.at(-1)!, /^If you do nothing, the fix pass applies option 1, and deep-review's choice is option 2\./);
+    const blocked = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'blocked').fold());
+    const asked = blocked.needs.filter((need) => need.finding === 1);
+    assert.deepEqual(asked.map((need) => need.condition), ['question-other'], 'the question, not unfinished work');
+    assert.match(asked[0]!.lines[1]!, /^Option 1, the default, which no fixer applied: /);
+  });
+
+  it('gives an open fix against a written rule its rule, where it is written, why, and both commands (R3)', () => {
+    const state = decidedFixRun().fold();
+    assert.deepEqual(items(briefOf(state))[0], [
+      '**Finding 1 is fixed against a written rule.** The fix is in your working tree.',
+      'The rule: parse throws on a null input',
+      'Where it is written: docs/parse.md',
+      'Why deep-review went against it: every caller passes the null on an empty input',
+      `If you do nothing, the fix stays, and the rule stays as it is written. To keep the fix and change the rule: \`deep-review answer --run ${run(state)} --finding 1 --accept\`. To follow the rule: \`deep-review answer --run ${run(state)} --finding 1 --reject\`.`,
+    ]);
+  });
+
+  it('gives work the run did not finish an item of rank 4: a fix no fixer applied, the run budget among the reasons, with no local path (R2)', () => {
+    const blocked = briefOf(decidedFixRun(plain(), 'blocked').fold());
+    assert.deepEqual(blocked.needs.filter((need) => need.rank === 4).map((need) => need.lines[0]), ['**Finding 1 is not fixed: its fixer could not apply it.** If you do nothing, the finding stays as it is.']);
+    assert.match(blocked.needsLine, /^Before a merge: 1 piece of work not finished and 1 question whose default is not deep-review's choice\. The edits of this run made no check fail, and the run left no document out of date\.$/);
+    const state = decidedFixRun(plain()).fold();
+    const fix = state.review!.fix!;
+    const stopped = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: {} }, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } } } } } } as RunState);
+    assert.equal(stopped.needs.find((need) => need.rank === 4)!.lines[0], '**Finding 1 is not fixed: the run budget stopped the fixes before it, and the end of the report gives the command that continues them.** If you do nothing, the finding stays as it is.');
+    assert.doesNotMatch(briefMarkdown(stopped).join('\n'), /node |main\.mjs|\/w\b/);
+  });
+
+  it('gives the edits of a fixer that did not finish an item, when no later fixer of the same work answered, and names them to read first when one did (R2)', () => {
     const state = decidedFixRun().fold();
     const fix = state.review!.fix!;
-    const broken = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, drift: [line('docs/a\r\nb.md', 'stale')] } } } } } } as RunState;
-    const short = briefShortForm(briefOf(broken));
-    assert.equal(short.length, 13);
-    assert.ok(short.every((entry) => !/[\r\n]/.test(entry)), JSON.stringify(short));
-    assert.ok(short.includes('Documents left out of date: 1: docs/a b.md'), JSON.stringify(short));
+    const answered = fix.revisions[0]!;
+    const attempt = (key: string): unknown => ({ ...answered, source: { kind: 'attempt', key, workerId: worker(60) } });
+    const left = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [answered, attempt('c9-1')] } } } as RunState);
+    assert.deepEqual(left.needs.filter((need) => need.condition === 'unfinished-edits').map((need) => need.lines[0]), ['**Patch 2 holds edits of a fixer that did not finish, for finding 1.** No later fixer of the same work answered. If you do nothing, the edits are committed as they are.']);
+    const finished = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [answered, attempt('c1-1')] } } } as RunState);
+    assert.ok(!finished.needs.some((need) => need.condition === 'unfinished-edits'));
+    assert.equal(finished.needs.find((need) => need.condition === 'uncommitted')!.lines[0], `**Review the 2 uncommitted patches, then commit them.** Read first patch 2, edits of a fixer that did not finish, which a later fixer of the same work completed. If you do nothing, the fixes stay uncommitted in your working tree. To commit them: \`deep-review commit --run ${run(state)}\`.`);
+  });
+
+  it('gives a document left out of date an item with its facts, and names the fix of a finding the verifier did not confirm to read first (R2)', () => {
+    const brief = briefOf(documentedFixRun([{ file: './docs/a.md', what: 'parse throws on a null' }], documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']])).fold());
+    assert.deepEqual(brief.needs.filter((need) => need.condition === 'document').map((need) => need.lines[0]), ['**`docs/a.md` is out of date.** Parse throws on a null (a fixer). The documentation step left it: doc-1 deferred. If you do nothing, the document stays out of date.']);
+    const state = decidedFixRun(plain()).fold();
+    const fix = state.review!.fix!;
+    const unconfirmed = briefOf({ ...state, review: { ...state.review!, fix: { ...fix, revisions: [{ ...fix.revisions[0]!, change: { ...fix.revisions[0]!.change, findings: ['SWEEP-1'] } }] } } } as RunState);
+    assert.match(unconfirmed.needs.find((need) => need.condition === 'uncommitted')!.lines[0]!, /Read first patch 1, the fix of finding 2, which the verifier did not confirm\./);
+  });
+
+  it('says that nothing needs the person, and names the conditions it checked, in a fix run and in a run that only reviewed (R2)', () => {
+    const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
+    const done = briefOf(decidedFixRun([decisions[0], decisions[1]]).add('commits.created', series).fold());
+    assert.deepEqual(done.needs, []);
+    assert.equal(done.needsLine, 'Nothing needs you. The edits of this run made no check fail, no check fails because of the change or is left without a comparison with the base, the run left no work unfinished and no document out of date, no fix against a written rule waits for your review, no question is open, and every fix is committed.');
+    const readOnly = briefOf(readOnlyReported([decisions[1], { ...decisions[1], id: 'RIPPLE-1' }]).fold());
+    assert.equal(readOnly.needsLine, 'Nothing needs you. No fix against a written rule waits for your review, no question is open, and deep-review decided no fix.');
+    assert.deepEqual(briefMarkdown(readOnly).slice(briefMarkdown(readOnly).indexOf('## What needs you'), briefMarkdown(readOnly).indexOf('## Before you merge')), ['## What needs you', '', readOnly.needsLine, '']);
+  });
+
+  it('gives a run that only reviewed the item that applies its fixes last, and what it would fix in its table (R14)', () => {
+    const brief = briefOf(answerable());
+    assert.equal(brief.needs.at(-1)!.lines[0], '**Apply the 1 fix that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run `deep-review review --fix` on the same change with the same runtime.');
+    const lines = briefMarkdown(brief);
+    assert.deepEqual(lines.slice(lines.indexOf('## What deep-review would fix')), ['## What deep-review would fix', '', '| Finding | The planned fix |', '|---|---|', '| [1](#finding-1), major, against a written rule | guard the null once, before parse reads it |']);
+    assert.match(lines[lines.indexOf('## Before you merge') + 2]!, /^No check ran: this run only reviewed\. The major findings stay open: finding 1\./);
+  });
+
+  it('gives each applied fix a row with how its fixer reports checking it and its patch, links in the report and plain numbers in the chat (R5)', () => {
+    const state = decidedFixRun().fold();
+    const fix = state.review!.fix!;
+    const validated = (methods: readonly string[]): Brief => {
+      const answer = fix.answers.fixes['c1-1']!;
+      const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran' })) }));
+      return briefOf({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState);
+    };
+    const row = (brief: Brief, form: 'report' | 'chat' = 'report'): string => briefMarkdown(brief, form).at(-1)!;
+    assert.equal(row(validated(['limited', 'old-code', 'existing'])), '| [1](#finding-1), major, against a written rule | fix: Guard the null | a new test fails on the code before the fix; existing tests and checks rerun; a limited check | 1 |');
+    assert.equal(row(validated([]), 'chat'), '| 1, major, against a written rule | fix: Guard the null | none reported | 1 |');
+    assert.ok(briefMarkdown(validated([])).includes('| Finding | The fix | How its fixer reports checking it | Patch |'), 'the heading says the fixer reports it');
+  });
+
+  it('shows at most ten fixes, and names the others in one row, marking a plausible one, which it says the verifier did not confirm (R5)', () => {
+    const brief = briefOf(decidedFixRun().fold());
+    const fixes = Array.from({ length: 12 }, (_, index) => ({ finding: index + 1, severity: 'minor' as const, plausible: index === 11, againstRule: false, subject: `fix ${String(index + 1)}`, kinds: [], patches: [index + 1] }));
+    const lines = briefMarkdown({ ...brief, fixes });
+    const table = lines.slice(lines.indexOf('## What deep-review fixed')).filter((line) => line.startsWith('| ') && !line.startsWith('| Finding'));
+    assert.equal(table.length, 11);
+    assert.equal(table.at(-1), '| 2 more: findings 11 and 12 | finding 12, plausible | | |');
+    assert.equal(lines.at(-1), 'A plausible finding is one that the verifier did not confirm.');
+  });
+
+  it('shows at most three decisions and three items of unfinished work, and names the others in one more item each (R2, R3)', () => {
+    const brief = briefOf(answerable());
+    const question = brief.needs.find((need) => need.finding === 2)!;
+    const decided = Array.from({ length: 5 }, (_, index) => ({ ...question, finding: index + 3 }));
+    const documents = Array.from({ length: 5 }, (_, index) => ({ rank: 4 as const, condition: 'document' as const, finding: null, check: null, document: `docs/${String(index)}.md`, patch: null, lines: [`**\`docs/${String(index)}.md\` is out of date.**`] }));
+    const lines = briefMarkdown({ ...brief, needs: [...documents, ...decided] });
+    assert.ok(lines.includes('4. **2 more:** `docs/3.md` and `docs/4.md`.'), lines.join('\n'));
+    assert.ok(lines.includes('8. **2 more decisions:** findings 6 and 7. `deep-review report --finding <number>` prints each with its options and commands.'), lines.join('\n'));
+  });
+
+  it('holds the brief to 72 lines and the chat form to 52 for any number of findings, with every list at its cap (R1, R12)', () => {
+    const brief = briefOf(withAccount(decidedFixRun().fold(), given()));
+    const long = (word: string): string => `${word} `.repeat(80).trim();
+    const question = { ...brief.needs.find((need) => need.finding === 2)!, lines: [long('lead'), ...Array.from({ length: 4 }, () => long('option')), long('nothing')] };
+    const check = (kind: 'build' | 'typecheck' | 'lint' | 'test', condition: 'edits' | 'change-breaks' | 'not-compared', rank: 1 | 2 | 3) => ({ rank, condition, finding: null, check: kind, document: null, patch: null, lines: [long(kind)] });
+    const needs = [
+      check('build', 'edits', 1), check('typecheck', 'change-breaks', 2), check('lint', 'change-breaks', 2), check('test', 'not-compared', 3),
+      ...Array.from({ length: 6 }, (_, index) => ({ rank: 4 as const, condition: 'unapplied-fix' as const, finding: index + 1, check: null, document: null, patch: null, lines: [long('work')] })),
+      ...Array.from({ length: 10 }, (_, index) => ({ ...question, finding: index + 1 })),
+      { rank: 8 as const, condition: 'uncommitted' as const, finding: null, check: null, document: null, patch: null, lines: [long('commit')] },
+    ];
+    const checks = (['build', 'typecheck', 'lint', 'test'] as const).map((kind) => ({ ...brief.checks[0]!, kind }));
+    const fixes = Array.from({ length: 20 }, (_, index) => ({ finding: index + 1, severity: 'minor' as const, plausible: true, againstRule: false, subject: long('subject'), kinds: [], patches: [index + 1] }));
+    const full: Brief = { ...brief, title: long('title'), needs, checks, fixes, notExamined: Array.from({ length: 30 }, () => long('gap')) };
+    assert.equal(briefMarkdown(full).length, briefLineLimit, 'every list at its cap reaches the maximum');
+    assert.ok(briefChatForm(full).length <= chatLineLimit, String(briefChatForm(full).length));
+    assert.ok(briefChatForm(briefOf(answerable())).length < chatLineLimit);
+  });
+
+  it('gives the chat form the title with the run, the line of the change, the parts of the brief made by the same functions, and the line of the fixes, with no link (R12)', () => {
+    const state = withAccount(decidedFixRun().fold(), given());
+    const brief = briefOf(state);
+    const chat = briefChatForm(brief);
+    const markdown = briefMarkdown(brief, 'chat');
+    assert.equal(chat[0], `Parse an empty input (run ${run(state)})`);
+    assert.equal(chat[1], 'The change before the fixes: The parser returns no value for an empty input, where it threw before.');
+    assert.equal(chat[3], brief.status.text);
+    const parts = markdown.slice(markdown.indexOf('## What needs you'), markdown.indexOf('## What deep-review fixed'));
+    assert.deepEqual(chat.slice(5, 5 + parts.length), parts, 'What needs you and Before you merge as the brief has them');
+    assert.equal(chat.at(-1), `What deep-review fixed: deep-review report --fixes --run ${run(state)}`);
+    assert.doesNotMatch(chat.join('\n'), /\]\(#|RIPPLE-|SWEEP-/);
+  });
+
+  // The title line and the line of the change of the chat form keep the rules of the short form they replace (R4, R5 of the questions in the chat).
+  it('gives the whole title on its first line, which only the line\'s limit cuts', () => {
+    const run = answerable().id.slice(0, 8);
+    // 98 characters: past the 80 the triage is asked for, which cut the gate run's title in the short form.
+    const title = 'Give each run a brief: the change\'s account, a report that starts with it, and a report command';
+    assert.ok(title.length > accountLimits.title);
+    assert.equal(briefChatForm(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))))[0], `${title} (run ${run})`);
+    const first = briefChatForm(briefOf(withAccount(answerable(), given({ ...changeReading, title: 'word '.repeat(60).trim() } as unknown as ChangeReading))))[0]!;
+    assert.ok(first.length <= shortLineLimit && first.endsWith('...'), first);
+  });
+
+  it('keeps the first sentence of the change whole up to 400 characters, and cuts a longer one at a word (R4 of the questions in the chat)', () => {
+    const changeLine = (what: string): string => briefChatForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    assert.equal(changeLineLimit, 400);
+    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
+    const three = sentence(300);
+    assert.equal(changeLine(`${three} More.`), `The change: ${three}`, 'a sentence of 300 characters, past the 200 of the other lines');
+    assert.ok(changeLine(`${three} More.`).length > shortLineLimit);
+    const five = sentence(500);
+    const cut = changeLine(`${five} More.`);
+    assert.ok(cut.startsWith('The change: ') && cut.endsWith('...'), cut);
+    const kept = cut.slice('The change: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit, 'the limit counts the sentence');
+    assert.ok(five.startsWith(kept) && five[kept.length] === ' ', 'cut at a word, with three periods');
+  });
+
+  it('counts the limit of the line of the change on the sentence alone, past the mark of the change before the fixes (R4, R5 of the questions in the chat)', () => {
+    const changeLine = (state: RunState, what: string): string => briefChatForm(briefOf(withAccount(state, given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    const sentence = (length: number): string => `${'Reads the input '.repeat(40).slice(0, length - 1).trimEnd()}.`;
+    const whole = sentence(changeLineLimit - 10);
+    assert.equal(whole.length, changeLineLimit - 10);
+    assert.equal(changeLine(answerable(), `${whole} More.`), `The change: ${whole}`);
+    assert.equal(changeLine(decidedFixRun().fold(), `${whole} More.`), `The change before the fixes: ${whole}`);
+    const longer = sentence(changeLineLimit + 20);
+    const cut = changeLine(decidedFixRun().fold(), `${longer} More.`);
+    assert.ok(cut.startsWith('The change before the fixes: ') && cut.endsWith('...'), cut);
+    const kept = cut.slice('The change before the fixes: '.length, -3);
+    assert.ok(kept.length + 3 <= changeLineLimit && longer.startsWith(kept) && longer[kept.length] === ' ', 'cut at a word');
+  });
+
+  it('says the first sentence of the change, past an abbreviation and across a line or paragraph separator', () => {
+    const changeLine = (what: string): string => briefChatForm(briefOf(withAccount(answerable(), given({ ...changeReading, what } as unknown as ChangeReading))))[1]!;
+    assert.equal(changeLine('Adds a flag, e.g. --json, to report. More.'), 'The change: Adds a flag, e.g. --json, to report.');
+    assert.equal(changeLine('Reads i.e. parses the input, vs. the old cf. path. More.'), 'The change: Reads i.e. parses the input, vs. the old cf. path.');
+    assert.equal(changeLine('Keeps the paths, the names, etc. in the report. More.'), 'The change: Keeps the paths, the names, etc. in the report.');
+    assert.equal(changeLine('Keeps the paths, the names, etc. More.'), 'The change: Keeps the paths, the names, etc.', 'etc. ends a sentence before an upper-case word');
+    assert.equal(changeLine('Closes issue No. 5 of the parser. More.'), 'The change: Closes issue No. 5 of the parser.');
+    assert.equal(changeLine('Says No. More follows.'), 'The change: Says No.', 'No. ends a sentence before a word');
+    assert.equal(changeLine('Reads the input\u2028and parses it. More.'), 'The change: Reads the input and parses it.');
+    assert.equal(changeLine('Reads the input \u2029 and parses it'), 'The change: Reads the input and parses it');
+    assert.equal(changeLine('Is it new? Yes.'), 'The change: Is it new?');
+  });
+
+  it('gives the item of a question or a fix against a written rule under the heading of its finding, open or answered, and none for any other finding (R7)', () => {
+    const brief = briefOf(answerable());
+    assert.deepEqual(briefBlock(brief, 'SWEEP-1')!.slice(0, 3), ['## Finding 2', '', '1. **Finding 2 asks you a question, and deep-review\'s choice is not its default.** Should parse accept an empty input?']);
+    assert.equal(briefBlock(brief, 'RIPPLE-1')![2], '1. **Finding 1 would be fixed against a written rule.** This run only reviewed, so the fix pass applies it.');
+    const answered = briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold());
+    assert.match(briefBlock(answered, 'SWEEP-1')!.at(-1)!, /^Answered: option 2 on [^;]+; not yet applied\.$/);
+    assert.equal(briefBlock(briefOf(readOnlyReported().fold()), 'SWEEP-1'), null);
+  });
+
+  it('names a finding by its number, with a run of three or more as a span', () => {
+    assert.equal(findingWords([3]), 'finding 3');
+    assert.equal(findingWords([9, 2, 5]), 'findings 2, 5 and 9');
+    assert.equal(findingWords([9, 11, 12, 13, 14, 19]), 'findings 9, 11 to 14 and 19');
+  });
+
+  it('writes none of the words of the engine above the findings when the workers wrote none (R10)', () => {
+    const words = /\b(departure|angle|triage|cluster|batch|attempt|phase|Held by|repair|sweep|scope)\b/i;
+    const ids = /\b(CONFIRMED|PLAUSIBLE|REFUTED|[A-Z]+-\d+)\b/;
+    for (const state of [answerable(), decidedFixRun().fold(), withAccount(decidedFixRun().fold(), given()), readOnlyReported().fold()]) {
+      for (const line of [...briefMarkdown(briefOf(state)), ...briefChatForm(briefOf(state))]) {
+        assert.doesNotMatch(line, words, line);
+        assert.doesNotMatch(line, ids, line);
+      }
+    }
   });
 });

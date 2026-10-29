@@ -13,8 +13,7 @@ import { kindsTakenToBase, lastCurrentRun, lastRecordedRun, type CheckRunState, 
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isEmptyTree } from '../scope/git.ts';
 import { baseNameOf, commitWords } from '../scope/scope-line.ts';
-import { listed } from './markdown.ts';
-import { baseSkipReasons, checkKinds, failedOrTimedOut, repairUnitKey, treeCheckPhases, type BaseReading, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
+import { baseSkipReasons, failedOrTimedOut, repairUnitKey, treeCheckPhases, type BaseReading, type CheckKind, type CheckOutcome, type TreeCheckPhase, type ValidationMethod } from './vocabulary.ts';
 
 /** When a run of a check ran, by its phase (R3 of the facts before a merge): before the fixes, after them, after the repair, or after an answer pass. */
 export const checkMoments = ['before', 'fixes', 'repair', 'answers'] as const;
@@ -219,97 +218,6 @@ function ranWords({ before, last }: BriefCheck): string {
   return `${first} and ${before === last.outcome ? when : `${outcomeVerbs[last.outcome]} ${when}`}`;
 }
 
-/** What the base says of a check, as the words after its outcomes, in fixed words; a fact that rests on the repair's reading says so (R5, principle 1). */
-function baseFactWords(base: BriefBase): string {
-  const where = baseWords(base);
-  if (base.reason !== null) return `, and the run could not compare it with the base, ${where}, since ${notComparedWords[base.reason]}`;
-  if (base.outcome === 'passed') return `, and it passes on the base, ${where}`;
-  return base.reading === 'adds'
-    ? `, and the change has failures that the base, ${where}, does not have, by the repair's reading`
-    : `, and the base, ${where}, has the same failures, by the repair's reading`;
-}
-
-/**
- * How the checks of a fix run ended, as one sentence of "What deep-review
- * changed" (R3): each check's outcome before the fixes and at its last
- * run, with when that ran, so no failure after the answers reads as one
- * after the fixes (#78), and what its base says.
- */
-export function checksSentence(checks: readonly BriefCheck[]): string {
-  if (checks.length === 0) return 'No check ran.';
-  if (checks.every((check) => check.before === 'passed' && check.last?.outcome === 'passed' && check.earlier.failed === null)) return 'The checks passed before and after the fixes.';
-  return `The checks: ${checks.map((check) => `${check.kind} ${ranWords(check)}${check.base === null ? '' : baseFactWords(check.base)}`).join('; ')}.`;
-}
-
-/**
- * The rows of the line `Checks:` (R6, PD5 of the facts before a merge;
- * the table of the short form of the design), in the order the line
- * names them: each fault, a check that still fails with none, the other
- * ways a check did not pass at some point of the run, a kind with no
- * command, and last the kinds that passed at each run. A kind takes the
- * first row that holds, so the kinds that need the person come first and
- * a cut of the line drops the kinds that passed first.
- */
-export const lineRows = [...checkFaults, 'failing', 'passes-now', 'repaired', 'not-rerun', 'unfinished', 'no-command', 'passed'] as const;
-export type LineRow = (typeof lineRows)[number];
-type ClauseRow = Exclude<LineRow, 'no-command' | 'passed'>;
-
-/** When an earlier run of a check ran, before its last, as the words after its verb: an answer pass before the last run is an earlier one. */
-const earlierWords: Readonly<Record<CheckMoment, string>> = { before: 'before the fixes', fixes: 'after the fixes', repair: 'after the repair', answers: 'after earlier answers' };
-
-/** How a check that did not finish ended last: it timed out, was skipped, did not start, or was cut short, or it never ran. */
-const unfinished = (outcome: CheckOutcome | null): boolean => outcome === null || ['timeout', 'skipped', 'not-started', 'cut'].includes(outcome);
-
-/** The clause of each row for a check, in a few words, when the row holds for it, else null; a clause that rests on the repair's reading says so (principle 1). */
-const clauses: Readonly<Record<ClauseRow, (check: BriefCheck) => string | null>> = {
-  edits: ({ kind, fault, last, earlier }) => (fault === 'edits' && last !== null && earlier.passed !== null ? `${kind} ${outcomeVerbs[last.outcome]} ${lastWords[last.when]}, and passed ${earlierWords[earlier.passed]}` : null),
-  'change-breaks': ({ kind, fault, base }) => (fault === 'change-breaks' && base !== null ? `${kind} fails on the change and passes on the base (${commitWords(base.commit)})` : null),
-  'change-adds': ({ kind, fault, base }) => (fault === 'change-adds' && base !== null ? `${kind} fails on the change with failures that the base (${commitWords(base.commit)}) does not have, by the repair's reading` : null),
-  'not-compared': (check) => (check.fault === 'not-compared' ? `${check.kind} ${ranWords(check)}, not compared with the base` : null),
-  'base-has': ({ kind, fault, base }) => (fault === 'base-has' && base !== null ? `${kind} failed, as it does on the base (${commitWords(base.commit)}), by the repair's reading` : null),
-  // A check whose last run failed with no fault: one that never passed, in a run configured before the checks on the base or of a kind the run did not take there.
-  failing: (check) => (check.last?.outcome === 'failed' ? `${check.kind} ${ranWords(check)}` : null),
-  'passes-now': ({ kind, before, last }) => (failedOrTimedOut(before) && last?.outcome === 'passed' ? `${kind} ${outcomeVerbs[before]} before the fixes and passes now` : null),
-  repaired: ({ kind, earlier, last }) => (earlier.failed !== null && last?.outcome === 'passed' ? `${kind} failed ${earlierWords[earlier.failed]} and passed ${lastWords[last.when]}` : null),
-  'not-rerun': ({ kind, before, last }) => (failedOrTimedOut(before) && last === null ? `${kind} ${outcomeVerbs[before]} before the fixes and did not run again` : null),
-  unfinished: ({ kind, before, last }) => (unfinished(last?.outcome ?? before) ? `${kind} did not finish` : null),
-};
-
-const clauseRows = lineRows.filter((row): row is ClauseRow => row !== 'no-command' && row !== 'passed');
-
-/** A kind as the line names it: its row, and its clause, or for one that passed at each run its kind alone, which the line names with the others that did. */
-function lineEntry(check: BriefCheck): { readonly kind: CheckKind; readonly row: LineRow; readonly clause: string } {
-  for (const row of clauseRows) {
-    const clause = clauses[row](check);
-    if (clause !== null) return { kind: check.kind, row, clause };
-  }
-  return { kind: check.kind, row: 'passed', clause: check.kind };
-}
-
-/**
- * The line `Checks:` of the short form of a fix run (R6, PD5 of the facts
- * before a merge), uncut: each kind by the first row of `lineRows` that
- * holds for it, the rows in order and the kinds of one row in the order
- * of the kinds, the kinds that passed at each run named together; or one
- * line that each passed, before and after the fixes or before them alone
- * when no fix changed a file, or that the run has no check command.
- */
-export function checksLine(checks: readonly BriefCheck[], noCommand: readonly CheckKind[]): string {
-  if (checks.length === 0) return 'Checks: none, since the run has no check command';
-  const entries = [...checks.map(lineEntry), ...noCommand.map((kind) => ({ kind, row: 'no-command' as const, clause: `no ${kind} check` }))]
-    .sort((a, b) => lineRows.indexOf(a.row) - lineRows.indexOf(b.row) || checkKinds.indexOf(a.kind) - checkKinds.indexOf(b.kind));
-  // No check runs after the fixes when no fix changed a file.
-  const ranAfter = checks.some((check) => check.last !== null);
-  const passed = entries.filter((entry) => entry.row === 'passed').map((entry) => entry.kind);
-  if (passed.length === entries.length) return ranAfter ? 'Checks: each passed before and after the fixes' : 'Checks: each passed before the fixes; no check ran after them, since no fix changed a file';
-  const parts = [
-    ...entries.filter((entry) => entry.row !== 'passed').map((entry) => entry.clause),
-    ...(passed.length === 0 ? [] : [`${listed(passed)} passed`]),
-    ...(ranAfter ? [] : ['no check ran after the fixes, since no fix changed a file']),
-  ];
-  return `Checks: ${parts.join('; ')}`;
-}
-
 /**
  * The gap of "What the review did not cover" that a check's fault gives
  * (R5): a check the change breaks, or that the run took to the base and
@@ -361,33 +269,82 @@ export function validationOf(applied: readonly { readonly id: string; readonly m
   return Object.fromEntries(validationStrengths.map((strength) => [strength, byFix.filter((fix) => fix.strength === strength).map((fix) => fix.id)])) as Record<ValidationStrength, string[]>;
 }
 
-/** What a fix validated less strongly than by a test rests on, after its ids, for one id and for several (R7); a check of the source can run a source assertion as well as read the source. */
-const restsOn: Readonly<Record<Exclude<ValidationStrength, 'test'>, readonly [one: string, many: string]>> = {
-  existing: ['rests on the tests that already exist', 'rest on the tests that already exist'],
-  static: ['rests on a check of the source', 'rest on a check of the source'],
-  limited: ['rests on a limit that its fixer named', 'rest on limits that their fixers named'],
-  none: ['has no validation that its fixer reported', 'have no validation that their fixers reported'],
+/** Who compared the failures of a check with those of the base, when the meaning of the check rests on a comparison (R4 of the report for the person): the engine, from the outcome on the base, or a model, the worker that compared the failures. */
+export type ComparedBy = 'engine' | 'model';
+
+/** What a run's configuration tells the meanings of its checks: whether an engine before the checks on the base configured it (R10 of the facts before a merge). */
+export interface MeaningRun {
+  readonly baseChecksStep: boolean;
+}
+
+/** One row of the meanings of a check (R4, TD3 of the report for the person): when it holds, what it means, its rank in "What needs you", and who compared. */
+export interface CheckMeaningRow {
+  readonly holds: (check: BriefCheck, run: MeaningRun) => boolean;
+  readonly meaning: (check: BriefCheck) => string;
+  readonly rank: 1 | 2 | 3 | null;
+  readonly comparedBy: ComparedBy | null;
+}
+
+/** Whether an outcome counts as a failure, as `faultHolds` counts it: a timeout does. */
+const fails = (outcome: CheckOutcome | null | undefined): boolean => outcome !== null && outcome !== undefined && failedOrTimedOut(outcome);
+
+/** The reasons a check was not compared, in the plain words of the brief, which names the worker that compared the failures rather than the step it ran in (R10 of the report for the person). */
+export const notComparedPlainWords: Readonly<Record<NotComparedReason, string>> = {
+  ...notComparedWords,
+  'no-comparison': 'the worker that compared the failures gave no comparison',
+  unknown: 'the worker that compared the failures could not compare the outputs',
 };
 
 /**
- * The sentence of "What deep-review changed" on the validation of the
- * applied fixes (R7, PD6 of the facts before a merge), marked as what the
- * fixers report: how many of them a test validated, then the others by
- * the strongest validation of each, their ids as `list` gives them, which
- * the brief shows at most 8 of and counts the rest. None for a run that
- * applied no fix.
+ * The meanings of a check, in order (R4, TD3 of the report for the
+ * person): the first row that holds gives the meaning. The rows of a fault
+ * read the fault that `faultHolds` gave, so a meaning and a fault cannot
+ * disagree; the rows after them read the outcomes, and the last holds for
+ * any check, so every check has a meaning.
  */
-export function validationSentence(validation: BriefValidation, list: (ids: readonly string[]) => string): string | null {
-  const total = validationStrengths.reduce((sum, strength) => sum + validation[strength].length, 0);
-  if (total === 0) return null;
-  const tested = validation.test.length;
-  const fixes = total === 1 ? 'the fix' : `${tested === total ? 'each' : tested === 0 ? 'none' : String(tested)} of the ${String(total)} fixes`;
-  const lead = tested === 0 && total === 1
-    ? 'The fixers report that no test validated the fix.'
-    : `The fixers report that a test validated ${fixes}${tested === 0 ? '.' : ': it fails on the code before the fix, or on a mutation of the fix.'}`;
-  const rest = validationStrengths.filter((strength): strength is Exclude<ValidationStrength, 'test'> => strength !== 'test').flatMap((strength) => {
-    const ids = validation[strength];
-    return ids.length === 0 ? [] : [`${list(ids)} ${restsOn[strength][ids.length === 1 ? 0 : 1]}.`];
-  });
-  return [lead, ...rest].join(' ');
+export const checkMeanings: readonly CheckMeaningRow[] = [
+  { holds: (check) => check.fault === 'edits', meaning: () => 'the edits of this run made it fail', rank: 1, comparedBy: null },
+  { holds: (check) => check.fault === 'change-breaks', meaning: () => 'fails because of the change', rank: 2, comparedBy: 'engine' },
+  { holds: (check) => check.fault === 'change-adds', meaning: () => 'fails on the base too, and the change adds failures, by a model\'s comparison', rank: 2, comparedBy: 'model' },
+  { holds: (check) => check.fault === 'not-compared', meaning: (check) => `fails, not compared with the base, since ${notComparedPlainWords[check.base?.reason ?? 'not-run']}`, rank: 3, comparedBy: null },
+  { holds: (check) => check.fault === 'base-has', meaning: () => 'fails the same way on the base, by a model\'s comparison', rank: null, comparedBy: 'model' },
+  { holds: (check, run) => !run.baseChecksStep && (fails(check.last?.outcome) || (check.last === null && fails(check.before))), meaning: () => 'fails', rank: null, comparedBy: null },
+  { holds: (check) => check.last === null && fails(check.before), meaning: () => 'fails as submitted, not compared with the base', rank: 3, comparedBy: null },
+  { holds: (check) => check.before === 'passed' && check.last?.outcome === 'passed', meaning: () => 'passes', rank: null, comparedBy: null },
+  { holds: (check) => fails(check.before) && check.last?.outcome === 'passed', meaning: () => 'passes; it failed as submitted', rank: null, comparedBy: null },
+  { holds: (check) => check.before === 'passed' && check.last === null, meaning: () => 'passes as submitted; no check ran after the fixes', rank: null, comparedBy: null },
+  { holds: (check) => ['skipped', 'not-started', 'cut'].includes((check.last?.outcome ?? check.before) ?? ''), meaning: () => 'did not finish its last run', rank: null, comparedBy: null },
+  { holds: () => true, meaning: (check) => (check.before === null && check.last === null ? 'did not run' : 'fails'), rank: null, comparedBy: null },
+];
+
+/** The row of `checkMeanings` that gives a check its meaning: the first that holds. */
+export function meaningRowOf(check: BriefCheck, run: MeaningRun): CheckMeaningRow {
+  return checkMeanings.find((row) => row.holds(check, run))!;
+}
+
+/**
+ * The kinds of validation a fixer reports, the strongest first, with
+ * their words in the table of the fixes (R5 of the report for the
+ * person). It refines `validationStrengths`, which puts a test that fails
+ * on the code before the fix and one that fails when the fix is undone
+ * together.
+ */
+export const validationKinds: readonly { readonly method: ValidationMethod; readonly words: string }[] = [
+  { method: 'old-code', words: 'a new test fails on the code before the fix' },
+  { method: 'mutation', words: 'a test fails when the fix is undone' },
+  { method: 'existing', words: 'existing tests and checks rerun' },
+  { method: 'static', words: 'read against the source' },
+  { method: 'limited', words: 'a limited check' },
+];
+
+/** The words when a fixer reported no validation. */
+export const noValidationWords = 'none reported';
+
+/** The kinds of a fix's validations, each once, the strongest first, or none. */
+export const validationKindsOf = (methods: readonly ValidationMethod[]): ValidationMethod[] => validationKinds.filter((kind) => methods.includes(kind.method)).map((kind) => kind.method);
+
+/** A fix's validations as the cell of the table of the fixes names them. */
+export function validationWords(methods: readonly ValidationMethod[]): string {
+  const kinds = validationKindsOf(methods);
+  return kinds.length === 0 ? noValidationWords : kinds.map((method) => validationKinds.find((kind) => kind.method === method)!.words).join('; ');
 }

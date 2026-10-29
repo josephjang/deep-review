@@ -107,7 +107,7 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     assert.equal(path, reportCopyPath(root, state));
     const text = readFileSync(path!, 'utf8');
     assert.equal(text, renderReport(state, reportInputOf(checkpointAt(root), state, context)));
-    assert.match(text, /^Answered: option 2 on [^;]+; not yet applied\. deep-review's choice was option 2\.$/m);
+    assert.match(text, /It follows your answers to finding 2 /);
     assert.match(text, /^Engine: 0\.0\.0\+copy \(run created by 0\.0\.0\)$/m, 'the copy names the engine that rendered it');
   });
 
@@ -116,7 +116,7 @@ describe('the copy of the report (R14 of the brief of a run)', () => {
     const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
     const state = decidedFixRun().add('commits.created', series).fold();
     const text = readFileSync(refreshReportCopy(checkpointAt(root), state, context, log)!, 'utf8');
-    assert.match(text, /They are in 2 commits\./);
+    assert.match(text, /and the fixes are committed\./);
     assert.match(text, /^Fix pass: [^\n]*patch 1 is committed$/m);
   });
 

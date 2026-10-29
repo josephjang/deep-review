@@ -66,7 +66,7 @@ import { patchSeries } from './patch.ts';
 import { contributionOf, invocationFor, type DocumentationPatch, type PhaseContext } from './phases.ts';
 import { editorsUnderUnelevatedSandbox, pinnedWindowsSandbox, readPolicy, refuseInvocationFlags, resolvePolicy, rolesDigest, type PolicyFlags } from './policy.ts';
 import { scopeBlock, surveyScopeBlock, type PresurveyRulesFile, type ScopeConventions } from './prompts.ts';
-import { briefOf, briefShortForm, changeShapeOf } from './brief.ts';
+import { briefOf, briefChatForm, changeShapeOf } from './brief.ts';
 import { renderReport } from './report.ts';
 import { refreshReportCopy, reportCopyPath, writeReportCopy } from './report-copy.ts';
 import { passedOverLine, readableRuns } from './runs.ts';
@@ -786,7 +786,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
           // A run complete before this invocation wrote nothing now; its copy is rendered from the ledger, as a later command renders it.
           const roles = namedRoles(options.rolesRoot) === null ? null : rolesPlaceholder;
           copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, continueRoles: () => roles, ...(options.home === undefined ? {} : { home: options.home }) }, log) };
-          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefShortForm(briefOf(state)) };
+          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefChatForm(briefOf(state)) };
         }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);

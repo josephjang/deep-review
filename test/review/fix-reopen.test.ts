@@ -62,7 +62,8 @@ async function stoppedRun(t: TestContext, script: Script = budgetScript, units: 
   // The facts of the run name the command, and the brief says that they do (R10, R15 of the brief of a run).
   assert.ok(text.includes(`\nThe run budget stopped the fix pass: ${left} did not start. \`${command}\` continues it and reviews nothing again.\n`), text);
   assert.ok(text.indexOf(command) > text.indexOf('\n## The run\n'), 'only the facts of the run name the command, which holds local paths');
-  assert.match(text, /^- The run budget stopped the fixes before [^\n]+ (was|were) attempted\. The facts of the run at the end of the report give the command that continues them\.$/m);
+  // The brief says that the run budget stopped the work, as an item of what needs you or a gap, and points at the end of the report for the command (R2 of the report for the person).
+  assert.match(text.slice(0, text.indexOf('\n## Findings\n')), /[Tt]he run budget stopped the fix(es| pass) before [^\n]*, and the end of the report gives the command that continues (it|them)/);
   // status names the same command, and in place of a roles directory it is not given, a placeholder it explains.
   const status = (ownRolesDigest: string): string[] => describeRun(stopped, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { continuation: { engineEntry: cliEntry, ownRolesDigest: () => ownRolesDigest } }).lines;
   const withoutRoles = command.replace(` --roles "${box.rolesRoot}"`, '');

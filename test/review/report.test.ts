@@ -21,16 +21,16 @@ describe('renderReport', () => {
 
   it('exercises every section and mark in the snapshot', () => {
     const report = renderReport(reported().fold(), reportInput);
-    for (const heading of ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
+    for (const heading of ['# The uncommitted change on 22222222', '## What needs you', '## Before you merge', '## What deep-review would fix', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
     assert.match(report, /^### 1\. \[major\] CONFIRMED  RIPPLE-1 \(also SWEEP-2\)  src\/a\.ts:4$/m);
     assert.match(report, /^### 2\. \[minor\] PLAUSIBLE  SWEEP-1  C:\\elsewhere\\b\.ts:9 \(unlocated: C:\\elsewhere\\b\.ts:9; unverified\)$/m);
     assert.match(report, /Evidence: none; the verifier of this group failed twice/);
     assert.match(report, /Also at: SWEEP-2 src\/a\.ts:7/);
-    // The angle that did not run and the group no verifier examined are gaps of the brief (R10 of the brief of a run); only the group keeps a note, which names it and its phase, as the brief does not (R12).
-    assert.match(report, /^- The FOOTGUNS angle did not run \(2 attempts did not complete: [^\n]*\)\. A later pass looked for what it would have found\.$/m);
-    assert.match(report, /^- No verifier examined SWEEP-1, SWEEP-2 \(2 attempts did not complete: failed; failed again\); each counts as PLAUSIBLE\.$/m);
-    assert.doesNotMatch(report, /^- Angle FOOTGUNS did not run/m);
+    // The pass that did not run and the findings no verifier examined are gaps of the brief, in plain words (R10 of the report for the person); the notes keep why, the group and its phase, as the brief does not.
+    const brief = report.slice(0, report.indexOf('\n---\n'));
+    assert.ok(brief.includes('The footguns review pass did not run, and a later pass looked for what it would have found. No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.'), brief);
     const notes = report.slice(report.indexOf('\n## Notes of the run\n'));
+    assert.match(notes, /^- The FOOTGUNS angle did not run \(2 attempts did not complete: [^\n]*\)\.$/m);
     assert.match(notes, /^- Group g1 of sweep-verification was not verified \(2 attempts did not complete: failed; failed again\): its candidates \(SWEEP-1, SWEEP-2\) are a gap of the brief\.$/m);
     assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /g1|sweep-verification/, 'the brief names neither the group nor its phase');
     assert.match(report, /- Worktree checks: 9, none found a difference/);
@@ -43,11 +43,10 @@ describe('renderReport', () => {
 
   it('says why a run has no account of the change in one sentence, in the brief alone', () => {
     const state = reported().fold();
-    const expected = { unrecorded: 'The triage of this run did not record the core of the change, because an engine before this change reviewed it.', none: 'The triage of this run gave no account of the change.' };
+    const expected = { unrecorded: 'deep-review recorded no account of this change, because an engine before this change reviewed it.', none: 'deep-review gave no account of this change.' };
     for (const kind of ['unrecorded', 'none'] as const) {
       const report = renderReport({ ...state, review: { ...state.review!, change: { kind } } }, reportInput);
-      const after = (heading: string): string => report.slice(report.indexOf(`\n${heading}\n\n`) + heading.length + 3).split('\n')[0]!;
-      assert.equal(after('## The change'), expected[kind], kind);
+      assert.equal(report.split('\n')[2], expected[kind], kind);
       assert.ok(!report.includes('\n## The change, in full\n'), 'the account is told once (R1 of the report for the person)');
     }
   });
@@ -131,7 +130,7 @@ describe('renderReport', () => {
     };
     const report = renderReport(drifted, reportInput);
     assert.match(report, /- Worktree checks: 10, 1 found a difference in report \(attempt 1: src\/a\.ts modified\); each blocked the run/);
-    assert.match(report, /^- 1 file too large to freeze, which no worker was given: big\.bin\.$/m, 'a gap of the brief (R10 of the brief of a run)');
+    assert.ok(report.includes(' 1 file too large to freeze, which no worker was given: big.bin.'), 'a gap of the brief (R10 of the brief of a run)');
   });
 
   it('keeps text from workers inside the line it belongs to, so it cannot add a heading, a list item or a paragraph', () => {
@@ -153,14 +152,14 @@ describe('renderReport', () => {
     };
     const report = renderReport(hostile, reportInput);
     const headings = report.split('\n').filter((line) => line.startsWith('#'));
-    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The uncommitted change on 22222222', '## The change', '## What the review did not cover', '## Where to look', '## What deep-review changed', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']);
+    assert.deepEqual(headings.filter((line) => line.startsWith('## ') || line.startsWith('# ')), ['# The uncommitted change on 22222222', '## What needs you', '## Before you merge', '## What deep-review would fix', '## Findings', '## Refuted at verification', '## Notes of the run', '## The run']);
     assert.equal(headings.filter((line) => line.startsWith('### ')).length, 2, 'one heading per finding, and nothing else at that level');
     assert.match(report, /^\\## Injected section second line$/m);
     assert.match(report, /^Reason: because - a list item$/m);
     assert.match(report, /\(unlocated: C:\\x\.ts ## Heading from a path:9; unverified\)$/m);
     assert.match(report, /^- SCAN-1 \(SCAN\) {2}src\/a\.ts:3 {2}refuted # Heading\n {2}Evidence: line 3 ## is a comment$/m);
-    assert.match(report, /^- The FOOTGUNS angle did not run \(timeout ## Limitation heading\)\. /m);
-    assert.match(report, /^- No verifier examined SWEEP-1, SWEEP-2 \(failed # Group heading\); /m);
+    assert.match(report, /^- The FOOTGUNS angle did not run \(timeout ## Limitation heading\)\.$/m);
+    assert.match(report, /^- Group g1 of sweep-verification was not verified \(failed # Group heading\): /m);
     assert.ok(!report.split('\n').some((line) => /^[-*+] /.test(line) && line.includes('a list item')), 'no list item opened by a reason');
   });
 
@@ -224,21 +223,21 @@ describe('renderReport', () => {
   describe('the brief at the top, and the evidence after it (R12, R15 of the brief of a run)', () => {
     const answerable = (): RunState => decidedOf(reported(), [{ ...decisions[0], departure: { rule: 'parse trusts its callers', source: 'docs/rules.md', reason: 'a caller passes null' } }, askDecision('SWEEP-1', false)]).fold();
 
-    it('starts with the brief, then a rule and one sentence, then the evidence', () => {
+it('starts with the brief, then a rule and one sentence, then the evidence', () => {
       const report = renderReport(answerable(), reportInput);
-      assert.ok(report.startsWith('# The uncommitted change on 22222222\n\n2 things need you: 1 question and 1 fix that goes against a written rule.'), report.slice(0, 200));
-      const parts = ['## The change\n', '## Questions for you (1)\n', '## Fixes that go against a written rule (1)\n', '## What the review did not cover\n', '## Where to look\n', '## What deep-review changed\n', '---\n\nThe evidence for each statement above follows.\n', '## Decisions\n'].map((marker) => report.indexOf(`\n${marker}`));
+      assert.ok(report.startsWith('# The uncommitted change on 22222222\n\ndeep-review recorded no account of this change'), report.slice(0, 200));
+      const parts = ['## What needs you\n', '## Before you merge\n', '## What deep-review would fix\n', '---\n\nThe evidence for each statement above follows.\n', '## Decisions\n'].map((marker) => report.indexOf(`\n${marker}`));
       assert.ok(parts.every((position, index) => position > 0 && (index === 0 || parts[index - 1]! < position)), JSON.stringify(parts));
     });
 
     it('puts an anchor before each finding, and each link of the brief points at one', () => {
       const report = renderReport(answerable(), reportInput);
       const anchors = [...report.matchAll(/^<a id="([^"]+)"><\/a>$/gm)].map((match) => match[1]);
-      assert.deepEqual(anchors, ['finding-ripple-1', 'finding-sweep-1']);
-      for (const id of ['RIPPLE-1', 'SWEEP-1']) assert.match(report, new RegExp(`^<a id="finding-${id.toLowerCase()}"></a>\\n\\n### \\d\\. \\[[a-z]+\\] [A-Z]+  ${id} `, 'm'), id);
+      assert.deepEqual(anchors, ['finding-1', 'finding-2'], 'by the number of each finding (R6 of the report for the person)');
+      for (const [number, id] of [[1, 'RIPPLE-1'], [2, 'SWEEP-1']] as const) assert.match(report, new RegExp(`^<a id="finding-${String(number)}"></a>\\n\\n### ${String(number)}\\. \\[[a-z]+\\] [A-Z]+  ${id} `, 'm'), id);
       const links = [...report.matchAll(/\]\(#([^)]+)\)/g)].map((match) => match[1]!);
-      assert.ok(links.length >= 3, 'the question, the departure and where to look link to their findings');
-      for (const link of links) assert.ok(anchors.includes(link) || link === 'the-change-in-full', link);
+      assert.ok(links.length >= 1, 'the table of the fixes links to its findings');
+      for (const link of links) assert.ok(anchors.includes(link), link);
     });
 
     it('names no local path the engine writes before the facts of the run, and names each there (a path under ~ is in survey-report.test.ts)', () => {
@@ -262,8 +261,7 @@ describe('renderReport', () => {
       const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-9': { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
       const report = renderReport(stopped, { ...reportInput, fix: { patches: [reference('1'), reference('2'), reference('3')], continueCommand: 'node "/opt/e/main.mjs" review --fix --budget-usd 31' } });
       assert.match(report, /\n## The run\n[\s\S]*\n\nThe run budget stopped the fix pass: 1 batch did not start\. `node "\/opt\/e\/main\.mjs" review --fix --budget-usd 31` continues it and reviews nothing again\.\n$/);
-      assert.match(report, /^- The run budget stopped the fixes before [^\n]+ (was|were) attempted\. The facts of the run at the end of the report give the command that continues them\.$/m);
-      assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /batch/, 'the brief names no batch (R12 of the brief of a run)');
+      assert.doesNotMatch(report.slice(0, report.indexOf('\n---\n')), /batch|node /, 'the brief names no batch and no local path (R10 of the report for the person)');
     });
 
     it('names the documentation step in the facts of the run when the run budget stopped it, alone or with the batches and the repair (R8 of the documentation step)', () => {
@@ -298,41 +296,18 @@ describe('the Decisions section (R8 of the decision step)', () => {
     assert.match(report, /^Before any fix, the decision step decided each finding: 1 to fix, 0 to leave, 1 to ask the author; 1 fix departs from a rule the repository states\. A fixer applies a finding to fix, and the default of a question that edits, when the run fixes; no fixer sees a finding left\.$/m);
   });
 
-  it('gives each question in the brief, with the option in place now, deep-review\'s choice, every option\'s cost and rule, where the decider looked and why, and says in Decisions how it stands (R8 of the brief of a run)', () => {
+it('gives each question in what needs you, with the default in place now, deep-review\'s choice, every option\'s cost and rule, and the command, and says in Decisions how it stands (R3 of the report for the person)', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
     assert.ok(report.includes([
-      '### 1. Should parse accept an empty input? ([SWEEP-1](#finding-sweep-1))',
-      '',
-      'In place now: option 1, because it is the easiest to take back. deep-review\'s choice: option 2.',
-      '',
-      '| Option | What it does | What it costs |',
-      '|---|---|---|',
-      '| 1, in place now | keep accepting it | callers that pass one now see the change |',
-      '| 2, deep-review\'s choice | accept it and return an empty result | an empty input passes silently |',
-      '',
-      'To take deep-review\'s choice: `deep-review answer --finding SWEEP-1 --option 2`. For another option, give its number.',
-      '',
-      '<details><summary>The rule that each option makes, where deep-review looked, and why it asks</summary>',
-      '',
-      '- Option 1 makes this rule: parse rejects an empty input',
-      '- Option 2 makes this rule: parse accepts an empty input',
-      '- Where deep-review looked: the change\'s commit message; README.md; test/a.test.ts',
-      '- Why it asks: nothing in the repository states which behavior is meant',
-      '',
-      '</details>',
+      '2. **Finding 2 asks you a question, and deep-review\'s choice is not its default.** Should parse accept an empty input?',
+      '   - Option 1, the default, in place now: keep accepting it. Cost: callers that pass one now see the change. Rule: parse rejects an empty input.',
+      '   - Option 2, deep-review\'s choice: accept it and return an empty result. Cost: an empty input passes silently. Rule: parse accepts an empty input.',
+      '   - If you do nothing, option 1 stays, and deep-review\'s choice is option 2. To take it: `deep-review answer --run run-1 --finding 2 --option 2`.',
     ].join('\n')), report);
     assert.match(report, /^### Asked\n\nNone of these held the run up: each has a default, and an answer is needed only to go another way\. This run does not fix: no fixer ran, and the tree is unchanged\. The brief at the top of this report gives each question with its options\.\n\n- 2\\\. SWEEP-1: not answered; the default in place is keep accepting it \(no edit\)$/m);
     assert.doesNotMatch(report, /next review settles the question alone/, 'nothing yet carries an answer to the next review (PD3 of answers)');
   });
 
-  it('says in one line when the option in place now is also deep-review\'s choice', () => {
-    const asked = askDecision('SWEEP-1', false) as { ask: Record<string, unknown> };
-    const same = { ...asked, ask: { ...asked.ask, recommended: 0 } };
-    const report = render(decidedOf(reported(), [decisions[0], same]).fold());
-    assert.match(report, /^In place now: option 1, which is also deep-review's choice, because it is the easiest to take back\.$/m);
-    assert.match(report, /^\| 1, in place now, deep-review's choice \| /m);
-    assert.match(report, /^To take deep-review's choice: `deep-review answer --finding SWEEP-1 --option 1`\./m);
-  });
 
   it('says once what an answer does and that the next review may ask again, when there is a question or a departure, and never without (R10 of answers)', () => {
     const sentence = /^An answer given with `deep-review answer` is recorded on this run and applied to it: on a run that fixed, by an answer pass whose edits `deep-review commit` commits, on top of any commits it already made for the run; on a run that only reviewed, by `review --fix`, which continues it\. Nothing yet carries an answer to the next review, which may ask the same question again\.$/gm;
@@ -343,27 +318,27 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   // R9 and PD5 of the skill surface corrections: no `deep-review` executable is installed, so the report says once what a person at a terminal types, with the path of the engine that wrote it.
   it('says once, in the facts of the run, how a person at a terminal runs the answer command, with the path of the engine that wrote the report, and keeps the short name on each line', () => {
-    const terminal = 'At a terminal, type a command of this report from the repository with the engine that wrote the report in place of `deep-review`: `node "/opt/deep review/engine/main.mjs" answer --finding <id> --option <n>`, with `--accept` or `--reject` in place of `--option <n>` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.';
+    const terminal = 'At a terminal, type a command of this report from the repository with the engine that wrote the report in place of `deep-review`: `node "/opt/deep review/engine/main.mjs" answer --finding <number> --option <n>`, with `--accept` or `--reject` in place of `--option <n>` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.';
     const asked = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', false)]).fold());
     assert.equal(asked.split(terminal).length - 1, 1, 'said once');
     assert.ok(asked.indexOf(terminal) > asked.indexOf('\n## The run\n'), 'in the facts of the run, the one part that names a local path (R15 of the brief of a run)');
     // Each question and departure keeps the short name a reader cites.
-    assert.match(asked, /^To take deep-review's choice: `deep-review answer --finding SWEEP-1 --option 2`\./m);
-    assert.match(asked, /^To keep the fix and change the rule: `deep-review answer --finding RIPPLE-1 --accept`\. To follow the rule: `deep-review answer --finding RIPPLE-1 --reject`\.$/m);
-    assert.match(asked, /^ {2}- Review with: `deep-review answer --finding RIPPLE-1 --accept` or `--reject`$/m);
+    assert.match(asked, /To take it: `deep-review answer --run run-1 --finding 2 --option 2`\./m);
+    assert.match(asked, /To keep the fix and change the rule: `deep-review answer --run run-1 --finding 1 --accept`\. To follow the rule: `deep-review answer --run run-1 --finding 1 --reject`\.$/m);
+    assert.match(asked, /^ {2}- Review with: `deep-review answer --run run-1 --finding 1 --accept` or `--reject`$/m);
     assert.ok(render(decidedOf(reported(), [departing, decisions[1]]).fold()).includes(terminal), 'a departure alone');
     assert.ok(!render(decidedOf(reported()).fold()).includes('At a terminal'), 'no question and no departure');
     // The path is the one the report's writer was given, as a Windows install spells it too.
     const windows = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: 'C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs' });
-    assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --finding <id> --option <n>`'), windows);
+    assert.ok(windows.includes('`node "C:\\Users\\me\\.claude\\plugins\\deep-review\\engine\\main.mjs" answer --finding <number> --option <n>`'), windows);
     // A path with a backtick cannot close the code span early, and is single-quoted, since bash would run it as a command substitution inside double quotes.
     const ticked = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a`b/main.mjs' });
-    assert.ok(ticked.includes('``node \'/opt/a`b/main.mjs\' answer --finding <id> --option <n>``'), ticked);
+    assert.ok(ticked.includes('``node \'/opt/a`b/main.mjs\' answer --finding <number> --option <n>``'), ticked);
     // A `$` or a `"` would be expanded or end double quotes, so such a path is single-quoted too.
     const dollar = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/home/me/$work/main.mjs' });
-    assert.ok(dollar.includes('`node \'/home/me/$work/main.mjs\' answer --finding <id> --option <n>`'), dollar);
+    assert.ok(dollar.includes('`node \'/home/me/$work/main.mjs\' answer --finding <number> --option <n>`'), dollar);
     const quoted = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry: '/opt/a"b/main.mjs' });
-    assert.ok(quoted.includes('`node \'/opt/a"b/main.mjs\' answer --finding <id> --option <n>`'), quoted);
+    assert.ok(quoted.includes('`node \'/opt/a"b/main.mjs\' answer --finding <number> --option <n>`'), quoted);
   });
 
   // FOOTGUNS-1 of the gate: the command a person pastes reaches the shell with the engine's path intact, whatever it holds.
@@ -371,7 +346,7 @@ describe('the Decisions section (R8 of the decision step)', () => {
     if (spawnSync('bash', ['-c', 'printf %s ok'], { windowsHide: true }).status !== 0) return t.skip('no bash here');
     for (const engineEntry of ['/opt/deep review/engine/main.mjs', '/home/me/$work/main.mjs', '/opt/a`b`/main.mjs', '/opt/a"b/main.mjs', "/opt/it's/main.mjs"]) {
       const report = renderReport(decidedOf(reported(), [departing, decisions[1]]).fold(), { ...reportInput, engineEntry });
-      const path = /`+ ?node (.+?) answer --finding <id> --option <n> ?`+/.exec(report)?.[1];
+      const path = /`+ ?node (.+?) answer --finding <number> --option <n> ?`+/.exec(report)?.[1];
       assert.ok(path !== undefined, report);
       const result = spawnSync('bash', ['-c', `printf %s ${path}`], { encoding: 'utf8', windowsHide: true });
       assert.equal(result.stdout, engineEntry, `${engineEntry}: ${result.stderr}`);
@@ -380,7 +355,7 @@ describe('the Decisions section (R8 of the decision step)', () => {
 
   it('ends an unreviewed departure with the command that reviews it, and a reviewed one with the answer and what applied it', () => {
     const readOnly = decidedOf(reported(), [departing, decisions[1]]);
-    assert.match(render(readOnly.fold()), /^ {2}- Departs from: [^\n]*\n {2}- Review with: `deep-review answer --finding RIPPLE-1 --accept` or `--reject`$/m);
+    assert.match(render(readOnly.fold()), /^ {2}- Departs from: [^\n]*\n {2}- Review with: `deep-review answer --run run-1 --finding 1 --accept` or `--reject`$/m);
     const rejected = readOnly.clone().add('answer.recorded', { id: 'RIPPLE-1', answer: { kind: 'reject' }, note: 'the caller is still there' });
     const at = rejected.events.at(-1)!.recordedAt;
     assert.match(render(rejected.fold()), new RegExp(`^ {2}- Reviewed: rejected on ${at}; not yet applied\\. Note: the caller is still there$`, 'm'));
@@ -394,12 +369,10 @@ describe('the Decisions section (R8 of the decision step)', () => {
     };
     const held = recorded(0);
     assert.match(held.report, new RegExp(`^- 2\\\\\\. SWEEP-1: answered option 1 on ${held.at}; the option the tree held$`, 'm'));
-    assert.match(held.report, new RegExp(`^Answered: option 1 on ${held.at}; the tree holds it\\. deep-review's choice was option 2\\.$`, 'm'), 'the brief says so in the question\'s block');
-    assert.doesNotMatch(held.report, /In place now/, 'the answer stands in the default\'s place');
-    assert.doesNotMatch(held.report, /To take deep-review's choice/, 'an answered question offers no command');
+    assert.ok(held.report.includes('It follows your answers to finding 2'), 'the status line says so (R14 of the report for the person)');
+    assert.doesNotMatch(held.report, /Finding 2 asks you a question/, 'an answered question leaves what needs you');
     const owed = recorded(1);
     assert.match(owed.report, new RegExp(`^- 2\\\\\\. SWEEP-1: answered option 2 on ${owed.at}; not yet applied$`, 'm'));
-    assert.match(owed.report, new RegExp(`^Answered: option 2 on ${owed.at}; not yet applied\\. deep-review's choice was option 2\\.$`, 'm'));
     assert.match(owed.report, /^Answers: 1 recorded, 0 applied$/m, 'the header counts the answers');
     assert.doesNotMatch(owed.report, /^Answered: the last pass/m, 'no pass yet');
   });
@@ -435,42 +408,28 @@ describe('the Decisions section (R8 of the decision step)', () => {
   it('closes each finding\'s block with its decision', () => {
     const report = render(decidedOf(reported(), [departing, askDecision('SWEEP-1', true)]).fold());
     assert.match(report, /^### 1\. \[major\] CONFIRMED  RIPPLE-1[^\n]*\n[\s\S]*?Also at: SWEEP-2 src\/a\.ts:7\nDecision: fix, departing from a rule: parse reads the null on an empty input, at lines 4 and 7$/m);
-    assert.match(report, /^Decision: ask the author, defaulting to reject it with an error; see Questions for you: nothing in the repository states which behavior is meant$/m);
+    assert.match(report, /^Decision: ask the author, defaulting to reject it with an error; see What needs you: nothing in the repository states which behavior is meant$/m);
     assert.match(render(decidedOf(reported()).fold()), /^Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
   });
 
-  it('ends the reason of a departure with one stop, whether or not the decider wrote one, before its fate', () => {
-    const stopped = { ...departing, departure: { ...departing.departure, reason: 'the comment came with a caller that is gone?' }, fix: { ...decisions[0]!.fix, approach: 'guard the null once.' } };
-    const report = render(decidedOf(reported(), [stopped, decisions[1]]).fold());
-    assert.match(report, /^Why deep-review went against it: the comment came with a caller that is gone\? This run only reviewed, so no fixer applied it; `review --fix` applies it\.$/m);
-    assert.match(render(decidedOf(reported(), [departing, decisions[1]]).fold()), /^Why deep-review went against it: the comment came with a caller that is gone\. This run only reviewed/m, 'a text with no stop gets one');
-    assert.doesNotMatch(report, /\.\. |\?\. /);
-  });
 
-  it('leaves the fixer\'s approach out of a departure\'s block and in Decisions, where the evidence keeps it (R9 of the brief of a run)', () => {
+it('leaves the fixer\'s approach out of the item of a departure, and gives its plan in what deep-review would fix and in Decisions (R14 of the report for the person)', () => {
     const report = render(decidedOf(reported(), [{ ...departing, fix: { ...decisions[0]!.fix, approach: 'In parseInput (src/a.ts:4), guard the null once.' } }, decisions[1]]).fold());
     const [brief, evidence] = report.split('The evidence for each statement above follows.');
     assert.ok(brief !== undefined && evidence !== undefined);
-    assert.doesNotMatch(brief, /parseInput/, 'the block says no internal name the reason does not');
-    assert.doesNotMatch(brief, /^What the fix does:/m);
+    assert.doesNotMatch(brief.slice(0, brief.indexOf('## What deep-review would fix')), /parseInput/, 'the item says no internal name the reason does not');
+    assert.match(brief, /^\| \[1\]\(#finding-1\), major, against a written rule \| In parseInput \(src\/a\.ts:4\), guard the null once\. \|$/m);
     assert.match(evidence, /^- 1\\\. RIPPLE-1: In parseInput \(src\/a\.ts:4\), guard the null once\./m);
   });
 
-  it('takes a stop before a closing bracket or quote as the end, and turns a trailing colon, comma or semicolon into the stop', () => {
-    const marked = (reason: string): string => render(decidedOf(reported(), [{ ...departing, departure: { ...departing.departure, reason } }, decisions[1]]).fold());
-    assert.match(marked('see the caller (it is gone.)'), /^Why deep-review went against it: see the caller \(it is gone\.\) This run/m);
-    assert.match(marked('guard it "here."'), /^Why deep-review went against it: guard it "here\." This run/m);
-    assert.match(marked('as follows:'), /^Why deep-review went against it: as follows\. This run/m);
-    assert.match(marked('one more,'), /^Why deep-review went against it: one more\. This run/m);
-  });
 
   it('keeps a decider\'s text on its own line whatever it holds, so it cannot open a heading or a list item', () => {
     const hostile = { ...askDecision('SWEEP-1', false), grounds: 'first line\n## Not a heading\n- not an item' };
     const report = render(decidedOf(reported(), [decisions[0], hostile]).fold());
     assert.doesNotMatch(report, /^## Not a heading$/m);
-    assert.match(report, /^- Why it asks: first line ## Not a heading - not an item$/m);
-    const cells = { ...askDecision('SWEEP-1', false), ask: { ...(askDecision('SWEEP-1', false) as { ask: Record<string, unknown> }).ask, options: [{ option: 'a | b\nc', cost: 'd', rule: 'e', edits: false }, { option: 'f', cost: 'g', rule: 'h', edits: true }] } };
-    assert.match(render(decidedOf(reported(), [decisions[0], cells]).fold()), /^\| 1, in place now \| a \\\| b c \| d \|$/m, 'an option cannot end its cell or its row');
+    assert.match(report, /^Decision: ask the author, defaulting to keep accepting it \(no edit\); see What needs you: first line ## Not a heading - not an item$/m);
+    const lines = { ...askDecision('SWEEP-1', false), ask: { ...(askDecision('SWEEP-1', false) as { ask: Record<string, unknown> }).ask, options: [{ option: 'a\n## b', cost: 'd', rule: 'e', edits: false }, { option: 'f', cost: 'g', rule: 'h', edits: true }] } };
+    assert.match(render(decidedOf(reported(), [decisions[0], lines]).fold()), /^ {3}- Option 1, the default, in place now: a ## b\. Cost: d\. Rule: e\.$/m, 'an option cannot open a line of its own');
   });
 
   it('is absent from a run configured before the decision step, and from one that ranked nothing', () => {

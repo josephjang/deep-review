@@ -142,12 +142,15 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const block = await report('--finding', question);
     assert.equal(block.status, 0, block.stderr);
     const blockLines = block.stdout.trimEnd().split('\n');
-    assert.equal(blockLines[0], '## Questions for you (1)');
-    assert.ok(blockLines.some((line) => line.startsWith(`### 1. `) && line.endsWith(`(${question})`)), block.stdout);
+    const numberOf = (id: string): number => rankedFindings(box.run().review!).findIndex((entry) => entry.finding.id === id) + 1;
+    assert.equal(blockLines[0], `## Finding ${String(numberOf(question))}`);
+    assert.ok(blockLines.some((line) => line.startsWith(`1. **Finding ${String(numberOf(question))} asks you a question`)), block.stdout);
+    assert.match(block.stdout, /^Answered: option 1 on [^;]+; the tree holds it\.$/m, 'an answered question says its answer');
+    assert.doesNotMatch(block.stdout, /If you do nothing/, 'and no longer what doing nothing does');
     assert.equal(blockLines.at(-1), reportCopyPath(box.checkpoint.root, box.run()));
     const departure = await report('--finding', departing, '--run', shortRunId(finished.id));
     assert.equal(departure.status, 0, departure.stderr);
-    assert.ok(departure.stdout.startsWith('## Fixes that go against a written rule (1)\n'), departure.stdout);
+    assert.ok(departure.stdout.startsWith(`## Finding ${String(numberOf(departing))}\n\n1. **Finding ${String(numberOf(departing))} would be fixed against a written rule.**`), departure.stdout);
     const fixId = box.run().review!.decisions!.find((decision) => decision.decision === 'fix' && decision.departure === null)?.id;
     for (const id of [...(fixId === undefined ? [] : [fixId]), 'SCAN-99']) {
       const refusedBlock = await report('--finding', id);
@@ -180,12 +183,13 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(first.status, 0, first.stderr);
     const lines = first.stdout.trimEnd().split('\n');
     assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2`);
-    // The pass ends as review does: the short form of the brief, then the path of the copy of the new report (R13 of the brief of a run).
+    // The pass ends as review does: the chat form of the brief, then the path of the copy of the new report (R12 of the report for the person).
     assert.equal(lines.at(-1), reportCopyPath(box.checkpoint.root, finished), 'the copy\'s path is the last line');
-    assert.equal(lines.length, 12, 'the answer line, the nine lines of the short form of a fix run, the line of its open fix against a written rule and the path');
-    assert.deepEqual(lines.slice(2, 11).filter((line) => !line.startsWith('  ')).map((line) => line.split(':')[0]), ['The change', 'Questions', 'Against a written rule', 'Documents left out of date', 'Checks', 'Not covered', 'Look at', 'Changed']);
-    assert.match(lines[5]!, /^ {2}\S+ goes against a rule in /, 'the open departure, under its count (R2 of the questions in the chat)');
-    assert.equal(lines[3], 'Questions: none open; each is answered', 'the pass applied the answer the person gave');
+    assert.match(lines[1]!, /\(run [0-9a-f]{8}\)$/);
+    assert.match(lines[4]!, /It follows your answers to finding \d/, 'the status line says which answers the report follows (R14 of the report for the person)');
+    assert.ok(lines.some((line) => /^\d\. \*\*Finding \d is fixed against a written rule\.\*\*/.test(line)), 'the open departure is an item');
+    assert.ok(!lines.some((line) => line.includes('asks you a question')), 'the pass applied the answer the person gave');
+    assert.ok(lines.includes('## Before you merge'));
     assert.match(first.stderr, new RegExp(`run ${finished.id}: answer pass over ${question}\\n`));
     const passed = box.run();
     const passWorkers = Object.values(passed.workers).filter((worker) => worker.launch.label?.startsWith('fixer answer:'));
@@ -220,10 +224,10 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const finished = box.run();
     const { question } = findingsOf(finished);
     const copy = reportCopyPath(box.checkpoint.root, finished);
-    assert.doesNotMatch(readFileSync(copy, 'utf8'), /^Answered: /m, 'review wrote the copy before any answer');
+    assert.doesNotMatch(readFileSync(copy, 'utf8'), /It follows your answers/, 'review wrote the copy before any answer');
     const recorded = await run(box, '--finding', question, '--option', '2');
     assert.equal(recorded.status, 0, recorded.stderr);
-    assert.match(readFileSync(copy, 'utf8'), /^Answered: option 2 on [^;]+; not yet applied\. deep-review's choice was option 2\.$/m);
+    assert.match(readFileSync(copy, 'utf8'), /It follows your answers to finding \d\./, 'the status line names the answer');
   });
 
   it('records the answer but refuses the pass when the tree moved, naming what moved and what the answer says; the same answer applies it once restored (R6)', async (t) => {

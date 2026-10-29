@@ -105,7 +105,7 @@ describe('the report of a surveyed run', () => {
     assert.match(report, /^\| typecheck \| dropped by the operator; the project defines `npx tsc --noEmit` \(\.github\/workflows\/ci\.yml\), tsc not found \| --no-check \| - \| - \| - \|$/m);
     assert.match(report, /^\| lint \| npm run lint \| \.github\/workflows\/ci\.yml \(stated\) \| passed/m);
     assert.match(report, /^\| test \| npm run test \| --check \| failed/m);
-    assert.match(report, /^- No typecheck check ran: dropped by the operator; the project defines `npx tsc --noEmit` \(\.github\/workflows\/ci\.yml\), tsc not found\.$/m, 'a gap of the brief, with what the operator dropped (R10 of the brief of a run)');
+    assert.ok(report.includes(' No typecheck check ran: dropped by the operator; the project defines `npx tsc --noEmit` (.github/workflows/ci.yml), tsc not found.'), 'a gap of the brief, with what the operator dropped (R10 of the brief of a run)');
   });
 
   it('says the survey failed, and that CONVENTIONS had no rule, in a read-only run without a source', () => {
@@ -113,7 +113,7 @@ describe('the report of a surveyed run', () => {
     const report = renderReport(failed.fold(), reportInput);
     assert.match(report, /^## Conventions\n\nThe survey failed: 2 attempts did not complete: timeout\. The run went on with no convention source\.\n\nNo user-level rules file of the reviewer's existed on this machine; the policy value was `judge`\.$/m);
     assert.match(report, /^- The survey failed: 2 attempts did not complete: timeout\. No repository convention source was known\.$/m);
-    assert.match(report, /^- The CONVENTIONS angle did not run \(the survey failed, so no convention source is known: 2 attempts did not complete: timeout\)\. /m);
+    assert.match(report, /^- The CONVENTIONS angle did not run \(the survey failed, so no convention source is known: 2 attempts did not complete: timeout\)\.$/m);
     const none = withSurvey(reported(), (history) => history.start('survey').worker(80, 'surveyor survey:survey').add('survey.recorded', { workerId: worker(80), conventions: [], userRules: [], checks: null, note: '' }).finish('survey'));
     assert.match(renderReport(none.fold(), reportInput), /^## Conventions\n\nThe survey found no file that states conventions a change here must follow, so CONVENTIONS had no rule to hold the change to\.$/m);
   });

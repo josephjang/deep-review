@@ -1,23 +1,20 @@
 # The uncommitted change on 22222222
 
-Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.
+deep-review recorded no account of this change, because an engine before this change reviewed it.
 
-## The change
+deep-review's review run run-1 has 2 findings. It changed no file and ran no check. It left 2 findings as is.
 
-The triage of this run did not record the core of the change, because an engine before this change reviewed it.
+## What needs you
 
-## What the review did not cover
+Nothing needs you. No fix against a written rule waits for your review, no question is open, and deep-review decided no fix.
 
-- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout). A later pass looked for what it would have found.
-- No verifier examined SWEEP-1, SWEEP-2 (2 attempts did not complete: failed; failed again); each counts as PLAUSIBLE.
+## Before you merge
 
-## Where to look
+No check ran: this run only reviewed. The major findings stay open: finding 1. The footguns review pass did not run, and a later pass looked for what it would have found. No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible. Left as is: findings 1 and 2, with no decision, since an engine before the decision step reviewed this run.
 
-No fix goes against a written rule or rests on a verdict that is only PLAUSIBLE.
+## What deep-review would fix
 
-## What deep-review changed
-
-This run only reviewed: it changed nothing.
+deep-review decided to fix no finding.
 
 ---
 
@@ -25,7 +22,7 @@ The evidence for each statement above follows.
 
 ## Findings
 
-<a id="finding-ripple-1"></a>
+<a id="finding-1"></a>
 
 ### 1. [major] CONFIRMED  RIPPLE-1 (also SWEEP-2)  src/a.ts:4
 
@@ -36,7 +33,7 @@ Evidence: line 4 dereferences null
 Angle: RIPPLE, SCAN
 Also at: SWEEP-2 src/a.ts:7
 
-<a id="finding-sweep-1"></a>
+<a id="finding-2"></a>
 
 ### 2. [minor] PLAUSIBLE  SWEEP-1  C:\elsewhere\b.ts:9 (unlocated: C:\elsewhere\b.ts:9; unverified)
 
@@ -52,6 +49,7 @@ None.
 
 ## Notes of the run
 
+- The FOOTGUNS angle did not run (2 attempts did not complete: failed: The answer does not match the output schema; timeout: The worker ran past its timeout).
 - Group g1 of sweep-verification was not verified (2 attempts did not complete: failed; failed again): its candidates (SWEEP-1, SWEEP-2) are a gap of the brief.
 - Worktree checks: 9, none found a difference from the reviewed change.
 - Run budget: 30.00 USD, checked before every launch; spent 4.50 USD.

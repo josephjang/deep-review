@@ -41,12 +41,11 @@ export function codeSpan(text: string): string {
 }
 
 /**
- * The fixed anchor of a finding in the report, from its id in lower case
- * (R12 of the brief of a run): the report puts it before the finding's
- * heading, and each item of the brief links to it. An id is letters, a
- * dash and digits, so the anchor needs no escape.
+ * The fixed anchor of a finding in the report, from its number (R6 of the
+ * report for the person): the report puts it before the finding's
+ * heading, and each mention of the finding that links links to it.
  */
-export const findingAnchor = (id: string): string => `finding-${id.toLowerCase()}`;
+export const findingAnchor = (number: number): string => `finding-${String(number)}`;
 
 /** Where a report is rendered, for naming a local path the engine writes (R15 of the brief of a run). */
 export interface LocalPlaces {
@@ -81,8 +80,8 @@ export function localPathWords(path: string, places: LocalPlaces): string {
   return path;
 }
 
-/** A link to a finding's anchor, its id as the text. */
-export const findingLink = (id: string): string => `[${id}](#${findingAnchor(id)})`;
+/** A link to a finding's anchor, `finding N` as the text. */
+export const findingLink = (number: number): string => `[finding ${String(number)}](#${findingAnchor(number)})`;
 
 /**
  * A model's text as one sentence of a line: inline, ending with a full
