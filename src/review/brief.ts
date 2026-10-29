@@ -758,8 +758,11 @@ function accountPart(brief: Brief): string[] {
   return [paragraphText(said(change.what)), '', paragraphText(why), '', [...judgments, whose].join(' ')];
 }
 
-/** An item as a list item of its number: its lead, then each line after it as a line of a list under it. */
-const itemLines = (number: number, lines: readonly string[]): string[] => [`${String(number)}. ${lines[0]!}`, ...lines.slice(1).map((line) => `   - ${line}`)];
+/** An item as a list item of its number: its lead, then each line after it as a line of a list under it, indented by the width of the item's marker, so it stays inside item 10 and later. */
+const itemLines = (number: number, lines: readonly string[]): string[] => {
+  const marker = `${String(number)}. `;
+  return [`${marker}${lines[0]!}`, ...lines.slice(1).map((line) => `${' '.repeat(marker.length)}- ${line}`)];
+};
 
 /**
  * The items of "What needs you" as the brief shows them (R2, R3, TD9 of the
