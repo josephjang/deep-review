@@ -133,6 +133,9 @@ function patchesOf(fix: FixState, id: string, phase: EditingPhase): number[] {
 
 const patchNote = (numbers: readonly number[]): string => (numbers.length === 0 ? 'no patch' : `patch ${numbers.join(', ')}`);
 
+/** A worker's text inside a line of an evidence section: quoted, so it is escaped and the ids it names carry their numbers (R11 of the report for the person). */
+const workerText = (text: string, numbers: ReadonlyMap<string, number>): string => inlineText(quoted(text, { numbers }));
+
 /** Every fixer's recorded answer, phase by phase in `editingPhases` order, so an editing phase added there is reported too. */
 const allFixerAnswers = (fix: FixState): FixRecorded[] => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
 
@@ -167,9 +170,9 @@ export interface FixQuote {
  * to the plan, the files it needed from another cluster, the second round,
  * the answer pass that worked it, and each validation its fixers report,
  * oldest first and each by its fixer when more than one worked it, so the
- * validation of each patch the block lists stays. A fixer's text is quoted with the numbers of the findings it names, its
- * batch indexes among them. A finding no fixer saw has none: its decision
- * says why.
+ * validation of each patch the block lists stays. A fixer's text is
+ * quoted with the numbers of the findings it names, its batch indexes
+ * among them. A finding no fixer saw has none: its decision says why.
  */
 export function fixBlockLines(review: ReviewState, fix: FixState, id: string, quote: FixQuote): string[] {
   const fate = fateOf(review, fix, id);
@@ -270,7 +273,8 @@ const reporterWords = (line: UnheldLine): string => (line.phase === 'repair' ? '
  * no item took, with who reported it. A run with no step and no line has
  * none.
  */
-function documentationSection(review: ReviewState, fix: FixState): string[] {
+function documentationSection(review: ReviewState, fix: FixState, numbers: ReadonlyMap<string, number>): string[] {
+  const said = (text: string): string => workerText(text, numbers);
   const plan = fix.documentation;
   const unheld = unheldDriftLines(review);
   if (!review.documentationStep && unheld.length === 0) return [];
@@ -289,16 +293,16 @@ function documentationSection(review: ReviewState, fix: FixState): string[] {
     const answered = finding === undefined
       ? (notAttempted ? [`Not attempted: ${inlineText(notAttemptedNote(fix, 'documentation', documentationUnitKey)!)}`] : [])
       : [
-          `Note: ${inlineText(finding.note)}`,
-          ...(finding.message === null ? [] : [`Commit message: ${inlineText(finding.message.subject)}`]),
+          `Note: ${said(finding.note)}`,
+          ...(finding.message === null ? [] : [`Commit message: ${said(finding.message.subject)}`]),
           ...(finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(', ')}; ${patchNote(patchesOf(fix, item.id, 'documentation'))}`]),
-          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${inlineText(entry.source)}: ${inlineText(entry.evidence)}`),
+          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said(entry.source)}: ${said(entry.evidence)}`),
         ];
-    const took = item.drift.length === 0 ? [] : ['Lines it took:', ...item.drift.map((line) => `- ${inlineText(line.what)} (${line.key}${line.file === item.file ? '' : `, as ${inlineText(line.file)}`})`)];
+    const took = item.drift.length === 0 ? [] : ['Lines it took:', ...item.drift.map((line) => `- ${said(line.what)} (${line.key}${line.file === item.file ? '' : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index + 1)}. ${item.id} ${outcome}`, '', ...document, ...answered, ...took, ''];
   });
-  const found = (answer?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)}`);
-  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${inlineText(line.what)} (${reporterWords(line)})`);
+  const found = (answer?.drift ?? []).map((line) => `- ${inlineText(line.file)}: ${said(line.what)}`);
+  const untaken = unheld.map((line) => `- ${inlineText(line.file)}: ${said(line.what)} (${reporterWords(line)})`);
   const lines = [
     '## Documentation updates',
     '',
@@ -433,7 +437,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
   const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
   const baseNote = (kind: CheckKind): string => {
     const comparison = comparisons.find((entry) => entry.kind === kind);
-    if (comparison !== undefined) return `; a model's comparison: ${readingWords[comparison.reading]} (${inlineText(comparison.words)})`;
+    if (comparison !== undefined) return `; a model's comparison: ${readingWords[comparison.reading]} (${workerText(comparison.words, numbers)})`;
     return checks.find((check) => check.kind === kind)?.base?.reason === 'no-comparison' ? `; ${notComparedPlainWords['no-comparison']}` : '';
   };
   const note = (phase: CheckPhase, kind: CheckKind): string => {
@@ -449,9 +453,9 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
       const run = shown(phase, check.kind);
       return run === null ? [] : [`- ${phaseTitles[phase]}${edits.get(phase) === null ? '' : ', on an earlier tree'}: ${checkCell(run, evidencePath, note(phase, check.kind))}`];
     });
-    const said = (text: string): string => inlineText(quoted(text, { numbers }));
+    const said = (text: string): string => workerText(text, numbers);
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).flatMap((finding) => [
-      `- Its fix: ${statusWords[finding.status]}, ${inlineText(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`,
+      `- Its fix: ${statusWords[finding.status]}, ${said(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`,
       ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${said(validation.evidence)}`),
     ]);
     return [...head, `- Command: ${codeSpan(check.command)}`, ...source, ...runs, ...fixed, ''];
@@ -509,10 +513,10 @@ function patchesSection(fix: FixState, patches: readonly string[], numbers: Read
     const files = revision.files.map((file) => `${inlineText(file.path)} ${fileStatus(file)}`).join(', ');
     const sha = commitOf.get(index);
     const later = committed > 0 && index >= committed ? `, ${laterPass(revision)} after the commits` : '';
-    return `${String(index + 1)}. ${inlineText(revisionMessageOf(fix, revision).subject)} (${revisedBy(revision, numbers)}${later}), ${files === '' ? 'no file' : files}${sha === undefined ? '' : `, committed as ${sha.slice(0, 8)}`}: ${patches[index] ?? 'not written'}`;
+    return `${String(index + 1)}. ${workerText(revisionMessageOf(fix, revision).subject, numbers)} (${revisedBy(revision, numbers)}${later}), ${files === '' ? 'no file' : files}${sha === undefined ? '' : `, committed as ${sha.slice(0, 8)}`}: ${patches[index] ?? 'not written'}`;
   });
   // The documentation step's own tests are not a fixer's: Documentation updates reports its answer.
-  const tests = allFixerAnswers(fix).filter((answer) => answer.phase !== 'documentation').flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${inlineText(entry.covers)} (${answer.key})`));
+  const tests = allFixerAnswers(fix).filter((answer) => answer.phase !== 'documentation').flatMap((answer) => answer.tests.map((entry) => `- ${inlineText(entry.file)}: ${workerText(entry.covers, numbers)} (${answer.key})`));
   return [
     '## Patches',
     '',
@@ -526,7 +530,7 @@ export function fixSections(state: RunState, evidencePath: (reference: { sha256:
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [documentationSection(review, fix), checksSection(review, fix, state.scope!, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review, fix, numbers), checksSection(review, fix, state.scope!, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 
 /**
