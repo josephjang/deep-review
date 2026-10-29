@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { ChangeReading, ScopeMode } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { TriageAccount } from '../../src/checkpoint/review-fold.ts';
-import { briefChatForm, briefFates, briefLineLimit, briefMarkdown, briefOf, changeLineLimit, changeShapeOf, chatLineLimit, cutAtWord, gapKinds, lookConditions, shortLineLimit, type Brief, type GapKind } from '../../src/review/brief.ts';
+import { briefChatForm, briefFates, briefLineLimit, briefMarkdown, briefOf, changeLineLimit, changeShapeOf, chatLineLimit, cutAtWord, shortLineLimit, type Brief } from '../../src/review/brief.ts';
 import { findingWords } from '../../src/review/markdown.ts';
 import { shortRunId } from '../../src/review/runs.ts';
 import { accountLimits } from '../../src/review/tasks.ts';
@@ -31,25 +31,7 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     assert.equal(briefOf(withAccount(answerable(), given({ ...changeReading, title } as unknown as ChangeReading))).title, title);
   });
 
-  it('counts the open questions and departures in its headline, and says that nothing waits', () => {
-    const brief = briefOf(answerable());
-    assert.deepEqual([brief.headline.questions, brief.headline.departures], [1, 1]);
-    assert.equal(brief.headline.text, '2 things need you: 1 question and 1 fix that goes against a written rule. Nothing waits for you: the question has a default in place.');
-  });
 
-  it('takes a question out of the headline once a person answers it, and a departure once a person accepts or rejects it', () => {
-    const answered = readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).fold();
-    const brief = briefOf(answered);
-    assert.deepEqual([brief.headline.questions, brief.headline.departures], [0, 1]);
-    assert.equal(brief.headline.text, '1 thing needs you: 1 fix that goes against a written rule. Nothing waits for you: the run went on as it decided.');
-    assert.deepEqual(brief.questions[0]!.answer, { kind: 'option', option: 2, words: 'option 2', at: brief.questions[0]!.answer!.at, applied: false }, 'the question stays, with its answer');
-    for (const review of ['accept', 'reject'] as const) {
-      const reviewed = briefOf(readOnlyReported(answerableDecisions()).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', review)).fold());
-      assert.deepEqual([reviewed.headline.questions, reviewed.headline.departures], [0, 0], review);
-      assert.equal(reviewed.headline.text, 'Nothing needs you: no question is open, and no fix that goes against a written rule waits for your review.');
-      assert.equal(reviewed.departures[0]!.review?.words, review === 'accept' ? 'accepted' : 'rejected');
-    }
-  });
 
   describe('the core of the change (R3, R18)', () => {
     it('shows what the change does and why with their sources, whole', () => {
@@ -91,12 +73,12 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         const repaired: RunState = { ...state, review: { ...state.review!, fix: { ...fix, revisions: [{ ...revision, phase: 'repair', source: { kind: 'fix', key: 'repair' } } as never] } } };
         assert.deepEqual(marked(repaired), { beforeEdits: false, line: first, sentence: false });
         const documented = withAccount(documentedFixRun([], undefined, answerableDecisions((decisions[0] as Record<string, unknown>))).fold(), given());
-        assert.equal(marked(documented).beforeEdits, briefOf(documented).changed.applied.length > 0, 'only a fixer\'s fix marks it');
+        assert.equal(marked(documented).beforeEdits, briefOf(documented).fixes.some((fix) => fix.finding !== null), 'only a fixer\'s fix marks it');
       });
 
       it('marks the account once an answer pass applies the first answer', () => {
         const passed = passToReport(decidedFixRun(answerableDecisions(), 'deferred').add('answer.recorded', answer('SWEEP-1', 1)).add('answer.pass', { ids: ['SWEEP-1'] }), 1, [['SWEEP-1', 'applied']], 1).fold();
-        assert.equal(briefOf(passed).changed.applied.includes('RIPPLE-1'), false, 'no fixer of the fix pass applied a fix');
+        assert.equal(briefOf(passed).findings[0]!.status, 'not-fixed', 'no fixer of the fix pass applied a fix');
         assert.ok(passed.review!.answers.some((given) => given.appliedBy !== null && given.appliedBy !== 'tree'));
         assert.deepEqual(marked(withAccount(passed, given())), { beforeEdits: true, line: before, sentence: true });
       });
@@ -178,161 +160,71 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
     });
   });
 
-  describe('what the run did not cover (R10)', () => {
-    const kinds = (state: RunState): GapKind[] => briefOf(state).notCovered.map((gap) => gap.kind);
+  describe('what the run did not examine (R10 of the brief of a run; R4 of the report for the person)', () => {
+    const passes = readOnlyReported().fold();
 
-    it('lists the angle that did not run and the group no verifier examined, and no line saying it covered everything', () => {
-      const brief = briefOf(answerable());
-      assert.deepEqual(brief.notCovered.map((gap) => gap.kind), ['angle', 'unverified']);
-      assert.match(brief.notCovered[0]!.text, /^The FOOTGUNS angle did not run \(2 attempts did not complete: [^)]*\)\. A later pass looked for what it would have found\.$/);
-      assert.match(brief.notCovered[1]!.text, /^No verifier examined SWEEP-1, SWEEP-2 \(2 attempts did not complete: failed; failed again\); each counts as PLAUSIBLE\.$/);
-      assert.equal(brief.covered, null);
+    it('names the review pass that did not run by its plain name, and the findings no verifier examined by their numbers', () => {
+      assert.deepEqual(briefOf(passes).notExamined.slice(0, 2), ['The footguns review pass did not run, and a later pass looked for what it would have found.', 'No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.']);
     });
 
-    it('lists the paths the settings left out and the files too large to freeze', () => {
-      const state = answerable();
-      const scope = { ...state.scope!, request: { ...state.scope!.request, exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 }, files: [...state.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] };
-      const brief = briefOf({ ...state, scope });
-      assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'excluded' || gap.kind === 'oversized').map((gap) => gap.text), ['2 changed paths under dist/**, which the settings leave out.', '1 file too large to freeze, which no worker was given: big.bin.']);
+    it('names the paths the settings left out and the files too large to freeze', () => {
+      const state = { ...passes, scope: { ...passes.scope!, excluded: { count: 2, paths: ['dist/a.js', 'dist/b.js'] }, request: { ...passes.scope!.request, exclude: ['dist/**'] }, files: [...passes.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] } } as RunState;
+      const gaps = briefOf(state).notExamined;
+      assert.ok(gaps.includes('2 changed paths under dist/**, which the settings leave out.'), JSON.stringify(gaps));
+      assert.ok(gaps.includes('1 file too large to freeze, which no worker was given: big.bin.'), JSON.stringify(gaps));
     });
 
-    it('lists a check with no command, and each fix no fixer applied, by why', () => {
-      for (const [status, words] of [['deferred', 'its fixer put it off'], ['blocked', 'its fixer could not apply it']] as const) {
-        const brief = briefOf(decidedFixRun(answerableDecisions(), status).fold());
-        assert.ok(brief.notCovered.some((gap) => gap.kind === 'check' && /^No typecheck check ran: .+.$/.test(gap.text)), JSON.stringify(brief.notCovered));
-        assert.ok(brief.notCovered.some((gap) => gap.kind === 'fix' && gap.text === `RIPPLE-1 was decided as a fix, and ${words}.`), status);
-      }
-    });
-
-    it('lists a check that did not finish, before the fixes and after them, and not one that ran to an outcome', () => {
+    it('names a check with no command, the steps the run budget stopped, and a stop whose work did not run again, and no fix no fixer applied, which needs the person', () => {
       const state = decidedFixRun().fold();
       const fix = state.review!.fix!;
-      const kind = fix.checks.runs['baseline-checks'][0]!.kind;
-      const ended = (phase: 'baseline-checks' | 'checks', outcome: string): unknown[] => fix.checks.runs[phase].map((run) => (run.kind === kind ? { ...run, outcome } : run));
-      const gapsWith = (before: string, after: string): string[] => briefOf({ ...state, review: { ...state.review!, fix: { ...fix, checks: { ...fix.checks, runs: { ...fix.checks.runs, 'baseline-checks': ended('baseline-checks', before), checks: ended('checks', after) } } } } } as RunState)
-        .notCovered.filter((gap) => gap.kind === 'check' && gap.text.startsWith(`The ${kind} check`)).map((gap) => gap.text);
-      assert.deepEqual(gapsWith('timeout', 'skipped'), [`The ${kind} check did not finish: it timed out, then was skipped.`]);
-      assert.deepEqual(gapsWith('passed', 'not-started'), [`The ${kind} check did not finish: it did not start.`]);
-      assert.deepEqual(gapsWith('passed', 'failed'), []);
-      assert.ok(gapsWith('passed', 'cut').every((gap) => !gap.includes('did not finish')));
+      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
+      const gaps = briefOf(stopped).notExamined;
+      assert.ok(gaps.includes('No typecheck check ran: no typecheck step.'), JSON.stringify(gaps));
+      assert.ok(gaps.includes('The run budget stopped the fix pass before the fixes for the checks, and the end of the report gives the command that continues it.'), JSON.stringify(gaps));
+      const launched = launch(worker(90), 'finder-WRAPPERS finders:WRAPPERS');
+      const lost = { ...state, workers: { ...state.workers, [worker(90)]: { status: 'lost', launch: launched } } } as unknown as RunState;
+      assert.ok(briefOf(lost).notExamined.includes('A stop ended 1 worker whose work did not run again; the end of the report names it.'), JSON.stringify(briefOf(lost).notExamined));
     });
 
-    it('says of a question whose default a fixer did not apply that the default went to a fixer, not that it was decided as a fix', () => {
-      const asked = briefOf(decidedFixRun([askDecision('RIPPLE-1', true), askDecision('SWEEP-1', false)], 'deferred').fold());
-      assert.ok(asked.notCovered.some((gap) => gap.kind === 'fix' && gap.text === 'The default of the question on RIPPLE-1 went to a fixer, and its fixer put it off.'), JSON.stringify(asked.notCovered));
-    });
-
-    it('lists the work the run budget did not start, and points at the facts of the run for the command that continues it', () => {
-      const state = decidedFixRun().fold();
-      const fix = state.review!.fix!;
-      // The budget stopped batch c1-1 before its fixer answered, so RIPPLE-1 was not attempted.
-      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: {} }, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } }, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
-      const brief = briefOf(stopped as RunState);
-      // In plain words: the findings its batches hold, not the batches (R12 of the brief of a run).
-      assert.equal(brief.notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before 1 finding and the repair of the checks were attempted. The facts of the run at the end of the report give the command that continues them.');
-      // Each finding it counts is listed once more with why no fixer attempted it.
-      assert.deepEqual(brief.notCovered.filter((entry) => entry.kind === 'fix').map((entry) => entry.text), ['RIPPLE-1 was decided as a fix, and no fixer attempted it before the run budget was reached.']);
-      const repairOnly = { ...stopped, review: { ...stopped.review, fix: { ...stopped.review.fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } };
-      assert.equal(briefOf(repairOnly as RunState).notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before the repair of the checks was attempted. The facts of the run at the end of the report give the command that continues them.');
-    });
-
-    it('counts in the budget gap only the findings no fixer attempted, not one of a stopped batch a fixer already answered', () => {
-      const state = decidedFixRun().fold();
-      const fix = state.review!.fix!;
-      // RIPPLE-1's fixer applied it, as the first round answers a finding a stopped second-round batch holds again.
-      const stopped = { ...state, review: { ...state.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'budget' as const, reason: 'spent 31 USD of 30 USD' } } } } } };
-      const brief = briefOf(stopped as RunState);
-      assert.equal(brief.notCovered.find((entry) => entry.kind === 'budget')?.text, 'The run budget stopped the fixes before some of the fixes were attempted. The facts of the run at the end of the report give the command that continues them.');
-      assert.ok(!brief.notCovered.some((entry) => entry.kind === 'fix'), JSON.stringify(brief.notCovered));
-    });
-
-    it('says why no fixer attempted a fix: two failures, or no recorded cause', () => {
-      const state = decidedFixRun().fold();
+    it('gives a fix its fixer failed twice on, or that no fixer attempted, an item of unfinished work with why', () => {
+      const state = decidedFixRun([decisions[0], askDecision('SWEEP-1', false)]).fold();
       const fix = state.review!.fix!;
       const unanswered = { ...fix, answers: { ...fix.answers, fixes: {} } };
-      const failed = { ...state, review: { ...state.review!, fix: { ...unanswered, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'failures' as const, reason: '2 attempts did not complete: failed; failed again' } } } } } };
-      const fixGaps = (run: unknown): string[] => briefOf(run as RunState).notCovered.filter((entry) => entry.kind === 'fix').map((entry) => entry.text);
-      assert.deepEqual(fixGaps(failed), ['RIPPLE-1 was decided as a fix, and its fixer failed twice and gave no answer.']);
-      assert.ok(!briefOf(failed as RunState).notCovered.some((entry) => entry.kind === 'budget'));
-      assert.deepEqual(fixGaps({ ...state, review: { ...state.review!, fix: unanswered } }), ['RIPPLE-1 was decided as a fix, and no fixer attempted it.']);
+      const failed = { ...state, review: { ...state.review!, fix: { ...unanswered, notAttempted: { ...fix.notAttempted, fixes: { 'c1-1': { cause: 'failures' as const, reason: '2 attempts did not complete: failed; failed again' } } } } } } as RunState;
+      const lead = (run: RunState): string | undefined => briefOf(run).needs.find((need) => need.condition === 'unapplied-fix')?.lines[0];
+      assert.equal(lead(failed), '**Finding 1 is not fixed: its fixer failed twice and gave no answer.** If you do nothing, the finding stays as it is.');
+      assert.equal(lead({ ...state, review: { ...state.review!, fix: unanswered } } as RunState), '**Finding 1 is not fixed: no fixer attempted it.** If you do nothing, the finding stays as it is.');
     });
 
-    it('lists a worker a stop ended whose work did not run again, and not one that ran again', () => {
-      const lost = readOnlyReported(answerableDecisions()).add('worker.launched', launch(worker(90), 'decider decision:decision')).add('worker.lost', { workerId: worker(90), phase: null, key: null, reason: 'the engine exited while the worker ran' }).fold();
-      assert.equal(kinds(lost).filter((kind) => kind === 'stop').length, 1);
-      assert.equal(briefOf(lost).notCovered.find((gap) => gap.kind === 'stop')?.text, 'A stop ended 1 worker whose work did not run again; the notes of the run name it.');
-      assert.ok(!kinds(answerable()).includes('stop'), 'the WRAPPERS worker lost in the finders ran again');
-    });
-
-    it('says in one line that the run covered everything, for a run with no gap', () => {
-      const state = answerable();
-      const review = state.review!;
-      const clean = { ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] } } };
-      assert.deepEqual(briefOf(clean).notCovered, []);
-      assert.equal(briefOf(clean).covered, 'Each angle ran, and a verifier examined each candidate.');
-    });
-
-    it('names every kind of gap the JSON form allows, the documentation step\'s last (R7 of the documentation step)', () => {
-      assert.deepEqual([...gapKinds], ['angle', 'unverified', 'excluded', 'oversized', 'check', 'fix', 'budget', 'stop', 'documentation']);
+    it('says that the run examined everything when it has no gap, and whether the checks ran after the fixes', () => {
+      const covered = (state: RunState): string => {
+        const lines = briefMarkdown(briefOf(state), 'chat');
+        return lines[lines.indexOf('## What deep-review fixed') - 2]!;
+      };
+      const state = decidedFixRun().fold();
+      const fix = state.review!.fix!;
+      const all = { ...state, review: { ...state.review!, anglesNotRun: {}, unverifiedGroups: { verification: {}, 'sweep-verification': {} }, fix: { ...fix, checks: { ...fix.checks, planned: { ...fix.checks.planned!, checks: fix.checks.planned!.checks.filter((check) => check.command !== null) } } } } } as RunState;
+      assert.deepEqual(briefOf(all).notExamined, []);
+      assert.match(covered(all), /Every review pass ran, a verifier examined each candidate, and each check ran as submitted and after the fixes\./);
+      const deferred = decidedFixRun(answerableDecisions(), 'deferred').fold();
+      const quiet = { ...deferred, review: { ...deferred.review!, anglesNotRun: {}, unverifiedGroups: { verification: {}, 'sweep-verification': {} }, fix: { ...deferred.review!.fix!, checks: { ...deferred.review!.fix!.checks, planned: { ...deferred.review!.fix!.checks.planned!, checks: deferred.review!.fix!.checks.planned!.checks.filter((check) => check.command !== null) } } } } } as RunState;
+      assert.match(covered(quiet), /each check ran as submitted; no fix changed a file, so none ran after the fixes\./);
     });
   });
 
-  describe('where to look (R11)', () => {
-    it('names the departures, and the findings decided as fixes on a PLAUSIBLE verdict in a run that only reviewed', () => {
-      const brief = briefOf(readOnlyReported([{ ...decisions[0], departure }, { ...decisions[0], id: 'SWEEP-1' }]).fold());
-      assert.deepEqual(brief.look.map((entry) => [entry.condition, entry.findings, entry.text]), [
-        ['departure', ['RIPPLE-1'], '1 fix goes against a written rule'],
-        ['plausible', ['SWEEP-1'], '1 finding decided as a fix rests on a verdict that is only PLAUSIBLE'],
-      ]);
-    });
-
+  describe('the fixes against a written rule in what needs you (R3 of the report for the person)', () => {
     it('leaves out of what needs you a departure a person accepted or rejected, and keeps one nobody reviewed', () => {
       for (const review of ['accept', 'reject'] as const) {
         const state = decidedFixRun().add('answer.recorded', answer('RIPPLE-1', review)).fold();
-        assert.ok(!briefOf(state).look.some((entry) => entry.condition === 'departure'), review);
         assert.equal(briefOf(state).departures.length, 1, `the departures keep it with its ${review}`);
         assert.ok(!briefOf(state).needs.some((need) => need.condition === 'departure'), review);
       }
       const two = readOnlyReported([{ ...decisions[0], departure }, { ...decisions[0], id: 'SWEEP-1', departure }]).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
-      assert.deepEqual(briefOf(two).look.filter((entry) => entry.condition === 'departure').map((entry) => [entry.findings, entry.text]), [[['SWEEP-1'], '1 fix goes against a written rule']], 'the unreviewed one stays, counted alone');
       assert.deepEqual(briefOf(two).needs.filter((need) => need.condition === 'departure').map((need) => need.finding), [2]);
-    });
-
-    it('counts in a run that fixed only the fixes a fixer applied on a PLAUSIBLE verdict', () => {
-      const brief = briefOf(decidedFixRun().fold());
-      assert.deepEqual(brief.look.map((entry) => entry.condition), ['departure'], 'RIPPLE-1 is CONFIRMED, and SWEEP-1 was asked, not fixed');
-    });
-
-    it('names the triage\'s two judgments as its own, and neither when they do not hold or the run has no account', () => {
-      const brief = briefOf(withAccount(answerable(), given({ ...changeReading, wideEffect: { holds: true, what: 'every caller', files: [] } } as unknown as ChangeReading)));
-      assert.deepEqual(brief.look.filter((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect').map((entry) => [entry.condition, entry.text]), [
-        ['public-interface', 'The change alters a public interface, in the triage\'s judgment: parse() can now return null (src/a.ts)'],
-        ['wide-effect', 'The change affects many files beyond the ones it changes, in the triage\'s judgment: every caller'],
-      ]);
-      assert.ok(!briefOf(answerable()).look.some((entry) => entry.condition === 'public-interface' || entry.condition === 'wide-effect'));
-      assert.deepEqual([...lookConditions], ['departure', 'plausible', 'public-interface', 'wide-effect']);
     });
   });
 
-  describe('what deep-review changed (R2)', () => {
-    it('says a run that only reviewed fixed nothing, and names what it decided to fix and left', () => {
-      const { changed } = briefOf(answerable());
-      assert.equal(changed.fixed, false);
-      assert.equal(changed.decided, true);
-      assert.deepEqual([changed.applied, changed.toFix, changed.left, changed.patches, changed.commits], [[], ['RIPPLE-1'], [], 0, null]);
-      assert.deepEqual(briefOf(readOnlyReported().fold()).changed.left, ['SWEEP-1']);
-    });
-
-
-    it('counts the deferred and the blocked fixes beside the applied ones, and the checks before and after', () => {
-      const applied = briefOf(decidedFixRun().fold()).changed;
-      assert.deepEqual([applied.fixed, applied.applied, applied.deferred, applied.patches, applied.commits], [true, ['RIPPLE-1'], [], 1, null]);
-      const passed = (kind: string): unknown => ({ kind, before: 'passed', last: { outcome: 'passed', when: 'fixes' }, earlier: { passed: 'before', failed: null }, base: null, fault: null });
-      assert.deepEqual(applied.checks, [passed('build'), passed('lint'), passed('test')]);
-      assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'deferred').fold()).changed.deferred, ['RIPPLE-1']);
-      assert.deepEqual(briefOf(decidedFixRun(answerableDecisions(), 'blocked').fold()).changed.blocked, ['RIPPLE-1']);
-    });
-
+  describe('the checks and the commits (R3 of the facts before a merge; R14 of the report for the person)', () => {
     it('says a check failed after the fixes when its newest run failed, not what a repair-checks run a later revision made old said', () => {
       const state = decidedFixRun().fold();
       const review = state.review!;
@@ -346,38 +238,10 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
         checks: { ...fix.checks, runs: { ...fix.checks.runs, checks: [{ ...ran, outcome: 'failed' as const, revisionsBefore: 1 }, { ...ran, attempt: 2, outcome: 'failed' as const, revisionsBefore: 3 }], 'repair-checks': [{ ...ran, phase: 'repair-checks' as const, revisionsBefore: 2 }] } },
       };
       const brief = briefOf({ ...state, review: { ...review, fix: reopened } });
-      assert.deepEqual(brief.changed.checks.find((check) => check.kind === 'test')?.last, { outcome: 'failed', when: 'fixes' });
+      assert.deepEqual(brief.checks.find((check) => check.kind === 'test')?.last, { outcome: 'failed', when: 'fixes' });
       // With no current run, the run that checked the newest tree stands.
       const stale = { ...reopened, revisions: [...reopened.revisions, fixes] };
-      assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).changed.checks.find((check) => check.kind === 'test')?.last?.outcome, 'failed');
-    });
-
-    describe('the validation of the fixes (R7 of the facts before a merge)', () => {
-      /** The decided fix run, its fixer reporting RIPPLE-1 applied with a validation entry of each method given. */
-      const validated = (methods: readonly string[]): RunState => {
-        const state = decidedFixRun().fold();
-        const fix = state.review!.fix!;
-        const answer = fix.answers.fixes['c1-1']!;
-        const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran' })) }));
-        return { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState;
-      };
-
-
-
-      it('takes the strongest method of a fix that gives several', () => {
-        assert.deepEqual(briefOf(validated(['limited', 'existing', 'mutation'])).changed.validation.test, ['RIPPLE-1']);
-        assert.deepEqual(briefOf(validated(['limited', 'static', 'existing'])).changed.validation.existing, ['RIPPLE-1']);
-        assert.deepEqual(briefOf(validated(['limited', 'static'])).changed.validation.static, ['RIPPLE-1']);
-      });
-
-
-
-    });
-
-    it('names the commits that hold the edits once deep-review commit made them', () => {
-      const series = { commits: [{ sha: 'c'.repeat(40), revision: 'change', subject: 'feat: The change' }, { sha: 'a'.repeat(40), revision: 0, subject: 'fix: Guard the null' }], from: '2'.repeat(40), to: 'a'.repeat(40) };
-      const committed = briefOf(decidedFixRun().add('commits.created', series).fold()).changed;
-      assert.deepEqual(committed.commits, { shas: ['c'.repeat(40), 'a'.repeat(40)], uncommittedPatches: 0 });
+      assert.equal(briefOf({ ...state, review: { ...review, fix: stale } }).checks.find((check) => check.kind === 'test')?.last?.outcome, 'failed');
     });
   });
 });
@@ -402,21 +266,6 @@ describe('cutAtWord', () => {
 
 
 
-describe('the line that says the run covered everything (R10 of the brief of a run)', () => {
-  /** A fix run with no gap of R10: every angle ran, every group was verified, and each planned check has a command. */
-  const covered = (status: string): RunState => {
-    const state = decidedFixRun(answerableDecisions(), status).fold();
-    const review = state.review!;
-    const fix = review.fix!;
-    const planned = fix.checks.planned!;
-    return { ...state, review: { ...review, anglesNotRun: {}, plans: { ...review.plans, 'sweep-verification': [] }, fix: { ...fix, checks: { ...fix.checks, planned: { ...planned, checks: planned.checks.filter((check) => check.command !== null) } } } } };
-  };
-
-  it('says each check ran before and after the fixes only when they ran after them', () => {
-    assert.equal(briefOf(covered('applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before and after the fixes.');
-    assert.equal(briefOf(covered('already-applied')).covered, 'Each angle ran, a verifier examined each candidate, and each check ran before the fixes; no fix changed a file, so they did not run after them.');
-  });
-});
 
 
 // R7, R10, R11 and PD6 of the documentation step.
@@ -426,51 +275,35 @@ describe('the documents a run left out of date in the brief', () => {
   /** A fix run whose step left its one document, with its own reason. */
   const leftOne = (): RunState => documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']])).fold();
 
-  it('counts them in the headline, beside the questions and the departures, and says a fix run with none left none it knows of', () => {
-    assert.equal(briefOf(leftOne()).headline.text, '3 things need you: 1 question, 1 fix that goes against a written rule and 1 document that the edits of the run left out of date. Nothing waits for you: the question has a default in place.');
-    assert.equal(briefOf(leftOne()).headline.documents, 1);
-    const clean = documentedFixRun([], undefined, decisions).fold();
-    assert.equal(briefOf(clean).headline.text, 'Nothing needs you: no question is open, no fix that goes against a written rule waits for your review, the run left no document out of date that it knows of, and its edits made no check fail.');
-    assert.equal(briefOf(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']]), decisions).fold()).headline.text, '1 thing needs you: 1 document that the edits of the run left out of date. Nothing waits for you: the run went on as it decided.');
-  });
 
 
 
 
-  it('says in what deep-review changed what the step did: how many documents it updated and left, none found, or why it did not run', () => {
-    const changed = (state: RunState): string | null => briefOf(state).changed.documentation;
-    assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']], { drift: [line('CHANGES.md', 'always translated')] })).fold()), 'The documentation step updated 1 document and left 1.');
-    assert.equal(changed(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']])).fold()), 'The documentation step updated 1 document.');
-    assert.equal(changed(leftOne()), 'The documentation step left 1 document out of date.');
-    // A partial search: it brought README.md in line, which its file names, and left CHANGES.md in its drift.
-    const finding = (id: string, status: string, file: string): Record<string, unknown> => ({ id, status, file, line: null, note: `${id} ${status}`, message: { subject: `docs: Bring ${file} in line`, body: 'Why.' }, files: [file], corrections: [], validation: [], requiredFiles: [] });
-    const searched = documentedFixRun(stale, documentationStepAnswering([], { findings: [finding('doc-1', 'applied', 'docs/a.md'), finding('search', 'deferred', 'README.md')], drift: [line('CHANGES.md', 'always translated')] })).fold();
-    assert.equal(changed(searched), 'The documentation step updated 2 documents and left 1.');
-    assert.deepEqual(briefOf(searched).documents.map((document) => document.file), ['CHANGES.md']);
-    // A document it deferred and listed in its drift again in another spelling of its repository path is one document, as the part counts it.
-    const respelled = documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./docs/a.md', 'parse throws on a null')] })).fold();
-    assert.deepEqual([changed(respelled), briefOf(respelled).documents.length], ['The documentation step left 1 document out of date.', 1]);
+  it('lists what the step left, by the identity of each document, and a document it deferred once whatever its spelling', () => {
+    const documents = (state: RunState): string[] => briefOf(state).documents.map((document) => document.file);
+    assert.deepEqual(documents(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']], { drift: [line('CHANGES.md', 'always translated')] })).fold()), ['CHANGES.md']);
+    assert.deepEqual(documents(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'applied'], ['search', 'already-applied']])).fold()), []);
+    assert.deepEqual(documents(leftOne()), ['docs/a.md']);
+    // A document it deferred and listed in its drift again in another spelling of its repository path is one document.
+    assert.equal(documents(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./docs/a.md', 'parse throws on a null')] })).fold()).length, 1);
     // A spelling in another case is another document, as the plan keys a repository path exactly (TD8): the ledger does not say whether the worktree folds case.
-    const recased = documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./Docs/A.md', 'parse throws on a null')] })).fold();
-    assert.deepEqual([changed(recased), briefOf(recased).documents.length], ['The documentation step left 2 documents out of date.', 2]);
-    assert.equal(changed(documentedFixRun().fold()), 'The documentation step found no document out of date.');
+    assert.equal(documents(documentedFixRun(stale, documentationStepAnswering([['doc-1', 'deferred'], ['search', 'already-applied']], { drift: [line('./Docs/A.md', 'parse throws on a null')] })).fold()).length, 2);
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
-    assert.equal(changed(failedTwice), 'The documentation step did not run: its worker failed twice.');
     assert.ok(briefOf(failedTwice).notExamined.includes('The documentation step did not run: its worker failed twice.'), 'a gap of what the run did not examine (R4 of the report for the person)');
   });
 
   it('gives the step that did not answer a gap of its own, and none to one with nothing to do or a run before the step', () => {
     const failedTwice = documentedFixRun(stale, (history) => history.start('documentation').add('documentation.planned', { items: documentationItems(history) }).add('unit.unattempted', { phase: 'documentation', key: 'documentation', cause: 'failures', reason: '2 attempts did not complete' }, 2).add('worktree.checked', endCheck('documentation'), 7).finish('documentation', 'degraded')).fold();
-    assert.deepEqual(briefOf(failedTwice).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.']);
-    assert.deepEqual(briefOf(documentedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a step that answered');
-    assert.deepEqual(briefOf(decidedFixRun().fold()).notCovered.filter((gap) => gap.kind === 'documentation'), [], 'a run an engine before the step configured');
+    const stepGaps = (state: RunState): string[] => briefOf(state).notExamined.filter((gap) => gap.startsWith('The documentation step'));
+    assert.deepEqual(stepGaps(failedTwice), ['The documentation step did not run: its worker failed twice.']);
+    assert.deepEqual(stepGaps(documentedFixRun().fold()), [], 'a step that answered');
+    assert.deepEqual(stepGaps(decidedFixRun().fold()), [], 'a run an engine before the step configured');
     // A step with no plan: one whose fixes changed no file had nothing to do, and one whose fixes did has not run yet.
     const unplanned = documentedFixRun(stale, (history) => history.start('documentation').finish('documentation')).fold();
     const fix = unplanned.review!.fix!;
     const withRevisions = (revisions: typeof fix.revisions): RunState => ({ ...unplanned, review: { ...unplanned.review!, fix: { ...fix, documentation: null, revisions } } });
-    const unrevised = briefOf(withRevisions([]));
-    assert.deepEqual([unrevised.documents.length, unrevised.notCovered.filter((gap) => gap.kind === 'documentation')], [1, []], 'the fixes changed no file');
-    assert.deepEqual(briefOf(withRevisions(fix.revisions)).notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: it has not run yet. The documents left are in Documents left out of date.']);
+    assert.deepEqual([briefOf(withRevisions([])).documents.length, stepGaps(withRevisions([]))], [1, []], 'the fixes changed no file');
+    assert.deepEqual(stepGaps(withRevisions(fix.revisions)), ['The documentation step did not run: it has not run yet.']);
   });
 
   it('names no fixer in the step\'s gap when only the repair named a document', () => {
@@ -479,7 +312,7 @@ describe('the documents a run left out of date in the brief', () => {
     const repaired = { ...searchOnly, review: { ...searchOnly.review!, fix: { ...fix, answers: { ...fix.answers, repair: { repair: { drift: [line('docs/api.md', 'the check name changed')] } } } } } } as unknown as RunState;
     const brief = briefOf(repaired);
     assert.deepEqual(brief.documents.map((document) => document.file), ['docs/api.md']);
-    assert.deepEqual(brief.notCovered.filter((gap) => gap.kind === 'documentation').map((gap) => gap.text), ['The documentation step did not run: its worker failed twice. The documents left are in Documents left out of date.']);
+    assert.ok(brief.notExamined.includes('The documentation step did not run: its worker failed twice.'), JSON.stringify(brief.notExamined));
   });
 
   it('counts the drift lines of a run an engine before the step configured, and says nothing of the step it never had (R11)', () => {
@@ -488,8 +321,6 @@ describe('the documents a run left out of date in the brief', () => {
     const older = { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...fix.answers.fixes['c1-1']!, drift: stale } } } } } } as RunState;
     const brief = briefOf(older);
     assert.deepEqual(brief.documents.map((document) => [document.file, document.reasons.map((reason) => reason.kind)]), [['./docs/a.md', ['not-run']]]);
-    assert.equal(brief.headline.documents, 1);
-    assert.equal(brief.changed.documentation, null);
     assert.deepEqual(brief.needs.filter((need) => need.condition === 'document').map((need) => need.document), ['./docs/a.md']);
   });
 

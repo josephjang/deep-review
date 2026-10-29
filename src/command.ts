@@ -925,7 +925,7 @@ function reportFormOf(values: Values): ReportForm {
  * fix pass (R9 of the report for the person), with `--brief` the
  * brief as a chat shows it, and with `--finding <number>` the block of
  * any finding (R7 of the report for the person); or with `--json`
- * version 4 of the JSON form, which names those runs in `notShown`. A
+ * version 5 of the JSON form, which names those runs in `notShown`. A
  * worktree with no run is refused with exit 2, naming `status`; one whose
  * runs have no report with the state of the newest, naming `status --all`;
  * and a run `--run` names with no current report with its state (R9),

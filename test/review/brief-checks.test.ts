@@ -10,7 +10,7 @@ import { answer, answerableDecisions, decidedFixRun } from '../helpers/review-hi
 
 /** The run whose checks end as `checks` says, its scope a branch's, and its question answered, so "What needs you" holds the checks and the patches alone. */
 const run = (checks: ChecksOfRun = {}): RunState => onBranch(checkedRun(checks).add('answer.recorded', answer('SWEEP-1', 0)));
-const check = (brief: Brief, kind: string) => brief.changed.checks.find((entry) => entry.kind === kind)!;
+const check = (brief: Brief, kind: string) => brief.checks.find((entry) => entry.kind === kind)!;
 const meaning = (brief: Brief, kind: string): string => brief.checks.find((entry) => entry.kind === kind)!.meaning;
 /** The row of a check in the table of "Before you merge". */
 const row = (brief: Brief, kind: string): string => briefMarkdown(brief, 'chat').find((line) => line.startsWith(`| ${kind} |`))!;
