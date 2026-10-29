@@ -8,7 +8,7 @@ import { fixBlockLines, fixLimitations, stopLimitations } from '../../src/review
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
-import { repairUnitKey } from '../../src/review/vocabulary.ts';
+import { documentationUnitKey, repairUnitKey } from '../../src/review/vocabulary.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { checkedRun, onBranch, rewordedOnBase, type ChecksOfRun } from '../helpers/base-checks-history.ts';
 import { answer, askDecision, checkRun, decidedFixRun, decidedOf, decisions, documentationAnswer, documentationItems, documentedFixRun, endCheck, fixPlan, fixRun, fixStatistics, mergeRanked, passToReport, reference, reported, statistics, withFixPass, worker, reportInput, type History } from '../helpers/review-history.ts';
@@ -85,6 +85,19 @@ describe('the report of a fix run', () => {
     const report = render({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { [repairUnitKey]: { ...repaired, findings } } } } } });
     assert.match(report, /^- Its fix: applied, formatted the guard; patch 3\n- Validation, as its fixer reports it: existing, npm run lint: passed after RIPPLE-1 \(finding 1\) read \\<stdin>$/m);
     assert.match(report, /^- Its fix: deferred, every failure was there before the fixes; no patch\n\n/m, 'a fix with no validation has no line of it');
+  });
+
+  it('escapes a worker\'s text in Checks and Patches, so a preview shows what a terminal shows, and numbers the findings it names (R11 of the report for the person)', () => {
+    const state = fixRun().fold();
+    const fix = state.review!.fix!;
+    const revisions = fix.revisions.map((revision, index) => (index === 1 ? { ...revision, change: { ...revision.change, message: { subject: 'fix: Read RIPPLE-1\'s config from <stdin>', body: 'Why.' } } } : revision));
+    const repaired = fix.answers.repair[repairUnitKey]!;
+    const findings = repaired.findings.map((finding) => (finding.id === 'lint' ? { ...finding, note: 'kept a * b and __init__' } : finding));
+    const fixes = { ...fix.answers.fixes['c1-1']!, tests: [{ file: 'test/a.test.ts', covers: 'parse(<stdin>)' }] };
+    const report = render({ ...state, review: { ...state.review!, fix: { ...fix, revisions, answers: { ...fix.answers, fixes: { 'c1-1': fixes }, repair: { [repairUnitKey]: { ...repaired, findings } } } } } });
+    assert.match(report, /^2\. fix: Read RIPPLE-1 \(finding 1\)'s config from \\<stdin> \(finding 1, c1-1\), /m);
+    assert.match(report, /^- Its fix: applied, kept a \\\* b and \\_\\_init\\_\\_; patch 3$/m);
+    assert.match(report, /^- test\/a\.test\.ts: parse\(\\<stdin>\) \(c1-1\)$/m);
   });
 
   it('lists the patch series in order, each with who made it and the files it changes, and leaves who held each path to the statistics', () => {
@@ -561,6 +574,16 @@ describe('the Documentation section of the report', () => {
       '- CHANGES.md: the bytes are always translated',
       '',
     ].join('\n'));
+  });
+
+  it('escapes the step\'s note, commit subject and validation, so a preview shows what a terminal shows (R11 of the report for the person)', () => {
+    const state = documentedFixRun([line('./docs/a.md', 'parse throws on a null'), line('../outside.md', 'parse throws')], answeredStep).fold();
+    const fix = state.review!.fix!;
+    const step = fix.answers.documentation[documentationUnitKey]!;
+    const findings = step.findings.map((finding) => (finding.id === 'doc-1' ? { ...finding, note: 'said <stdin> is read', message: { subject: 'docs(a): Say *all* is read', body: 'Why.' }, validation: [{ method: 'static' as const, source: 'docs/a.md', evidence: 'reads __all__' }] } : finding));
+    const text = section({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, documentation: { [documentationUnitKey]: { ...step, findings } } } } } });
+    assert.match(text, /^Note: said \\<stdin> is read\nCommit message: docs\(a\): Say \\\*all\\\* is read$/m);
+    assert.match(text, /^Validation: static, docs\/a\.md: reads \\_\\_all\\_\\_$/m);
   });
 
   it('gives the step\'s validation once, under Documentation, and credits none of its drift or tests to the fixers', () => {
