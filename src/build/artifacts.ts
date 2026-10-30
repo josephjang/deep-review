@@ -106,12 +106,17 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
   const work = mkdtempSync(join(parent, workPrefix));
   const incoming = join(work, 'incoming');
   const outgoing = join(work, 'outgoing');
+  let movedAside = false;
   try {
     cpSync(staged, incoming, { recursive: true, errorOnExist: true, dereference: false });
-    if (entryExists(destination)) rename(destination, outgoing);
+    if (entryExists(destination)) {
+      rename(destination, outgoing);
+      movedAside = true;
+    }
     rename(incoming, destination);
   } catch (error) {
-    if (entryExists(outgoing) && !entryExists(destination)) {
+    // Once moved aside, the old tree goes back; a destination something else filled meanwhile fails the restore, which keeps the old tree.
+    if (movedAside) {
       try {
         rename(outgoing, destination);
       } catch (restoreError) {
