@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -105,10 +105,10 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
   const outgoing = join(work, 'outgoing');
   try {
     cpSync(staged, incoming, { recursive: true, errorOnExist: true, dereference: false });
-    if (existsSync(destination)) rename(destination, outgoing);
+    if (entryExists(destination)) rename(destination, outgoing);
     rename(incoming, destination);
   } catch (error) {
-    if (existsSync(outgoing) && !existsSync(destination)) {
+    if (entryExists(outgoing) && !entryExists(destination)) {
       try {
         rename(outgoing, destination);
       } catch (restoreError) {
@@ -120,6 +120,11 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
     throw error;
   }
   removeTreeIfAble(work);
+}
+
+/** Whether anything sits at `path`, a symlink whose target is gone included. */
+function entryExists(path: string): boolean {
+  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
 }
 
 /**
