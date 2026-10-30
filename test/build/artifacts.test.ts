@@ -174,6 +174,23 @@ describe('assembleArtifact and publishArtifact', () => {
     assert.equal(readFileSync(join(outgoing, 'SKILL.md'), 'utf8'), 'old');
   });
 
+  it('keeps the old tree when something else takes the destination while it is moved aside', () => {
+    write(repository, 'skill/sample/SKILL.md', 'new');
+    write(repository, 'dist/sample/SKILL.md', 'old');
+    const staged = assembleArtifact(repository, target, staging);
+    const rename = (from: string, to: string): void => {
+      if (from.endsWith('incoming')) {
+        write(repository, 'dist/sample/SKILL.md', 'intruder');
+        throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      }
+      renameSync(from, to);
+    };
+    assert.throws(() => publishArtifact(repository, target, staged, rename), AggregateError);
+    const [work] = readdirSync(join(repository, 'dist')).filter((name) => name.startsWith('.sample-publish-'));
+    assert.ok(work, 'the work directory holding the old tree is kept');
+    assert.equal(readFileSync(join(repository, 'dist', work, 'outgoing/SKILL.md'), 'utf8'), 'old');
+  });
+
   it('removes the work directories an earlier publish of the target left, once it succeeds', () => {
     write(repository, 'skill/sample/SKILL.md', 'new');
     write(repository, 'dist/sample/SKILL.md', 'old');
