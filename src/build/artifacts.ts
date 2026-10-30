@@ -116,10 +116,23 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
         throw new AggregateError([error, restoreError], `Publishing ${destination} failed and its old tree could not be put back; it is at ${outgoing}`);
       }
     }
-    rmSync(work, { recursive: true, force: true });
+    removeTreeIfAble(work);
     throw error;
   }
-  rmSync(work, { recursive: true, force: true });
+  removeTreeIfAble(work);
+}
+
+/**
+ * Remove a publish's work directory, leaving it where the file system
+ * refuses: it only tidies, so its removal must not turn a publish into a
+ * failure nor hide why a publish failed.
+ */
+function removeTreeIfAble(work: string): void {
+  try {
+    rmSync(work, { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    // Left behind beside the destination.
+  }
 }
 
 /** Throw unless `destination` is strictly inside `<repositoryRoot>/dist`. */

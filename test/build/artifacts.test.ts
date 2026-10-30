@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -172,6 +172,40 @@ describe('assembleArtifact and publishArtifact', () => {
     const outgoing = join(repository, 'dist', work, 'outgoing');
     assert.ok(thrown.message.includes(outgoing), thrown.message);
     assert.equal(readFileSync(join(outgoing, 'SKILL.md'), 'utf8'), 'old');
+  });
+
+  describe('when the work directory cannot be removed', () => {
+    // A read-only directory keeps rmSync from removing what is inside it, except as root or on Windows.
+    const skip = process.platform === 'win32' || process.getuid?.() === 0;
+    const unlock = (root: string): void => {
+      for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+        if (entry.isDirectory()) chmodSync(join(entry.parentPath, entry.name), 0o755);
+      }
+    };
+    afterEach(() => unlock(repository));
+
+    it('still publishes, leaving the work directory beside the artifact', { skip }, () => {
+      write(repository, 'skill/sample/SKILL.md', 'new');
+      write(repository, 'dist/sample/locked/SKILL.md', 'old');
+      chmodSync(join(repository, 'dist/sample/locked'), 0o555);
+      const staged = assembleArtifact(repository, target, staging);
+      publishArtifact(repository, target, staged);
+      assert.equal(readFileSync(join(repository, 'dist/sample/SKILL.md'), 'utf8'), 'new');
+      assert.equal(existsSync(join(repository, 'dist/sample/locked')), false);
+    });
+
+    it('throws the error that failed the publish, not the removal', { skip }, () => {
+      write(repository, 'skill/sample/locked/SKILL.md', 'new');
+      write(repository, 'dist/sample/SKILL.md', 'old');
+      const staged = assembleArtifact(repository, target, staging);
+      chmodSync(join(staged, 'locked'), 0o555);
+      const rename = (from: string, to: string): void => {
+        if (from.endsWith('incoming')) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+        renameSync(from, to);
+      };
+      assert.throws(() => publishArtifact(repository, target, staged, rename), /EPERM: operation not permitted, rename/);
+      assert.equal(readFileSync(join(repository, 'dist/sample/SKILL.md'), 'utf8'), 'old');
+    });
   });
 
   it('creates dist when it does not exist yet', () => {
