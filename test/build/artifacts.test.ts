@@ -148,6 +148,32 @@ describe('assembleArtifact and publishArtifact', () => {
     assert.deepEqual(readdirSync(join(repository, 'dist')), ['sample'], 'nothing of the failed publish is left beside the artifact');
   });
 
+  it('throws both errors and names where the old tree is when it cannot be put back either', () => {
+    write(repository, 'skill/sample/SKILL.md', 'new');
+    write(repository, 'dist/sample/SKILL.md', 'old');
+    const staged = assembleArtifact(repository, target, staging);
+    const original = new Error('EXDEV: cross-device link not permitted, rename');
+    const restore = new Error('EIO: i/o error, rename');
+    const rename = (from: string, to: string): void => {
+      if (from.endsWith('incoming')) throw original;
+      if (from.endsWith('outgoing')) throw restore;
+      renameSync(from, to);
+    };
+    let thrown: unknown;
+    try {
+      publishArtifact(repository, target, staged, rename);
+    } catch (error) {
+      thrown = error;
+    }
+    assert.ok(thrown instanceof AggregateError, String(thrown));
+    assert.deepEqual(thrown.errors, [original, restore]);
+    const [work] = readdirSync(join(repository, 'dist')).filter((name) => name.startsWith('.sample-publish-'));
+    assert.ok(work, 'the work directory holding the old tree is kept');
+    const outgoing = join(repository, 'dist', work, 'outgoing');
+    assert.ok(thrown.message.includes(outgoing), thrown.message);
+    assert.equal(readFileSync(join(outgoing, 'SKILL.md'), 'utf8'), 'old');
+  });
+
   it('creates dist when it does not exist yet', () => {
     write(repository, 'skill/sample/SKILL.md', 'x');
     const staged = assembleArtifact(repository, target, staging);

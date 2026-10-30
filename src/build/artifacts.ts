@@ -90,6 +90,8 @@ export function assembleArtifact(repositoryRoot: string, target: ArtifactTarget,
  * staged tree is first copied beside the destination; only then is the old
  * tree moved aside and the copy renamed into its place. A rename that fails
  * puts the old tree back, so a failed publish leaves the artifact as it was.
+ * Should putting it back fail too, both errors are thrown together, naming
+ * the hidden directory beside the destination where the old tree was left.
  * `rename` stands in for the file system's in tests.
  */
 export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, staged: string, rename: (from: string, to: string) => void = renameSync): void {
@@ -106,8 +108,14 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
     if (existsSync(destination)) rename(destination, outgoing);
     rename(incoming, destination);
   } catch (error) {
-    // A restore that fails too throws before the removal, leaving the old tree under `work`.
-    if (existsSync(outgoing) && !existsSync(destination)) rename(outgoing, destination);
+    if (existsSync(outgoing) && !existsSync(destination)) {
+      try {
+        rename(outgoing, destination);
+      } catch (restoreError) {
+        // `work` is kept: it holds the only copy of the old tree.
+        throw new AggregateError([error, restoreError], `Publishing ${destination} failed and its old tree could not be put back; it is at ${outgoing}`);
+      }
+    }
     rmSync(work, { recursive: true, force: true });
     throw error;
   }
