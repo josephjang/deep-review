@@ -109,9 +109,14 @@ describe('runBuild', () => {
   it('build mode publishes a tree staged on another filesystem than the repository', async (t) => {
     const elsewhere = '/dev/shm';
     if (!existsSync(elsewhere) || statSync(elsewhere).dev === statSync(repository).dev) return t.skip(`${elsewhere} is not a filesystem apart from ${tmpdir()} here`);
+    let staging: string;
+    try {
+      staging = mkdtempSync(join(elsewhere, 'deep-review-run-'));
+    } catch (error) {
+      return t.skip(`${elsewhere} cannot be written here: ${(error as Error).message}`);
+    }
     seedMatchingRepository(repository);
     write(repository, 'skill/alpha/SKILL.md', 'alpha changed\n');
-    const staging = mkdtempSync(join(elsewhere, 'deep-review-run-'));
     try {
       await runBuild({ repositoryRoot: repository, verify: false, targets, stagingParent: staging, engine: null });
     } finally {
