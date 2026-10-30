@@ -92,6 +92,8 @@ export function assembleArtifact(repositoryRoot: string, target: ArtifactTarget,
  * puts the old tree back, so a failed publish leaves the artifact as it was.
  * Should putting it back fail too, both errors are thrown together, naming
  * the hidden directory beside the destination where the old tree was left.
+ * Such a directory, or one a killed process or a refused removal left, is
+ * removed by the next publish of the target that succeeds, never before.
  * `rename` stands in for the file system's in tests.
  */
 export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, staged: string, rename: (from: string, to: string) => void = renameSync): void {
@@ -100,7 +102,8 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
   if (!existsSync(staged)) throw new Error(`Staged artifact does not exist: ${staged}`);
   const parent = dirname(destination);
   mkdirSync(parent, { recursive: true });
-  const work = mkdtempSync(join(parent, `.${target.name}-publish-`));
+  const workPrefix = `.${target.name}-publish-`;
+  const work = mkdtempSync(join(parent, workPrefix));
   const incoming = join(work, 'incoming');
   const outgoing = join(work, 'outgoing');
   try {
@@ -119,7 +122,8 @@ export function publishArtifact(repositoryRoot: string, target: ArtifactTarget, 
     removeTreeIfAble(work);
     throw error;
   }
-  removeTreeIfAble(work);
+  // With the new tree in place, no work directory of this target holds anything still needed: this one, or one an earlier publish left.
+  for (const name of readdirSync(parent)) if (name.startsWith(workPrefix)) removeTreeIfAble(join(parent, name));
 }
 
 /** Whether anything sits at `path`, a symlink whose target is gone included. */
@@ -136,7 +140,7 @@ function removeTreeIfAble(work: string): void {
   try {
     rmSync(work, { recursive: true, force: true, maxRetries: 3 });
   } catch {
-    // Left behind beside the destination.
+    // Left behind beside the destination, for the next publish to remove.
   }
 }
 

@@ -174,6 +174,29 @@ describe('assembleArtifact and publishArtifact', () => {
     assert.equal(readFileSync(join(outgoing, 'SKILL.md'), 'utf8'), 'old');
   });
 
+  it('removes the work directories an earlier publish of the target left, once it succeeds', () => {
+    write(repository, 'skill/sample/SKILL.md', 'new');
+    write(repository, 'dist/sample/SKILL.md', 'old');
+    write(repository, 'dist/.sample-publish-x/outgoing/SKILL.md', 'older');
+    write(repository, 'dist/.other-publish-y/outgoing/SKILL.md', 'another target');
+    const staged = assembleArtifact(repository, target, staging);
+    publishArtifact(repository, target, staged);
+    assert.deepEqual(readdirSync(join(repository, 'dist')).sort(), ['.other-publish-y', 'sample']);
+  });
+
+  it('keeps the work directories an earlier publish left when this one fails', () => {
+    write(repository, 'skill/sample/SKILL.md', 'new');
+    write(repository, 'dist/sample/SKILL.md', 'old');
+    write(repository, 'dist/.sample-publish-x/outgoing/SKILL.md', 'older');
+    const staged = assembleArtifact(repository, target, staging);
+    const rename = (from: string, to: string): void => {
+      if (from.endsWith('incoming')) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+      renameSync(from, to);
+    };
+    assert.throws(() => publishArtifact(repository, target, staged, rename), /EPERM/);
+    assert.deepEqual(readdirSync(join(repository, 'dist')).sort(), ['.sample-publish-x', 'sample']);
+  });
+
   describe('over a symlink whose target is gone', () => {
     const link = (t: TestContext): boolean => {
       mkdirSync(join(repository, 'dist'), { recursive: true });
