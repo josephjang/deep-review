@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
 import {
   artifactTargets,
   assembleArtifact,
@@ -172,6 +172,44 @@ describe('assembleArtifact and publishArtifact', () => {
     const outgoing = join(repository, 'dist', work, 'outgoing');
     assert.ok(thrown.message.includes(outgoing), thrown.message);
     assert.equal(readFileSync(join(outgoing, 'SKILL.md'), 'utf8'), 'old');
+  });
+
+  describe('over a symlink whose target is gone', () => {
+    const link = (t: TestContext): boolean => {
+      mkdirSync(join(repository, 'dist'), { recursive: true });
+      try {
+        symlinkSync(join(repository, 'absent'), join(repository, 'dist/sample'), 'dir');
+        return true;
+      } catch (error) {
+        // Windows without Developer Mode denies symlink creation; nothing to test then.
+        if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+        t.skip('symlinks are not permitted here');
+        return false;
+      }
+    };
+
+    it('replaces the link with the new tree', (t) => {
+      write(repository, 'skill/sample/SKILL.md', 'new');
+      if (!link(t)) return;
+      const staged = assembleArtifact(repository, target, staging);
+      publishArtifact(repository, target, staged);
+      assert.equal(lstatSync(join(repository, 'dist/sample')).isDirectory(), true);
+      assert.equal(readFileSync(join(repository, 'dist/sample/SKILL.md'), 'utf8'), 'new');
+      assert.deepEqual(readdirSync(join(repository, 'dist')), ['sample'], 'nothing of the publish is left beside the artifact');
+    });
+
+    it('puts the link back when the new tree cannot be renamed into its place', (t) => {
+      write(repository, 'skill/sample/SKILL.md', 'new');
+      if (!link(t)) return;
+      const staged = assembleArtifact(repository, target, staging);
+      const rename = (from: string, to: string): void => {
+        if (from.endsWith('incoming')) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+        renameSync(from, to);
+      };
+      assert.throws(() => publishArtifact(repository, target, staged, rename), /EPERM/);
+      assert.equal(lstatSync(join(repository, 'dist/sample')).isSymbolicLink(), true);
+      assert.deepEqual(readdirSync(join(repository, 'dist')), ['sample'], 'nothing of the failed publish is left beside the artifact');
+    });
   });
 
   describe('when the work directory cannot be removed', () => {
