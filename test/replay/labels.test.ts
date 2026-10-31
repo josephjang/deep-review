@@ -28,7 +28,7 @@ function results(): ReplayResults {
 }
 
 /** A replay sample's verdict for a candidate of the synthetic run, from a verifier that answered. */
-const given = (id: string, verdict: Verdict): [string, SampledVerdict] => [id, sampledVerdict(twiceVerified().fold().review!.candidates[id]!, { verdict, unverified: false, evidence: `${verdict} for ${id}` }, worker(60))];
+const given = (id: string, verdict: Verdict): [string, SampledVerdict] => [id, sampledVerdict(twiceVerified().fold().review!.candidates[id]!, { verdict, unverified: false, evidence: `${verdict} for ${id}`, basis: null }, worker(60))];
 const replaySample = (name: string): ReplaySample => ({ name, origin: 'replay', runtime: 'claude', model: 'opus', effort: 'high', roleText: 'recorded', rolePromptSha256: 'a'.repeat(64), version: '2.1.289', spend: null });
 
 /** The results with a second replay sample, claude-2, that gives every candidate the verdict the run recorded, each from a verifier that answered. */

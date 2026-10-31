@@ -11,7 +11,7 @@ import type { CandidateState } from '../checkpoint/review-fold.ts';
 import { inlineText, paragraphText, tableCell } from '../review/markdown.ts';
 import { resolutionOf, type Resolution } from '../review/state.ts';
 import { describeLocation } from '../review/tasks.ts';
-import { angleClasses, angleSchema, candidateIdSchema, groupIdSchema, verdicts, verdictSchema, verificationPhaseSchema, type Verdict } from '../review/vocabulary.ts';
+import { angleClasses, angleSchema, candidateIdSchema, groupIdSchema, verdictBases, verdictBasisSchema, verdicts, verdictSchema, verificationPhaseSchema, type Verdict, type VerdictBasis } from '../review/vocabulary.ts';
 import { ReplayRefusedError } from './errors.ts';
 import type { ReplayableGroup } from './recorded.ts';
 
@@ -65,6 +65,8 @@ const sampledVerdictSchema = z.strictObject({
   /** The group's verifier failed twice, so the candidate carries PLAUSIBLE unjudged, as a run records it. */
   unverified: z.boolean(),
   evidence: z.string().nullable(),
+  /** How the verifier established the verdict (R2, R10 of runs on the record); null for an unverified candidate, for a verdict of a run configured before runs on the record, and in results written before it was kept. */
+  basis: verdictBasisSchema.nullable().default(null),
   outcome: z.enum(outcomes),
   /** The worker that gave the verdict, in the checkpoint that recorded the sample; null for an unverified candidate. */
   workerId: z.string().min(1).nullable(),
@@ -125,8 +127,8 @@ export function verdictOutcome(candidate: Pick<CandidateState, 'angle'>, resolut
 }
 
 /** A candidate's verdict as a sample holds it. */
-export function sampledVerdict(candidate: CandidateState, resolution: Pick<Resolution, 'verdict' | 'unverified' | 'evidence'>, workerId: string | null): SampledVerdict {
-  return { verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, outcome: verdictOutcome(candidate, resolution), workerId };
+export function sampledVerdict(candidate: CandidateState, resolution: Pick<Resolution, 'verdict' | 'unverified' | 'evidence' | 'basis'>, workerId: string | null): SampledVerdict {
+  return { verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, basis: resolution.basis, outcome: verdictOutcome(candidate, resolution), workerId };
 }
 
 /**
@@ -218,6 +220,8 @@ export interface SampleCounts {
   readonly verdicts: Readonly<Record<Verdict, number>>;
   readonly unverified: number;
   readonly outcomes: Readonly<Record<Outcome, number>>;
+  /** The verdicts a verifier gave, by how it established them; a verdict with no basis, of a run before runs on the record, is counted under none of them. */
+  readonly bases: Readonly<Record<VerdictBasis, number>>;
 }
 
 const zeroOf = <K extends string>(keys: readonly K[]): Record<K, number> => Object.fromEntries(keys.map((key) => [key, 0])) as Record<K, number>;
@@ -226,11 +230,13 @@ export function countsOf(results: Pick<ReplayResults, 'candidates'>, sample: str
   const given = results.candidates.map((candidate) => candidate.samples[sample]).filter((verdict) => verdict !== undefined);
   const byVerdict = zeroOf(verdicts);
   const byOutcome = zeroOf(outcomes);
+  const byBasis = zeroOf(verdictBases);
   for (const verdict of given) {
     byVerdict[verdict.verdict] += 1;
     byOutcome[verdict.outcome] += 1;
+    if (verdict.basis !== null) byBasis[verdict.basis] += 1;
   }
-  return { judged: given.length, verdicts: byVerdict, unverified: given.filter((verdict) => verdict.unverified).length, outcomes: byOutcome };
+  return { judged: given.length, verdicts: byVerdict, unverified: given.filter((verdict) => verdict.unverified).length, outcomes: byOutcome, bases: byBasis };
 }
 
 /** How two samples agree over the candidates both judged. */
@@ -272,7 +278,31 @@ function pairsOf<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]));
 }
 
-/** The summary of a replay's results as Markdown: the samples, how each judged, how every pair agrees, and the candidates they disagree on with each sample's evidence. */
+/** The words of each basis in the summary's table. */
+const basisWords: Readonly<Record<VerdictBasis, string>> = { ran: 'Ran code', traced: 'Traced the lines', read: 'The lines alone' };
+
+/**
+ * The summary's count of each sample's verdicts by how its verifier
+ * established them (R10 of runs on the record), or nothing when no
+ * verdict of the results gives a basis, as none of a run configured
+ * before runs on the record does.
+ */
+function basisLines(results: ReplayResults): string[] {
+  if (!results.candidates.some((candidate) => Object.values(candidate.samples).some((verdict) => verdict.basis !== null))) return [];
+  return [
+    '',
+    '## How the verdicts were established',
+    '',
+    `| Sample | ${verdictBases.map((basis) => basisWords[basis]).join(' | ')} |`,
+    `|---|${verdictBases.map(() => '---').join('|')}|`,
+    ...results.samples.map((sample) => {
+      const counts = countsOf(results, sample.name);
+      return `| ${[sample.name, ...verdictBases.map((basis) => String(counts.bases[basis]))].map(tableCell).join(' | ')} |`;
+    }),
+  ];
+}
+
+/** The summary of a replay's results as Markdown: the samples, how each judged, and by what basis when the verdicts give one, how every pair agrees, and the candidates they disagree on with each sample's evidence. */
 export function renderSummary(results: ReplayResults): string {
   const { source, samples } = results;
   const lines: string[] = [
@@ -302,6 +332,7 @@ export function renderSummary(results: ReplayResults): string {
       const cells = [sample.name, `${String(counts.judged)} of ${String(results.candidates.length)}`, ...verdicts.map((verdict) => String(counts.verdicts[verdict])), String(counts.unverified), ...outcomes.map((outcome) => String(counts.outcomes[outcome]))];
       return `| ${cells.map(tableCell).join(' | ')} |`;
     }),
+    ...basisLines(results),
     '',
     '## Agreement',
   ];

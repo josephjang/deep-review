@@ -183,7 +183,7 @@ describe('replayVerifier', () => {
 
     const sample = (id: string) => outcome.results.candidates.find((candidate) => candidate.id === id)!.samples['claude-1'];
     assert.equal(sample('SCAN-1')?.verdict, 'CONFIRMED');
-    assert.deepEqual(sample('DESIGN-1'), { verdict: 'PLAUSIBLE', unverified: true, evidence: null, outcome: 'held', workerId: null });
+    assert.deepEqual(sample('DESIGN-1'), { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null, outcome: 'held', workerId: null });
     assert.equal(outcome.spend.workers, 4);
     // One group was judged, so the sample still measures something, but it is not a pass over every candidate, and the outcome says where.
     assert.deepEqual(outcome.unjudged, []);
@@ -371,5 +371,62 @@ describe('replayVerifier', () => {
     await assert.rejects(replay([], { output, dryRun: true }), /holds no candidate DESIGN-1 of verification:g2/);
     assert.equal(replayedPrompts(output).length, 1);
     assert.equal(existsSync(join(output, promptsDirectoryName)), false);
+  });
+});
+
+// R10 of runs on the record.
+describe('replayVerifier of a run by whether it cites its runs', () => {
+  /** Replay run `runId` of `box` once through the fake Claude into `output`. */
+  const replayOnce = (box: ReviewSandbox, runId: string, output: string, logs: string[]): Promise<ReplayOutcome> =>
+    replayVerifier({
+      source: box.checkpoint, runId, tree: box.repo, output, runtime: 'claude', executable: process.execPath, executableArgs: [fakeClaude], rolesRoot: box.rolesRoot,
+      roleText: 'recorded', repeat: 1, concurrency: 1, engine: '0.0.0-test', log: (line) => { logs.push(line); },
+      environment: { ...baseEnvironment, FAKE_SCRIPT: box.scriptFile }, scratchRoot: box.scratchRoot,
+    });
+  /** The output schema each replayed verifier was launched with, as text, in launch order. */
+  const replayedSchemas = (output: string): string[] => {
+    const checkpoint = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
+    try {
+      return checkpoint.foldRuns().flatMap((run) => Object.values(run.workers)).map((worker) => checkpoint.evidence.read(worker.launch.schema).toString('utf8'));
+    } finally {
+      checkpoint.close();
+    }
+  };
+
+  it('sends the verifiers of a run configured before runs on the record the schema of its answers, and counts no basis', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const runId = await box.configuredAt(8);
+    box.script(reviewScript);
+    assert.equal((await box.review('claude')).kind, 'report', box.logs.join('\n'));
+    box.script({});
+    const output = join(box.directory, 'replay-older');
+    const outcome = await replayOnce(box, runId, output, []);
+    assert.deepEqual(outcome.unverified, []);
+    for (const schema of replayedSchemas(output)) assert.doesNotMatch(schema, /"basis"/);
+    const verdicts = outcome.results.candidates.flatMap((candidate) => Object.values(candidate.samples));
+    assert.deepEqual(new Set(verdicts.map((verdict) => verdict.basis)), new Set([null]));
+    assert.doesNotMatch(readFileSync(join(output, summaryFileName), 'utf8'), /How the verdicts were established/);
+  });
+
+  it('looks up each cited run of a replayed answer in the replayed worker\'s own record, fails an attempt that cites a run not there, and counts the verdicts by basis', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const runId = await box.configuredAt(9);
+    // The recorded verifiers trace the lines, as a scripted verdict with no basis does.
+    box.script(reviewScript);
+    assert.equal((await box.review('claude')).kind, 'report', box.logs.join('\n'));
+    // Replayed, g1's verifier runs a probe per candidate and cites it; g2's cites a run it never made.
+    const unmade = { command: 'node probe-9.mjs', printed: ['never printed'], probe: null };
+    box.script({ 'verifier:verification:g2': { output: { verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'e', basis: 'ran', runs: [unmade] }] } } });
+    const output = join(box.directory, 'replay-cited');
+    const logs: string[] = [];
+    const outcome = await replayOnce(box, runId, output, logs);
+    for (const schema of replayedSchemas(output)) assert.match(schema, /"basis"/);
+    assert.deepEqual(outcome.unverified, ['claude-1 verification:g2']);
+    assert.match(logs.join('\n'), /claude-1 verification:g2: attempt 1 of 2 gave no verdicts \(structural check: The verdict for index 0 cites a run that the record of its shell runs does not hold: node probe-9\.mjs\)/);
+    const basisOf = (sample: string): (string | null)[] => outcome.results.candidates.map((candidate) => candidate.samples[sample]?.basis ?? null);
+    assert.deepEqual(basisOf(recordedSampleName), ['traced', 'traced', 'traced']);
+    assert.deepEqual(basisOf('claude-1'), ['ran', 'ran', null]);
+    const summary = readFileSync(join(output, summaryFileName), 'utf8');
+    assert.match(summary, /^## How the verdicts were established\n\n\| Sample \| Ran code \| Traced the lines \| The lines alone \|\n\|---\|---\|---\|---\|\n\| recorded \| 0 \| 3 \| 0 \|\n\| claude-1 \| 2 \| 0 \| 0 \|$/m);
   });
 });

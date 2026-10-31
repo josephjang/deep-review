@@ -17,6 +17,7 @@ import { policyFileName, readPolicy, type PolicyFile } from '../../src/review/po
 import { checkKinds, type CheckKind } from '../../src/review/vocabulary.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
+import { captureScope } from '../../src/scope/capture.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { fakeCheck, fakeCheckCommand, type CheckPlace } from './fake-check.ts';
 import type { Script } from './fake-runtime.ts';
@@ -370,6 +371,27 @@ export class ReviewSandbox {
     const { id } = this.checkpoint.createRun({ worktree: this.repo });
     this.addUnknownEvent(id);
     return id;
+  }
+
+  /**
+   * A run of this repository configured as this engine pins a run, but
+   * recorded at `version` of `review.configured`, 7 to 9, whose payload is
+   * one: a run an engine of that version configured, with its scope
+   * captured and nothing run, for the next review to resume. The pinned
+   * configuration comes from a run of this engine blocked at its triage,
+   * abandoned before the run is made; the script is left empty, for the
+   * caller to set. Returns its id.
+   */
+  async configuredAt(version: 7 | 8 | 9, runtime: 'claude' | 'codex' = 'claude'): Promise<string> {
+    this.script({ triage: { exit: 2 } });
+    const first = await this.review(runtime);
+    assert.ok(first.kind === 'blocked', JSON.stringify(first));
+    const pinned = this.events(first.runId).find(([kind]) => kind === 'review.configured')![1];
+    this.checkpoint.append(first.runId, this.checkpoint.fold(first.runId).lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for another engine' } }]);
+    const run = this.checkpoint.createRun({ worktree: this.repo });
+    this.checkpoint.append(run.id, captureScope(this.checkpoint, run.id, { paths: [] }).lastSequence, [{ kind: 'review.configured', version, payload: pinned }]);
+    this.script({});
+    return run.id;
   }
 
   /** The claims directory of a round of the checkpoint's one run, under this sandbox's scratch root, whether or not it exists. */
