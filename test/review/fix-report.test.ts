@@ -59,7 +59,7 @@ describe('the report of a fix run', () => {
     const fix = review.fix!;
     const validated = <Recorded extends FixRecorded>(recorded: Recorded, evidence: string): Recorded => ({ ...recorded, findings: recorded.findings.map((finding) => ({ ...finding, validation: [{ method: 'old-code' as const, source: 'test/a.test.ts', evidence, runs: [] }] })) });
     const twice = { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': validated(fix.answers.fixes['c1-1']!, 'failed on <stdin> before the guard') }, answer: { 'pass-1': validated(fix.answers.answer['pass-1']!, 'failed before the answer') } } };
-    const lines = fixBlockLines(review, twice, 'RIPPLE-1', { numbers: new Map([['RIPPLE-1', 1]]), own: 1 });
+    const lines = fixBlockLines(review, twice, 'RIPPLE-1', { numbers: new Map([['RIPPLE-1', 1]]), own: 1, scratch: [] });
     assert.ok(lines.includes('Patch: 1, 2'), lines.join('\n'));
     assert.deepEqual(lines.filter((line) => line.startsWith('Validation')), [
       'Validation, as fixer c1-1 reports it: old-code, test/a.test.ts: failed on \\<stdin> before the guard',

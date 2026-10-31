@@ -9,7 +9,7 @@ import { briefJson } from '../../src/review/brief-json.ts';
 import { briefMarkdown, briefOf } from '../../src/review/brief.ts';
 import { renderReport, type ReportInput } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
-import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, verdictRun, withCitedRuns, worker, reportInput } from '../helpers/review-history.ts';
+import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, verdictRun, withCitedRuns, worker, reportInput, launch, finish } from '../helpers/review-history.ts';
 import { checkedRun } from '../helpers/base-checks-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
@@ -566,16 +566,44 @@ describe('the runs on the record in the report', () => {
     assert.match(render(validated(cited(ran), [])), /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\.$/m);
   });
 
-  it('ends the validation line of the repair under its check, and of the documentation step under its item, as a fixer\'s', () => {
-    const state = withCitedRuns(checkedRun({ after: { lint: 'failed' } })).fold();
+  /** The report of `history`, a run whose lint fails after the fixes, with the one validation entry of the repair and of the documentation step citing `runs`. */
+  const repairedAndDocumented = (history: History, runs: ValidationRun[]): string => {
+    const state = history.fold();
     const fix = state.review!.fix!;
-    const entry = { method: 'existing' as const, source: 'npm run lint', evidence: 'lint passes', runs: [found(7), missing] };
+    const entry = { method: 'existing' as const, source: 'npm run lint', evidence: 'lint passes', runs };
     const repaired = fix.answers.repair.repair!;
     const step = fix.answers.documentation.documentation!;
     const answers = { ...fix.answers, repair: { repair: { ...repaired, findings: repaired.findings.map((finding) => ({ ...finding, validation: [entry] })) } }, documentation: { documentation: { ...step, findings: step.findings.map((finding) => ({ ...finding, validation: [entry] })) } } };
-    const report = render({ ...state, review: { ...state.review!, fix: { ...fix, answers } } } as RunState);
+    return render({ ...state, review: { ...state.review!, fix: { ...fix, answers } } } as RunState);
+  };
+
+  it('ends the validation line of the repair under its check, and of the documentation step under its item, as a fixer\'s', () => {
+    const report = repairedAndDocumented(withCitedRuns(checkedRun({ after: { lint: 'failed' } })), [found(7), missing]);
     assert.match(report, /^- Validation, as its fixer reports it: existing, npm run lint: lint passes\. Its record shows shell run 7\. Its record does not show: npm test -- a\.$/m);
     assert.match(report, /^Validation: existing, npm run lint: lint passes\. Its record shows shell run 7\. Its record does not show: npm test -- a\.$/m);
+  });
+
+  it('writes each scratch directory of the run\'s workers as <scratch> in a cited command and its lines, by either separator, and leaves a path that only begins as one does', () => {
+    const verifier = `/tmp/deep-review-scratch/c023873040998054/${worker(90)}`;
+    const fixer = `C:\\Users\\me\\AppData\\Local\\Temp\\deep-review-scratch\\c023873040998054\\${worker(91)}`;
+    const history = withCitedRuns(checkedRun(), { basis: 'ran', runs: [verdictRun(3, { command: `node ${verifier}/p.mjs`, printed: [`wrote ${fixer.replaceAll('\\', '/')}/out.txt`, `kept ${verifier}-old/p.mjs`] })] });
+    for (const [n, scratch] of [[90, verifier], [91, fixer]] as const) history.add('worker.launched', { ...launch(worker(n), 'a worker'), scratch }).add('worker.finished', finish(worker(n)));
+    const state = history.fold();
+    const review = state.review!;
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2, { command: `node ${fixer}\\p.mjs`, printed: ['ok'], probe: null }) as unknown as VerdictRun] } };
+    const report = render(validated({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } }, [{ command: `node ${verifier}`, printed: ['passes'], probe: null, found: null }]));
+    assert.match(report, new RegExp(`^- Shell run 3 of its record: node \\\\<scratch>/p\\.mjs printed "wrote \\\\<scratch>/out\\.txt" / "kept ${RegExp.escape(verifier)}-old/p\\.mjs", exit 1\\.`, 'm'));
+    assert.match(report, /^ {2}Shell run 2 of its record: node \\<scratch>\\p\.mjs printed "ok", exit 1\.$/m);
+    assert.match(report, /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\. Its record does not show: node \\<scratch>\.$/m);
+    assert.doesNotMatch(report.replaceAll(`${verifier}-old`, ''), /deep-review-scratch/, 'no other line names a scratch directory');
+  });
+
+  it('writes the scratch directory as <scratch> in the validation lines of the repair and of the documentation step', () => {
+    const history = withCitedRuns(checkedRun({ after: { lint: 'failed' } }));
+    history.add('worker.launched', { ...launch(worker(90), 'a worker'), scratch: '/tmp/deep-review-scratch/c023873040998054/repair' }).add('worker.finished', finish(worker(90)));
+    const report = repairedAndDocumented(history, [{ ...missing, command: 'node /tmp/deep-review-scratch/c023873040998054/repair/check.mjs' }]);
+    assert.match(report, /^- Validation, as its fixer reports it: existing, npm run lint: lint passes\. Its record does not show: node \\<scratch>\/check\.mjs\.$/m);
+    assert.match(report, /^Validation: existing, npm run lint: lint passes\. Its record does not show: node \\<scratch>\/check\.mjs\.$/m);
   });
 
   it('counts in report --stats the verdicts of each grade by basis and the runs the validations cite by whether the record holds them, and nothing of either for an older run', () => {

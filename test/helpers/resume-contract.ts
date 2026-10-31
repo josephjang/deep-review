@@ -310,9 +310,7 @@ const runId = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
  * each path instead (`Outcome.revised`); the brief's count of the patches,
  * and the patches it names to read first, are left out with them. A file
  * of the evidence store is named by its name in the store,
- * `artifacts/<hash>`, or by its path in a report an older engine wrote, and
- * the scratch directory of the checkpoint a cited run's command names by
- * no key of its own. The notes of the run, and the facts of the run after them,
+ * `artifacts/<hash>`, or by its path in a report an older engine wrote. The notes of the run, and the facts of the run after them,
  * are compared as a set, since some of their lines follow the order the
  * workers ended in; so are the lines after Limitations in such an older
  * report.
@@ -328,8 +326,6 @@ export function normalizedReport(text: string, sandbox: string): string {
     .map((line) => line.split(sandbox).join('<sandbox>'))
     .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>').replace(/\bartifacts\/[0-9a-f]{64}\b/g, '<artifact>'))
     .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>').replace(/\b(run|--run) [0-9a-f]{8}\b/g, '$1 <run>'))
-    // A cited run's command names its worker's scratch directory, under a key of the checkpoint, which each sandbox has its own of (R8 of runs on the record).
-    .map((line) => line.replace(/deep-review-scratch[\\/][0-9a-f]{16}\b/g, 'deep-review-scratch/<checkpoint>'))
     .filter((line) => !/^\d+\. .*: <artifact>$/.test(line))
     .map((line) => line.replace(/Its (\d+ patches are|patch is) not committed: `deep-review commit` commits (them|it)\./, 'Its <patches> are not committed.'))
     .map((line) => line.replace(/ Read first .*?\. If you do nothing, the fixes stay uncommitted/, ' Read first <patches>. If you do nothing, the fixes stay uncommitted'))
