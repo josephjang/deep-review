@@ -165,7 +165,7 @@ export interface Outcome {
   readonly degraded: readonly string[];
   /** The repair's reading of each check it compared with the base, as `<kind> <reading>`. */
   readonly comparisons: readonly string[];
-  /** Each run a verdict cites (R5 of runs on the record), as `<candidate> <basis> <place> <exit code> <printed lines> <probe name> <probe hash>`; the command is left out, since it names the worker's own scratch directory. */
+  /** Each run a verdict cites (R5 of runs on the record), as `<candidate> <basis> <place> <exit code> <printed lines> <probe name> <probe hash>`, the command left out, since it names the worker's own scratch directory; then each run a validation entry of an editing unit cites (R7), as `<phase>:<unit> <finding> <method> <command> <place or not found> <exit code>`. */
   readonly cited: readonly string[];
   /** The worktrees of the base the run left: each entry git lists locked with the run's reason, and each directory of one under the scratch directory. */
   readonly baseTrees: readonly string[];
@@ -265,7 +265,9 @@ export class ContractSandbox {
       return [path, existsSync(file) ? readFileSync(file, 'utf8') : null];
     }));
     const comparisons = fix?.answers.repair[repairUnitKey]?.comparisons.map((comparison) => `${comparison.kind} ${comparison.reading}`) ?? [];
-    const cited = Object.values(review.candidates).flatMap((candidate) => (candidate.verdict?.runs ?? []).map((run) => [candidate.id, candidate.verdict!.basis, run.at, run.exitCode, run.printed.join(' / '), run.probe?.name ?? 'no probe', run.probe?.blob.sha256 ?? ''].map(String).join(' ')));
+    const verdictRuns = Object.values(review.candidates).flatMap((candidate) => (candidate.verdict?.runs ?? []).map((run) => [candidate.id, candidate.verdict!.basis, run.at, run.exitCode, run.printed.join(' / '), run.probe?.name ?? 'no probe', run.probe?.blob.sha256 ?? ''].map(String).join(' ')));
+    const validationRuns = Object.values(fix?.answers ?? {}).flatMap((answers) => Object.values(answers).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs.map((run) => [`${answer.phase}:${answer.key}`, finding.id, entry.method, run.command, run.found?.at ?? 'not found', run.found?.exitCode ?? null].map(String).join(' '))))));
+    const cited = [...verdictRuns, ...validationRuns];
     return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), files };
   }
 
@@ -555,7 +557,7 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   const settled = completedLabels(stopped.atStop);
   const again = launchedAfter(events, stopped.atStop.length).filter((label) => settled.has(label));
   if (again.length > 0) broken.set('launches', `launched again: ${[...new Set(again)].join(', ')}`);
-  // Third: nothing false. The current check runs, the degraded units, the comparisons with the base, the runs the verdicts cite, and the files of each revision.
+  // Third: nothing false. The current check runs, the degraded units, the comparisons with the base, the runs the verdicts and the validations cite, and the files of each revision.
   const falsehoods: string[] = [];
   const checks = outcome.checks.filter((check) => !expected.outcome.checks.includes(check));
   if (checks.length > 0) falsehoods.push(`check runs ${checks.join(', ')}`);

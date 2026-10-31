@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
+import { citingValidationWords } from '../../src/review/tasks.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 import type { ShellRun } from '../../src/runtime/adapter.ts';
 import { holdIfNamed, waitForFile, writeWhole, type FakeHost } from './fake-host.ts';
@@ -125,6 +126,32 @@ function citingVerifierStep(prompt: string): Pick<ScriptStep, 'output' | 'runs' 
     runs: indexes.map((index) => ({ command: command(index), output: `${printed(index)}\n`, exitCode: 0 })),
     output: { verdicts: indexes.map((index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]`, basis: 'ran', runs: [{ command: command(index), printed: [printed(index)], probe: probe(index) }] })) },
   };
+}
+
+/**
+ * The record an editing worker asked to cite the runs of its validation
+ * leaves when its script names no runs: one test it ran, whose output its
+ * validation cites (R7 of runs on the record).
+ */
+const fakeValidationRecord: readonly ShellRun[] = [{ command: 'node fake-test.mjs', output: 'fake test ran\nfake test passed\n', exitCode: 0 }];
+
+/** What each validation entry such a worker gives cites when its script cites nothing: the test of its record, which the engine finds, and a run it never made, which the engine does not. */
+const fakeValidationCites = [
+  { command: 'node fake-test.mjs', printed: ['fake test passed'], probe: null },
+  { command: 'node fake-test-never-run.mjs', printed: ['fake output never printed'], probe: null },
+];
+
+/**
+ * An editing worker's answer as its task in a run with runs on the record
+ * asks for it: each validation entry that names no `runs` cites the runs
+ * of `fakeValidationRecord` when the worker's record is that one, and none
+ * when its script gave the record, so a test that scripts the runs scripts
+ * what they cite too.
+ */
+function citingValidation(output: unknown, record: 'default' | 'scripted'): unknown {
+  if (typeof output !== 'object' || output === null || !Object.hasOwn(output, 'findings')) return output;
+  const findings = (output as { readonly findings: readonly { readonly validation?: readonly object[] }[] }).findings;
+  return { ...output, findings: findings.map((finding) => ({ ...finding, validation: (finding.validation ?? []).map((entry) => ('runs' in entry ? entry : { ...entry, runs: record === 'default' ? fakeValidationCites : [] })) })) };
 }
 
 /**
@@ -339,7 +366,10 @@ export function scriptedStep(host: FakeHost, prompt: string): { readonly role: s
   const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`, host.id), entry.length - 1)] ?? {}) : (entry as ScriptStep);
   // A verifier asked to cite its runs and scripted no answer runs a probe per candidate and cites it, so every run that cites runs crosses the lookup.
   const defaults = step.output === undefined && header.role === 'verifier' && prompt.includes(citingWords) ? citingVerifierStep(prompt) : { output: defaultOutput(header.role, prompt) };
-  return { role: header.role, unit: header.unitKey, step: { ...defaults, ...step, output: answerFor(step.output ?? defaults.output, prompt) } };
+  const output = answerFor(step.output ?? defaults.output, prompt);
+  // An editing worker asked to cite the runs of its validation runs a test and cites it, with a run it never made, so every run that cites runs crosses both outcomes of the lookup.
+  if (!prompt.includes(citingValidationWords)) return { role: header.role, unit: header.unitKey, step: { ...defaults, ...step, output } };
+  return { role: header.role, unit: header.unitKey, step: { ...defaults, ...step, runs: step.runs ?? fakeValidationRecord, output: citingValidation(output, step.runs === undefined ? 'default' : 'scripted') } };
 }
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */

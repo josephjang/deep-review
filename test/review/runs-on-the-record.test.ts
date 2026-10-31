@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import type { VerdictsRecordedV2 } from '../../src/checkpoint/events.ts';
+import type { FixRecordedV5, VerdictsRecordedV2 } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { UnsupportedCapabilityError } from '../../src/runtime/errors.ts';
 import { RuntimeRegistry } from '../../src/runtime/registry.ts';
 import { defaultRuntimes } from '../../src/runtime/runtimes.ts';
-import type { Script } from '../helpers/fake-runtime.ts';
+import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
 const noLeads = ['REMOVALS', 'RIPPLE', 'FOOTGUNS', 'WRAPPERS', 'EFFICIENCY', 'DESIGN', 'DUPLICATION', 'ALTITUDE', 'CONVENTIONS'].map((angle) => ({ angle, lead: null }));
@@ -93,5 +95,69 @@ describe('a review with runs on the record', { timeout: 600_000, concurrency: sa
     const blind = new RuntimeRegistry([{ ...claude, capabilities: { ...claude.capabilities, shellRecord: false } }]);
     await assert.rejects(box.review('claude', { runtimes: blind }), (error: unknown) => error instanceof UnsupportedCapabilityError && error.capability === 'shellRecord' && error.runtime === 'claude');
     assert.deepEqual(box.checkpoint.listRuns(), []);
+  });
+});
+
+/** The `fix.recorded` of unit `key` in run `runId`, with its version. */
+const fixRecordedOf = (box: ReviewSandbox, runId: string, key: string): { version: number; payload: FixRecordedV5 } => {
+  const event = ledgerOf(box, runId).find((candidate) => candidate.kind === 'fix.recorded' && (candidate.payload as FixRecordedV5).key === key);
+  if (event === undefined) throw new Error(`No answer of ${key} is recorded`);
+  return { version: event.version, payload: event.payload as FixRecordedV5 };
+};
+
+/** The fix pass of fix-pass-fixture.ts, each fixer editing its file. */
+const fixingScript = (c1: object = {}, c2: object = {}): Script => ({
+  ...reviewScript,
+  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]), ...c1 },
+  'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]), ...c2 },
+});
+
+// R6, R7, PD4 and TD7 of runs on the record.
+describe('a fix pass with runs on the record', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
+  it('gives a fixer the runs its finding\'s verdict rests on and the probe to run, records the runs its validation cites with where its record holds each, and keeps its edits when one is not there', async (t) => {
+    const box = ReviewSandbox.forTest(t, fixingScript());
+    assert.equal((await box.fix('claude')).kind, 'report', box.logs.join('\n'));
+    const state = box.run();
+    const prompt = box.promptOf(state, 'fixer fixes:c1-1');
+    assert.match(prompt, /^ {8}evidence: fake evidence for \[0\]\n {8}how its verifier established it: it ran code\n {8}run: node \S+probe-0\.mjs printed "fake probe for \[0\] ran", exit 0; its probe, probe-0\.mjs, is frozen at \S+$/m);
+    const frozen = /its probe, probe-0\.mjs, is frozen at (\S+)$/m.exec(prompt)![1]!;
+    assert.equal(readFileSync(frozen, 'utf8'), 'console.log("fake probe for [0] ran");\n', 'the path names the frozen probe');
+    assert.match(prompt, /^In each validation entry, cite in `runs` each shell run the entry rests on, at most four/m);
+    assert.match(prompt, /^A candidate above whose verifier ran a probe names the probe and where it is frozen\. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it/m);
+    for (const label of ['fixer fixes:c1-1', 'documentation documentation:documentation']) {
+      const schema = Object.values(state.workers).find((worker) => worker.launch.label === label)!.launch.schema;
+      assert.match(box.checkpoint.evidence.read(schema).toString('utf8'), /"runs"/, `${label} answers with the runs of its validation`);
+    }
+    const recorded = fixRecordedOf(box, state.id, 'c1-1');
+    assert.equal(recorded.version, 5);
+    assert.deepEqual(recorded.payload.findings[0]!.validation[0]!.runs.map((run) => [run.command, run.found]), [['node fake-test.mjs', { at: 1, exitCode: 0 }], ['node fake-test-never-run.mjs', null]]);
+    assert.deepEqual(recorded.payload.comparisons, []);
+    assert.ok(box.logs.some((line) => line.includes('the validation of finding [0] cites a run that the record of its shell runs does not hold: node fake-test-never-run.mjs')), box.logs.join('\n'));
+    const fix = state.review!.fix!;
+    assert.deepEqual(fix.answers.fixes['c1-1']!.findings[0]!.validation[0]!.runs, recorded.payload.findings[0]!.validation[0]!.runs, 'the fold holds the runs');
+    assert.ok(fix.revisions.some((revision) => revision.change.findings.includes('SCAN-1')), 'the edits of an answer citing a run not found stand');
+    assert.equal(readFileSync(`${box.repo}/src/a.ts`, 'utf8'), fixedA);
+  });
+
+  it('freezes the probe a fixer cites from its scratch directory, records a probe it cannot freeze as none, and writes an answer whose entries cite no run at the version of today', async (t) => {
+    const probeRun = { command: 'node probe-0.mjs', printed: ['the null is guarded'], probe: 'probe-0.mjs' };
+    const missingRun = { command: 'node missing.mjs', printed: ['still failing'], probe: 'missing.mjs' };
+    const cited = fixerAnswer([{ files: ['src/a.ts'] }]) as { findings: { validation: object[] }[] };
+    cited.findings[0]!.validation = [{ method: 'old-code', source: 'probe-0.mjs', evidence: 'the probe passes after the fix', runs: [probeRun, missingRun] }];
+    const box = ReviewSandbox.forTest(t, fixingScript(
+      { probes: { 'probe-0.mjs': 'console.log("the null is guarded");\n' }, runs: [{ command: 'node probe-0.mjs', output: 'the null is guarded\n', exitCode: 0 }, { command: 'node missing.mjs', output: 'still failing\n', exitCode: 1 }], output: cited },
+      { runs: [] },
+    ));
+    assert.equal((await box.fix('claude')).kind, 'report', box.logs.join('\n'));
+    const state = box.run();
+    const [probe, missing] = fixRecordedOf(box, state.id, 'c1-1').payload.findings[0]!.validation[0]!.runs;
+    assert.deepEqual([probe?.found, probe?.probe?.name], [{ at: 1, exitCode: 0 }, 'probe-0.mjs']);
+    assert.equal(box.checkpoint.evidence.read(probe!.probe!.blob).toString('utf8'), 'console.log("the null is guarded");\n');
+    assert.deepEqual([missing?.found, missing?.probe], [{ at: 2, exitCode: 1 }, null]);
+    assert.ok(box.logs.some((line) => line.includes('cites a probe the engine cannot freeze: the probe missing.mjs names no file')), box.logs.join('\n'));
+    const uncited = fixRecordedOf(box, state.id, 'c2-1');
+    assert.equal(uncited.version, 2, 'an answer citing no run keeps the version of today');
+    assert.equal('runs' in (uncited.payload.findings[0]!.validation[0] as object), false);
+    assert.deepEqual(state.review!.fix!.answers.fixes['c2-1']!.findings[0]!.validation[0]!.runs, []);
   });
 });

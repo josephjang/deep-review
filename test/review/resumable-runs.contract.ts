@@ -97,12 +97,14 @@ function contractOf(scenario: Scenario, points: readonly string[]): () => Refere
 describe('the contract of resumable runs', { timeout: 1_800_000, concurrency: sandboxConcurrency }, () => {
   const expected = contractOf(fixScenario, fixPoints);
 
-  it('records each verdict of the run with no stop with the run it rests on and its probe frozen, so every stop is crossed by a run that cites runs (R11 of runs on the record)', () => {
+  it('records each verdict of the run with no stop with the run it rests on and its probe frozen, and each validation with a run its record holds and one it does not, so every stop is crossed by cited runs (R11 of runs on the record)', () => {
     const { outcome } = expected();
     const verdicts = Object.values(outcome.state.review!.candidates).flatMap((candidate) => (candidate.verdict === null ? [] : [candidate.verdict]));
     assert.ok(verdicts.length > 0, 'the run has verdicts');
     assert.ok(verdicts.every((verdict) => verdict.basis === 'ran' && verdict.runs.length === 1 && verdict.runs[0]!.probe !== null), JSON.stringify(verdicts));
-    assert.equal(outcome.cited.length, verdicts.length);
+    const entries = Object.values(outcome.state.review!.fix!.answers).flatMap((answers) => Object.values(answers).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation)));
+    assert.ok(entries.length > 0 && entries.every((entry) => entry.runs.length === 2 && entry.runs[0]!.found !== null && entry.runs[1]!.found === null), JSON.stringify(entries));
+    assert.equal(outcome.cited.length, verdicts.length + entries.length * 2);
   });
 });
 

@@ -16,7 +16,7 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { failedOrTimedOut, finderAngles, type CheckKind, type FinderAngle, type Severity, type Verdict } from './vocabulary.ts';
+import { failedOrTimedOut, finderAngles, verdictBasisWords, type CheckKind, type FinderAngle, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -505,15 +505,39 @@ interface EditingTailInput {
   readonly snapshotCommand: string;
   readonly mayHoldWork: boolean;
   readonly unfinished: readonly string[];
+  /** Whether the run has runs on the record, so each validation entry cites the runs it rests on (R7 of runs on the record). */
+  readonly citing: boolean;
 }
+
+/** The words that open `citingValidationRule`, by which a test's fake knows its task asks for cited runs. */
+export const citingValidationWords = 'In each validation entry, cite in `runs`';
+
+/**
+ * What the task of a worker that edits, in a run with runs on the record,
+ * says of the runs its validation rests on (R7, PD4, PD6 of runs on the
+ * record): cite each, as a verifier cites one, and know that each is
+ * looked up in its record and that the report says which the record
+ * shows. It refuses no answer for a run the record does not hold, so the
+ * task does not say it does.
+ */
+const citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not.`;
+
+/**
+ * What a fixer's task, in a run with runs on the record, says of a probe
+ * a verifier of its findings ran (R6 of runs on the record): reproduce
+ * the defect with it before the fix and after it, and cite both runs.
+ */
+const probeRule = 'A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it, when it can run here, and cite both runs, with that path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.';
 
 /**
  * The lines every task of a worker that edits ends with, in one order: the
  * sandbox rule when it applies, the snapshot command, the warning of an
  * earlier attempt's work when the tree may hold it, the answer's fields
- * with `answerSuffix` after them, and the scratch rule.
+ * with `answerSuffix` after them, in a run with runs on the record the
+ * rule of the runs a validation cites with `citingTail` after it, and the
+ * scratch rule.
  */
-function editingTail(input: EditingTailInput, unit: AnsweredUnit, answerSuffix = ''): string[] {
+function editingTail(input: EditingTailInput, unit: AnsweredUnit, answerSuffix = '', citingTail: readonly string[] = []): string[] {
   return [
     ...(input.unelevatedSandbox ? [unelevatedSandboxRule, ''] : []),
     snapshotBlock(input.snapshotCommand, unit),
@@ -521,6 +545,7 @@ function editingTail(input: EditingTailInput, unit: AnsweredUnit, answerSuffix =
     ...(input.mayHoldWork ? [earlierWork(unit, input.unfinished), ''] : []),
     `${answerFields(unit)}${answerSuffix}`,
     '',
+    ...(input.citing ? [citingValidationRule, '', ...citingTail.flatMap((line) => [line, ''])] : []),
     scratchRule,
   ];
 }
@@ -538,6 +563,16 @@ export interface TaskCandidate {
   readonly unverified: boolean;
   /** Its verifier's evidence line, or null when its group went unverified. */
   readonly evidence: string | null;
+  /** In a fixer's task of a run with runs on the record, how its verifier established its verdict, null when it went unverified, and the runs it cites (R6 of runs on the record); null in every other task. */
+  readonly cited: { readonly basis: VerdictBasis | null; readonly runs: readonly TaskRun[] } | null;
+}
+
+/** A run a candidate's verdict cites, as a fixer's task gives it (R6 of runs on the record): the command, the lines it printed, its exit code, and for a frozen probe its name and the path of its blob in the evidence store. */
+export interface TaskRun {
+  readonly command: string;
+  readonly printed: readonly string[];
+  readonly exitCode: number | null;
+  readonly probe: { readonly name: string; readonly path: string } | null;
 }
 
 /** A decision a fixer is given: a fix, or an ask whose default it applies; a finding left goes to no fixer. */
@@ -624,6 +659,8 @@ interface FixerTaskShared {
   readonly baselineFailures: readonly BaselineFailure[];
   /** Whether the fixer runs in Codex's unelevated Windows sandbox, so its task says what cannot run there (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
+  /** Whether the run has runs on the record, so the fixer cites the runs of its validation (R7 of runs on the record). */
+  readonly citing: boolean;
 }
 
 /** A fixes-phase batch's fixer (R18, R21 of the fix pass; R1, R8 of commit series integrity): it owns its cluster's files, is told what the cluster's earlier batches did, and claims any other file through its command. */
@@ -659,13 +696,24 @@ const verdictWords = (candidate: Pick<TaskCandidate, 'verdict' | 'unverified'>):
 /** The evidence line a task prints for a candidate, saying so when its verifier gave none. */
 const evidenceWords = (evidence: string | null): string => evidence ?? 'none; the group\'s verifier failed twice';
 
-/** A candidate as a fixer's or the decider's task prints it: the header line it is given, then its claim and its evidence. */
+/** A run a candidate's verdict cites, as one line of a fixer's task: the command, the lines it printed, its exit code, and where its probe is frozen. */
+function taskRunLine(run: TaskRun): string {
+  const printed = run.printed.map((line) => `"${inlineText(line)}"`).join(' / ');
+  const exit = run.exitCode === null ? 'no exit code on record' : `exit ${String(run.exitCode)}`;
+  const probe = run.probe === null ? '' : `; its probe, ${inlineText(run.probe.name)}, is frozen at ${run.probe.path}`;
+  return `        run: ${inlineText(run.command)} printed ${printed}, ${exit}${probe}`;
+}
+
+/** A candidate as a fixer's or the decider's task prints it: the header line it is given, then its claim and its evidence, and in a fixer's task of a run with runs on the record its basis and its runs (R6 of runs on the record). */
 function candidateLines(head: string, candidate: TaskCandidate): string[] {
+  const basis = candidate.cited?.basis ?? null;
   return [
     head,
     `        summary: ${candidate.summary}`,
     `        detail: ${candidate.detail}`,
     `        evidence: ${evidenceWords(candidate.evidence)}`,
+    ...(basis === null ? [] : [`        how its verifier established it: ${verdictBasisWords[basis]}`]),
+    ...(candidate.cited?.runs ?? []).map(taskRunLine),
   ];
 }
 
@@ -836,6 +884,7 @@ export function fixerTask(input: FixerTaskInput): string {
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
   const answered = input.findings.some((finding) => finding.answered !== null);
+  const probed = input.findings.some((finding) => [finding.primary, ...finding.members].some((candidate) => candidate.cited?.runs.some((run) => run.probe !== null) ?? false));
   const { head, round, ownership } = unitLines(input);
   return [
     `${head}: ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], in the order to apply them.`,
@@ -849,7 +898,7 @@ export function fixerTask(input: FixerTaskInput): string {
     '',
     checksBlock(input.checks, input.baselineFailures),
     '',
-    ...editingTail(input, 'finding'),
+    ...editingTail(input, 'finding', '', probed ? [probeRule] : []),
   ].join('\n');
 }
 
@@ -905,6 +954,8 @@ export interface RepairTaskInput {
   readonly unfinished: readonly string[];
   /** Whether the repair worker runs in Codex's unelevated Windows sandbox, so its task says what cannot run there (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
+  /** Whether the run has runs on the record, so the repair cites the runs of its validation (R7 of runs on the record). */
+  readonly citing: boolean;
 }
 
 /** One stream's tail, fenced so the output cannot close the fence. */
@@ -1051,6 +1102,8 @@ export interface DocumentationTaskInput {
   readonly unfinished: readonly string[];
   /** Whether the worker runs in Codex's unelevated Windows sandbox (R6 of the Codex sandbox). */
   readonly unelevatedSandbox: boolean;
+  /** Whether the run has runs on the record, so the step cites the runs of its validation (R7 of runs on the record). */
+  readonly citing: boolean;
 }
 
 /** A document of the step's task: its index and id, its path as the fixers wrote it and as the repository holds it, then each of its lines with the batch that reported it, the text a fixer wrote kept within its line. */

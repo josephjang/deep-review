@@ -424,6 +424,13 @@ export const verdictBases = ['ran', 'traced', 'read'] as const;
 export const verdictBasisSchema = z.enum(verdictBases);
 export type VerdictBasis = z.infer<typeof verdictBasisSchema>;
 
+/** A basis in the fixed words the report and a fixer's task say it in, after "How the verifier established it:" (R6, R8 of runs on the record). */
+export const verdictBasisWords: Readonly<Record<VerdictBasis, string>> = {
+  ran: 'it ran code',
+  traced: 'it traced the lines',
+  read: 'the lines alone settle it',
+};
+
 /**
  * What the decision step makes of a ranked finding (R3 of the decision
  * step): a fixer applies it the way the decider chose, it is left with a

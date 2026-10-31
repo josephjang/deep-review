@@ -38,8 +38,10 @@ import {
   checkTriageLeads,
   normalizeTriageChange,
   checkVerdicts,
+  fixerOutputSchemaV2,
   outputSchemaOf,
   repairOutputSchema,
+  repairOutputSchemaV2,
   verifierOutputSchemaV2,
   type CandidateOutput,
   type DeciderOutput,
@@ -171,11 +173,21 @@ function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'f
   });
 }
 
-/** A candidate of a ranked finding as a task names it: its claim and location, and its own verdict and evidence. */
-function taskCandidate(candidate: CandidateState): TaskCandidate {
+/**
+ * A candidate of a ranked finding as a task names it: its claim and
+ * location, and its own verdict and evidence; with `evidence`, as a
+ * fixer's task of a run with runs on the record names it, also its basis
+ * and the runs its verdict cites, a frozen probe by the path of its blob
+ * (R6 of runs on the record).
+ */
+function taskCandidate(candidate: CandidateState, evidence: Pick<EvidenceStore, 'pathOf'> | null = null): TaskCandidate {
   const resolution = resolutionOf(candidate);
   if (resolution === null) throw new Error(`Candidate ${candidate.id} is ranked with no verdict and no unverified mark`);
-  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence };
+  const cited = evidence === null ? null : {
+    basis: resolution.basis,
+    runs: resolution.runs.map((run) => ({ command: run.command, printed: run.printed, exitCode: run.exitCode, probe: run.probe === null ? null : { name: run.probe.name, path: evidence.pathOf(run.probe.blob) } })),
+  };
+  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, cited };
 }
 
 /** The ranked findings as the decider's task numbers them, in rank order, each with every candidate of it. */
@@ -186,7 +198,7 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map(taskCandidate),
+    candidates: [entry.primary, ...entry.members].map((candidate) => taskCandidate(candidate)),
   }));
 }
 
@@ -261,7 +273,7 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     if (entry === undefined) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
     const decision = decidedFor(review, decided, id);
     return {
-      ...taskFinding(review, ranked, entry, decision),
+      ...taskFinding(review, ranked, entry, decision, evidence),
       firstRound: inSecondRound ? firstRoundBlock(review, plan.batches, id, blockedOn.get(id) ?? []) : null,
     };
   });
@@ -282,16 +294,19 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
     mayHoldWork: mayHoldWork(review, 'fixes', unit.key, cluster.files, [...earlier, ...(inSecondRound ? plan.batches : [])].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review, 'fixes', unit.key),
     baselineFailures: baselineFailuresOf(review, evidence),
+    citing: review.citedRuns,
   });
 }
 
 /**
  * One finding as a fixer's task gives it, but for what the first round
- * said of it: its claim, its candidates, its decision, the findings left
+ * said of it: its claim, its candidates, with the runs their verdicts cite
+ * in a run with runs on the record, its decision, the findings left
  * because its fix removes them, and the author's answer when one is owed.
  */
-function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFinding>, entry: ReportFinding, decision: FixerDecision | null): Omit<FixerTaskFinding, 'firstRound'> {
+function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFinding>, entry: ReportFinding, decision: FixerDecision | null, evidence: Pick<EvidenceStore, 'pathOf'>): Omit<FixerTaskFinding, 'firstRound'> {
   const id = entry.finding.id;
+  const cited = review.citedRuns ? evidence : null;
   return {
     id,
     severity: entry.finding.severity,
@@ -299,8 +314,8 @@ function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFind
     unverified: entry.resolution.unverified,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    primary: taskCandidate(entry.primary),
-    members: entry.members.map(taskCandidate),
+    primary: taskCandidate(entry.primary, cited),
+    members: entry.members.map((member) => taskCandidate(member, cited)),
     decision,
     supersedes: (review.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked.get(left.id);
@@ -326,7 +341,7 @@ function answerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = [...ranked.values()].filter((entry) => pass.ids.includes(entry.finding.id)).map((entry): FixerTaskFinding => {
     const decision = decidedFor(review, decided, entry.finding.id, true);
-    const finding = { ...taskFinding(review, ranked, entry, decision), firstRound: null };
+    const finding = { ...taskFinding(review, ranked, entry, decision, evidence), firstRound: null };
     if (finding.answered === null) throw new Error(`Finding ${entry.finding.id} is in answer pass ${unit.key} with no answer owing an edit`);
     return finding;
   });
@@ -345,6 +360,7 @@ function answerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput
     mayHoldWork: mayHold,
     unfinished: unfinishedIds(review, 'answer', unit.key),
     baselineFailures: baselineFailuresOf(review, evidence),
+    citing: review.citedRuns,
   });
 }
 
@@ -417,7 +433,7 @@ function repairTaskOf(review: ReviewState, editing: EditingTaskInput, evidence: 
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer) => answer.findings.map((finding) => ({ batch: answer.key, id: finding.id, status: finding.status, note: finding.note })));
   const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
-  return repairTask({ checks, baseChecks: review.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey) });
+  return repairTask({ checks, baseChecks: review.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review, 'repair', repairUnitKey, owned), unfinished: unfinishedIds(review, 'repair', repairUnitKey), citing: review.citedRuns });
 }
 
 /**
@@ -462,6 +478,7 @@ function documentationTaskOf(review: ReviewState, editing: EditingTaskInput, evi
     mayHoldWork: mayHoldWork(review, 'documentation', documentationUnitKey, owned),
     unfinished: unfinishedIds(review, 'documentation', documentationUnitKey),
     unelevatedSandbox: editing.unelevatedSandbox,
+    citing: review.citedRuns,
   });
 }
 
@@ -644,15 +661,18 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
 /**
  * The schema a unit answers in: its role's, but the repair of a run with
  * the checks on the base answers in its own, which carries its comparisons
- * (TD6 of the facts before a merge), and a verifier of a run with runs on
- * the record in its own, which gives each verdict's basis and runs (TD5
- * of runs on the record). A run configured before either keeps the schema
- * it was configured with, also when this engine resumes it.
+ * (TD6 of the facts before a merge); and in a run with runs on the record
+ * a verifier answers in its own, which gives each verdict's basis and
+ * runs, and an editing unit in one whose validation entries cite their
+ * runs (TD5 of runs on the record). A run configured before either keeps
+ * the schema it was configured with, also when this engine resumes it.
  */
 function unitOutputSchema(unit: Unit, review: ReviewState): InvocationInput['outputSchema'] {
-  if (comparesWithBase(review, unit.phase)) return repairOutputSchema;
-  if (unit.role === 'verifier' && review.citedRuns) return verifierOutputSchemaV2;
-  return outputSchemaOf(unit.role);
+  const cited = review.citedRuns;
+  if (comparesWithBase(review, unit.phase)) return cited ? repairOutputSchemaV2 : repairOutputSchema;
+  if (!cited) return outputSchemaOf(unit.role);
+  if (unit.role === 'verifier') return verifierOutputSchemaV2;
+  return isEditingPhase(unit.phase) ? fixerOutputSchemaV2 : outputSchemaOf(unit.role);
 }
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */

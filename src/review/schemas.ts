@@ -305,6 +305,32 @@ export const repairOutputSchema = z.strictObject({
 });
 export type RepairOutput = z.infer<typeof repairOutputSchema>;
 
+/** A finding of a fixer's answer, as `fixerOutputSchema` gives it. */
+const fixerFinding = fixerOutputSchema.shape.findings.element;
+
+/**
+ * What an editing worker of a run configured with runs on the record
+ * returns (R7 of runs on the record): a fixer's answer whose validation
+ * entries each cite the runs they rest on, at most four, each as a
+ * verifier cites one. `invocationFor` gives it to the editing units of
+ * such a run alone (TD5); the engine looks each run up in the worker's
+ * record and refuses no answer for one it does not find (PD4).
+ */
+export const fixerOutputSchemaV2 = z.strictObject({
+  ...fixerOutputSchema.shape,
+  findings: z.array(z.strictObject({
+    ...fixerFinding.shape,
+    validation: z.array(z.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: z.array(citedRunSchema).max(4) })).max(20),
+  })),
+});
+export type FixerOutputV2 = z.infer<typeof fixerOutputSchemaV2>;
+
+/** The repair's answer of a run with the checks on the base and runs on the record: `fixerOutputSchemaV2` with the comparisons of `repairOutputSchema`. */
+export const repairOutputSchemaV2 = z.strictObject({
+  ...fixerOutputSchemaV2.shape,
+  comparisons: repairOutputSchema.shape.comparisons,
+});
+
 /**
  * Refuse a fixer's answer whose findings do not name each index of the
  * task once, whose subject is not one line without a trailing period,

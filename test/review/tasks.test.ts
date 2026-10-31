@@ -342,7 +342,7 @@ describe('the task texts', () => {
   });
 
   it('numbers the decider\'s findings in rank order, each with every candidate\'s own verdict and evidence, and asks for one decision per index (R2, R3 of the decision step)', () => {
-    const member = (id: string, angle: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', evidence: string | null, unverified = false) => ({ id, angle, location: `src/a.ts:${id.length}`, summary: `${id} summary`, detail: `${id} detail`, verdict, unverified, evidence });
+    const member = (id: string, angle: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', evidence: string | null, unverified = false) => ({ id, angle, location: `src/a.ts:${id.length}`, summary: `${id} summary`, detail: `${id} detail`, verdict, unverified, evidence, cited: null });
     const task = deciderTask([
       { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', summary: 'parse dereferences null, also at line 7', reason: 'one root cause', candidates: [member('RIPPLE-1', 'RIPPLE', 'CONFIRMED', 'line 4'), member('ALTITUDE-2', 'ALTITUDE', 'PLAUSIBLE', 'Needs the author: where to guard')] },
       { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 'a helper', reason: 'one improvement', candidates: [member('SWEEP-1', 'DESIGN', 'PLAUSIBLE', null, true)] },
@@ -368,8 +368,8 @@ describe('the fixer\'s task', () => {
     findings: [
       {
         id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 'parse dereferences null', reason: 'one root cause',
-        primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!' },
-        members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller' }],
+        primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!', cited: null },
+        members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller', cited: null }],
         decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' } },
         supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
         firstRound: null,
@@ -377,7 +377,7 @@ describe('the fixer\'s task', () => {
       },
       {
         id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', unverified: true, summary: 's', reason: 'r',
-        primary: { id: 'SWEEP-1', angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 'own s', detail: 'd', verdict: 'PLAUSIBLE', unverified: true, evidence: null },
+        primary: { id: 'SWEEP-1', angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 'own s', detail: 'd', verdict: 'PLAUSIBLE', unverified: true, evidence: null, cited: null },
         members: [],
         decision: {
           id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
@@ -404,6 +404,7 @@ describe('the fixer\'s task', () => {
     unfinished: [],
     baselineFailures: [],
     unelevatedSandbox: false,
+    citing: false,
   };
 
   it('numbers the batch\'s findings with everything the fixer judges by', () => {
@@ -424,6 +425,20 @@ describe('the fixer\'s task', () => {
 
   it('gives each merged candidate its own verdict and evidence, not only where it is (R7 of the decision step)', () => {
     assert.match(fixerTask(input), /^ {8}evidence: line 4 uses text!\n {4}merged: SWEEP-2 \(ALTITUDE\) at src\/a\.ts:7: PLAUSIBLE\n {8}summary: guard once\n {8}detail: one guard serves both sites\n {8}evidence: Needs the author: guard in parse or in each caller\n/m);
+  });
+
+  it('gives each candidate\'s basis and the runs its verdict cites, a probe by its frozen path, asks for the runs of each validation, and to run the probe before and after the fix (R6, R7 of runs on the record)', () => {
+    const ripple = input.findings[0]!;
+    const primary = { ...ripple.primary, cited: { basis: 'ran' as const, runs: [{ command: 'node probe-1.mjs', printed: ['TypeError: Cannot read properties of null', 'at parse'], exitCode: 1, probe: { name: 'probe-1.mjs', path: '/store/artifacts/9c1e' } }, { command: 'node -e "parse(\'\')"\nexit', printed: ['0'], exitCode: null, probe: null }] } };
+    const member = { ...ripple.members[0]!, cited: { basis: 'traced' as const, runs: [] } };
+    const task = fixerTask({ ...input, citing: true, findings: [{ ...ripple, primary, members: [member] }, input.findings[1]!] });
+    assert.match(task, /^ {8}evidence: line 4 uses text!\n {8}how its verifier established it: it ran code\n {8}run: node probe-1\.mjs printed "TypeError: Cannot read properties of null" \/ "at parse", exit 1; its probe, probe-1\.mjs, is frozen at \/store\/artifacts\/9c1e\n {8}run: node -e "parse\(''\)" exit printed "0", no exit code on record\n {4}merged: /m);
+    assert.match(task, /^ {8}evidence: Needs the author: guard in parse or in each caller\n {8}how its verifier established it: it traced the lines\n {4}decided:/m);
+    assert.match(task, /^In each validation entry, cite in `runs` each shell run the entry rests on, at most four, each with the `command` as you ran it, in `printed` one to five lines of what it printed that show the result, each copied exactly from its output, and in `probe` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none\. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not\.\n\nA candidate above whose verifier ran a probe names the probe and where it is frozen\. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it, when it can run here, and cite both runs, with that path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it\.\n\nWrite logs/m);
+    const unprobed = fixerTask({ ...input, citing: true, findings: [{ ...ripple, primary: { ...primary, cited: { basis: 'read' as const, runs: [] } } }] });
+    assert.match(unprobed, /^In each validation entry, cite in `runs`/m);
+    assert.doesNotMatch(unprobed, /verifier ran a probe/, 'no probe, no paragraph on it');
+    assert.doesNotMatch(fixerTask(input), /how its verifier established it|cite in `runs`/, 'a run before runs on the record');
   });
 
   it('tells the fixer what was decided for each finding: the approach, what was rejected, a rule departed from, and an ask\'s default and question (R7 of the decision step)', () => {
@@ -565,7 +580,7 @@ describe('the fixer\'s task', () => {
 
 describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
-  const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE' as const, location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED' as const, unverified: false, evidence: 'line 4 uses text!' };
+  const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE' as const, location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED' as const, unverified: false, evidence: 'line 4 uses text!', cited: null };
   const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' } };
   const asking: FixerDecision = {
     id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
@@ -582,7 +597,7 @@ describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)',
     findings: [finding('RIPPLE-1', departing, rejected), finding('SWEEP-1', asking, option)],
     owned: ['docs/parse.md', 'src/a.ts'],
     checks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }],
-    snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false, leftDocuments: [],
+    snapshotCommand: snapshot, mayHoldWork: false, unfinished: [], baselineFailures: [], unelevatedSandbox: false, citing: false, leftDocuments: [],
   };
   /** A fixes-phase batch of the same findings, as a continued run's fixer is given them. */
   const batch = (findings: readonly FixerTaskFinding[]): FixerBatchTaskInput => ({ ...pass, kind: 'batch', cluster: 'c1', batch: 'c1-1', secondRound: false, earlier: [], claimed: [], othersHeld: [], claimCommand: 'node claim', findings });
@@ -672,6 +687,7 @@ describe('the repair task', () => {
       mayHoldWork: true,
       unfinished: ['test'],
       unelevatedSandbox: false,
+      citing: false,
     });
     assert.match(task, /^Repair: 2 checks, numbered \[0\] to \[1\], fail after the fixers' edits\./);
     assert.match(task, /^\[0\] test: [\s\S]*?\n {4}It passed before any fixer edited the tree\.$/m);
@@ -699,6 +715,7 @@ describe('the repair task', () => {
       mayHoldWork: false,
       unfinished: [],
       unelevatedSandbox: false,
+      citing: false,
     });
     assert.match(task, /^Repair: 1 check, numbered \[0\] to \[0\], fails after the edits of the fixers and the documentation step\. Make each pass again without undoing an applied fix: read its output, find what the edits of the fixers and the documentation step broke, and fix that\./);
     assert.doesNotMatch(task, /the fixers' edits/);
@@ -718,6 +735,7 @@ describe('the repair task', () => {
       mayHoldWork: false,
       unfinished: [],
       unelevatedSandbox: false,
+      citing: false,
     });
     assert.match(task, /^\[0\] test: npm run test\n {4}ended with no result from its guard$/m);
     assert.match(task, /^\[1\] lint: npm run test\n {4}ended with signal SIGTERM, a kill mark$/m);
@@ -738,6 +756,7 @@ describe('the repair task', () => {
       mayHoldWork: false,
       unfinished: [],
       unelevatedSandbox: false,
+      citing: false,
     });
     assert.match(task, /^ {4}It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before\. Its output then:\n {4}stdout, its last 10 bytes \(the whole is at \/evidence\/before-out\):\n```text\n2 failing\n```\n {4}stderr: empty \(frozen at \/evidence\/before-err\)$/m);
     assert.doesNotMatch(task, /It passed before any fixer/);
@@ -745,7 +764,7 @@ describe('the repair task', () => {
 
   it('asks for no `blocked` answer, which the engine refuses from the repair, and for `deferred` with the reason when a check needs a file outside the repository', () => {
     // A repair alone in the tree may edit every file of the repository, and the engine refuses a blocked answer from it (`checkFixerAnswer`), so the task says no check is blocked, over the fixer's role prompt it shares.
-    const task = repairTask({ baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    const task = repairTask({ baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false, citing: false });
     assert.deepEqual(task.match(/[^.]*blocked[^.]*\./g)?.map((sentence) => sentence.trim()), ['No check is `blocked`: nothing holds a file from you.']);
     assert.match(task, /`deferred` with the reason when it cannot be made to pass here, as when it needs a file outside the repository/);
     assert.match(task, /`status` \(`applied`, `already-applied` or `deferred`\)/);
@@ -753,7 +772,7 @@ describe('the repair task', () => {
   });
 
   it('tells a repair worker in the unelevated sandbox the same as a fixer, and says nothing of it otherwise (R6 of the Codex sandbox)', () => {
-    const repair = { baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [] };
+    const repair = { baseChecks: false, checks: [failing], owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], citing: false };
     const plain = repairTask({ ...repair, unelevatedSandbox: false });
     assert.doesNotMatch(plain, /unelevated|EPERM/);
     assert.equal(repairTask({ ...repair, unelevatedSandbox: true }), plain.replace('\n\nAfter finishing each check', `\n\n${unelevatedSandboxRule}\n\nAfter finishing each check`));
@@ -763,7 +782,7 @@ describe('the repair task', () => {
   describe('with the checks on the base', () => {
     const before = { stdout: { tail: Buffer.from('2 failing\n'), path: '/evidence/before-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/before-err' } };
     const onBase = { stdout: { tail: Buffer.from('3 failing\n'), path: '/evidence/base-out' }, stderr: { tail: Buffer.alloc(0), path: '/evidence/base-err' } };
-    const task = (checks: readonly RepairTaskCheck[], baseChecks = true): string => repairTask({ baseChecks, checks, owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false });
+    const task = (checks: readonly RepairTaskCheck[], baseChecks = true): string => repairTask({ baseChecks, checks, owned: ['src/a.ts'], answers: [], documentation: [], allChecks: [{ kind: 'test', command: 'npm run test', origin: 'package', layer: null, reason: null, source: null }], snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false, citing: false });
     const onBaseOf = (base: RepairTaskBase): RepairTaskCheck => ({ ...failing, baseline: before, base });
     const fixOnly = 'fix only the failures its output then does not show';
 
@@ -832,7 +851,19 @@ describe('the documentation step\'s task', () => {
     mayHoldWork: false,
     unfinished: [],
     unelevatedSandbox: false,
+    citing: false,
     ...change,
+  });
+
+  it('asks the step, in a run with runs on the record, for the runs each validation rests on, as the repair is asked, after the answer\'s fields (R7 of runs on the record)', () => {
+    const plain = documentationTask(input());
+    assert.doesNotMatch(plain, /cite in `runs`/);
+    const citing = documentationTask(input({ citing: true }));
+    assert.match(citing, /discarded and the work given to a fresh worker\.\n\nIn each validation entry, cite in `runs` each shell run the entry rests on/);
+    assert.doesNotMatch(citing, /verifier ran a probe/);
+    const repair = { baseChecks: false, checks: [], owned: [], answers: [], documentation: [], allChecks: checks, snapshotCommand: 'snap', mayHoldWork: false, unfinished: [], unelevatedSandbox: false };
+    assert.doesNotMatch(repairTask({ ...repair, citing: false }), /cite in `runs`/);
+    assert.match(repairTask({ ...repair, citing: true }), /^In each validation entry, cite in `runs` each shell run the entry rests on/m);
   });
 
   it('numbers each document with its lines and the search last, and names a path the engine refused as one to leave', () => {
