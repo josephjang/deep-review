@@ -8,7 +8,7 @@
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ValidationRun } from '../checkpoint/events.ts';
+import type { ValidationRun, VerdictRun } from '../checkpoint/events.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { isInside } from '../paths.ts';
 import type { ShellRun } from '../runtime/adapter.ts';
@@ -169,6 +169,30 @@ export function foundVerdictRuns(verdicts: readonly CitingVerdict[], record: rea
     const found = findRun(record, cited);
     if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${truncated(cited.command, quotedCommandLength)}`);
     return { cited, found };
+  }));
+}
+
+/**
+ * The runs each verdict of a verifier's answer cites, as the ledger
+ * records them, in the order of the answer (R4, R5, R10, PD3 of runs on
+ * the record): each found in the verifier's record of shell runs
+ * (`foundVerdictRuns`), with its place and exit code, and its probe frozen
+ * into `evidence` from the scratch directory its launch recorded. A cited
+ * run the record does not hold, or a probe that cannot be frozen, throws
+ * `StructuralCheckError`, so the answer fails as one that fails any
+ * structural check does: in a review the unit runs again, and in replay,
+ * which freezes into its own checkpoint, the attempt fails, so a replay
+ * counts the answers the run keeps. Every run is found before any probe is
+ * frozen, so an answer refused for a missing run leaves no blob behind; a
+ * stop after a freeze and before the append leaves one that no event
+ * names, as a refused launch leaves its prompt.
+ */
+export function checkCitedVerdicts(verdicts: readonly CitingVerdict[], record: readonly ShellRun[], scratch: string | null, evidence: Pick<EvidenceStore, 'put'>): VerdictRun[][] {
+  return foundVerdictRuns(verdicts, record).map((runs, position) => runs.map(({ cited, found }): VerdictRun => {
+    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
+    const freeze = freezeProbe(scratch, cited.probe, evidence);
+    if (freeze.kind === 'refused') throw new StructuralCheckError(`The verdict for index ${String(verdicts[position]!.index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
+    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
   }));
 }
 

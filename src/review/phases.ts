@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictRun, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -17,10 +17,9 @@ import { poolCandidates, type CandidateState, type ReviewState } from '../checkp
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
-import type { ShellRun } from '../runtime/adapter.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
-import { foundVerdictRuns, freezeProbe } from './cited-runs.ts';
+import { checkCitedVerdicts } from './cited-runs.ts';
 import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -776,28 +775,6 @@ function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, con
   return [...attempt.claims, failure, ...attempt.revisions];
 }
 
-/**
- * The runs each verdict of a verifier's answer cites, as the ledger
- * records them, in the order of the answer (R4, R5, PD3 of runs on the
- * record): each found in the verifier's record of shell runs
- * (`foundVerdictRuns`), with its place and exit code, and its probe frozen
- * from the scratch directory its launch recorded. A cited run the record
- * does not hold, or a probe that cannot be frozen, throws
- * `StructuralCheckError`, so the attempt fails and the unit runs again as
- * for any structural check. Every run is
- * found before any probe is frozen, so an answer refused for a missing run
- * leaves no blob behind; a stop after a freeze and before the append
- * leaves one that no event names, as a refused launch leaves its prompt.
- */
-function recordedVerdictRuns(output: VerifierOutputV2, record: readonly ShellRun[], scratch: string | null, evidence: Pick<EvidenceStore, 'put'>): VerdictRun[][] {
-  return foundVerdictRuns(output.verdicts, record).map((runs, position) => runs.map(({ cited, found }): VerdictRun => {
-    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
-    const freeze = freezeProbe(scratch, cited.probe, evidence);
-    if (freeze.kind === 'refused') throw new StructuralCheckError(`The verdict for index ${String(output.verdicts[position]!.index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
-    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
-  }));
-}
-
 /** The events a unit's contribution is recorded as, each kind with its own payload. */
 type ContributionEvent =
   | { readonly kind: 'survey.recorded'; readonly version: 1; readonly payload: SurveyRecorded }
@@ -855,7 +832,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
         // The launcher held the answer of a verifier of such a run to `verifierOutputSchemaV2` (`unitOutputSchema`).
         const output = receipt.output as VerifierOutputV2;
         checkVerdicts(output, group.length);
-        const runs = recordedVerdictRuns(output, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
+        const runs = checkCitedVerdicts(output.verdicts, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
         const verdicts = output.verdicts.map((verdict, position) => ({ id: group[verdict.index]!.id, verdict: verdict.verdict, evidence: verdict.evidence, basis: verdict.basis, runs: runs[position]! }));
         return { kind: 'verdicts.recorded', version: 2, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts } };
       }
