@@ -165,6 +165,8 @@ export interface Outcome {
   readonly degraded: readonly string[];
   /** The repair's reading of each check it compared with the base, as `<kind> <reading>`. */
   readonly comparisons: readonly string[];
+  /** Each run a verdict cites (R5 of runs on the record), as `<candidate> <basis> <place> <exit code> <printed lines> <probe name> <probe hash>`; the command is left out, since it names the worker's own scratch directory. */
+  readonly cited: readonly string[];
   /** The worktrees of the base the run left: each entry git lists locked with the run's reason, and each directory of one under the scratch directory. */
   readonly baseTrees: readonly string[];
   /** The bytes of each file of the change and of each file a fixer writes. */
@@ -263,7 +265,8 @@ export class ContractSandbox {
       return [path, existsSync(file) ? readFileSync(file, 'utf8') : null];
     }));
     const comparisons = fix?.answers.repair[repairUnitKey]?.comparisons.map((comparison) => `${comparison.kind} ${comparison.reading}`) ?? [];
-    return { ran, state, events, report, revised, checks, degraded, comparisons, baseTrees: this.baseTrees(state.id), files };
+    const cited = Object.values(review.candidates).flatMap((candidate) => (candidate.verdict?.runs ?? []).map((run) => [candidate.id, candidate.verdict!.basis, run.at, run.exitCode, run.printed.join(' / '), run.probe?.name ?? 'no probe', run.probe?.blob.sha256 ?? ''].map(String).join(' ')));
+    return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), files };
   }
 
   /** The worktrees of the base the run `runId` left: the entries of `git worktree list` locked with its reason, and the directories of its worktrees of the base under the engine's scratch directory. */
@@ -552,7 +555,7 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   const settled = completedLabels(stopped.atStop);
   const again = launchedAfter(events, stopped.atStop.length).filter((label) => settled.has(label));
   if (again.length > 0) broken.set('launches', `launched again: ${[...new Set(again)].join(', ')}`);
-  // Third: nothing false. The current check runs, the degraded units, and the files of each revision.
+  // Third: nothing false. The current check runs, the degraded units, the comparisons with the base, the runs the verdicts cite, and the files of each revision.
   const falsehoods: string[] = [];
   const checks = outcome.checks.filter((check) => !expected.outcome.checks.includes(check));
   if (checks.length > 0) falsehoods.push(`check runs ${checks.join(', ')}`);
@@ -560,6 +563,8 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   if (degraded.length > 0) falsehoods.push(`degraded ${degraded.join(', ')}`);
   const comparisons = outcome.comparisons.filter((comparison) => !expected.outcome.comparisons.includes(comparison));
   if (comparisons.length > 0) falsehoods.push(`comparisons with the base ${comparisons.join(', ')}`);
+  const cited = outcome.cited.filter((run) => !expected.outcome.cited.includes(run));
+  if (cited.length > 0 || outcome.cited.length !== expected.outcome.cited.length) falsehoods.push(`cited runs ${outcome.cited.join(', ')} where the run with no stop cites ${expected.outcome.cited.join(', ')}`);
   const fix = outcome.state.review?.fix ?? null;
   for (const revision of fix?.revisions ?? []) {
     const source = revision.source.kind === 'check' ? `check ${revision.source.check}` : revision.source.key;
