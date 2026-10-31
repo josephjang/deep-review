@@ -28,6 +28,11 @@ export function checkpointScratchKey(checkpoint: Checkpoint): string {
   return sha256Hex(Buffer.from(checkpoint.root, 'utf8')).slice(0, 16);
 }
 
+/** Whether a directory name is one `checkpointScratchKey` gives, so a directory of that name is the base of a checkpoint's scratch directories. */
+export function isCheckpointScratchKey(name: string): boolean {
+  return /^[0-9a-f]{16}$/.test(name);
+}
+
 /**
  * Where the worker may write temporary files (R7, TD7): the one it
  * continues, the caller's, or `fallback`, a fresh one under the scratch
