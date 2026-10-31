@@ -718,4 +718,12 @@ describe('the scratch directories in a cited run (R8 of runs on the record)', ()
     assert.equal(withoutScratch('node /tmp/dr/ABC/p.mjs', ['/tmp/dr/abc']), 'node /tmp/dr/ABC/p.mjs');
     assert.equal(withoutScratch('node /TMP/dr/abc/p.mjs', ['/tmp/dr/abc', ...scratch]), 'node /TMP/dr/abc/p.mjs', 'a Windows spelling beside it folds no POSIX one');
   });
+
+  it('writes every line of a report the same by one list, whose pattern it compiles once, and none by an empty one', () => {
+    const list = ['/tmp/dr/abc'];
+    const lines = ['node /tmp/dr/abc/a.mjs', 'wrote /tmp/dr/abc/b.txt and /tmp/dr/abc/c.txt', 'node /tmp/dr/abc/a.mjs'];
+    assert.deepEqual(lines.map((line) => withoutScratch(line, list)), ['node <scratch>/a.mjs', 'wrote <scratch>/b.txt and <scratch>/c.txt', 'node <scratch>/a.mjs']);
+    assert.equal(withoutScratch('node /tmp/dr/xyz/a.mjs', ['/tmp/dr/xyz']), 'node <scratch>/a.mjs', 'another list has its own pattern');
+    assert.equal(withoutScratch('node /tmp/dr/abc/a.mjs', []), 'node /tmp/dr/abc/a.mjs');
+  });
 });
