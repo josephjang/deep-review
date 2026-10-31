@@ -123,7 +123,7 @@ describe('a fix pass with runs on the record', { timeout: 600_000, concurrency: 
     const frozen = /its probe, probe-0\.mjs, is frozen at (\S+)$/m.exec(prompt)![1]!;
     assert.equal(readFileSync(frozen, 'utf8'), 'console.log("fake probe for [0] ran");\n', 'the path names the frozen probe');
     assert.match(prompt, /^In each validation entry, cite in `runs` each shell run the entry rests on, at most four/m);
-    assert.match(prompt, /^A candidate above whose verifier ran a probe names the probe and where it is frozen\. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it/m);
+    assert.match(prompt, /^A candidate above whose verifier ran a probe names the probe and where it is frozen\. Copy that probe into a directory of its own inside your scratch directory, one for each candidate and named for the candidate's id, keeping the probe's name, so that two candidates' probes of the same name never overwrite each other; run it on the code before your fix and again after it/m);
     for (const label of ['fixer fixes:c1-1', 'documentation documentation:documentation']) {
       const schema = Object.values(state.workers).find((worker) => worker.launch.label === label)!.launch.schema;
       assert.match(box.checkpoint.evidence.read(schema).toString('utf8'), /"runs"/, `${label} answers with the runs of its validation`);
