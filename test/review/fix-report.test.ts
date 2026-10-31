@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { FixRecorded } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { fixBlockLines, fixLimitations, stopLimitations } from '../../src/review/fix-report.ts';
+import { fixBlockLines, fixLimitations, scratchSpellings, stopLimitations, withoutScratch } from '../../src/review/fix-report.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -700,5 +700,22 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
     assert.match(checksOf({ after: { lint: 'failed' } }), /^- On the base: not run, since no check failed before and after the fixes\.$/m);
     assert.doesNotMatch(checksOf({ ...failing, compared: false }), /On the base/);
     assert.doesNotMatch(checksOf({}).replace('- On the base: not run, since no check failed before and after the fixes.', ''), /On the base/);
+  });
+});
+
+describe('the scratch directories in a cited run (R8 of runs on the record)', () => {
+  const windows = 'C:\\Users\\Runner\\AppData\\Local\\Temp\\deep-review-scratch\\k\\w1';
+  const scratch = scratchSpellings({ w1: { launch: { scratch: windows } } } as unknown as RunState['workers']);
+
+  it('writes a Windows scratch directory as <scratch> in any case, by either separator, since a Windows file system ignores case', () => {
+    assert.equal(withoutScratch('type c:\\users\\runner\\appdata\\local\\temp\\deep-review-scratch\\K\\W1\\p.py', scratch), 'type <scratch>\\p.py');
+    assert.equal(withoutScratch('type c:/users/runner/AppData/Local/Temp/deep-review-scratch/k/w1/p.py', scratch), 'type <scratch>/p.py');
+    assert.equal(withoutScratch(`type ${windows}\\p.py`, scratch), 'type <scratch>\\p.py');
+  });
+
+  it('writes a POSIX scratch directory as <scratch> only as recorded, since another directory can differ from it only in case', () => {
+    assert.equal(withoutScratch('node /tmp/dr/abc/p.mjs', ['/tmp/dr/abc']), 'node <scratch>/p.mjs');
+    assert.equal(withoutScratch('node /tmp/dr/ABC/p.mjs', ['/tmp/dr/abc']), 'node /tmp/dr/ABC/p.mjs');
+    assert.equal(withoutScratch('node /TMP/dr/abc/p.mjs', ['/tmp/dr/abc', ...scratch]), 'node /TMP/dr/abc/p.mjs', 'a Windows spelling beside it folds no POSIX one');
   });
 });
