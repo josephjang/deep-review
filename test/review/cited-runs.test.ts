@@ -40,6 +40,15 @@ describe('findRun', () => {
     assert.equal(findRun(record, cited(['TypeError: Cannot read properties of undefined'])), null);
   });
 
+  it('finds a cited line only where it neither starts nor ends inside a word of the output, a fragment of a line still being found', () => {
+    assert.equal(findRun([run('npm test', 'tests 12\n10 failed\n', 1)], cited(['0 failed'])), null, '0 failed is not 10 failed');
+    assert.equal(findRun([run('npm test', 'passed 3\n', 0)], cited(['pass'])), null, 'pass is not passed');
+    assert.deepEqual(findRun([run('npm test', 'tests 2\n0 failed\n', 0)], cited(['0 failed'])), { at: 1, exitCode: 0 });
+    assert.deepEqual(findRun([run('npm test', '10 failed, then 0 failed\n', 1)], cited(['0 failed'])), { at: 1, exitCode: 1 }, 'a later place where the line is whole');
+    assert.equal(findRun([run('npm test', 'x 0 failed; 10 failed\n', 1)], cited(['0 failed', '0 failed'])), null, 'the second line has no whole place after the first');
+    assert.deepEqual(findRun([run('npm test', 'Exit code 1\nerror: (10)\n', 1)], cited(['(10)'])), { at: 1, exitCode: 1 }, 'a line that begins and ends with punctuation');
+  });
+
   it('finds a cited probe only in a run whose command names the probe\'s base name', () => {
     assert.deepEqual(findRun(record, cited(['TypeError'], '/tmp/scratch/probe.mjs')), { at: 2, exitCode: 1 });
     assert.deepEqual(findRun(record, cited(['TypeError'], 'C:\\scratch\\probe.mjs')), { at: 2, exitCode: 1 }, 'a Windows path names its file too');
