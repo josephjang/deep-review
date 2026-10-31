@@ -90,6 +90,8 @@ export interface NeedsFacts {
   readonly toFix: number;
   /** The number of each finding by its id, for the aliases of a quote. */
   readonly numbers: ReadonlyMap<string, number>;
+  /** The scratch directories of the run's workers, which each quote writes `<scratch>`. */
+  readonly scratch: readonly string[];
 }
 
 /** The answer command's arguments after the program, for a run, a finding and a choice such as `--accept`: the one spelling of its flags, which each answer command of the report is built from (R3, R7 of the report for the person). */
@@ -98,11 +100,11 @@ export const answerArguments = (run: string, finding: string, choice: string): s
 /** The answer command of a finding, naming its run (R3, R7 of the report for the person). */
 export const answerCommand = (run: string, finding: number, choice: string): string => `deep-review ${answerArguments(run, String(finding), choice)}`;
 
-/** What an item needs to name its commands and quote a worker: the run and the number of each finding. */
-export type ItemFacts = Pick<NeedsFacts, 'run' | 'numbers'>;
+/** What an item needs to name its commands and quote a worker: the run, the number of each finding and the scratch directories of the run's workers. */
+export type ItemFacts = Pick<NeedsFacts, 'run' | 'numbers' | 'scratch'>;
 
 /** A text of a worker, quoted on one line. */
-const said = (facts: ItemFacts, text: string, own: number | null = null): string => inlineText(quoted(text, { numbers: facts.numbers, own }));
+const said = (facts: ItemFacts, text: string, own: number | null = null): string => inlineText(quoted(text, { numbers: facts.numbers, own, scratch: facts.scratch }));
 
 /** When a check's last run ran, in the words of the brief (R3 of the facts before a merge). */
 export const lastMomentWords: Readonly<Record<LastMoment, string>> = { fixes: 'after the fixes', repair: 'after the fixes for the checks', answers: 'after your answers' };

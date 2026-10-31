@@ -606,6 +606,26 @@ describe('the runs on the record in the report', () => {
     assert.match(report, /^Validation: existing, npm run lint: lint passes\. Its record does not show: node \\<scratch>\/check\.mjs\.$/m);
   });
 
+  it('writes the scratch directory as <scratch> in every worker text the report quotes: evidence, refuted evidence, a fixer\'s note, correction and validation words', () => {
+    const directory = `/tmp/deep-review-scratch/c023873040998054/${worker(92)}`;
+    const history = withCitedRuns(checkedRun(), ran);
+    history.add('worker.launched', { ...launch(worker(92), 'a worker'), scratch: directory }).add('worker.finished', finish(worker(92)));
+    const state = validated(history.fold(), [], `the probe ${directory}/p.mjs passes`);
+    const review = state.review!;
+    const candidates = Object.fromEntries(Object.entries(review.candidates).map(([id, candidate]) => [id, candidate.verdict === null ? candidate : { ...candidate, verdict: { ...candidate.verdict, evidence: `the probe ${directory}/p.mjs threw` } }]));
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: `\`node ${directory}/q.mjs\` printed 0`, basis: 'read' as const, runs: [] } };
+    const fix = review.fix!;
+    const answer = fix.answers.fixes['c1-1']!;
+    const findings = answer.findings.map((finding) => ({ ...finding, note: `copied the probe to ${directory}/RIPPLE-1/p.mjs`, corrections: [{ file: 'src/a.ts', anchor: 'parse', claim: 'at line 4', fact: 'at line 6', evidence: `ran ${directory}/p.mjs` }] }));
+    const report = render({ ...state, review: { ...review, candidates: { ...candidates, 'SCAN-1': refutedOne }, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState);
+    assert.match(report, /^- Evidence: the probe \\<scratch>\/p\.mjs threw$/m);
+    assert.match(report, /^ {2}Evidence: `node <scratch>\/q\.mjs` printed 0$/m, 'a code span keeps its text as written, the scratch directory written <scratch>');
+    assert.match(report, /^- Fix: applied; copied the probe to \\<scratch>\/RIPPLE-1\/p\.mjs$/m);
+    assert.match(report, /^- Correction: src\/a\.ts parse: at line 4 -> at line 6 \(ran \\<scratch>\/p\.mjs\)$/m);
+    assert.match(report, /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: the probe \\<scratch>\/p\.mjs passes$/m);
+    assert.doesNotMatch(report, /deep-review-scratch/, 'no line names a scratch directory');
+  });
+
   it('counts in report --stats the verdicts of each grade by basis and the runs the validations cite by whether the record holds them, and nothing of either for an older run', () => {
     const stats = renderStats(validated(cited(ran), [found(4), missing]), statistics).join('\n');
     assert.match(stats, /^## Runs on the record\n\nThe verdicts of each grade, by how the verifier established each:\n\n\| Verdict \| ran \| traced \| read \|\n\|---\|---\|---\|---\|\n\| CONFIRMED \| 1 \| 0 \| 0 \|\n\| PLAUSIBLE \| 0 \| 0 \| 0 \|\n\| REFUTED \| 0 \| 0 \| 0 \|\n\nThe runs the validations of the editing workers cite, by whether the worker's record holds each:\n\n\| Phase \| Found \| Not found \|\n\|---\|---\|---\|\n\| fixes \| 1 \| 1 \|\n\| documentation \| 0 \| 0 \|\n\| repair \| 0 \| 0 \|$/m);

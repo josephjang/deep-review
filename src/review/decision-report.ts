@@ -75,11 +75,12 @@ function appliedWords(review: Pick<ReviewState, 'answerPasses'>, answer: Recorde
 export const answerAtTerminal = (engineEntry: string, run: string): string =>
   `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run, '<number>', '--option <n>')}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
 
-/** What a decision's text can name, for its quotes: the run its commands name and the number of each finding. */
+/** What a decision's text can name, for its quotes: the run its commands name, the number of each finding, and the scratch directories of the run's workers, which each quote writes `<scratch>`. */
 export interface DecisionQuote {
   readonly run: string;
   readonly numbers: ReadonlyMap<string, number>;
   readonly own: number;
+  readonly scratch: readonly string[];
 }
 
 /**
@@ -92,7 +93,7 @@ export interface DecisionQuote {
  * A decider's text is quoted with the numbers of the findings it names.
  */
 export function decisionBlockLines(review: ReviewState, decision: RecordedDecision, quote: DecisionQuote): string[] {
-  const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own }));
+  const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own, scratch: quote.scratch }));
   const standing = standingAnswer(review, decision.id);
   switch (decision.decision) {
     case 'leave':
