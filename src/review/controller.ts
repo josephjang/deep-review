@@ -876,6 +876,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
             newScratch: () => join(scratchBase, randomUUID()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
+            readerScratch: adapter.capabilities.readOnlyScratch,
             claims,
             documentation: () => ({ patches: fixPatches(state), exclude: state.scope?.request.exclude ?? [] }),
           };

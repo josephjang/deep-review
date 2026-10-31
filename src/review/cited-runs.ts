@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { isInside } from '../paths.ts';
 import type { ShellRun } from '../runtime/adapter.ts';
+import { StructuralCheckError } from './errors.ts';
 
 /** A run as a worker cites it: the command as it ran it, one to five lines of what it printed, and the path of its probe file, or null for a probe run as a command. */
 export interface CitedRun {
@@ -83,6 +84,29 @@ export function findRun(record: readonly ShellRun[], cited: CitedRun): FoundRun 
     if (holdsInOrder(normalized(run.output), lines)) return { at: index + 1, exitCode: run.exitCode };
   }
   return null;
+}
+
+/** A verdict as a verifier's answer cites its runs: its index and the runs, none for a verdict that rests on no run. */
+export interface CitingVerdict {
+  readonly index: number;
+  readonly runs: readonly CitedRun[];
+}
+
+/**
+ * Each run each verdict cites, with where `findRun` found it in the
+ * verifier's record, in the order of the answer (R4, PD3 of runs on the
+ * record). A cited run the record does not hold throws
+ * `StructuralCheckError`, naming the verdict and the first 200 characters
+ * of the command, so the answer fails as one that fails any structural
+ * check does: in a review the unit runs again, and in replay the attempt
+ * fails.
+ */
+export function foundVerdictRuns(verdicts: readonly CitingVerdict[], record: readonly ShellRun[]): { readonly cited: CitedRun; readonly found: FoundRun }[][] {
+  return verdicts.map((verdict) => verdict.runs.map((cited) => {
+    const found = findRun(record, cited);
+    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${cited.command.slice(0, 200)}`);
+    return { cited, found };
+  }));
 }
 
 /**
