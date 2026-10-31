@@ -415,6 +415,16 @@ export const verdictSchema = z.enum(verdicts);
 export type Verdict = z.infer<typeof verdictSchema>;
 
 /**
+ * How a verifier established a verdict (R2 of runs on the record): a run
+ * of code showed the result, the verifier followed the code line by line,
+ * or the lines alone settle the claim. A verdict that rests on a run
+ * cites it, and one with another basis cites none.
+ */
+export const verdictBases = ['ran', 'traced', 'read'] as const;
+export const verdictBasisSchema = z.enum(verdictBases);
+export type VerdictBasis = z.infer<typeof verdictBasisSchema>;
+
+/**
  * What the decision step makes of a ranked finding (R3 of the decision
  * step): a fixer applies it the way the decider chose, it is left with a
  * stated reason, or the author is asked one question while the default

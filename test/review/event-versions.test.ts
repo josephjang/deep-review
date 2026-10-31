@@ -41,7 +41,7 @@ describe('the version each event that names a phase is written at', () => {
       assert.equal(writtenVersion('check.ran', [phase]), before.checkRan(), `check.ran ${phase}`);
     }
     for (const phase of editingPhases) {
-      assert.equal(writtenVersion('fix.recorded', [phase], { comparisons: false }), before.fixRecorded(phase), `fix.recorded ${phase}`);
+      assert.equal(writtenVersion('fix.recorded', [phase], { comparisons: false, cites: false }), before.fixRecorded(phase), `fix.recorded ${phase}`);
       assert.equal(writtenVersion('unit.unattempted', [phase]), before.unitUnattempted(phase), `unit.unattempted ${phase}`);
     }
     assert.equal(writtenVersion('worker.lost', []), before.workerLost(null), 'a lost worker with no unit');
@@ -61,11 +61,20 @@ describe('the version each event that names a phase is written at', () => {
     assert.equal(writtenVersion('report.written', phases), 7, 'a report with a row for every phase, documentation among them');
     assert.equal(writtenVersion('tree.revised', ['base-checks']), 2, 'no run on the base revises the tree, so no version names it');
     assert.equal(writtenVersion('worker.lost', ['base-checks']), 5, 'the phase has no worker');
-    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: true }), 4);
-    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: false }), 2, 'the repair of a run configured before the phase');
-    assert.equal(writtenVersion('fix.recorded', ['documentation'], { comparisons: false }), 3);
+    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: true, cites: false }), 4);
+    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: false, cites: false }), 2, 'the repair of a run configured before the phase');
+    assert.equal(writtenVersion('fix.recorded', ['documentation'], { comparisons: false, cites: false }), 3);
     assert.equal(writtenVersion('phase.started', ['checks']), 5, 'the other check phases keep their versions');
     assert.equal(writtenVersion('check.ran', ['checks']), 3);
+  });
+
+  // The version TD7 of runs on the record names: an answer whose validation cites a run, in any editing phase, the repair's with comparisons among them.
+  it('writes an answer at fix.recorded@5 exactly when one of its entries cites a run', () => {
+    for (const phase of editingPhases) {
+      assert.equal(writtenVersion('fix.recorded', [phase], { comparisons: false, cites: true }), 5, `${phase} citing a run`);
+      assert.equal(writtenVersion('fix.recorded', [phase], { comparisons: false, cites: false }), before.fixRecorded(phase), `${phase} citing none keeps its version`);
+    }
+    assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: true, cites: true }), 5, 'version 5 holds the comparisons of version 4');
   });
 
   it('is a version whose schema holds the phase, for each kind a writer gives every phase', () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { FixRecordedV4, TreeRevised } from '../../src/checkpoint/events.ts';
+import type { FixRecordedV5, TreeRevised } from '../../src/checkpoint/events.ts';
 import { baseKinds, cutShortBefore, cutShortChecks, documentationItemsOf, documentationReadiness, earlierTreeEdit, emptyFixState, failedAtBaseline, fixesRevisedPaths, fixPassRevisedPaths, isOldRun, lastFreshRun, lastRecordedRun, lastRestorationAt, ownedFiles, repairTargets, secondCut, unitRevisions, type CheckRunState, type FixState, type PlannedBatch, type RestorationState } from '../../src/checkpoint/fix-state.ts';
 import { checkPhases, type CheckKind, type CheckPhase, type TreeCheckPhase } from '../../src/review/vocabulary.ts';
 
@@ -193,7 +193,7 @@ describe('the last write back of an attempt (R7 of resumable runs)', () => {
 
 // R2, R9, TD8 and TD9 of the documentation step.
 describe('the items of the documentation step', () => {
-  const answerOf = (key: string, drift: readonly { readonly file: string; readonly what: string }[]): FixRecordedV4 => ({ phase: 'fixes', key, workerId: worker, findings: [], drift: [...drift], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [], comparisons: [] });
+  const answerOf = (key: string, drift: readonly { readonly file: string; readonly what: string }[]): FixRecordedV5 => ({ phase: 'fixes', key, workerId: worker, findings: [], drift: [...drift], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [], comparisons: [] });
   const batch = (key: string): PlannedBatch => ({ key, cluster: key.split('-')[0]!, findingIds: [`RIPPLE-${key.split('-')[1]!}`] });
   /** A fix state with batches c1-1 and c2-1 in launch order, each answered with its `drift` lines, the second round's c3-1 too when given. */
   const fixWith = (first: readonly { readonly file: string; readonly what: string }[], second: readonly { readonly file: string; readonly what: string }[], third: readonly { readonly file: string; readonly what: string }[] | null = null): FixState => ({

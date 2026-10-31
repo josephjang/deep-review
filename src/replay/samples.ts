@@ -118,14 +118,14 @@ export type ReplayResults = z.infer<typeof resultsSchema>;
  * which a verifier replay does not make, so this stays the verdict's own
  * outcome; the unverified mark changes nothing.
  */
-export function verdictOutcome(candidate: Pick<CandidateState, 'angle'>, resolution: Resolution): Outcome {
+export function verdictOutcome(candidate: Pick<CandidateState, 'angle'>, resolution: Pick<Resolution, 'verdict' | 'unverified' | 'evidence'>): Outcome {
   if (resolution.verdict === 'REFUTED') return 'dropped';
   if (resolution.verdict === 'CONFIRMED') return 'fixer';
   return angleClasses[candidate.angle] === 'correctness' ? 'fixer' : 'held';
 }
 
 /** A candidate's verdict as a sample holds it. */
-export function sampledVerdict(candidate: CandidateState, resolution: Resolution, workerId: string | null): SampledVerdict {
+export function sampledVerdict(candidate: CandidateState, resolution: Pick<Resolution, 'verdict' | 'unverified' | 'evidence'>, workerId: string | null): SampledVerdict {
   return { verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, outcome: verdictOutcome(candidate, resolution), workerId };
 }
 

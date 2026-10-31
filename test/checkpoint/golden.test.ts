@@ -184,6 +184,15 @@ describe('golden checkpoints', () => {
               for (const answer of Object.values(review.fix.answers).flatMap((ofPhase) => Object.values(ofPhase))) assert.deepEqual(answer.comparisons, [], `${name} run ${String(index)} ${answer.phase}:${answer.key} comparisons`);
             }
           }
+          // A review recorded before runs on the record reads as one without them: no cited runs asked for, each verdict with no basis and no run, and each validation entry citing no run (R9 of runs on the record).
+          if (review !== null && !('citedRuns' in ((recorded as { review?: object | null }).review ?? {}))) {
+            assert.equal(review.citedRuns, false, `${name} run ${String(index)} citedRuns`);
+            for (const candidate of Object.values(review.candidates)) {
+              if (candidate.verdict !== null) assert.deepEqual([candidate.verdict.basis, candidate.verdict.runs], [null, []], `${name} run ${String(index)} ${candidate.id} verdict`);
+            }
+            const entries = Object.values(review.fix?.answers ?? {}).flatMap((ofPhase) => Object.values(ofPhase)).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation));
+            for (const entry of entries) assert.deepEqual(entry.runs, [], `${name} run ${String(index)} validation runs`);
+          }
           // A review recorded before the triage's account of the change reads as one whose account is unrecorded (R18 of the brief of a run).
           if (review !== null && !('change' in ((recorded as { review?: object | null }).review ?? {}))) {
             assert.deepEqual(review.change, { kind: 'unrecorded' }, `${name} run ${String(index)} change`);
@@ -306,7 +315,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, and the compared run of every fixture from schema-1-16 on, record that its triage gave none; every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, and the cited run of every fixture from schema-1-17 on, record that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -320,7 +329,7 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      const gaveNone = runs.filter((candidate) => candidate.worktree === '/fixture/documented' || candidate.worktree === '/fixture/compared');
+      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited'].includes(candidate.worktree));
       for (const run of gaveNone) assert.deepEqual(run.review?.change, { kind: 'none' }, run.worktree);
       for (const run of runs.filter((candidate) => candidate !== resumed && !gaveNone.includes(candidate) && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
@@ -365,6 +374,29 @@ describe('golden checkpoints', () => {
       const documented = runs.find((candidate) => candidate.worktree === '/fixture/documented')?.review;
       assert.equal(documented?.baseChecksStep, false, 'a run configured at version 7 has no checks on the base');
       assert.equal(documented?.phases['base-checks'].status, 'skipped');
+    });
+  }
+
+  // The run with runs on the record, which every fixture from schema-1-17 on holds (R5, R7, R9 of runs on the record).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 17)) {
+    it(`folds ${name}'s cited run: a verdict that rests on a run with its probe frozen, and a validation with one run found and one not`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const cited = runs.find((candidate) => candidate.worktree === '/fixture/cited')?.review;
+      assert.ok(cited !== null && cited !== undefined && cited.fix !== null, 'the fixture holds the cited run');
+      assert.equal(cited.citedRuns, true);
+      const verdict = cited.candidates['SCAN-1']?.verdict;
+      assert.equal(verdict?.basis, 'ran');
+      assert.deepEqual(verdict?.runs.map((run) => [run.command, run.at, run.exitCode, run.probe?.name]), [['node probe-1.mjs', 2, 0, 'probe-1.mjs']]);
+      assert.match(checkpoint.evidence.read(verdict!.runs[0]!.probe!.blob).toString('utf8'), /changed\("keep"\)/, 'the probe is frozen in the evidence store');
+      const entry = cited.fix.answers.fixes['c1-1']?.findings[0]?.validation[0];
+      assert.deepEqual(entry?.runs.map((run) => [run.command, run.found]), [['node probe-1.mjs', { at: 5, exitCode: 0 }], ['npm test -- test/changed.test.ts', null]]);
+      const compared = runs.find((candidate) => candidate.worktree === '/fixture/compared')?.review;
+      assert.equal(compared?.citedRuns, false, 'a run configured at version 8 cites no run');
+      assert.equal(compared?.candidates['SCAN-1']?.verdict?.basis, null);
     });
   }
 

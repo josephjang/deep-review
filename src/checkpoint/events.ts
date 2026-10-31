@@ -2311,6 +2311,103 @@ export const reportWrittenV7 = z.strictObject({
 /** The report as the fold holds it: version 1 reads as a report with no patch. */
 export type ReportWritten = z.infer<typeof reportWrittenV7>;
 
+/**
+ * The vocabulary version 10 of the review events records (R2 of runs on
+ * the record): the three bases of a verdict. Frozen here for the reason
+ * `reviewVocabularyV1` is: a test holds it equal to today's vocabulary.
+ */
+export const reviewVocabularyV10 = {
+  verdictBases: ['ran', 'traced', 'read'],
+} as const;
+
+const verdictBasisSchemaV10 = z.enum(reviewVocabularyV10.verdictBases);
+
+/**
+ * `review.configured` with runs on the record (TD6 of runs on the record):
+ * version 8 unchanged. The version alone says that the run's verifiers
+ * give each verdict its basis and cite the runs it rests on, and that its
+ * editing workers may cite the runs of their validation.
+ */
+export const reviewConfiguredV9 = reviewConfiguredV8;
+export type ReviewConfigurationV9 = z.infer<typeof reviewConfiguredV9>;
+
+/**
+ * The caps on what a worker cites of a run (R3 of runs on the record): the
+ * longest command, the longest printed line and how many, and the longest
+ * probe path, which a probe's base name is held to too. The answer schemas
+ * of the workers that cite runs take their caps from these.
+ */
+export const citedRunLimitsV1 = { command: 2000, line: 300, lines: 5, probe: 400 } as const;
+
+/** A cited probe as the engine froze it from the worker's scratch directory (R5, TD8 of runs on the record): its blob, and its base name. */
+const frozenProbeSchemaV1 = z.strictObject({ blob: artifactReferenceSchema, name: z.string().min(1).max(citedRunLimitsV1.probe) });
+
+/** What a cited run gives as its worker cited it: the command, the lines it printed that show the result, and the probe, frozen, or null when it named none. */
+const citedRunFieldsV1 = {
+  command: z.string().min(1).max(citedRunLimitsV1.command),
+  printed: z.array(z.string().min(1).max(citedRunLimitsV1.line)).min(1).max(citedRunLimitsV1.lines),
+  probe: frozenProbeSchemaV1.nullable(),
+};
+
+/** Where the engine found a cited run in its worker's record: its place, from 1, and its exit code when the record gives one. */
+const foundRunFieldsV1 = { at: z.number().int(), exitCode: z.number().int().nullable() };
+
+/**
+ * `verdicts.recorded` with the basis of each verdict and the runs it
+ * cites, each found in the verifier's record (R2, R4, R5 of runs on the
+ * record): written for each answer of a verification unit of a run
+ * configured at `review.configured@9`, and for no other (TD7). The fold
+ * holds a verdict whose basis is `ran` to at least one run and one of
+ * another basis to none, and each run's place to at least 1, as
+ * `checkVerdicts` and the lookup hold the answer.
+ */
+export const verdictsRecordedV2 = z.strictObject({
+  phase: verificationPhaseSchema,
+  groupId: groupIdSchema,
+  workerId: z.uuid(),
+  verdicts: z.array(z.strictObject({
+    id: candidateIdSchema,
+    verdict: verdictSchema,
+    evidence: z.string().min(1).max(1000),
+    basis: verdictBasisSchemaV10,
+    runs: z.array(z.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(3),
+  })).min(1),
+});
+export type VerdictsRecordedV2 = z.infer<typeof verdictsRecordedV2>;
+/** One run a recorded verdict cites, found in its verifier's record. */
+export type VerdictRun = VerdictsRecordedV2['verdicts'][number]['runs'][number];
+
+/** One run a validation entry cites, with where the engine found it in the editing worker's record, or null when it did not (R7, PD4 of runs on the record). */
+const validationRunSchemaV1 = z.strictObject({ ...citedRunFieldsV1, found: z.strictObject(foundRunFieldsV1).nullable() });
+
+/** A finding as an editing worker answered it, each validation entry with the runs it cites, at most four (R7 of runs on the record). */
+export const fixedFindingSchemaV2 = z.strictObject({
+  ...fixedFindingSchema.shape,
+  validation: z.array(z.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: z.array(validationRunSchemaV1).max(4) })).max(20),
+});
+export type FixedFindingV2 = z.infer<typeof fixedFindingSchemaV2>;
+/** One validation entry of a finding as the fold holds it: an entry recorded before `fix.recorded@5` reads as one that cites no run. */
+export type ValidationEntry = FixedFindingV2['validation'][number];
+/** One run a validation entry cites. */
+export type ValidationRun = ValidationEntry['runs'][number];
+
+/**
+ * `fix.recorded` with the runs each validation entry cites, and whether
+ * the engine found each in the worker's record (R7, PD4 of runs on the
+ * record): version 4 with those entries. Written only for an answer of a
+ * run configured at `review.configured@9` one of whose entries cites a
+ * run; every other answer keeps the version it is written at today (TD7).
+ */
+export const fixRecordedV5 = z.strictObject({
+  ...fixRecordedV4.shape,
+  findings: z.array(fixedFindingSchemaV2),
+}).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+  message: 'each finding is answered once',
+  path: ['findings'],
+});
+/** An answer of an editing unit as the fold holds it: one recorded before version 4 reads as one with no comparison, and before version 5 as one whose entries cite no run. */
+export type FixRecordedV5 = z.infer<typeof fixRecordedV5>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -2319,7 +2416,7 @@ export const eventRegistry = defineRegistry({
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 } },
@@ -2329,7 +2426,7 @@ export const eventRegistry = defineRegistry({
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
-  'verdicts.recorded': { 1: { schema: verdictsRecordedV1 } },
+  'verdicts.recorded': { 1: { schema: verdictsRecordedV1 }, 2: { schema: verdictsRecordedV2 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
   'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 } },
@@ -2339,7 +2436,7 @@ export const eventRegistry = defineRegistry({
   'check.started': { 1: { schema: checkStartedV1 }, 2: { schema: checkStartedV2 } },
   'check.ran': { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 }, 4: { schema: checkRanV4 } },
   'tree.restored': { 1: { schema: treeRestoredV1 } },
-  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 } },
+  'fix.recorded': { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 }, 5: { schema: fixRecordedV5 } },
   'tree.revised': { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
   'unit.unattempted': { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
   'commits.prepared': { 1: { schema: commitsPreparedV1 } },

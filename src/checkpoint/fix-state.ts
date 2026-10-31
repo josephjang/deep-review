@@ -13,7 +13,7 @@
 import { budgetDegradingPhases, checkPhases, documentationUnitKey, editingPhases, failedOrTimedOut, fixPassEditingPhases, isTreeCheckPhase, repairUnitKey, type CheckKind, type CheckPhase, type EditingPhase, type LostClaimReason, type Phase } from '../review/vocabulary.ts';
 import { normalizeFileName } from '../review/locations.ts';
 import { currentPass, madeTheEdit, passKey, passNumber, passOf, type AppliedBy } from './answer-state.ts';
-import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFinding, type FixesPlanned, type FixesReplanned, type FixRecordedV4, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
+import { documentationSearchId, type CheckRan, type CheckStarted, type ChecksPlannedV1, type ClaimsLost, type CommitsCreated, type CommitsPrepared, type DocumentationItem, type DocumentationPlanned, type FixedFindingV2, type FixesPlanned, type FixesReplanned, type FixRecordedV5, type FixReopened, type PlannedCheckV2, type PlannedCheckV3, type RecordedDecision, type ReportWritten, type ScopeMode, type TreeRestored, type TreeRevised, type UnitUnattempted } from './events.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import type { RunState } from './fold.ts';
 import type { ReviewState } from './review-fold.ts';
@@ -133,8 +133,8 @@ export interface FixState {
   readonly secondRound: FixesReplanned | null;
   /** The items of the documentation step, or null until the step is planned, and for good in a run without it or whose fixes revised nothing (R2, TD2 of the documentation step). */
   readonly documentation: DocumentationPlanned | null;
-  /** Each recorded answer, by editing phase and then by unit key; the repair's of a run with the checks on the base holds its comparisons with the base (R2, TD6 of the facts before a merge), and every other none. */
-  readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecordedV4>>>>;
+  /** Each recorded answer, by editing phase and then by unit key; the repair's of a run with the checks on the base holds its comparisons with the base (R2, TD6 of the facts before a merge), and every other none; each validation entry holds the runs it cites (R7 of runs on the record), none for an answer recorded before them. */
+  readonly answers: Readonly<Record<EditingPhase, Readonly<Record<string, FixRecordedV5>>>>;
   /** Every revision of the tree, in ledger order. */
   readonly revisions: readonly TreeRevised[];
   /** The units settled without an answer, by editing phase and then by unit key: two failures or the run budget, with the reason; their findings are not attempted. */
@@ -169,7 +169,7 @@ export function emptyFixState(): FixState {
     plan: null,
     secondRound: null,
     documentation: null,
-    answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecordedV4>>,
+    answers: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, FixRecordedV5>>,
     revisions: [],
     notAttempted: Object.fromEntries(editingPhases.map((phase) => [phase, {}])) as Record<EditingPhase, Record<string, NotAttempted>>,
     claims: [],
@@ -688,7 +688,7 @@ export function heldByAnother(holders: ReadonlyMap<string, ReadonlySet<string>>,
  * over an earlier one's (R5, R10 of answers), and in the fixes phase the
  * second round's over the first's; null when no fixer answered it.
  */
-export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixes' | 'answer'; readonly key: string; readonly finding: FixedFinding } | null {
+export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixes' | 'answer'; readonly key: string; readonly finding: FixedFindingV2 } | null {
   const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(b)! - passNumber(a)!);
   for (const key of passes) {
     const finding = fix.answers.answer[key]!.findings.find((candidate) => candidate.id === id);
@@ -699,7 +699,7 @@ export function lastAnswerOf(fix: FixState, id: string): { readonly phase: 'fixe
 }
 
 /** A finding's last recorded fixes-phase answer, with the batch key that gave it: the second round's over the first's; null when no batch's fixer answered it. */
-export function lastFixesAnswerOf(fix: FixState, id: string): { readonly key: string; readonly finding: FixedFinding } | null {
+export function lastFixesAnswerOf(fix: FixState, id: string): { readonly key: string; readonly finding: FixedFindingV2 } | null {
   for (const batch of [...allBatches(fix)].reverse()) {
     if (!batch.findingIds.includes(id)) continue;
     const finding = fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id);

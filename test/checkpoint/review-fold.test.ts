@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { isAnswered, isUnverified, poolCandidates, rawLocation, repositoryLocation, unverifiedGroupsOf, type ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { answerPhases, finderAngles, fixPhases, phases } from '../../src/review/vocabulary.ts';
-import { History, askDecision, baselined, candidate, changeReading, checksPhase, configuration, configurationV1, configured, decidedFixRun, decidedOf, decisions, endCheck, finding, fixAnswer, fixPlan, fixRevision, found, launch, leads, mergeRanked, noSecondRound, pin, ranking, readOnlyReported, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verified, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
+import { History, askDecision, baselined, candidate, changeReading, checksPhase, configuration, configurationV1, configured, decidedFixRun, decidedOf, decisions, endCheck, finding, fixAnswer, fixPlan, fixRevision, found, launch, leads, mergeRanked, noSecondRound, pin, ranking, readOnlyReported, reference, reported, scope, settingsConfigured, statistics, surveyAnswer, surveyConfiguredFix, surveyedCheck, swept, triaged, unlocated, verdictRun, verified, withBaseChecks, withCitedRuns, withDocumentationStep, withFixPass, worker } from '../helpers/review-history.ts';
 
 describe('the review fold', () => {
   it('leaves review null until the run is configured, and folds the configuration verbatim', () => {
@@ -141,7 +141,7 @@ describe('the review fold', () => {
     assert.equal(review.candidates['RIPPLE-1']?.duplicateOf, null);
     assert.deepEqual(review.deduplications.deduplication, [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'RIPPLE-1', reason: 'one defect at one line' }]);
     assert.deepEqual(review.plans.verification, [{ id: 'g1', candidateIds: ['RIPPLE-1'] }]);
-    assert.deepEqual(review.candidates['RIPPLE-1']?.verdict, { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null' });
+    assert.deepEqual(review.candidates['RIPPLE-1']?.verdict, { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [] });
     assert.deepEqual(review.units.verification, { g1: { answeredBy: worker(21), failures: [] } });
     assert.deepEqual(review.units.deduplication, { deduplication: { answeredBy: worker(20), failures: [] } });
   });
@@ -275,6 +275,46 @@ describe('the review fold', () => {
       assert.deepEqual(review.phases.documentation, { status: 'completed', attempt: 1 });
       assert.deepEqual(review.fix?.documentation?.items.map((item) => item.id), ['search']);
       assert.equal(review.report?.patches.length, 1);
+    });
+  });
+
+  // R2, R5, R9 and TD6 of runs on the record.
+  describe('the cited runs', () => {
+    const atBase = (): History => withBaseChecks(withDocumentationStep(decidedOf(verified(), null), null));
+    const ripple = (history: History) => history.review().candidates['RIPPLE-1']!.verdict;
+
+    it('are asked of a run configured at version 9, and of none configured before it', () => {
+      assert.equal(withCitedRuns(atBase()).review().citedRuns, true);
+      for (const history of [atBase(), withDocumentationStep(decidedOf(verified(), null), null), verified()]) assert.equal(history.review().citedRuns, false);
+    });
+
+    it('fold a verdict of version 2 with its basis and its runs, and one of version 1 with no basis and no run', () => {
+      const run = verdictRun(3);
+      assert.deepEqual(ripple(withCitedRuns(atBase(), { basis: 'ran', runs: [run] })), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'ran', runs: [run] });
+      assert.deepEqual(ripple(withCitedRuns(atBase())), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'traced', runs: [] });
+      assert.deepEqual(ripple(atBase()), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [] });
+    });
+
+    it('never mix the two answers in one run: version 2 is refused in a run configured before version 9, and version 1 in one configured at it', () => {
+      const older = atBase();
+      const verdicts = older.events.find((event) => event.kind === 'verdicts.recorded')!;
+      older.events[older.events.indexOf(verdicts)] = { ...verdicts, version: 2, payload: { ...(verdicts.payload as object), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e', basis: 'read', runs: [] }] } };
+      assert.throws(() => older.fold(), (error: unknown) => error instanceof InvalidHistoryError && /with their bases and runs, which a run configured before runs on the record does not/.test(error.message));
+      const newer = withCitedRuns(atBase());
+      const cited = newer.events.find((event) => event.kind === 'verdicts.recorded')!;
+      newer.events[newer.events.indexOf(cited)] = { ...cited, version: 1, payload: { ...(cited.payload as object), verdicts: [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'e' }] } };
+      assert.throws(() => newer.fold(), (error: unknown) => error instanceof InvalidHistoryError && /without their bases and runs, which its configuration asks for/.test(error.message));
+    });
+
+    it('hold a verdict to cite runs exactly when it rests on one, and each run to a place from 1', () => {
+      const refused: [string, Record<string, unknown>, RegExp][] = [
+        ['a verdict that ran and cites nothing', { basis: 'ran', runs: [] }, /basis ran and 0 runs/],
+        ['a verdict that traced and cites a run', { basis: 'traced', runs: [verdictRun()] }, /basis traced and 1 runs/],
+        ['a verdict that read and cites a run', { basis: 'read', runs: [verdictRun()] }, /basis read and 1 runs/],
+        ['a run at place 0', { basis: 'ran', runs: [verdictRun(0)] }, /before the first place of its record/],
+      ];
+      for (const [name, change, message] of refused) assert.throws(() => withCitedRuns(atBase(), change).fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), name);
+      assert.doesNotThrow(() => withCitedRuns(atBase(), { basis: 'ran', runs: [verdictRun(1), verdictRun(7, { probe: null, exitCode: null })] }).fold());
     });
   });
 

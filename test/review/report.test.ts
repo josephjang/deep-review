@@ -167,7 +167,7 @@ describe('renderReport', () => {
         candidates: {
           ...review.candidates,
           'SWEEP-1': { ...review.candidates['SWEEP-1']!, rawFile: 'C:\\x.ts\n## Heading from a path' },
-          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted <stdin>\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3 *x*\n\n## is a comment' }, duplicateOf: null },
+          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted <stdin>\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3 *x*\n\n## is a comment', basis: null, runs: [] }, duplicateOf: null },
         },
         anglesNotRun: { FOOTGUNS: 'timeout\n## Limitation heading' },
         unverifiedGroups: { ...review.unverifiedGroups, 'sweep-verification': { g1: 'failed\n# Group heading' } },

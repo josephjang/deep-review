@@ -41,7 +41,7 @@ const phaseVersions: Readonly<Partial<Record<Phase, Readonly<Partial<Record<Vers
 interface Carried {
   readonly 'worktree.checked': { readonly moment: WorktreeMoment };
   readonly 'attempt.failed': { readonly fault: AttemptFault };
-  readonly 'fix.recorded': { readonly comparisons: boolean };
+  readonly 'fix.recorded': { readonly comparisons: boolean; readonly cites: boolean };
 }
 
 /** The first version of each kind of `Carried` that records the words it carries, 0 for words every version holds. */
@@ -50,8 +50,8 @@ const carriedVersions: { readonly [K in keyof Carried]: (words: Carried[K]) => n
   'worktree.checked': ({ moment }) => (moment === 'restored' ? 6 : 0),
   // The faults of a failed attempt that version 7 first records: a kill mark and the provider's usage limit (R4, R14 of resumable runs).
   'attempt.failed': ({ fault }) => (fault === 'cut' || fault === 'limit' ? 7 : 0),
-  // The answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
-  'fix.recorded': ({ comparisons }) => (comparisons ? 4 : 0),
+  // An answer one of whose validation entries cites a run, which version 5 first records (R7, TD7 of runs on the record); else the answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
+  'fix.recorded': ({ comparisons, cites }) => (cites ? 5 : comparisons ? 4 : 0),
 };
 
 /**
@@ -60,7 +60,7 @@ const carriedVersions: { readonly [K in keyof Carried]: (words: Carried[K]) => n
  * statistics and every unit for a reopened fix pass, and the words
  * `Carried` asks of its kind: the moment of a worktree check, the fault
  * of a failed attempt, and whether an answer carries comparisons with the
- * base.
+ * base or cites a run in its validation.
  */
 export function writtenVersion<K extends VersionedKind>(kind: K, phases: readonly Phase[], ...carried: K extends keyof Carried ? [Carried[K]] : []): number {
   // A generic kind cannot index the table, so the lookup widens each row to the words of any carried kind; the signature pairs them.
