@@ -14,6 +14,7 @@ import {
   deduplicationOutputSchema,
   finderOutputSchema,
   fixerOutputSchema,
+  fixerOutputSchemaV2,
   maxCandidates,
   mergeRankOutputSchema,
   normalizeTriageChange,
@@ -214,6 +215,10 @@ describe('the structural checks', () => {
     assert.equal(verifierOutputSchemaV2.safeParse(answer([longest])).success, true);
     const recorded = { phase: 'verification', groupId: 'g1', workerId: '00000000-0000-4000-8000-000000000001', verdicts: [{ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'e', basis: 'ran', runs: [{ ...longest, at: 1, exitCode: 0 }] }] };
     assert.equal(verdictsRecordedV2.safeParse(recorded).success, true, 'the longest run an answer may cite is one the ledger records');
+    const most = Array.from({ length: citedRunLimitsV1.runsPerVerdict }, () => run());
+    assert.equal(verifierOutputSchemaV2.safeParse(answer(most)).success, true);
+    const mostRecorded = { ...recorded, verdicts: [{ ...recorded.verdicts[0]!, runs: most.map((cited) => ({ ...cited, probe: null, at: 1, exitCode: 0 })) }] };
+    assert.equal(verdictsRecordedV2.safeParse(mostRecorded).success, true, 'as many runs as an answer may cite are as many as the ledger records');
   });
 
   it('accept a ranking that names every index once and refuse a repeat, a gap, or an index outside the list', () => {
@@ -248,6 +253,13 @@ describe('the fixer\'s output schema', () => {
     const compiled = compileOutputSchema(fixerOutputSchema);
     assert.equal(compiled.json.additionalProperties, false);
     assert.equal(fixerOutputSchema.safeParse(answer([finding(0), finding(1, { status: 'deferred', message: null, line: null, files: [] })])).success, true);
+  });
+
+  it('give a validation entry of an editing worker\'s answer the cap on runs the ledger records (R7 of runs on the record)', () => {
+    const cited = { command: 'npm test', printed: ['1 passed'], probe: null };
+    const entries = (count: number) => answer([finding(0, { validation: [{ method: 'mutation', source: 'test/a.test.ts', evidence: 'red then green', runs: Array.from({ length: count }, () => cited) }] })]);
+    assert.equal(fixerOutputSchemaV2.safeParse(entries(citedRunLimitsV1.runsPerEntry)).success, true);
+    assert.equal(fixerOutputSchemaV2.safeParse(entries(citedRunLimitsV1.runsPerEntry + 1)).success, false, 'at most four runs');
   });
 
   it('compiles edits as a closed object of at least one file and a message, or null (R1, D7 of fixer edits)', () => {
