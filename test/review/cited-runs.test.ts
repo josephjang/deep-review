@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { EvidenceStore } from '../../src/evidence/store.ts';
-import { findRun, foundVerdictRuns, freezeProbe, normalized, probeLimitBytes, type CitedRun } from '../../src/review/cited-runs.ts';
+import { findRun, foundVerdictRuns, freezeProbe, isBlankCitedLine, normalized, probeLimitBytes, validationRun, type CitedRun } from '../../src/review/cited-runs.ts';
 import { StructuralCheckError } from '../../src/review/errors.ts';
 import type { ShellRun } from '../../src/runtime/adapter.ts';
 
@@ -64,6 +64,26 @@ describe('findRun', () => {
   it('never finds a run with no output, such as a call with no result', () => {
     assert.equal(findRun([run('npm test', null, null)], cited(['npm test'])), null);
     assert.equal(findRun([], cited(['anything'])), null);
+  });
+
+  it('finds no run for a cited line that is blank as the lookup compares it, such as a terminal reset alone', () => {
+    for (const line of ['\u001b[0m', ' \t ', '\u001b]8;;\u0007']) {
+      assert.equal(isBlankCitedLine(line), true, JSON.stringify(line));
+      assert.equal(findRun(record, cited([line])), null, JSON.stringify(line));
+      assert.equal(findRun(record, cited(['TypeError', line])), null, `${JSON.stringify(line)} after a line the output holds`);
+    }
+    assert.equal(isBlankCitedLine('\u001b[31mFAIL\u001b[0m'), false);
+  });
+});
+
+describe('validationRun', () => {
+  const evidence = { put: (): never => assert.fail('no probe is cited') };
+
+  it('records a run that cites a blank line as not found, and logs the blank line as the reason', () => {
+    const reasons: string[] = [];
+    const recorded = validationRun([run('ls', 'probe.mjs\n')], cited(['\u001b[0m'], null, 'ls'), null, evidence, (reason) => reasons.push(reason));
+    assert.equal(recorded.found, null);
+    assert.deepEqual(reasons, ['cites a blank line of what a run printed, which no lookup can find: ls']);
   });
 });
 
