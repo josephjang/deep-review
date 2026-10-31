@@ -22738,7 +22738,7 @@ var init_events = __esm({
     };
     verdictBasisSchemaV10 = external_exports.enum(reviewVocabularyV10.verdictBases);
     reviewConfiguredV9 = reviewConfiguredV8;
-    citedRunLimitsV1 = { command: 2e3, line: 300, lines: 5, probe: 400 };
+    citedRunLimitsV1 = { command: 2e3, line: 300, lines: 5, probe: 400, runsPerVerdict: 3, runsPerEntry: 4 };
     frozenProbeSchemaV1 = external_exports.strictObject({ blob: artifactReferenceSchema, name: external_exports.string().min(1).max(citedRunLimitsV1.probe) });
     citedRunFieldsV1 = {
       command: external_exports.string().min(1).max(citedRunLimitsV1.command),
@@ -22755,13 +22755,13 @@ var init_events = __esm({
         verdict: verdictSchema,
         evidence: external_exports.string().min(1).max(1e3),
         basis: verdictBasisSchemaV10,
-        runs: external_exports.array(external_exports.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(3)
+        runs: external_exports.array(external_exports.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(citedRunLimitsV1.runsPerVerdict)
       })).min(1)
     });
     validationRunSchemaV1 = external_exports.strictObject({ ...citedRunFieldsV1, found: external_exports.strictObject(foundRunFieldsV1).nullable() });
     fixedFindingSchemaV2 = external_exports.strictObject({
       ...fixedFindingSchema.shape,
-      validation: external_exports.array(external_exports.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: external_exports.array(validationRunSchemaV1).max(4) })).max(20)
+      validation: external_exports.array(external_exports.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: external_exports.array(validationRunSchemaV1).max(citedRunLimitsV1.runsPerEntry) })).max(20)
     });
     fixRecordedV5 = external_exports.strictObject({
       ...fixRecordedV4.shape,
@@ -25277,6 +25277,9 @@ function defaultScratchRoot() {
 function checkpointScratchKey(checkpoint) {
   return sha256Hex(Buffer.from(checkpoint.root, "utf8")).slice(0, 16);
 }
+function isCheckpointScratchKey(name) {
+  return /^[0-9a-f]{16}$/.test(name);
+}
 function chooseScratch(checkpoint, state, adapter, invocation, continued, fallback) {
   if (continued !== null) return continued.launch.scratch;
   if (invocation.access === "read-only" && !adapter.capabilities.readOnlyScratch) return null;
@@ -26763,30 +26766,6 @@ var init_git = __esm({
   }
 });
 
-// src/runtime/adapter.ts
-function outputLines(bytes, maxBytes = maxLineBytes) {
-  return {
-    *[Symbol.iterator]() {
-      for (let start = 0; start < bytes.length; ) {
-        const newline = bytes.indexOf(10, start);
-        const end = newline === -1 ? bytes.length : newline;
-        const stop = end > start && bytes[end - 1] === 13 ? end - 1 : end;
-        yield stop - start > maxBytes ? null : bytes.toString("utf8", start, stop);
-        start = end + 1;
-      }
-    }
-  };
-}
-var emptyUsageSummary, maxDecodeBytes, maxLineBytes;
-var init_adapter = __esm({
-  "src/runtime/adapter.ts"() {
-    "use strict";
-    emptyUsageSummary = { costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
-    maxDecodeBytes = 16 * 1024 * 1024;
-    maxLineBytes = 64 * 1024 * 1024;
-  }
-});
-
 // src/runtime/json.ts
 function sumOrNull(...values) {
   let total = 0;
@@ -26802,6 +26781,56 @@ var init_json = __esm({
     "use strict";
     isObject2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
     finiteNumber = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
+  }
+});
+
+// src/runtime/adapter.ts
+function outputLines(bytes, maxBytes = maxLineBytes) {
+  return {
+    *[Symbol.iterator]() {
+      for (let start = 0; start < bytes.length; ) {
+        const newline = bytes.indexOf(10, start);
+        const end = newline === -1 ? bytes.length : newline;
+        const stop = end > start && bytes[end - 1] === 13 ? end - 1 : end;
+        yield stop - start > maxBytes ? null : bytes.toString("utf8", start, stop);
+        start = end + 1;
+      }
+    }
+  };
+}
+function readEvents(lines, runtime, observe4) {
+  let malformed = null;
+  let number5 = 0;
+  for (const line of lines) {
+    number5 += 1;
+    if (line === null) {
+      malformed ??= `${runtime} printed line ${String(number5)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
+      continue;
+    }
+    if (line.trim() === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error62) {
+      malformed ??= `${runtime} printed line ${String(number5)} that is not JSON: ${error62.message}`;
+      continue;
+    }
+    if (!isObject2(event)) {
+      malformed ??= `${runtime} printed line ${String(number5)} that is not an event object`;
+      continue;
+    }
+    observe4(event);
+  }
+  return malformed;
+}
+var emptyUsageSummary, maxDecodeBytes, maxLineBytes;
+var init_adapter = __esm({
+  "src/runtime/adapter.ts"() {
+    "use strict";
+    init_json();
+    emptyUsageSummary = { costUsd: null, inputTokens: null, cachedInputTokens: null, outputTokens: null };
+    maxDecodeBytes = 16 * 1024 * 1024;
+    maxLineBytes = 64 * 1024 * 1024;
   }
 });
 
@@ -26987,27 +27016,7 @@ function readStream(lines) {
     lastMessage: void 0,
     runs: []
   };
-  let number5 = 0;
-  for (const line of lines) {
-    number5 += 1;
-    if (line === null) {
-      facts.malformed ??= `Codex printed line ${String(number5)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
-      continue;
-    }
-    if (line.trim() === "") continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch (error62) {
-      facts.malformed ??= `Codex printed line ${String(number5)} that is not JSON: ${error62.message}`;
-      continue;
-    }
-    if (!isObject2(event)) {
-      facts.malformed ??= `Codex printed line ${String(number5)} that is not an event object`;
-      continue;
-    }
-    observe(facts, event);
-  }
+  facts.malformed = readEvents(lines, "Codex", (event) => observe(facts, event));
   return facts;
 }
 function decodeCodex(_invocation, plan, outputs) {
@@ -28144,9 +28153,21 @@ function escapedPlain(text3) {
   }
   return escaped;
 }
+function withoutScratch(text3, scratch) {
+  if (scratch.length === 0) return text3;
+  return text3.replace(scratchPattern(scratch), "<scratch>");
+}
+function scratchPattern(scratch) {
+  const known = scratchPatterns.get(scratch);
+  if (known !== void 0) return known;
+  const directories = scratch.map((directory) => windowsPath(directory) ? `(?i:${RegExp.escape(directory)})` : RegExp.escape(directory));
+  const pattern = new RegExp(`(?:(?:[/\\\\][^\\s/\\\\'"\`:;]+)+(?=[/\\\\]))?(?:${directories.join("|")})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, "gu");
+  scratchPatterns.set(scratch, pattern);
+  return pattern;
+}
 function quoted(text3, context) {
   const alias = (number5) => number5 === void 0 || number5 === context.own ? "" : ` (finding ${String(number5)})`;
-  return escapedText(codeParts(text3).map((part) => {
+  return escapedText(codeParts(withoutScratch(text3, context.scratch ?? [])).map((part) => {
     if (part.code) return part.text;
     const named = part.text.replaceAll(/(?<![/\\.#])\b[A-Z]+-[1-9][0-9]*\b(?!\/|\.\w| \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
     return context.batch === void 0 || context.batch === null ? named : named.replaceAll(/(?<![\w\])>`])\[(0|[1-9][0-9]*)\](?! \(finding \d)/g, (index2, position) => {
@@ -28167,7 +28188,7 @@ function findingWords(numbers) {
   }
   return `${sorted.length === 1 ? "finding" : "findings"} ${listed(runs)}`;
 }
-var tableCell, inlineText, counted, listed, capitalized, findingAnchor, checkAnchor, sentenceText, findingNamed;
+var tableCell, inlineText, counted, listed, capitalized, findingAnchor, checkAnchor, sentenceText, windowsPath, scratchPatterns, findingNamed;
 var init_markdown = __esm({
   "src/review/markdown.ts"() {
     "use strict";
@@ -28183,6 +28204,8 @@ var init_markdown = __esm({
       if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
       return `${inline.replace(/[:,;]$/, "")}.`;
     };
+    windowsPath = (path) => /^[A-Za-z]:|\\/.test(path);
+    scratchPatterns = /* @__PURE__ */ new WeakMap();
     findingNamed = (numbers, id) => `finding ${String(numbers.get(id) ?? id)}`;
   }
 });
@@ -28705,323 +28728,8 @@ var init_source = __esm({
   }
 });
 
-// src/review/cited-runs.ts
-import { readFileSync as readFileSync10, realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
-import { resolve as resolve10 } from "node:path";
-function normalized(text3) {
-  return text3.replace(/\r\n?/g, "\n").replace(terminalEscapes, "").replace(/[ \t]+$/gm, "");
-}
-function holdsInOrder(output2, lines) {
-  let from = 0;
-  for (const line of lines) {
-    const at = output2.indexOf(line, from);
-    if (at < 0) return false;
-    from = at + line.length;
-  }
-  return true;
-}
-function findRun(record2, cited) {
-  const lines = cited.printed.map((line) => normalized(line).trim());
-  const name = cited.probe === null ? null : baseName(cited.probe);
-  for (let index2 = record2.length - 1; index2 >= 0; index2 -= 1) {
-    const run2 = record2[index2];
-    if (run2.output === null) continue;
-    if (name !== null && !run2.command.includes(name)) continue;
-    if (holdsInOrder(normalized(run2.output), lines)) return { at: index2 + 1, exitCode: run2.exitCode };
-  }
-  return null;
-}
-function foundVerdictRuns(verdicts2, record2) {
-  return verdicts2.map((verdict) => verdict.runs.map((cited) => {
-    const found = findRun(record2, cited);
-    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${cited.command.slice(0, 200)}`);
-    return { cited, found };
-  }));
-}
-function freezeProbe(scratch, path, evidence) {
-  const refused = (reason) => ({ kind: "refused", reason: `the probe ${path} ${reason}` });
-  if (scratch === null) return refused("cannot be frozen: the worker had no scratch directory");
-  let real;
-  try {
-    real = realpathSync3.native(resolve10(scratch, path));
-  } catch {
-    return refused("names no file");
-  }
-  if (!isInside(scratch, real)) return refused(`is outside the scratch directory ${scratch}`);
-  const stat = statSync4(real);
-  if (!stat.isFile()) return refused("is not a regular file");
-  if (stat.size > probeLimitBytes) return refused(`holds ${String(stat.size)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
-  const bytes = readFileSync10(real);
-  if (bytes.length > probeLimitBytes) return refused(`holds ${String(bytes.length)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
-  return { kind: "frozen", probe: { blob: evidence.put(bytes), name: baseName(path) } };
-}
-function validationRun(record2, cited, scratch, evidence, log) {
-  const command = cited.command.slice(0, 200);
-  const blank = cited.printed.some((line) => normalized(line).trim() === "");
-  const found = blank ? null : findRun(record2, cited);
-  if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);
-  else if (found === null) log(`cites a run that the record of its shell runs does not hold: ${command}`);
-  const freeze = cited.probe === null ? null : freezeProbe(scratch, cited.probe, evidence);
-  if (freeze?.kind === "refused") log(`cites a probe the engine cannot freeze: ${freeze.reason}`);
-  return { command: cited.command, printed: [...cited.printed], probe: freeze?.kind === "frozen" ? freeze.probe : null, found };
-}
-var probeLimitBytes, terminalEscapes, baseName;
-var init_cited_runs = __esm({
-  "src/review/cited-runs.ts"() {
-    "use strict";
-    init_paths();
-    init_errors7();
-    probeLimitBytes = 64 * 1024;
-    terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
-    baseName = (path) => path.split(/[\\/]/).filter((part) => part !== "").at(-1) ?? "";
-  }
-});
-
-// src/review/claims.ts
-import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync11, statSync as statSync5 } from "node:fs";
-import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join16, relative as relative2, sep as sep2 } from "node:path";
-function claimsDirectoryFor(scratchBase, runId, round) {
-  return join16(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
-}
-function pathKey(path, caseInsensitive) {
-  return caseInsensitive ? path.normalize("NFC").toUpperCase().toLowerCase() : path;
-}
-function markerHash(path, caseInsensitive) {
-  return sha256(pathKey(path, caseInsensitive));
-}
-function normalizeClaimPath(raw) {
-  const path = raw.replaceAll("\\", "/").split("/").filter((part) => part !== ".").join("/");
-  validateScopePath(path);
-  if (path.split("/").some((part) => part === "" || part === ".")) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
-  if (path.length > claimedPathMax) throw new InvalidScopeRequestError(`A claimed path must not be longer than ${String(claimedPathMax)} characters, and this one has ${String(path.length)}`);
-  return path;
-}
-function resolveClaimPath(worktree, raw) {
-  const trimmed = raw.trim();
-  const slashed = trimmed.replaceAll("\\", "/");
-  if (!rooted(slashed)) return normalizeClaimPath(trimmed);
-  if (slashed.includes("\0")) throw new InvalidScopeRequestError(`A claimed path must not hold a NUL: ${JSON.stringify(raw)}`);
-  let inside;
-  try {
-    inside = relative2(canonicalPath(worktree), canonicalPath(slashed));
-  } catch (error62) {
-    const code = error62.code;
-    if (typeof code !== "string") throw error62;
-    throw new InvalidScopeRequestError(`A claimed path cannot be resolved: ${raw}: ${code}`, { cause: error62 });
-  }
-  if (inside === "" || inside === ".." || inside.startsWith(`..${sep2}`) || isAbsolute4(inside)) throw new InvalidScopeRequestError(`A claimed path must be inside the worktree ${worktree}: ${raw}`);
-  return normalizeClaimPath(inside);
-}
-function foldsCase(fs, directory, listing, name) {
-  const flipped = flipCase(name);
-  if (listing.includes(name) && listing.includes(flipped)) return false;
-  return fs.stat(join16(directory, flipped)) !== void 0;
-}
-function readableListing(fs, directory) {
-  try {
-    return fs.list(directory);
-  } catch (error62) {
-    const code = error62.code;
-    if (code === "EACCES" || code === "EPERM") return void 0;
-    throw error62;
-  }
-}
-function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
-  const name = basename2(worktree);
-  if (flipCase(name) !== name) {
-    const parent = dirname2(worktree);
-    const siblings = readableListing(fs, parent);
-    if (siblings !== void 0) return foldsCase(fs, parent, siblings, name);
-  }
-  const listing = fs.list(worktree);
-  const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
-  if (entry !== void 0) return foldsCase(fs, worktree, listing, entry);
-  return process.platform === "win32" || process.platform === "darwin";
-}
-function claimsDirectoryIntact(dir) {
-  return existsSync5(join16(dir, heldFileName));
-}
-function readHeld(dir) {
-  const file2 = join16(dir, heldFileName);
-  let text3;
-  try {
-    text3 = readFileSync11(file2, "utf8");
-  } catch (error62) {
-    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
-    throw error62;
-  }
-  let parsed;
-  try {
-    parsed = heldSchema.safeParse(JSON.parse(text3));
-  } catch (error62) {
-    throw new ClaimRequestError(`${file2} is not the round's description: ${error62.message}`);
-  }
-  if (!parsed.success) throw new ClaimRequestError(`${file2} is not the round's description: ${external_exports.prettifyError(parsed.error)}`);
-  return parsed.data;
-}
-function readMarker(dir, hash2, generation, caseInsensitive, now) {
-  const file2 = join16(dir, `${hash2}.${String(generation)}.json`);
-  let text3;
-  try {
-    text3 = readFileSync11(file2, "utf8");
-  } catch (error62) {
-    if (error62.code === "ENOENT") return void 0;
-    throw error62;
-  }
-  try {
-    const parsed = markerSchema.safeParse(JSON.parse(text3));
-    if (parsed.success && namesItsPath(parsed.data.path, hash2, caseInsensitive)) return { whole: true, hash: hash2, generation, ...parsed.data };
-  } catch {
-  }
-  const written = statSync5(file2, { throwIfNoEntry: false })?.mtimeMs;
-  if (written !== void 0 && now.getTime() - written >= tornMarkerAfterMs) return "torn";
-  return { whole: false, hash: hash2, generation };
-}
-function namesItsPath(path, hash2, caseInsensitive) {
-  try {
-    return normalizeClaimPath(path) === path && markerHash(path, caseInsensitive) === hash2;
-  } catch (error62) {
-    if (error62 instanceof InvalidScopeRequestError) return false;
-    throw error62;
-  }
-}
-function markersOf(dir, hash2, caseInsensitive, now) {
-  const markers = [];
-  for (let generation = 1; ; generation += 1) {
-    const marker = readMarker(dir, hash2, generation, caseInsensitive, now);
-    if (marker === void 0) return markers;
-    markers.push(marker);
-  }
-}
-function createMarker(dir, hash2, generation, marker) {
-  return createFileExclusive(join16(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
-`);
-}
-function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()) {
-  let names2;
-  try {
-    names2 = readdirSync4(dir);
-  } catch (error62) {
-    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
-    throw error62;
-  }
-  const time3 = now();
-  const claims = [];
-  for (const name of names2) {
-    const match = markerNamePattern.exec(name);
-    if (match === null) continue;
-    const marker = readMarker(dir, match[1], Number(match[2]), caseInsensitive, time3);
-    if (marker !== void 0 && marker !== "torn") claims.push(marker);
-  }
-  return claims.sort((a, b) => a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : a.generation - b.generation);
-}
-function prepareClaims(dir, held, recorded, expectExisting, rename) {
-  if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
-  mkdirSync3(dir, { recursive: true });
-  const heldFile = join16(dir, heldFileName);
-  let refreshed = true;
-  try {
-    writeFileAtomic(heldFile, `${JSON.stringify(held)}
-`, rename);
-  } catch (error62) {
-    if (!(error62 instanceof ReplaceBusyError) || !existsSync5(heldFile)) throw error62;
-    refreshed = false;
-  }
-  const latest = /* @__PURE__ */ new Map();
-  for (const claim3 of recorded) latest.set(markerHash(claim3.path, held.caseInsensitive), claim3);
-  for (const [hash2, claim3] of latest) {
-    const markers = markersOf(dir, hash2, held.caseInsensitive, /* @__PURE__ */ new Date());
-    if (markers.some((marker2) => marker2 !== "torn" && marker2.whole && marker2.cluster === claim3.cluster && marker2.unit === claim3.unit && marker2.claimedAt === claim3.claimedAt)) continue;
-    const marker = { path: claim3.path, cluster: claim3.cluster, unit: claim3.unit, claimedAt: claim3.claimedAt };
-    let generation = markers.length + 1;
-    while (!createMarker(dir, hash2, generation, marker)) generation += 1;
-  }
-  return refreshed;
-}
-function ownerOf(held, path) {
-  const key = pathKey(path, held.caseInsensitive);
-  for (const [cluster, files] of Object.entries(held.clusters)) if (files.some((file2) => pathKey(file2, held.caseInsensitive) === key)) return cluster;
-  return null;
-}
-function judged(path, cluster, marker, created2) {
-  if (!marker.whole) return { kind: "held-by-unknown", path };
-  return marker.cluster === cluster ? { kind: "claimed", path, cluster, generation: marker.generation, created: created2 } : { kind: "refused", path, holder: marker.cluster, by: "claim" };
-}
-function claimFile(dir, rawPath, unit, now = () => /* @__PURE__ */ new Date()) {
-  const held = readHeld(dir);
-  if (isInside(held.worktree, dir)) throw new InvalidScopeRequestError(`The claims directory ${dir} is inside the worktree ${held.worktree}; a claim there would be a stray file of the review`);
-  if (!Object.hasOwn(held.units, unit)) throw new ClaimRequestError(`unit ${unit} is no batch of this round`);
-  const cluster = held.units[unit];
-  if (held.settled.includes(cluster)) throw new ClaimRequestError(`unit ${unit}'s cluster ${cluster} has settled, so it claims nothing more`);
-  const path = resolveClaimPath(held.worktree, rawPath);
-  const owner = ownerOf(held, path);
-  if (owner === cluster) return { kind: "owned", path, cluster };
-  if (owner !== null) return { kind: "refused", path, holder: owner, by: "plan" };
-  const hash2 = markerHash(path, held.caseInsensitive);
-  const time3 = now();
-  const markers = markersOf(dir, hash2, held.caseInsensitive, time3);
-  const latest = markers.findLast((read) => read !== "torn");
-  if (latest !== void 0 && !(latest.whole && held.settled.includes(latest.cluster))) return judged(path, cluster, latest, false);
-  const marker = { path, cluster, unit, claimedAt: time3.toISOString() };
-  for (let generation = markers.length + 1; ; generation += 1) {
-    if (createMarker(dir, hash2, generation, marker)) return { kind: "claimed", path, cluster, generation, created: true };
-    const raced = readMarker(dir, hash2, generation, held.caseInsensitive, time3);
-    if (raced !== "torn") return judged(path, cluster, raced ?? { whole: false, hash: hash2, generation }, false);
-  }
-}
-var claimsDirectoryName, heldFileName, ClaimsDirectoryLostError, ClaimRequestError, heldSchema, claimedPathMax, markerSchema, tornMarkerAfterMs, markerNamePattern, sha256, rooted, flipCase, caseProbeFileSystem;
-var init_claims = __esm({
-  "src/review/claims.ts"() {
-    "use strict";
-    init_zod();
-    init_atomic_write();
-    init_errors3();
-    init_paths();
-    init_capture();
-    init_errors8();
-    claimsDirectoryName = "claims";
-    heldFileName = "held.json";
-    ClaimsDirectoryLostError = class extends EngineError {
-      name = "ClaimsDirectoryLostError";
-      directory;
-      constructor(directory) {
-        super(`the claims directory ${directory} is gone: stop editing and answer`);
-        this.directory = directory;
-      }
-    };
-    ClaimRequestError = class extends EngineError {
-      name = "ClaimRequestError";
-    };
-    heldSchema = external_exports.strictObject({
-      worktree: external_exports.string().min(1),
-      clusters: external_exports.record(external_exports.string(), external_exports.array(external_exports.string())),
-      units: external_exports.record(external_exports.string(), external_exports.string()),
-      settled: external_exports.array(external_exports.string()),
-      caseInsensitive: external_exports.boolean()
-    });
-    claimedPathMax = 1e3;
-    markerSchema = external_exports.strictObject({
-      // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
-      path: external_exports.string().min(1).max(claimedPathMax),
-      cluster: external_exports.string().min(1).max(200),
-      unit: external_exports.string().min(1).max(200),
-      claimedAt: external_exports.iso.datetime().nullable()
-    });
-    tornMarkerAfterMs = 6e4;
-    markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
-    sha256 = (text3) => createHash5("sha256").update(text3, "utf8").digest("hex");
-    rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute4(name);
-    flipCase = (text3) => text3.replaceAll(/[A-Za-z]/g, (letter) => letter <= "Z" ? letter.toLowerCase() : letter.toUpperCase());
-    caseProbeFileSystem = {
-      list: (directory) => readdirSync4(directory),
-      stat: (path) => statSync5(path, { throwIfNoEntry: false })
-    };
-  }
-});
-
 // src/review/fix-answer.ts
-import { isAbsolute as isAbsolute5, relative as relative3, sep as sep3 } from "node:path";
+import { isAbsolute as isAbsolute4, relative as relative2, sep as sep2 } from "node:path";
 function resolvingPath(what, raw, question) {
   try {
     return question();
@@ -29038,9 +28746,9 @@ function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
   const { what } = wording;
   requireNoNul(what, raw);
   let name = normalizeFileName(raw.trim()).replace(/\/+$/, "");
-  if (rooted2(name)) {
-    const inside = relative3(canonicalPath(worktree), resolvingPath(what, raw, () => canonicalPath(raw.trim())));
-    if (inside === "" || inside === ".." || inside.startsWith(`..${sep3}`) || isAbsolute5(inside)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
+  if (rooted(name)) {
+    const inside = relative2(canonicalPath(worktree), resolvingPath(what, raw, () => canonicalPath(raw.trim())));
+    if (inside === "" || inside === ".." || inside.startsWith(`..${sep2}`) || isAbsolute4(inside)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is outside the worktree ${worktree}`);
     name = inside.replaceAll("\\", "/");
   }
   const segments = name.split("/");
@@ -29067,162 +28775,20 @@ function requireOwnedReported(changedHeld, named) {
   const unreported = changedHeld.filter((path) => !named.has(path));
   if (unreported.length > 0) throw new StructuralCheckError(`The answer names no finding for the owned or claimed file${unreported.length === 1 ? "" : "s"} ${unreported.join(", ")}, whose bytes changed; every owned or claimed file a fixer changes is reported under the finding it served`);
 }
-var rooted2, fixerWording;
+var rooted, fixerWording;
 var init_fix_answer = __esm({
   "src/review/fix-answer.ts"() {
     "use strict";
     init_paths();
     init_errors7();
     init_locations();
-    rooted2 = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute5(name);
+    rooted = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute4(name);
     fixerWording = { what: "The reported path", gitDirectory: "which no fixer edits" };
   }
 });
 
-// src/review/claim-events.ts
-function requireFix2(state) {
-  const fix = state.review?.fix ?? null;
-  if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
-  return fix;
-}
-function batchOfUnit(state, key) {
-  const batch = batchOf(requireFix2(state), key);
-  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
-  return batch;
-}
-function heldOf(fix, round, worktree, caseInsensitive) {
-  const plan = planOfRound(fix, round);
-  if (plan === null) throw new Error(`The fix plan has no round ${String(round)} yet`);
-  return {
-    worktree,
-    clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
-    units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
-    settled: [...settledClusters(fix, round)].sort(),
-    caseInsensitive
-  };
-}
-function foldedWith(state, events) {
-  return events.reduce((current, event, index2) => applyEvent(current, { sequence: state.lastSequence + index2 + 1, runId: state.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: (/* @__PURE__ */ new Date()).toISOString(), engine: "claims" }), state);
-}
-function holderSpelled(lookup, holders, keyOf) {
-  return (path) => {
-    const held = lookup(path);
-    if (held.length > 0) return held;
-    const holder = holders.get(keyOf(path));
-    return holder === void 0 ? [] : [holder.path];
-  };
-}
-function resolvedPath(worktree, lookup, path, caseInsensitive) {
-  if (!caseInsensitive) return path;
-  try {
-    return resolveReportedPath(worktree, lookup, path);
-  } catch (error62) {
-    if (error62 instanceof StructuralCheckError) return path;
-    throw error62;
-  }
-}
-function perEvent(files) {
-  const runs = [];
-  for (let start = 0; start < files.length; start += maxClaimFilesPerEvent) runs.push(files.slice(start, start + maxClaimFilesPerEvent));
-  return runs;
-}
-function claimedEvents(accepted) {
-  const events = [];
-  for (const claim3 of accepted) {
-    const lastOfUnit = events.findLastIndex((event) => event.unit === claim3.unit);
-    const lastOfPath = events.findLastIndex((event) => event.paths.has(claim3.path));
-    const target = lastOfUnit >= 0 && lastOfUnit >= lastOfPath && !events[lastOfUnit].paths.has(claim3.path) ? events[lastOfUnit] : null;
-    if (target === null) events.push({ unit: claim3.unit, cluster: claim3.cluster, files: [{ path: claim3.path, claimedAt: claim3.claimedAt }], paths: /* @__PURE__ */ new Set([claim3.path]) });
-    else {
-      target.files.push({ path: claim3.path, claimedAt: claim3.claimedAt });
-      target.paths.add(claim3.path);
-    }
-  }
-  return events.flatMap((event) => perEvent(event.files).map((files) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key: event.unit, cluster: event.cluster, files } })));
-}
-function lostEvents(lost) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const marker of lost) {
-    const name = `${marker.unit}\0${marker.cluster}`;
-    groups.set(name, [...groups.get(name) ?? [], marker]);
-  }
-  return [...groups.values()].flatMap((markers) => perEvent(markers).map((run2) => ({
-    kind: "claims.lost",
-    version: 1,
-    payload: { phase: "fixes", unit: run2[0].unit, cluster: run2[0].cluster, files: run2.map(({ path, claimedAt, reason, holder }) => ({ path, claimedAt, reason, holder })) }
-  })));
-}
-function compareText(a, b) {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-function settleClaims(state, key, live2, worktree) {
-  const fix = requireFix2(state);
-  const round = roundOf(fix, key);
-  const { caseInsensitive } = live2;
-  const keyOf = (path) => pathKey(path, caseInsensitive);
-  const marked = (path, cluster, unit, claimedAt) => `${keyOf(path)}\0${cluster}\0${unit}\0${claimedAt ?? ""}`;
-  const known = /* @__PURE__ */ new Set([
-    ...claimsOfRound(fix, round).map((claim3) => marked(claim3.path, claim3.cluster, claim3.key, claim3.claimedAt)),
-    ...fix.lostClaims.map((claim3) => marked(claim3.path, claim3.cluster, claim3.unit, claim3.claimedAt))
-  ]);
-  const holders = holdersKeyedBy(fix, round, keyOf);
-  const settled3 = settledClusters(fix, round);
-  const lookup = holderSpelled(worktreeLookup(worktree), holders, keyOf);
-  const accepted = [];
-  const lost = [];
-  const whole = live2.markers.filter((marker) => marker.whole).sort(madeOrder);
-  for (const marker of whole) {
-    const path = resolvedPath(worktree, lookup, marker.path, caseInsensitive);
-    if (known.has(marked(path, marker.cluster, marker.unit, marker.claimedAt))) continue;
-    const claim3 = { unit: marker.unit, cluster: marker.cluster, path, claimedAt: marker.claimedAt };
-    const batch = batchOf(fix, marker.unit);
-    if (batch === null || roundOf(fix, marker.unit) !== round || batch.cluster !== marker.cluster) {
-      lost.push({ ...claim3, reason: "unplanned", holder: null });
-      continue;
-    }
-    const holder = holders.get(keyOf(path));
-    const refusal = claimRefusal(holder, marker.cluster, settled3);
-    if (refusal !== null) lost.push({ ...claim3, reason: refusal, holder: holder.cluster });
-    else {
-      accepted.push(claim3);
-      holders.set(keyOf(path), { path, cluster: marker.cluster, by: "claim" });
-    }
-  }
-  const events = [...lostEvents(lost), ...claimedEvents(accepted)];
-  const pending = new Set(live2.markers.filter((marker) => !marker.whole).map((marker) => marker.hash));
-  return { events, state: foldedWith(state, events), pending, caseInsensitive };
-}
-function isPending(settle4, path) {
-  return settle4.pending.size > 0 && settle4.pending.has(markerHash(path, settle4.caseInsensitive));
-}
-function lateClaim(settle4, key, named) {
-  const fix = requireFix2(settle4.state);
-  const batch = batchOfUnit(settle4.state, key);
-  const round = roundOf(fix, key);
-  const keyOf = (path) => pathKey(path, settle4.caseInsensitive);
-  const holders = holdersKeyedBy(fix, round, keyOf);
-  const settled3 = settledClusters(fix, round);
-  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle4, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled3) === null).sort();
-  return perEvent(free).map((paths) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key, cluster: batch.cluster, files: paths.map((path) => ({ path, claimedAt: null })) } }));
-}
-var settledNothing, madeOrder;
-var init_claim_events = __esm({
-  "src/review/claim-events.ts"() {
-    "use strict";
-    init_events();
-    init_fix_state();
-    init_fold();
-    init_claims();
-    init_errors7();
-    init_fix_answer();
-    init_locations();
-    settledNothing = (state, caseInsensitive) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive });
-    madeOrder = (a, b) => a.generation - b.generation || compareText(a.claimedAt ?? "", b.claimedAt ?? "") || compareText(a.hash, b.hash);
-  }
-});
-
 // src/review/survey.ts
-import { isAbsolute as isAbsolute6, join as join17 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join16 } from "node:path";
 function policyPart(setting, userFiles) {
   switch (setting) {
     case "apply":
@@ -29241,14 +28807,14 @@ function surveyFailure(reason, setting, userFiles) {
 }
 function repositoryFile(context, raw, what) {
   const path = resolveReportedPath(context.worktree, context.lookup, raw, { what, gitDirectory: surveyGitDirectory });
-  const absolute = join17(context.worktree, ...path.split("/"));
+  const absolute = join16(context.worktree, ...path.split("/"));
   if (!isFile(absolute)) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} is not a regular file of the repository`);
   if (!resolvingPath(what, raw, () => isInside(context.worktree, absolute))) throw new StructuralCheckError(`${what} ${JSON.stringify(raw)} leads outside the repository`);
   return path;
 }
 function offeredFile(offered, raw, what) {
   requireNoNul(what, raw);
-  if (!isAbsolute6(raw)) return null;
+  if (!isAbsolute5(raw)) return null;
   const named = resolvingPath(what, raw, () => canonicalPath(raw));
   return offered.find((path) => resolvingPath(what, raw, () => canonicalPath(path)) === named) ?? null;
 }
@@ -29381,10 +28947,10 @@ var init_survey = __esm({
 // src/review/grouping.ts
 function unlocatedSpellings(candidates) {
   const spellings = new Set(candidates.filter((candidate) => candidate.file === null).map(spellingOf));
-  const relative6 = [...spellings].filter((spelling) => !isAbsolute7(spelling));
+  const relative6 = [...spellings].filter((spelling) => !isAbsolute6(spelling));
   const joined = /* @__PURE__ */ new Map();
   for (const spelling of spellings) {
-    const within = isAbsolute7(spelling) ? relative6.filter((name) => spelling.endsWith(`/${name}`)) : [];
+    const within = isAbsolute6(spelling) ? relative6.filter((name) => spelling.endsWith(`/${name}`)) : [];
     joined.set(spelling, within.reduce((longest, name) => name.length > longest.length ? name : longest, within[0] ?? spelling));
   }
   return joined;
@@ -29425,14 +28991,14 @@ function planGroups(candidates) {
   }
   return planned;
 }
-var maxGroupSize, spellingOf, isAbsolute7, byText;
+var maxGroupSize, spellingOf, isAbsolute6, byText;
 var init_grouping = __esm({
   "src/review/grouping.ts"() {
     "use strict";
     init_locations();
     maxGroupSize = 8;
     spellingOf = (candidate) => normalizeFileName(candidate.rawFile).toLowerCase();
-    isAbsolute7 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
+    isAbsolute6 = (spelling) => spelling.startsWith("/") || /^[a-z]:\//i.test(spelling);
     byText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
   }
 });
@@ -30109,6 +29675,506 @@ var init_steps = __esm({
   }
 });
 
+// src/review/cited-runs.ts
+import { readFileSync as readFileSync10, realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
+import { resolve as resolve10 } from "node:path";
+function normalized(text3) {
+  return text3.replace(/\r\n?/g, "\n").replace(terminalEscapes, "").replace(/[ \t]+$/gm, "");
+}
+function indexOfWhole(text3, needle, from, isPart) {
+  if (needle === "") return -1;
+  const startsPart = isPart(needle[0]);
+  const endsPart = isPart(needle.at(-1));
+  for (let at = text3.indexOf(needle, from); at >= 0; at = text3.indexOf(needle, at + 1)) {
+    const end = at + needle.length;
+    if (startsPart && at > 0 && isPart(text3[at - 1])) continue;
+    if (endsPart && end < text3.length && isPart(text3[end])) continue;
+    return at;
+  }
+  return -1;
+}
+function holdsInOrder(output2, lines) {
+  let from = 0;
+  for (const line of lines) {
+    const at = indexOfWhole(output2, line, from, isWordCharacter);
+    if (at < 0) return false;
+    from = at + line.length;
+  }
+  return true;
+}
+function normalizedOutput(run2) {
+  const cached2 = normalizedOutputs.get(run2);
+  if (cached2 !== void 0) return cached2;
+  const { output: output2 } = run2;
+  if (output2 === null) return null;
+  const compared = normalized(output2);
+  normalizedOutputs.set(run2, compared);
+  return compared;
+}
+function findRun(record2, cited) {
+  if (cited.printed.some(isBlankCitedLine)) return null;
+  const lines = cited.printed.map((line) => normalized(line).trim());
+  const name = cited.probe === null ? null : baseName(cited.probe);
+  if (name === "") return null;
+  for (let index2 = record2.length - 1; index2 >= 0; index2 -= 1) {
+    const run2 = record2[index2];
+    if (name !== null && indexOfWhole(run2.command, name, 0, isNameCharacter) < 0) continue;
+    const output2 = normalizedOutput(run2);
+    if (output2 !== null && holdsInOrder(output2, lines)) return { at: index2 + 1, exitCode: run2.exitCode };
+  }
+  return null;
+}
+function foundVerdictRuns(verdicts2, record2) {
+  return verdicts2.map((verdict) => verdict.runs.map((cited) => {
+    const found = findRun(record2, cited);
+    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${truncated(cited.command, quotedCommandLength)}`);
+    return { cited, found };
+  }));
+}
+function checkCitedVerdicts(verdicts2, record2, scratch, evidence) {
+  return foundVerdictRuns(verdicts2, record2).map((runs, position) => runs.map(({ cited, found }) => {
+    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
+    const freeze = freezeProbe(scratch, cited.probe, evidence);
+    if (freeze.kind === "refused") throw new StructuralCheckError(`The verdict for index ${String(verdicts2[position].index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
+    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
+  }));
+}
+function freezeProbe(scratch, path, evidence) {
+  const refused = (reason) => ({ kind: "refused", reason: `the probe ${path} ${reason}` });
+  if (scratch === null) return refused("cannot be frozen: the worker had no scratch directory");
+  let real;
+  try {
+    real = realpathSync3.native(resolve10(scratch, path));
+  } catch {
+    return refused("names no file");
+  }
+  if (!isInside(scratch, real)) return refused(`is outside the scratch directory ${scratch}`);
+  let bytes;
+  try {
+    const stat = statSync4(real);
+    if (!stat.isFile()) return refused("is not a regular file");
+    if (stat.size > probeLimitBytes) return refused(`holds ${String(stat.size)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
+    bytes = readFileSync10(real);
+  } catch (error62) {
+    const code = error62.code;
+    return refused(code === void 0 ? "cannot be read" : `cannot be read: ${code}`);
+  }
+  if (bytes.length > probeLimitBytes) return refused(`holds ${String(bytes.length)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
+  return { kind: "frozen", probe: { blob: evidence.put(bytes), name: baseName(path) } };
+}
+function validationRun(record2, cited, scratch, evidence, log) {
+  const command = truncated(cited.command, quotedCommandLength);
+  const blank = cited.printed.some(isBlankCitedLine);
+  const found = findRun(record2, cited);
+  if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);
+  else if (found === null) log(`cites a run that the record of its shell runs does not hold: ${command}`);
+  const freeze = cited.probe === null ? null : freezeProbe(scratch, cited.probe, evidence);
+  if (freeze?.kind === "refused") log(`cites a probe the engine cannot freeze: ${freeze.reason}`);
+  return { command: cited.command, printed: [...cited.printed], probe: freeze?.kind === "frozen" ? freeze.probe : null, found };
+}
+var probeLimitBytes, quotedCommandLength, terminalEscapes, isBlankCitedLine, baseName, isNameCharacter, isWordCharacter, normalizedOutputs;
+var init_cited_runs = __esm({
+  "src/review/cited-runs.ts"() {
+    "use strict";
+    init_paths();
+    init_errors7();
+    init_steps();
+    probeLimitBytes = 64 * 1024;
+    quotedCommandLength = 200;
+    terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[ -/]*[0-~]/g;
+    isBlankCitedLine = (line) => normalized(line).trim() === "";
+    baseName = (path) => path.split(/[\\/]/).filter((part) => part !== "").at(-1) ?? "";
+    isNameCharacter = (character) => /^[\p{L}\p{N}._-]$/u.test(character);
+    isWordCharacter = (character) => /^[\p{L}\p{N}_]$/u.test(character);
+    normalizedOutputs = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/review/claims.ts
+import { createHash as createHash5 } from "node:crypto";
+import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync11, statSync as statSync5 } from "node:fs";
+import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute7, join as join17, relative as relative3, sep as sep3 } from "node:path";
+function claimsDirectoryFor(scratchBase, runId, round) {
+  return join17(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
+}
+function pathKey(path, caseInsensitive) {
+  return caseInsensitive ? path.normalize("NFC").toUpperCase().toLowerCase() : path;
+}
+function markerHash(path, caseInsensitive) {
+  return sha256(pathKey(path, caseInsensitive));
+}
+function normalizeClaimPath(raw) {
+  const path = raw.replaceAll("\\", "/").split("/").filter((part) => part !== ".").join("/");
+  validateScopePath(path);
+  if (path.split("/").some((part) => part === "" || part === ".")) throw new InvalidScopeRequestError(`A claimed path must name a file: ${raw}`);
+  if (path.length > claimedPathMax) throw new InvalidScopeRequestError(`A claimed path must not be longer than ${String(claimedPathMax)} characters, and this one has ${String(path.length)}`);
+  return path;
+}
+function resolveClaimPath(worktree, raw) {
+  const trimmed = raw.trim();
+  const slashed = trimmed.replaceAll("\\", "/");
+  if (!rooted2(slashed)) return normalizeClaimPath(trimmed);
+  if (slashed.includes("\0")) throw new InvalidScopeRequestError(`A claimed path must not hold a NUL: ${JSON.stringify(raw)}`);
+  let inside;
+  try {
+    inside = relative3(canonicalPath(worktree), canonicalPath(slashed));
+  } catch (error62) {
+    const code = error62.code;
+    if (typeof code !== "string") throw error62;
+    throw new InvalidScopeRequestError(`A claimed path cannot be resolved: ${raw}: ${code}`, { cause: error62 });
+  }
+  if (inside === "" || inside === ".." || inside.startsWith(`..${sep3}`) || isAbsolute7(inside)) throw new InvalidScopeRequestError(`A claimed path must be inside the worktree ${worktree}: ${raw}`);
+  return normalizeClaimPath(inside);
+}
+function foldsCase(fs, directory, listing, name) {
+  const flipped = flipCase(name);
+  if (listing.includes(name) && listing.includes(flipped)) return false;
+  return fs.stat(join17(directory, flipped)) !== void 0;
+}
+function readableListing(fs, directory) {
+  try {
+    return fs.list(directory);
+  } catch (error62) {
+    const code = error62.code;
+    if (code === "EACCES" || code === "EPERM") return void 0;
+    throw error62;
+  }
+}
+function caseInsensitiveFileSystem(worktree, fs = caseProbeFileSystem) {
+  const name = basename2(worktree);
+  if (flipCase(name) !== name) {
+    const parent = dirname2(worktree);
+    const siblings = readableListing(fs, parent);
+    if (siblings !== void 0) return foldsCase(fs, parent, siblings, name);
+  }
+  const listing = fs.list(worktree);
+  const entry = listing.find((candidate) => flipCase(candidate) !== candidate);
+  if (entry !== void 0) return foldsCase(fs, worktree, listing, entry);
+  return process.platform === "win32" || process.platform === "darwin";
+}
+function claimsDirectoryIntact(dir) {
+  return existsSync5(join17(dir, heldFileName));
+}
+function readHeld(dir) {
+  const file2 = join17(dir, heldFileName);
+  let text3;
+  try {
+    text3 = readFileSync11(file2, "utf8");
+  } catch (error62) {
+    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
+    throw error62;
+  }
+  let parsed;
+  try {
+    parsed = heldSchema.safeParse(JSON.parse(text3));
+  } catch (error62) {
+    throw new ClaimRequestError(`${file2} is not the round's description: ${error62.message}`);
+  }
+  if (!parsed.success) throw new ClaimRequestError(`${file2} is not the round's description: ${external_exports.prettifyError(parsed.error)}`);
+  return parsed.data;
+}
+function readMarker(dir, hash2, generation, caseInsensitive, now) {
+  const file2 = join17(dir, `${hash2}.${String(generation)}.json`);
+  let text3;
+  try {
+    text3 = readFileSync11(file2, "utf8");
+  } catch (error62) {
+    if (error62.code === "ENOENT") return void 0;
+    throw error62;
+  }
+  try {
+    const parsed = markerSchema.safeParse(JSON.parse(text3));
+    if (parsed.success && namesItsPath(parsed.data.path, hash2, caseInsensitive)) return { whole: true, hash: hash2, generation, ...parsed.data };
+  } catch {
+  }
+  const written = statSync5(file2, { throwIfNoEntry: false })?.mtimeMs;
+  if (written !== void 0 && now.getTime() - written >= tornMarkerAfterMs) return "torn";
+  return { whole: false, hash: hash2, generation };
+}
+function namesItsPath(path, hash2, caseInsensitive) {
+  try {
+    return normalizeClaimPath(path) === path && markerHash(path, caseInsensitive) === hash2;
+  } catch (error62) {
+    if (error62 instanceof InvalidScopeRequestError) return false;
+    throw error62;
+  }
+}
+function markersOf(dir, hash2, caseInsensitive, now) {
+  const markers = [];
+  for (let generation = 1; ; generation += 1) {
+    const marker = readMarker(dir, hash2, generation, caseInsensitive, now);
+    if (marker === void 0) return markers;
+    markers.push(marker);
+  }
+}
+function createMarker(dir, hash2, generation, marker) {
+  return createFileExclusive(join17(dir, `${hash2}.${String(generation)}.json`), `${JSON.stringify(marker)}
+`);
+}
+function readClaims(dir, caseInsensitive, now = () => /* @__PURE__ */ new Date()) {
+  let names2;
+  try {
+    names2 = readdirSync4(dir);
+  } catch (error62) {
+    if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
+    throw error62;
+  }
+  const time3 = now();
+  const claims = [];
+  for (const name of names2) {
+    const match = markerNamePattern.exec(name);
+    if (match === null) continue;
+    const marker = readMarker(dir, match[1], Number(match[2]), caseInsensitive, time3);
+    if (marker !== void 0 && marker !== "torn") claims.push(marker);
+  }
+  return claims.sort((a, b) => a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : a.generation - b.generation);
+}
+function prepareClaims(dir, held, recorded, expectExisting, rename) {
+  if (expectExisting && !claimsDirectoryIntact(dir)) throw new ClaimsDirectoryLostError(dir);
+  mkdirSync3(dir, { recursive: true });
+  const heldFile = join17(dir, heldFileName);
+  let refreshed = true;
+  try {
+    writeFileAtomic(heldFile, `${JSON.stringify(held)}
+`, rename);
+  } catch (error62) {
+    if (!(error62 instanceof ReplaceBusyError) || !existsSync5(heldFile)) throw error62;
+    refreshed = false;
+  }
+  const latest = /* @__PURE__ */ new Map();
+  for (const claim3 of recorded) latest.set(markerHash(claim3.path, held.caseInsensitive), claim3);
+  for (const [hash2, claim3] of latest) {
+    const markers = markersOf(dir, hash2, held.caseInsensitive, /* @__PURE__ */ new Date());
+    if (markers.some((marker2) => marker2 !== "torn" && marker2.whole && marker2.cluster === claim3.cluster && marker2.unit === claim3.unit && marker2.claimedAt === claim3.claimedAt)) continue;
+    const marker = { path: claim3.path, cluster: claim3.cluster, unit: claim3.unit, claimedAt: claim3.claimedAt };
+    let generation = markers.length + 1;
+    while (!createMarker(dir, hash2, generation, marker)) generation += 1;
+  }
+  return refreshed;
+}
+function ownerOf(held, path) {
+  const key = pathKey(path, held.caseInsensitive);
+  for (const [cluster, files] of Object.entries(held.clusters)) if (files.some((file2) => pathKey(file2, held.caseInsensitive) === key)) return cluster;
+  return null;
+}
+function judged(path, cluster, marker, created2) {
+  if (!marker.whole) return { kind: "held-by-unknown", path };
+  return marker.cluster === cluster ? { kind: "claimed", path, cluster, generation: marker.generation, created: created2 } : { kind: "refused", path, holder: marker.cluster, by: "claim" };
+}
+function claimFile(dir, rawPath, unit, now = () => /* @__PURE__ */ new Date()) {
+  const held = readHeld(dir);
+  if (isInside(held.worktree, dir)) throw new InvalidScopeRequestError(`The claims directory ${dir} is inside the worktree ${held.worktree}; a claim there would be a stray file of the review`);
+  if (!Object.hasOwn(held.units, unit)) throw new ClaimRequestError(`unit ${unit} is no batch of this round`);
+  const cluster = held.units[unit];
+  if (held.settled.includes(cluster)) throw new ClaimRequestError(`unit ${unit}'s cluster ${cluster} has settled, so it claims nothing more`);
+  const path = resolveClaimPath(held.worktree, rawPath);
+  const owner = ownerOf(held, path);
+  if (owner === cluster) return { kind: "owned", path, cluster };
+  if (owner !== null) return { kind: "refused", path, holder: owner, by: "plan" };
+  const hash2 = markerHash(path, held.caseInsensitive);
+  const time3 = now();
+  const markers = markersOf(dir, hash2, held.caseInsensitive, time3);
+  const latest = markers.findLast((read) => read !== "torn");
+  if (latest !== void 0 && !(latest.whole && held.settled.includes(latest.cluster))) return judged(path, cluster, latest, false);
+  const marker = { path, cluster, unit, claimedAt: time3.toISOString() };
+  for (let generation = markers.length + 1; ; generation += 1) {
+    if (createMarker(dir, hash2, generation, marker)) return { kind: "claimed", path, cluster, generation, created: true };
+    const raced = readMarker(dir, hash2, generation, held.caseInsensitive, time3);
+    if (raced !== "torn") return judged(path, cluster, raced ?? { whole: false, hash: hash2, generation }, false);
+  }
+}
+var claimsDirectoryName, heldFileName, ClaimsDirectoryLostError, ClaimRequestError, heldSchema, claimedPathMax, markerSchema, tornMarkerAfterMs, markerNamePattern, sha256, rooted2, flipCase, caseProbeFileSystem;
+var init_claims = __esm({
+  "src/review/claims.ts"() {
+    "use strict";
+    init_zod();
+    init_atomic_write();
+    init_errors3();
+    init_paths();
+    init_capture();
+    init_errors8();
+    claimsDirectoryName = "claims";
+    heldFileName = "held.json";
+    ClaimsDirectoryLostError = class extends EngineError {
+      name = "ClaimsDirectoryLostError";
+      directory;
+      constructor(directory) {
+        super(`the claims directory ${directory} is gone: stop editing and answer`);
+        this.directory = directory;
+      }
+    };
+    ClaimRequestError = class extends EngineError {
+      name = "ClaimRequestError";
+    };
+    heldSchema = external_exports.strictObject({
+      worktree: external_exports.string().min(1),
+      clusters: external_exports.record(external_exports.string(), external_exports.array(external_exports.string())),
+      units: external_exports.record(external_exports.string(), external_exports.string()),
+      settled: external_exports.array(external_exports.string()),
+      caseInsensitive: external_exports.boolean()
+    });
+    claimedPathMax = 1e3;
+    markerSchema = external_exports.strictObject({
+      // The caps are the ledger's for a claim the engine records or leaves out, so a marker past them is no claim.
+      path: external_exports.string().min(1).max(claimedPathMax),
+      cluster: external_exports.string().min(1).max(200),
+      unit: external_exports.string().min(1).max(200),
+      claimedAt: external_exports.iso.datetime().nullable()
+    });
+    tornMarkerAfterMs = 6e4;
+    markerNamePattern = /^([0-9a-f]{64})\.([1-9][0-9]{0,8})\.json$/;
+    sha256 = (text3) => createHash5("sha256").update(text3, "utf8").digest("hex");
+    rooted2 = (name) => name.startsWith("/") || /^[A-Za-z]:(\/|$)/.test(name) || isAbsolute7(name);
+    flipCase = (text3) => text3.replaceAll(/[A-Za-z]/g, (letter) => letter <= "Z" ? letter.toLowerCase() : letter.toUpperCase());
+    caseProbeFileSystem = {
+      list: (directory) => readdirSync4(directory),
+      stat: (path) => statSync5(path, { throwIfNoEntry: false })
+    };
+  }
+});
+
+// src/review/claim-events.ts
+function requireFix2(state) {
+  const fix = state.review?.fix ?? null;
+  if (fix === null) throw new Error(`Run ${state.id} is not configured with the fix pass`);
+  return fix;
+}
+function batchOfUnit(state, key) {
+  const batch = batchOf(requireFix2(state), key);
+  if (batch === null) throw new Error(`The fix plan has no batch ${key}`);
+  return batch;
+}
+function heldOf(fix, round, worktree, caseInsensitive) {
+  const plan = planOfRound(fix, round);
+  if (plan === null) throw new Error(`The fix plan has no round ${String(round)} yet`);
+  return {
+    worktree,
+    clusters: Object.fromEntries(plan.clusters.map((cluster) => [cluster.id, [...cluster.files]])),
+    units: Object.fromEntries(plan.batches.map((batch) => [batch.key, batch.cluster])),
+    settled: [...settledClusters(fix, round)].sort(),
+    caseInsensitive
+  };
+}
+function foldedWith(state, events) {
+  return events.reduce((current, event, index2) => applyEvent(current, { sequence: state.lastSequence + index2 + 1, runId: state.id, kind: event.kind, version: event.version, payload: event.payload, recordedAt: (/* @__PURE__ */ new Date()).toISOString(), engine: "claims" }), state);
+}
+function holderSpelled(lookup, holders, keyOf) {
+  return (path) => {
+    const held = lookup(path);
+    if (held.length > 0) return held;
+    const holder = holders.get(keyOf(path));
+    return holder === void 0 ? [] : [holder.path];
+  };
+}
+function resolvedPath(worktree, lookup, path, caseInsensitive) {
+  if (!caseInsensitive) return path;
+  try {
+    return resolveReportedPath(worktree, lookup, path);
+  } catch (error62) {
+    if (error62 instanceof StructuralCheckError) return path;
+    throw error62;
+  }
+}
+function perEvent(files) {
+  const runs = [];
+  for (let start = 0; start < files.length; start += maxClaimFilesPerEvent) runs.push(files.slice(start, start + maxClaimFilesPerEvent));
+  return runs;
+}
+function claimedEvents(accepted) {
+  const events = [];
+  for (const claim3 of accepted) {
+    const lastOfUnit = events.findLastIndex((event) => event.unit === claim3.unit);
+    const lastOfPath = events.findLastIndex((event) => event.paths.has(claim3.path));
+    const target = lastOfUnit >= 0 && lastOfUnit >= lastOfPath && !events[lastOfUnit].paths.has(claim3.path) ? events[lastOfUnit] : null;
+    if (target === null) events.push({ unit: claim3.unit, cluster: claim3.cluster, files: [{ path: claim3.path, claimedAt: claim3.claimedAt }], paths: /* @__PURE__ */ new Set([claim3.path]) });
+    else {
+      target.files.push({ path: claim3.path, claimedAt: claim3.claimedAt });
+      target.paths.add(claim3.path);
+    }
+  }
+  return events.flatMap((event) => perEvent(event.files).map((files) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key: event.unit, cluster: event.cluster, files } })));
+}
+function lostEvents(lost) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const marker of lost) {
+    const name = `${marker.unit}\0${marker.cluster}`;
+    groups.set(name, [...groups.get(name) ?? [], marker]);
+  }
+  return [...groups.values()].flatMap((markers) => perEvent(markers).map((run2) => ({
+    kind: "claims.lost",
+    version: 1,
+    payload: { phase: "fixes", unit: run2[0].unit, cluster: run2[0].cluster, files: run2.map(({ path, claimedAt, reason, holder }) => ({ path, claimedAt, reason, holder })) }
+  })));
+}
+function compareText(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+function settleClaims(state, key, live2, worktree) {
+  const fix = requireFix2(state);
+  const round = roundOf(fix, key);
+  const { caseInsensitive } = live2;
+  const keyOf = (path) => pathKey(path, caseInsensitive);
+  const marked = (path, cluster, unit, claimedAt) => `${keyOf(path)}\0${cluster}\0${unit}\0${claimedAt ?? ""}`;
+  const known = /* @__PURE__ */ new Set([
+    ...claimsOfRound(fix, round).map((claim3) => marked(claim3.path, claim3.cluster, claim3.key, claim3.claimedAt)),
+    ...fix.lostClaims.map((claim3) => marked(claim3.path, claim3.cluster, claim3.unit, claim3.claimedAt))
+  ]);
+  const holders = holdersKeyedBy(fix, round, keyOf);
+  const settled3 = settledClusters(fix, round);
+  const lookup = holderSpelled(worktreeLookup(worktree), holders, keyOf);
+  const accepted = [];
+  const lost = [];
+  const whole = live2.markers.filter((marker) => marker.whole).sort(madeOrder);
+  for (const marker of whole) {
+    const path = resolvedPath(worktree, lookup, marker.path, caseInsensitive);
+    if (known.has(marked(path, marker.cluster, marker.unit, marker.claimedAt))) continue;
+    const claim3 = { unit: marker.unit, cluster: marker.cluster, path, claimedAt: marker.claimedAt };
+    const batch = batchOf(fix, marker.unit);
+    if (batch === null || roundOf(fix, marker.unit) !== round || batch.cluster !== marker.cluster) {
+      lost.push({ ...claim3, reason: "unplanned", holder: null });
+      continue;
+    }
+    const holder = holders.get(keyOf(path));
+    const refusal = claimRefusal(holder, marker.cluster, settled3);
+    if (refusal !== null) lost.push({ ...claim3, reason: refusal, holder: holder.cluster });
+    else {
+      accepted.push(claim3);
+      holders.set(keyOf(path), { path, cluster: marker.cluster, by: "claim" });
+    }
+  }
+  const events = [...lostEvents(lost), ...claimedEvents(accepted)];
+  const pending = new Set(live2.markers.filter((marker) => !marker.whole).map((marker) => marker.hash));
+  return { events, state: foldedWith(state, events), pending, caseInsensitive };
+}
+function isPending(settle4, path) {
+  return settle4.pending.size > 0 && settle4.pending.has(markerHash(path, settle4.caseInsensitive));
+}
+function lateClaim(settle4, key, named) {
+  const fix = requireFix2(settle4.state);
+  const batch = batchOfUnit(settle4.state, key);
+  const round = roundOf(fix, key);
+  const keyOf = (path) => pathKey(path, settle4.caseInsensitive);
+  const holders = holdersKeyedBy(fix, round, keyOf);
+  const settled3 = settledClusters(fix, round);
+  const free = [...new Set(named)].filter((path) => isClaimablePath(path) && !isPending(settle4, path) && claimRefusal(holders.get(keyOf(path)), batch.cluster, settled3) === null).sort();
+  return perEvent(free).map((paths) => ({ kind: "files.claimed", version: 1, payload: { phase: "fixes", key, cluster: batch.cluster, files: paths.map((path) => ({ path, claimedAt: null })) } }));
+}
+var settledNothing, madeOrder;
+var init_claim_events = __esm({
+  "src/review/claim-events.ts"() {
+    "use strict";
+    init_events();
+    init_fix_state();
+    init_fold();
+    init_claims();
+    init_errors7();
+    init_fix_answer();
+    init_locations();
+    settledNothing = (state, caseInsensitive) => ({ events: [], state, pending: /* @__PURE__ */ new Set(), caseInsensitive });
+    madeOrder = (a, b) => a.generation - b.generation || compareText(a.claimedAt ?? "", b.claimedAt ?? "") || compareText(a.hash, b.hash);
+  }
+});
+
 // src/scope/compare.ts
 function scopeMismatch(resolved, scope, changedSince2) {
   if (resolved.mode !== scope.mode || resolved.base !== scope.base) return `its scope is ${scope.mode} ${scope.base}..${scope.head}, not the one named`;
@@ -30531,7 +30597,7 @@ function checkVerdicts(output2, count3) {
     const what = `The verdict for index ${String(verdict.index)}`;
     if (verdict.basis === "ran" && verdict.runs.length === 0) throw new StructuralCheckError(`${what} rests on a run and cites none`);
     if (verdict.basis !== "ran" && verdict.runs.length > 0) throw new StructuralCheckError(`${what} is ${verdict.basis} and cites a run, which only a verdict that rests on a run does`);
-    if (verdict.runs.some((run2) => run2.printed.some((line) => line.trim() === ""))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
+    if (verdict.runs.some((run2) => run2.printed.some(isBlankCitedLine))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
   }
   const missing = missingIndexes(seen, count3);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(", ")} of the ${String(count3)} candidates in the group`);
@@ -30585,6 +30651,7 @@ var init_schemas3 = __esm({
     "use strict";
     init_zod();
     init_events();
+    init_cited_runs();
     init_errors7();
     init_vocabulary();
     candidateFields = {
@@ -30644,7 +30711,7 @@ var init_schemas3 = __esm({
         verdict: verdictSchema2,
         evidence: external_exports.string().min(1).max(1e3),
         basis: verdictBasisSchema,
-        runs: external_exports.array(citedRunSchema).max(3)
+        runs: external_exports.array(citedRunSchema).max(citedRunLimitsV1.runsPerVerdict)
       }))
     });
     mergeRankOutputSchema = external_exports.strictObject({
@@ -30746,7 +30813,7 @@ var init_schemas3 = __esm({
       ...fixerOutputSchema.shape,
       findings: external_exports.array(external_exports.strictObject({
         ...fixerFinding.shape,
-        validation: external_exports.array(external_exports.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: external_exports.array(citedRunSchema).max(4) })).max(20)
+        validation: external_exports.array(external_exports.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: external_exports.array(citedRunSchema).max(citedRunLimitsV1.runsPerEntry) })).max(20)
       }))
     });
     repairOutputSchemaV2 = external_exports.strictObject({
@@ -31048,13 +31115,14 @@ function fixAnswerEvents(unit, receipt, context) {
   const cites = findings.some((finding) => finding.validation.some((entry) => entry.runs.length > 0));
   const answered2 = { phase, key: unit.key, workerId: receipt.workerId, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
   const comparisons = compares ? keptComparisons(requireFix2(state), output2.comparisons, context.log) : [];
+  const version2 = writtenVersion("fix.recorded", [phase], { comparisons: compares, cites });
   const uncited = { ...answered2, findings: findings.map((finding) => ({ ...finding, validation: finding.validation.map(({ runs: _runs, ...entry }) => entry) })) };
-  const recorded = cites ? { ...answered2, findings, comparisons } : compares ? { ...uncited, comparisons } : uncited;
+  const recorded = version2 >= 5 ? { ...answered2, findings, comparisons } : version2 >= 4 ? { ...uncited, comparisons } : uncited;
   const into = scratch === null ? null : join21(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids2, context.match);
   return [
     ...claims,
-    { kind: "fix.recorded", version: writtenVersion("fix.recorded", [phase], { comparisons: compares, cites }), payload: recorded },
+    { kind: "fix.recorded", version: version2, payload: recorded },
     ...revisions.map((revision) => ({
       kind: "tree.revised",
       version: writtenVersion("tree.revised", [phase]),
@@ -32142,27 +32210,7 @@ function observe3(facts, event) {
 }
 function readClaudeStream(lines) {
   const facts = { envelope: null, malformed: null, runs: [], waiting: /* @__PURE__ */ new Map() };
-  let number5 = 0;
-  for (const line of lines) {
-    number5 += 1;
-    if (line === null) {
-      facts.malformed ??= `Claude Code printed line ${String(number5)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
-      continue;
-    }
-    if (line.trim() === "") continue;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch (error62) {
-      facts.malformed ??= `Claude Code printed line ${String(number5)} that is not JSON: ${error62.message}`;
-      continue;
-    }
-    if (!isObject2(event)) {
-      facts.malformed ??= `Claude Code printed line ${String(number5)} that is not an event object`;
-      continue;
-    }
-    observe3(facts, event);
-  }
+  facts.malformed = readEvents(lines, "Claude Code", (event) => observe3(facts, event));
   return facts;
 }
 var init_claude_stream = __esm({
@@ -33848,9 +33896,11 @@ function deduplicationTask(candidates) {
     list
   ].join("\n");
 }
+function probeSentence(scratch) {
+  return scratch ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else. Write each probe you cite as a file of its own, with a name no other probe of your answer uses, and do not change that file after the run you cite: the engine keeps the file as it is when you finish.` : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
+}
 function citingParagraph({ scratch }) {
-  const probe = scratch ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else.` : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
-  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probe}`;
+  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probeSentence(scratch)}`;
 }
 function verifierTask(groupId, candidates, citing = null) {
   const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
@@ -34249,8 +34299,8 @@ var init_tasks = __esm({
     scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
     unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
     citingValidationWords = "In each validation entry, cite in `runs`";
-    citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not.`;
-    probeRule = "A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it, when it can run here, and cite both runs, with that path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.";
+    citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not. Name a probe's file in the command that runs it, not through a loop or a variable that builds the name, and copy the cited lines in the order the run printed them, since a run is found only by its probe's name and its lines in that order.`;
+    probeRule = "A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into a directory of its own inside your scratch directory, one for each candidate and named for the candidate's id, keeping the probe's name, so that two candidates' probes of the same name never overwrite each other; run it on the code before your fix and again after it, when it can run here, and cite both runs, with the copy's path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.";
     fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
     verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
     evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
@@ -34398,7 +34448,6 @@ function fixerTaskOf(unit, review2, editing, evidence) {
 }
 function taskFinding(review2, ranked2, entry, decision, evidence) {
   const id = entry.finding.id;
-  const cited = review2.citedRuns ? evidence : null;
   return {
     id,
     severity: entry.finding.severity,
@@ -34406,8 +34455,8 @@ function taskFinding(review2, ranked2, entry, decision, evidence) {
     unverified: entry.resolution.unverified,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    primary: taskCandidate(entry.primary, cited),
-    members: entry.members.map((member) => taskCandidate(member, cited)),
+    primary: taskCandidate(entry.primary, evidence),
+    members: entry.members.map((member) => taskCandidate(member, evidence)),
     decision,
     supersedes: (review2.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked2.get(left.id);
@@ -34719,14 +34768,6 @@ function failedWithEdits(unit, receipt, reason, context, fault = "unit") {
   const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason, "failed");
   return [...attempt.claims, failure2, ...attempt.revisions];
 }
-function recordedVerdictRuns(output2, record2, scratch, evidence) {
-  return foundVerdictRuns(output2.verdicts, record2).map((runs, position) => runs.map(({ cited, found }) => {
-    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
-    const freeze = freezeProbe(scratch, cited.probe, evidence);
-    if (freeze.kind === "refused") throw new StructuralCheckError(`The verdict for index ${String(output2.verdicts[position].index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
-    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
-  }));
-}
 function contributionEvent(unit, receipt, review2, context) {
   const { state, worktree } = context;
   switch (unit.phase) {
@@ -34766,7 +34807,7 @@ function contributionEvent(unit, receipt, review2, context) {
       if (review2.citedRuns) {
         const output3 = receipt.output;
         checkVerdicts(output3, group.length);
-        const runs = recordedVerdictRuns(output3, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
+        const runs = checkCitedVerdicts(output3.verdicts, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
         const verdicts3 = output3.verdicts.map((verdict, position) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence, basis: verdict.basis, runs: runs[position] }));
         return { kind: "verdicts.recorded", version: 2, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts3 } };
       }
@@ -35032,7 +35073,7 @@ var init_needs = __esm({
     needConditions = ["edits", "change-breaks", "not-compared", "unfinished-edits", "unapplied-fix", "document", "departure", "question-other", "question-choice", "uncommitted"];
     answerArguments = (run2, finding, choice) => `answer --run ${shortRunId(run2)} --finding ${finding} ${choice}`;
     answerCommand = (run2, finding, choice) => `deep-review ${answerArguments(run2, String(finding), choice)}`;
-    said = (facts, text3, own2 = null) => inlineText(quoted(text3, { numbers: facts.numbers, own: own2 }));
+    said = (facts, text3, own2 = null) => inlineText(quoted(text3, { numbers: facts.numbers, own: own2, scratch: facts.scratch }));
     lastMomentWords = { fixes: "after the fixes", repair: "after the fixes for the checks", answers: "after your answers" };
     earlierMomentWords = { before: "as submitted", fixes: "after the fixes", repair: "after the fixes for the checks", answers: "after earlier answers" };
     need = (lines, names2 = {}) => ({ finding: null, check: null, document: null, patch: null, ...names2, lines });
@@ -35146,7 +35187,7 @@ function appliedWords(review2, answer3, held) {
   }
 }
 function decisionBlockLines(review2, decision, quote) {
-  const said2 = (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own }));
+  const said2 = (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, scratch: quote.scratch }));
   const standing = standingAnswer(review2, decision.id);
   switch (decision.decision) {
     case "leave":
@@ -35360,17 +35401,20 @@ function answersFor(fix, id) {
   return [...fixes, ...answered2];
 }
 function scratchSpellings(workers) {
-  const recorded = Object.values(workers).flatMap(({ launch }) => launch.scratch === null ? [] : [launch.scratch, launch.scratch.replaceAll("\\", "/")]);
+  const directories = Object.values(workers).flatMap(({ launch }) => launch.scratch === null ? [] : [launch.scratch, ...scratchBaseOf(launch.scratch)]);
+  const recorded = directories.flatMap((directory) => [directory, directory.replaceAll("\\", "/")]);
   return [...new Set(recorded)].sort((a, b) => b.length - a.length);
 }
-function withoutScratch(text3, scratch) {
-  if (scratch.length === 0) return text3;
-  return text3.replace(new RegExp(`(?:/private(?=/))?(?:${scratch.map((directory) => RegExp.escape(directory)).join("|")})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, "gu"), "<scratch>");
+function scratchBaseOf(scratch) {
+  const parentEnd = Math.max(scratch.lastIndexOf("/"), scratch.lastIndexOf("\\"));
+  if (parentEnd <= 0) return [];
+  const parent = scratch.slice(0, parentEnd);
+  return isCheckpointScratchKey(parent.slice(Math.max(parent.lastIndexOf("/"), parent.lastIndexOf("\\")) + 1)) ? [parent] : [];
 }
-function validationEvidence(entry, said2, scratch) {
+function validationEvidence(entry, said2) {
   const words = said2(entry.evidence);
   const found = [...new Set(entry.runs.flatMap((run2) => run2.found === null ? [] : [`shell run ${String(run2.found.at)}`]))];
-  const record2 = [...found.length === 0 ? [] : [`Its record shows ${listed(found)}.`], ...entry.runs.filter((run2) => run2.found === null).map((run2) => `Its record does not show: ${said2(withoutScratch(run2.command, scratch))}.`)];
+  const record2 = [...found.length === 0 ? [] : [`Its record shows ${listed(found)}.`], ...entry.runs.filter((run2) => run2.found === null).map((run2) => `Its record does not show: ${said2(run2.command)}.`)];
   if (record2.length === 0) return words;
   return `${words}${/[.!?]$/.test(words) ? "" : "."} ${record2.join(" ")}`;
 }
@@ -35383,7 +35427,7 @@ function fixBlockLines(review2, fix, id, quote) {
     const landed = fate.superseder.outcome === "applied" || fate.superseder.outcome === "already applied";
     return [`Fix: none of its own; its removal was ${by}'s fix, whose fixer ${fate.superseder.outcome === "not attempted" ? "did not attempt it" : `reported it ${fate.superseder.outcome}`}.${landed ? "" : " This finding may still stand."}`];
   }
-  const saidIn = (batch) => (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, batch: batch?.findingIds ?? null }));
+  const saidIn = (batch) => (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, batch: batch?.findingIds ?? null, scratch: quote.scratch }));
   const said2 = saidIn(fate.batch);
   const lines = [];
   if (fate.answer !== null) {
@@ -35403,7 +35447,7 @@ function fixBlockLines(review2, fix, id, quote) {
   for (const { phase, key, batch, finding } of answers) {
     const by = answers.length === 1 ? "its fixer" : phase === "fixes" ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
     const saidOfBatch = saidIn(batch);
-    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${saidOfBatch(validation.source)}: ${validationEvidence(validation, saidOfBatch, quote.scratch)}`);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validationText(validation, saidOfBatch)}`);
   }
   return lines;
 }
@@ -35444,7 +35488,7 @@ function stopLimitations(review2, evidencePath) {
   return lines;
 }
 function documentationSection(review2, fix, numbers, scratch) {
-  const said2 = (text3) => workerText(text3, numbers);
+  const said2 = (text3) => workerText(text3, { numbers, scratch });
   const plan = fix.documentation;
   const unheld = unheldDriftLines(review2);
   if (!review2.documentationStep && unheld.length === 0) return [];
@@ -35460,7 +35504,7 @@ function documentationSection(review2, fix, numbers, scratch) {
       `Note: ${said2(finding.note)}`,
       ...finding.message === null ? [] : [`Commit message: ${said2(finding.message.subject)}`],
       ...finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(", ")}; ${patchNote(patchesOf(fix, item.id, "documentation"))}`],
-      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${validationEvidence(entry, said2, scratch)}`)
+      ...finding.validation.map((entry) => `Validation: ${validationText(entry, said2)}`)
     ];
     const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${said2(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index2 + 1)}. ${item.id} ${outcome}`, "", ...document, ...answered2, ...took, ""];
@@ -35532,7 +35576,7 @@ function checksSection(review2, fix, scope, evidencePath, numbers, scratch) {
   const comparisons = fix.answers.repair[repairUnitKey]?.comparisons ?? [];
   const baseNote = (kind) => {
     const comparison = comparisons.find((entry) => entry.kind === kind);
-    if (comparison !== void 0) return `; a model's comparison: ${readingWords[comparison.reading]} (${workerText(comparison.words, numbers)})`;
+    if (comparison !== void 0) return `; a model's comparison: ${readingWords[comparison.reading]} (${workerText(comparison.words, { numbers, scratch })})`;
     return checks.find((check2) => check2.kind === kind)?.base?.reason === "no-comparison" ? `; ${notComparedPlainWords["no-comparison"]}` : "";
   };
   const note = (phase, kind) => {
@@ -35548,10 +35592,10 @@ function checksSection(review2, fix, scope, evidencePath, numbers, scratch) {
       const run2 = shown(phase, check2.kind);
       return run2 === null ? [] : [`- ${phaseTitles[phase]}${edits.get(phase) === null ? "" : ", on an earlier tree"}: ${checkCell(run2, evidencePath, note(phase, check2.kind))}`];
     });
-    const said2 = (text3) => workerText(text3, numbers);
+    const said2 = (text3) => workerText(text3, { numbers, scratch });
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check2.kind).flatMap((finding) => [
       `- Its fix: ${statusWords[finding.status]}, ${said2(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`,
-      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${validationEvidence(validation, said2, scratch)}`)
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validationText(validation, said2)}`)
     ]);
     return [...head2, `- Command: ${codeSpan(check2.command)}`, ...source, ...runs, ...fixed, ""];
   });
@@ -35584,16 +35628,16 @@ function revisedBy(revision, numbers) {
       return `${of}a fixer of ${revision.source.key} that did not finish`;
   }
 }
-function patchesSection(fix, patches, numbers) {
+function patchesSection(fix, patches, numbers, scratch) {
   const committed = committedRevisions(fix);
   const commitOf = new Map(fix.commits.flatMap((series2) => series2.commits.flatMap((commit2) => commit2.revision === "change" ? [] : [[commit2.revision, commit2.sha]])));
   const series = fix.revisions.map((revision, index2) => {
     const files = revision.files.map((file2) => `${inlineText(file2.path)} ${fileStatus(file2)}`).join(", ");
     const sha = commitOf.get(index2);
     const later = committed > 0 && index2 >= committed ? `, ${laterPass(revision)} after the commits` : "";
-    return `${String(index2 + 1)}. ${workerText(revisionMessageOf(fix, revision).subject, numbers)} (${revisedBy(revision, numbers)}${later}), ${files === "" ? "no file" : files}${sha === void 0 ? "" : `, committed as ${sha.slice(0, 8)}`}: ${patches[index2] ?? "not written"}`;
+    return `${String(index2 + 1)}. ${workerText(revisionMessageOf(fix, revision).subject, { numbers, scratch })} (${revisedBy(revision, numbers)}${later}), ${files === "" ? "no file" : files}${sha === void 0 ? "" : `, committed as ${sha.slice(0, 8)}`}: ${patches[index2] ?? "not written"}`;
   });
-  const tests = allFixerAnswers(fix).filter((answer3) => answer3.phase !== "documentation").flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${workerText(entry.covers, numbers)} (${answer3.key})`));
+  const tests = allFixerAnswers(fix).filter((answer3) => answer3.phase !== "documentation").flatMap((answer3) => answer3.tests.map((entry) => `- ${inlineText(entry.file)}: ${workerText(entry.covers, { numbers, scratch })} (${answer3.key})`));
   return [
     "## Patches",
     "",
@@ -35605,7 +35649,7 @@ function fixSections(state, evidencePath, patches, numbers, scratch) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [documentationSection(review2, fix, numbers, scratch), checksSection(review2, fix, state.scope, evidencePath, numbers, scratch), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review2, fix, numbers, scratch), checksSection(review2, fix, state.scope, evidencePath, numbers, scratch), patchesSection(fix, patches, numbers, scratch)].filter((section) => section.length > 0);
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -35666,7 +35710,7 @@ function fixLimitations(review2) {
   if (oversized.length > 0) lines.push(`- Files changed beyond the size the run freezes, whose patches name them and do not apply: ${[...new Set(oversized)].map(inlineText).join(", ")}.`);
   return lines;
 }
-var statusWords, patchNote, workerText, allFixerAnswers, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, fileStatus;
+var statusWords, patchNote, workerText, allFixerAnswers, validationText, reporterWords, laterPass, phaseTitles, revisionOwners, runSeconds, readingWords, fileStatus;
 var init_fix_report = __esm({
   "src/review/fix-report.ts"() {
     "use strict";
@@ -35674,6 +35718,7 @@ var init_fix_report = __esm({
     init_answer_state();
     init_fix_state();
     init_kill_marks();
+    init_scratch();
     init_review_fold();
     init_scope_line();
     init_brief_checks();
@@ -35689,8 +35734,9 @@ var init_fix_report = __esm({
       blocked: "blocked"
     };
     patchNote = (numbers) => numbers.length === 0 ? "no patch" : `patch ${numbers.join(", ")}`;
-    workerText = (text3, numbers) => inlineText(quoted(text3, { numbers }));
+    workerText = (text3, quote) => inlineText(quoted(text3, quote));
     allFixerAnswers = (fix) => editingPhases.flatMap((phase) => Object.values(fix.answers[phase]));
+    validationText = (entry, said2) => `${entry.method}, ${said2(entry.source)}: ${validationEvidence(entry, said2)}`;
     reporterWords = (line) => line.phase === "repair" ? "the repair" : line.phase === "answer" ? `answer pass ${String(line.time)}` : line.key;
     laterPass = (revision) => revision.phase === "answer" || revision.phase === "answer-checks" ? "an answer pass" : "the reopened fix pass";
     phaseTitles = { "baseline-checks": "As submitted", checks: "After the fixes", "base-checks": "On the base", "repair-checks": "After the fixes for the checks", "answer-checks": "After your answers" };
@@ -35731,7 +35777,7 @@ function contextOf(state, review2) {
   const fix = review2.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review2, fix, entry.finding.id)]));
   const checks = fix === null ? [] : briefChecksOf({ ...review2, fix }, state.scope);
-  return { state, review: review2, findings, outcomes, documents: leftDocumentsOf(review2), checks, numbers: findingNumbers(review2) };
+  return { state, review: review2, findings, outcomes, documents: leftDocumentsOf(review2), checks, numbers: findingNumbers(review2), scratch: scratchSpellings(state.workers) };
 }
 function decisionsOf(context, kind) {
   return context.findings.flatMap(({ decision }) => decision !== null && decision.decision === kind ? [decision] : []);
@@ -35865,7 +35911,8 @@ function needsFactsOf(context, questions, departures, checks, base, findings) {
     questions: questions.filter((question) => question.answer === null).map((question) => needQuestionOf(question, fix !== null)),
     uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
     toFix: fix === null ? findings.filter(isPlanned).length : 0,
-    numbers: context.numbers
+    numbers: context.numbers,
+    scratch: context.scratch
   };
 }
 function needQuestionOf(question, fixed) {
@@ -36050,6 +36097,7 @@ function briefOf(state) {
     title: review2.change.kind === "given" ? review2.change.reading.title : scopeTitle(state),
     findings,
     numbers: context.numbers,
+    scratch: context.scratch,
     status: statusOf2(context, findings),
     needs,
     needsLine: needsCountLine(needs, facts),
@@ -36068,7 +36116,7 @@ function briefOf(state) {
 function accountPart(brief) {
   const { change } = brief;
   if (change.state !== "given") return [missingAccountWords[change.state]];
-  const said2 = (text3) => inlineText(quoted(text3, { numbers: brief.numbers }));
+  const said2 = (text3) => inlineText(quoted(text3, { numbers: brief.numbers, scratch: brief.scratch }));
   const sources = (list) => list.map(inlineText).join(", ");
   const why = change.why === null ? "The change states no reason." : `Why, in the change's own words: ${said2(change.why)} (${change.whyFrom.length === 0 ? "it names no source" : `from ${sources(change.whyFrom)}`}).`;
   const judged2 = [
@@ -36143,7 +36191,7 @@ function fixesPart(brief, form) {
   const planned = brief.status.kind === "review";
   const lines = [planned ? "## What deep-review would fix" : "## What deep-review fixed", ""];
   if (brief.fixes.length === 0) return [...lines, planned ? "deep-review decided to fix no finding." : "deep-review fixed no finding."];
-  const said2 = (text3, own2) => tableCell(inlineText(quoted(text3, { numbers: brief.numbers, own: own2 })));
+  const said2 = (text3, own2) => tableCell(inlineText(quoted(text3, { numbers: brief.numbers, own: own2, scratch: brief.scratch })));
   const asked = new Set(brief.findings.filter((finding) => finding.status === "question").map((finding) => finding.number));
   const marks2 = (fix) => [...fix.againstRule ? ["against a written rule"] : [], ...fix.finding !== null && asked.has(fix.finding) ? ["the default of a question"] : [], ...fix.plausible ? ["plausible"] : []].map((mark) => `, ${mark}`).join("");
   const name = (fix) => fix.finding === null ? "Documentation" : `${form === "report" ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity}${marks2(fix)}`;
@@ -36322,15 +36370,14 @@ function marks(candidate, unverified) {
   const list = [...where, ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
-function citedRunLines(basis, runs, said2, scratch) {
+function citedRunLines(basis, runs, said2) {
   if (basis === null) return [];
-  const ran = (text3) => said2(withoutScratch(text3, scratch));
   return [
     `How the verifier established it: ${verdictBasisWords[basis]}.`,
     ...runs.map((run2) => {
       const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
       const probe = run2.probe === null ? "" : ` The probe is ${storeNameOf(run2.probe.blob)}, named ${said2(run2.probe.name)}.`;
-      return `Shell run ${String(run2.at)} of its record: ${ran(run2.command)} printed ${run2.printed.map((line) => `"${ran(line)}"`).join(" / ")}, ${exit}.${probe}`;
+      return `Shell run ${String(run2.at)} of its record printed ${run2.printed.map((line) => `"${said2(line)}"`).join(" / ")}, ${exit}. The verifier gives its command as ${said2(run2.command)}.${probe}`;
     })
   ];
 }
@@ -36338,15 +36385,15 @@ function findingBlock(state, finding, entry, decision, numbers, scratch) {
   const review2 = state.review;
   const { primary, members: members2, resolution } = entry;
   const own2 = finding.number;
-  const said2 = (text3) => inlineText(quoted(text3, { numbers, own: own2 }));
+  const said2 = (text3) => inlineText(quoted(text3, { numbers, own: own2, scratch }));
   const merged = members2.length === 0 ? "" : `; merged into it: ${members2.map((member) => `${member.id} at ${shortLocation(member)}${marks(member, false)}`).join(", ")}`;
   const fields = [
     `Where: ${shortLocation(primary)}${marks(primary, resolution.unverified)} (${finding.id}${merged})`,
     ...firstSentence(entry.finding.summary) === inlineText(entry.finding.summary).trim() ? [] : [`Summary: ${said2(entry.finding.summary)}`],
     `Reason: ${said2(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? "none; the verifier of this group failed twice" : said2(resolution.evidence)}`,
-    ...citedRunLines(resolution.basis, resolution.runs, said2, scratch),
-    ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2 }),
+    ...citedRunLines(resolution.basis, resolution.runs, said2),
+    ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2, scratch }),
     ...review2.fix === null ? [] : fixBlockLines(review2, review2.fix, finding.id, { numbers, own: own2, scratch })
   ];
   return [
@@ -36540,8 +36587,8 @@ function renderReport(state, input2) {
   const numbers = findingNumbers(review2);
   const decidedFor2 = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review2);
-  const said2 = (text3) => inlineText(quoted(text3, { numbers }));
   const scratch = scratchSpellings(state.workers);
+  const said2 = (text3) => inlineText(quoted(text3, { numbers, scratch }));
   const findingsSection = [
     "## Findings",
     "",
@@ -36551,7 +36598,7 @@ function renderReport(state, input2) {
     "## Refuted at verification",
     "",
     // A refuted candidate's basis and runs follow its evidence as a finding's do (R8 of runs on the record).
-    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}`, `Evidence: ${said2(evidence)}`, ...citedRunLines(candidate.verdict.basis, candidate.verdict.runs, said2, scratch)].join("\n  "))
+    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}`, `Evidence: ${said2(evidence)}`, ...citedRunLines(candidate.verdict.basis, candidate.verdict.runs, said2)].join("\n  "))
   ];
   const conventions = conventionsReportSection(review2, (path) => localPathWords(path, places));
   const fixed = input2.fix === void 0 ? [] : fixSections(state, storeNameOf, input2.fix.patches.map(storeNameOf), numbers, scratch);
