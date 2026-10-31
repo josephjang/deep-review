@@ -172,12 +172,14 @@ export function scratchSpellings(workers: RunState['workers']): string[] {
 /**
  * A cited run's command or printed line with each scratch directory of
  * `scratch` written `<scratch>`, since it is a local path of the machine
- * the worker ran on (R8 of runs on the record). A path that goes on into a
- * longer name stays as written.
+ * the worker ran on (R8 of runs on the record), with the `/private` that
+ * macOS puts before its temporary directory when a path is resolved, as
+ * Node does in a stack trace. A path that goes on into a longer name stays
+ * as written.
  */
 export function withoutScratch(text: string, scratch: readonly string[]): string {
   if (scratch.length === 0) return text;
-  return text.replace(new RegExp(`(?:${scratch.map((directory) => RegExp.escape(directory)).join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
+  return text.replace(new RegExp(`(?:/private(?=/))?(?:${scratch.map((directory) => RegExp.escape(directory)).join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
 }
 
 /**
