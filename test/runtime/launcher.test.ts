@@ -744,6 +744,24 @@ describe('runWorker', () => {
       assertEvidence(receipt);
     });
 
+    it('hands an adapter that reads stdout whole no stdout above the decode cap, so it refuses it by name, and freezes it', async () => {
+      const flooder: RuntimeAdapter = {
+        ...echo,
+        name: 'node-flood',
+        command: (_invocation, plan) => ({
+          args: ['--eval', `process.stdout.write('x'.repeat(${String(maxDecodeBytes + 1)}))`],
+          environment: plan.environment,
+        }),
+      };
+      const receipt = await box.run({ ...box.claude(), runtime: 'node-flood', executableArgs: [], effort: 'low' }, {}, { runtimes: new RuntimeRegistry([flooder]) });
+      assert.equal(receipt.outcome, 'failed');
+      assert.equal(receipt.error, 'stdout is too long to read whole');
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.stdout.bytes, maxDecodeBytes + 1);
+      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assertEvidence(receipt);
+    });
+
     it('is unknown until registered', async () => {
       await assert.rejects(box.run({ ...box.claude(), runtime: 'node-echo' }), (error: unknown) => error instanceof UnknownRuntimeError && error.runtime === 'node-echo');
       assert.ok(box.untouched());
