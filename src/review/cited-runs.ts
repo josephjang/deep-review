@@ -81,11 +81,18 @@ function indexOfWhole(text: string, needle: string, from: number, isPart: (chara
   return -1;
 }
 
-/** Whether `output` holds each line of `lines`, in order, each after the end of the one before. */
+/** A character of a word: a letter, a digit or `_`. */
+const isWordCharacter = (character: string): boolean => /^[\p{L}\p{N}_]$/u.test(character);
+
+/**
+ * Whether `output` holds each line of `lines`, in order, each after the end
+ * of the one before, and each neither starting nor ending inside a word of
+ * the output, so a cited `0 failed` is not found in `10 failed`.
+ */
 function holdsInOrder(output: string, lines: readonly string[]): boolean {
   let from = 0;
   for (const line of lines) {
-    const at = output.indexOf(line, from);
+    const at = indexOfWhole(output, line, from, isWordCharacter);
     if (at < 0) return false;
     from = at + line.length;
   }
@@ -95,7 +102,8 @@ function holdsInOrder(output: string, lines: readonly string[]): boolean {
 /**
  * The run of `record` that `cited` names, or null when none does: the
  * last whose normalized output holds each cited line, normalized and
- * trimmed, in the order cited, and, for a cited probe, whose command holds
+ * trimmed, in the order cited, neither starting nor ending inside a word
+ * of the output, and, for a cited probe, whose command holds
  * the probe's base name as a whole name, not inside a longer file name.
  * The last is taken because a worker often runs a probe, changes it and
  * runs it again, and its answer follows the run it saw last (TD4 of runs
