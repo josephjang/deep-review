@@ -77,6 +77,8 @@ export interface ScriptStep {
    * ran.
    */
   readonly runs?: readonly ShellRun[];
+  /** Files the worker writes in its scratch directory, by name, before it answers, as a verifier writes the probes its runs run. */
+  readonly probes?: Readonly<Record<string, string>>;
 }
 
 /** The script: steps by `<role>:<phase>:<unit>`, `<role>:<unit>`, `<role>` or `*`, the most specific key winning. */
@@ -96,6 +98,33 @@ function nextAttempt(script: string, key: string, id: string): number {
 function numberedCount(prompt: string): number {
   const match = /numbered \[0\] to \[(\d+)\]/.exec(prompt);
   return match === null ? 0 : Number(match[1]) + 1;
+}
+
+/** The words a verifier's task holds when its answer gives each verdict a basis and cites its runs (R2 of runs on the record). */
+const citingWords = 'Give each verdict a `basis`';
+
+/** The scratch directory the prompt names, or null when it names none. */
+function scratchOf(prompt: string): string | null {
+  return /^Your scratch directory is (.+)\. Write temporary files there/m.exec(prompt)?.[1] ?? null;
+}
+
+/**
+ * The step of a verifier whose task asks it to cite its runs and whose
+ * script gives no answer: for each candidate, a probe written in its
+ * scratch directory and run there, or run as a command when it has none,
+ * and a PLAUSIBLE verdict that rests on that run and cites it.
+ */
+function citingVerifierStep(prompt: string): Pick<ScriptStep, 'output' | 'runs' | 'probes'> {
+  const scratch = scratchOf(prompt);
+  const indexes = Array.from({ length: numberedCount(prompt) }, (_, index) => index);
+  const printed = (index: number): string => `fake probe for [${String(index)}] ran`;
+  const probe = (index: number): string | null => (scratch === null ? null : join(scratch, `probe-${String(index)}.mjs`));
+  const command = (index: number): string => `node ${probe(index) ?? `-e "console.log('${printed(index)}')"`}`;
+  return {
+    probes: scratch === null ? {} : Object.fromEntries(indexes.map((index) => [`probe-${String(index)}.mjs`, `console.log(${JSON.stringify(printed(index))});\n`])),
+    runs: indexes.map((index) => ({ command: command(index), output: `${printed(index)}\n`, exitCode: 0 })),
+    output: { verdicts: indexes.map((index) => ({ index, verdict: 'PLAUSIBLE', evidence: `fake evidence for [${String(index)}]`, basis: 'ran', runs: [{ command: command(index), printed: [printed(index)], probe: probe(index) }] })) },
+  };
 }
 
 /**
@@ -281,10 +310,15 @@ export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], p
  * run with the checks on the base answers in a schema that asks for
  * `comparisons`, which its task names, so an answer that names none there
  * compares nothing: a test scripts a repair answer as a fixer's and gives
- * `comparisons` only when it compares.
+ * `comparisons` only when it compares. Likewise a verifier of a run with
+ * runs on the record gives each verdict a basis and its runs, so a
+ * scripted verdict that names no basis is one that traced the lines and
+ * cites no run.
  */
 function answerFor(output: unknown, prompt: string): unknown {
-  if (!prompt.includes('Return `comparisons`') || typeof output !== 'object' || output === null || Object.hasOwn(output, 'comparisons')) return output;
+  if (typeof output !== 'object' || output === null) return output;
+  if (prompt.includes(citingWords) && Object.hasOwn(output, 'verdicts')) return { ...output, verdicts: (output as { readonly verdicts: readonly object[] }).verdicts.map((verdict) => ('basis' in verdict ? verdict : { ...verdict, basis: 'traced', runs: [] })) };
+  if (!prompt.includes('Return `comparisons`') || Object.hasOwn(output, 'comparisons')) return output;
   return { ...output, comparisons: [] };
 }
 
@@ -303,7 +337,9 @@ export function scriptedStep(host: FakeHost, prompt: string): { readonly role: s
   const key = [`${header.role}:${header.phase}:${header.unitKey}`, `${header.role}:${header.unitKey}`, header.role, '*'].find((candidate) => Object.hasOwn(script, candidate));
   const entry = key === undefined ? {} : script[key]!;
   const step = Array.isArray(entry) ? (entry[Math.min(nextAttempt(file, `${header.role}:${header.phase}:${header.unitKey}`, host.id), entry.length - 1)] ?? {}) : (entry as ScriptStep);
-  return { role: header.role, unit: header.unitKey, step: { ...step, output: answerFor(step.output ?? defaultOutput(header.role, prompt), prompt) } };
+  // A verifier asked to cite its runs and scripted no answer runs a probe per candidate and cites it, so every run that cites runs crosses the lookup.
+  const defaults = step.output === undefined && header.role === 'verifier' && prompt.includes(citingWords) ? citingVerifierStep(prompt) : { output: defaultOutput(header.role, prompt) };
+  return { role: header.role, unit: header.unitKey, step: { ...defaults, ...step, output: answerFor(step.output ?? defaults.output, prompt) } };
 }
 
 /** The thread id fake-codex.ts reports for a fresh worker, unless FAKE_THREAD names another. */
@@ -328,11 +364,15 @@ export async function waitForMarker(host: FakeHost, marker: string | undefined =
 
 /**
  * Do what a scripted step asks before the answer is printed: edit the
- * tree, hold where FAKE_HOLD names this start, wait, hang, or print
- * stderr. Returns the exit code the step asks for.
+ * tree, write its probes, hold where FAKE_HOLD names this start, wait,
+ * hang, or print stderr. Returns the exit code the step asks for.
  */
 export async function beginScriptedStep(host: FakeHost, step: ScriptStep, prompt: string): Promise<number> {
   await applyEdits(host, step.edits ?? [], prompt);
+  const probes = Object.entries(step.probes ?? {});
+  const scratch = scratchOf(prompt);
+  if (probes.length > 0 && scratch === null) throw new Error('A scripted step writes probes, but the prompt names no scratch directory');
+  for (const [name, content] of probes) writeFileSync(join(scratch!, name), content);
   const header = readTaskHeader(prompt);
   if (header !== null) await holdIfNamed(host, `${header.role} ${header.phase}:${header.unitKey}`);
   await waitForMarker(host, step.waitFor);

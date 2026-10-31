@@ -29,7 +29,7 @@ const recorded = (): ReplayResults => {
 const replaySample = (name: string, runtime = 'claude'): ReplaySample => ({ name, origin: 'replay', runtime, model: 'opus', effort: 'high', roleText: 'recorded', rolePromptSha256, version: null, spend: null });
 
 /** A sample's verdict for a candidate of the synthetic run, by the worker given. */
-const given = (id: string, verdict: Verdict, evidence = `${verdict} for ${id}`): [string, SampledVerdict] => [id, sampledVerdict(candidateOf(id), { verdict, unverified: false, evidence }, worker(60))];
+const given = (id: string, verdict: Verdict, evidence = `${verdict} for ${id}`): [string, SampledVerdict] => [id, sampledVerdict(candidateOf(id), { verdict, unverified: false, evidence, basis: null }, worker(60))];
 
 /** The recorded results with one replay sample that confirms SCAN-1, finds RIPPLE-1 plausible, confirms the design candidate and leaves SWEEP-2 unjudged. */
 const replayed = (): ReplayResults => withVerdicts(withSample(recorded(), replaySample('claude-1')), 'claude-1', new Map([given('SCAN-1', 'CONFIRMED'), given('RIPPLE-1', 'PLAUSIBLE'), given('SWEEP-1', 'CONFIRMED')]));
@@ -61,12 +61,16 @@ describe('recordedResults', () => {
       ['SWEEP-2', 'SCAN', 'sweep-verification', 'g1', 'src/a.ts:7'],
     ]);
     assert.deepEqual(results.candidates.map((candidate) => candidate.samples[recordedSampleName]), [
-      { verdict: 'CONFIRMED', unverified: false, evidence: 'line 3 dereferences null', outcome: 'fixer', workerId: worker(22) },
-      { verdict: 'REFUTED', unverified: false, evidence: 'the caller checks first', outcome: 'dropped', workerId: worker(22) },
-      { verdict: 'PLAUSIBLE', unverified: true, evidence: null, outcome: 'held', workerId: null },
-      { verdict: 'PLAUSIBLE', unverified: true, evidence: null, outcome: 'fixer', workerId: null },
+      { verdict: 'CONFIRMED', unverified: false, evidence: 'line 3 dereferences null', basis: null, outcome: 'fixer', workerId: worker(22) },
+      { verdict: 'REFUTED', unverified: false, evidence: 'the caller checks first', basis: null, outcome: 'dropped', workerId: worker(22) },
+      { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null, outcome: 'held', workerId: null },
+      { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null, outcome: 'fixer', workerId: null },
     ]);
     assert.deepEqual(parseResults(JSON.stringify(results)), results);
+    // Results written before the basis was kept read as verdicts with none (R10 of runs on the record).
+    const older = JSON.stringify(results).replaceAll('"basis":null,', '');
+    assert.doesNotMatch(older, /basis/);
+    assert.deepEqual(parseResults(older), results);
   });
 
   it('gives a candidate the run recorded no verdict for no recorded entry, and refuses a run with no group to replay', () => {
@@ -127,9 +131,9 @@ describe('the samples of the results', () => {
 describe('how samples agree', () => {
   it('counts each sample\'s verdicts, unverified candidates and outcomes over the candidates it judged', () => {
     const results = replayed();
-    assert.deepEqual(countsOf(results, recordedSampleName), { judged: 4, verdicts: { CONFIRMED: 1, PLAUSIBLE: 2, REFUTED: 1 }, unverified: 2, outcomes: { fixer: 2, held: 1, dropped: 1 } });
-    assert.deepEqual(countsOf(results, 'claude-1'), { judged: 3, verdicts: { CONFIRMED: 2, PLAUSIBLE: 1, REFUTED: 0 }, unverified: 0, outcomes: { fixer: 3, held: 0, dropped: 0 } });
-    assert.deepEqual(countsOf(results, 'no-such-sample'), { judged: 0, verdicts: { CONFIRMED: 0, PLAUSIBLE: 0, REFUTED: 0 }, unverified: 0, outcomes: { fixer: 0, held: 0, dropped: 0 } });
+    assert.deepEqual(countsOf(results, recordedSampleName), { judged: 4, verdicts: { CONFIRMED: 1, PLAUSIBLE: 2, REFUTED: 1 }, unverified: 2, outcomes: { fixer: 2, held: 1, dropped: 1 }, bases: { ran: 0, traced: 0, read: 0 } });
+    assert.deepEqual(countsOf(results, 'claude-1'), { judged: 3, verdicts: { CONFIRMED: 2, PLAUSIBLE: 1, REFUTED: 0 }, unverified: 0, outcomes: { fixer: 3, held: 0, dropped: 0 }, bases: { ran: 0, traced: 0, read: 0 } });
+    assert.deepEqual(countsOf(results, 'no-such-sample'), { judged: 0, verdicts: { CONFIRMED: 0, PLAUSIBLE: 0, REFUTED: 0 }, unverified: 0, outcomes: { fixer: 0, held: 0, dropped: 0 }, bases: { ran: 0, traced: 0, read: 0 } });
   });
 
   it('compares two samples over the candidates both judged, by verdict and by outcome', () => {

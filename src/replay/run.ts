@@ -24,7 +24,8 @@ import { ReviewRefusedError, StructuralCheckError } from '../review/errors.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { acquireStartLock, type ReleaseLock } from '../review/lock.ts';
 import { pinnedRole, readPolicy, resolvePolicy } from '../review/policy.ts';
-import { checkVerdicts, verifierOutputSchema, type VerifierOutput } from '../review/schemas.ts';
+import { foundVerdictRuns } from '../review/cited-runs.ts';
+import { checkVerdicts, verifierOutputSchema, verifierOutputSchemaV2, type VerifierOutput, type VerifierOutputV2 } from '../review/schemas.ts';
 import { budgetSpendOf, settledWorkers, spendOf } from '../review/spend.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -311,6 +312,8 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   // The CLI version each sample's first worker was launched on, by sample; a sample no worker ran in has none.
   const versionOf = new Map<string, string>();
 
+  // A replayed verifier answers in the schema its run asked for, so a replay of a run configured before runs on the record measures what it measured before (R10 of runs on the record).
+  const cited = state.review?.citedRuns ?? false;
   /** One attempt of a group in a sample: its verdicts by candidate id, or why it gave none. */
   const attempt = async ({ sample, group, prompt }: SamplingUnit): Promise<Map<string, SampledVerdict> | string> => {
     const invocation: InvocationInput = {
@@ -322,7 +325,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       access: 'read-only',
       shell: true,
       prompt,
-      outputSchema: verifierOutputSchema,
+      outputSchema: cited ? verifierOutputSchemaV2 : verifierOutputSchema,
       timeoutMs: settings.timeoutMs,
       ...(settings.budgetUsd === null ? {} : { budgetUsd: settings.budgetUsd }),
       label: unitLabel(verifierRole, group.phase, group.id),
@@ -337,16 +340,18 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     workersOf.get(sample)!.add(receipt.workerId);
     if (!versionOf.has(sample)) versionOf.set(sample, receipt.runtime.version);
     if (receipt.outcome !== 'completed') return `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`;
-    const answer = receipt.output as VerifierOutput;
+    const answer = receipt.output as VerifierOutput | VerifierOutputV2;
     try {
       checkVerdicts(answer, group.candidates.length);
+      // Each cited run is looked up in the replayed worker's own record, as the run looks it up; its probe is frozen nowhere, since a replay writes nothing to the run's checkpoint.
+      if (cited) foundVerdictRuns((answer as VerifierOutputV2).verdicts, receipt.runs ?? []);
     } catch (error) {
       if (error instanceof StructuralCheckError) return `structural check: ${error.message}`;
       throw error;
     }
     return new Map(answer.verdicts.map((verdict) => {
       const candidate = group.candidates[verdict.index]!;
-      return [candidate.id, sampledVerdict(candidate, { verdict: verdict.verdict, unverified: false, evidence: verdict.evidence }, receipt.workerId)];
+      return [candidate.id, sampledVerdict(candidate, { verdict: verdict.verdict, unverified: false, evidence: verdict.evidence, basis: 'basis' in verdict ? verdict.basis : null }, receipt.workerId)];
     }));
   };
 
@@ -377,7 +382,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
         break;
       }
     }
-    results = withVerdicts(results, unit.sample, new Map(unit.group.candidates.map((candidate) => [candidate.id, sampledVerdict(candidate, { verdict: 'PLAUSIBLE', unverified: true, evidence: null }, null)])));
+    results = withVerdicts(results, unit.sample, new Map(unit.group.candidates.map((candidate) => [candidate.id, sampledVerdict(candidate, { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null }, null)])));
     persist();
     unverified.push(name);
     log(`${name}: unverified, every candidate carries PLAUSIBLE`);
