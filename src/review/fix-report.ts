@@ -158,25 +158,50 @@ function answersFor(fix: FixState, id: string): { readonly phase: 'fixes' | 'ans
 }
 
 /**
+ * The scratch directories of the run's workers as a cited run can spell
+ * them (R8 of runs on the record): each as recorded and with forward
+ * slashes, which a worker on Windows may write for backslashes, longest
+ * first, so one inside another is never cut short. The verdict does not
+ * record which verifier gave it, so a report takes every worker's.
+ */
+export function scratchSpellings(workers: RunState['workers']): string[] {
+  const recorded = Object.values(workers).flatMap(({ launch }) => (launch.scratch === null ? [] : [launch.scratch, launch.scratch.replaceAll('\\', '/')]));
+  return [...new Set(recorded)].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * A cited run's command or printed line with each scratch directory of
+ * `scratch` written `<scratch>`, since it is a local path of the machine
+ * the worker ran on (R8 of runs on the record). A path that goes on into a
+ * longer name stays as written.
+ */
+export function withoutScratch(text: string, scratch: readonly string[]): string {
+  if (scratch.length === 0) return text;
+  return text.replace(new RegExp(`(?:${scratch.map((directory) => RegExp.escape(directory)).join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
+}
+
+/**
  * The evidence of a validation entry as its line ends (R8 of runs on the
  * record): the worker's words, quoted, then what the worker's record shows
  * of the runs the entry cites, the places of those found and each not
- * found by its command, quoted as the worker's text is; the words alone
- * for an entry that cites no run. Words that end with no mark of a
- * sentence's end get a period before what the record shows.
+ * found by its command, its scratch directory written `<scratch>` and
+ * quoted as the worker's text is; the words alone for an entry that cites
+ * no run. Words that end with no mark of a sentence's end get a period
+ * before what the record shows.
  */
-export function validationEvidence(entry: Pick<ValidationEntry, 'evidence' | 'runs'>, said: (text: string) => string): string {
+export function validationEvidence(entry: Pick<ValidationEntry, 'evidence' | 'runs'>, said: (text: string) => string, scratch: readonly string[]): string {
   const words = said(entry.evidence);
   const found = [...new Set(entry.runs.flatMap((run) => (run.found === null ? [] : [`shell run ${String(run.found.at)}`])))];
-  const record = [...(found.length === 0 ? [] : [`Its record shows ${listed(found)}.`]), ...entry.runs.filter((run) => run.found === null).map((run) => `Its record does not show: ${said(run.command)}.`)];
+  const record = [...(found.length === 0 ? [] : [`Its record shows ${listed(found)}.`]), ...entry.runs.filter((run) => run.found === null).map((run) => `Its record does not show: ${said(withoutScratch(run.command, scratch))}.`)];
   if (record.length === 0) return words;
   return `${words}${/[.!?]$/.test(words) ? '' : '.'} ${record.join(' ')}`;
 }
 
-/** What a fixer's text can name, for its quotes: the numbers of the findings, the finding the block is about, and the findings of its batch in the order its task numbered them. */
+/** What a fixer's text can name, for its quotes: the numbers of the findings, the finding the block is about, and the findings of its batch in the order its task numbered them; and the scratch directories of the run's workers, which a cited run's command writes `<scratch>` (`scratchSpellings`). */
 export interface FixQuote {
   readonly numbers: ReadonlyMap<string, number>;
   readonly own: number;
+  readonly scratch: readonly string[];
 }
 
 /**
@@ -219,8 +244,8 @@ export function fixBlockLines(review: ReviewState, fix: FixState, id: string, qu
   const answers = answersFor(fix, id);
   for (const { phase, key, batch, finding } of answers) {
     const by = answers.length === 1 ? 'its fixer' : phase === 'fixes' ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
-    const quote = saidIn(batch);
-    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote(validation.source)}: ${validationEvidence(validation, quote)}`);
+    const saidOfBatch = saidIn(batch);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${saidOfBatch(validation.source)}: ${validationEvidence(validation, saidOfBatch, quote.scratch)}`);
   }
   return lines;
 }
@@ -289,7 +314,7 @@ const reporterWords = (line: UnheldLine): string => (line.phase === 'repair' ? '
  * no item took, with who reported it. A run with no step and no line has
  * none.
  */
-function documentationSection(review: ReviewState, fix: FixState, numbers: ReadonlyMap<string, number>): string[] {
+function documentationSection(review: ReviewState, fix: FixState, numbers: ReadonlyMap<string, number>, scratch: readonly string[]): string[] {
   const said = (text: string): string => workerText(text, numbers);
   const plan = fix.documentation;
   const unheld = unheldDriftLines(review);
@@ -312,7 +337,7 @@ function documentationSection(review: ReviewState, fix: FixState, numbers: Reado
           `Note: ${said(finding.note)}`,
           ...(finding.message === null ? [] : [`Commit message: ${said(finding.message.subject)}`]),
           ...(finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(', ')}; ${patchNote(patchesOf(fix, item.id, 'documentation'))}`]),
-          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said(entry.source)}: ${validationEvidence(entry, said)}`),
+          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said(entry.source)}: ${validationEvidence(entry, said, scratch)}`),
         ];
     const took = item.drift.length === 0 ? [] : ['Lines it took:', ...item.drift.map((line) => `- ${said(line.what)} (${line.key}${line.file === item.file ? '' : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index + 1)}. ${item.id} ${outcome}`, '', ...document, ...answered, ...took, ''];
@@ -439,7 +464,7 @@ export function baseWorktreeLines(review: ReviewState): string[] {
  * reports, quoted with the numbers of the findings it names; then why a
  * phase ran nothing.
  */
-function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string, numbers: ReadonlyMap<string, number>): string[] {
+function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, evidencePath: (reference: { sha256: string; bytes: number }) => string, numbers: ReadonlyMap<string, number>, scratch: readonly string[]): string[] {
   const { survey } = review;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
@@ -472,7 +497,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
     const said = (text: string): string => workerText(text, numbers);
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).flatMap((finding) => [
       `- Its fix: ${statusWords[finding.status]}, ${said(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`,
-      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${validationEvidence(validation, said)}`),
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${validationEvidence(validation, said, scratch)}`),
     ]);
     return [...head, `- Command: ${codeSpan(check.command)}`, ...source, ...runs, ...fixed, ''];
   });
@@ -542,11 +567,11 @@ function patchesSection(fix: FixState, patches: readonly string[], numbers: Read
 }
 
 /** The parts of the evidence the fix pass adds after the findings, in order: Documentation updates when the run has the step or a drift line, Checks, Patches; none for a run without it. */
-export function fixSections(state: RunState, evidencePath: (reference: { sha256: string; bytes: number }) => string, patches: readonly string[], numbers: ReadonlyMap<string, number>): string[][] {
+export function fixSections(state: RunState, evidencePath: (reference: { sha256: string; bytes: number }) => string, patches: readonly string[], numbers: ReadonlyMap<string, number>, scratch: readonly string[]): string[][] {
   const review = state.review;
   const fix = review?.fix ?? null;
   if (review === null || fix === null) return [];
-  return [documentationSection(review, fix, numbers), checksSection(review, fix, state.scope!, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review, fix, numbers, scratch), checksSection(review, fix, state.scope!, evidencePath, numbers, scratch), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 
 /**
