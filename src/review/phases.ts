@@ -176,9 +176,10 @@ function batchOutcomes(review: ReviewState, batch: Pick<PlannedBatch, 'key' | 'f
 /**
  * A candidate of a ranked finding as a task names it: its claim and
  * location, and its own verdict and evidence; with `evidence`, as a
- * fixer's task of a run with runs on the record names it, also its basis
- * and the runs its verdict cites, a frozen probe by the path of its blob
- * (R6 of runs on the record).
+ * fixer's task names it, also its basis and the runs its verdict cites, a
+ * frozen probe by the path of its blob (R6 of runs on the record), which
+ * a verdict of a run configured before runs on the record holds none of.
+ * Without it, as the decider's task names it, neither.
  */
 function taskCandidate(candidate: CandidateState, evidence: Pick<EvidenceStore, 'pathOf'> | null = null): TaskCandidate {
   const resolution = resolutionOf(candidate);
@@ -306,7 +307,6 @@ function fixerTaskOf(unit: Unit, review: ReviewState, editing: EditingTaskInput,
  */
 function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFinding>, entry: ReportFinding, decision: FixerDecision | null, evidence: Pick<EvidenceStore, 'pathOf'>): Omit<FixerTaskFinding, 'firstRound'> {
   const id = entry.finding.id;
-  const cited = review.citedRuns ? evidence : null;
   return {
     id,
     severity: entry.finding.severity,
@@ -314,8 +314,8 @@ function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFind
     unverified: entry.resolution.unverified,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    primary: taskCandidate(entry.primary, cited),
-    members: entry.members.map((member) => taskCandidate(member, cited)),
+    primary: taskCandidate(entry.primary, evidence),
+    members: entry.members.map((member) => taskCandidate(member, evidence)),
     decision,
     supersedes: (review.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked.get(left.id);
