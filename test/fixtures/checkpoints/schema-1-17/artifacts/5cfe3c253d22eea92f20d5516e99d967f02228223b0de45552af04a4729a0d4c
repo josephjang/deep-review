@@ -1,0 +1,2 @@
+import { changed } from "../src/changed.ts";
+console.log(changed("keep"));

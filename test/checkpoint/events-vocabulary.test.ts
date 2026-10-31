@@ -25,6 +25,7 @@ import {
   checkRanV4,
   checkStartedV1,
   checkStartedV2,
+  citedRunLimitsV1,
   comparisonWordsLengthV1,
   commitsCreatedV1,
   commitsDroppedV1,
@@ -37,6 +38,7 @@ import {
   fixRecordedV2,
   fixRecordedV3,
   fixRecordedV4,
+  fixRecordedV5,
   fixReopenedV1,
   fixReopenedV2,
   groupUnverifiedV1,
@@ -68,6 +70,7 @@ import {
   reviewConfiguredV6,
   reviewConfiguredV7,
   reviewConfiguredV8,
+  reviewConfiguredV9,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -79,6 +82,7 @@ import {
   reviewVocabularyV7,
   reviewVocabularyV8,
   reviewVocabularyV9,
+  reviewVocabularyV10,
   surveyFailedV1,
   treeRestoredV1,
   treeRevisedV1,
@@ -86,6 +90,8 @@ import {
   treeRevisedV3,
   unitUnattemptedV1,
   unitUnattemptedV2,
+  verdictsRecordedV1,
+  verdictsRecordedV2,
   workerLostV1,
   workerLostV2,
   workerLostV3,
@@ -137,6 +143,7 @@ import {
   unitKeySchema,
   userRulesSettings,
   validationMethods,
+  verdictBases,
   verdicts,
   verificationPhases,
   worktreeMoments,
@@ -847,6 +854,65 @@ describe('the review vocabulary frozen by the v9 events', () => {
 
   it('records a review.configured@8 exactly as version 7 records it: the version alone says the run has the checks on the base (TD8)', () => {
     assert.equal(reviewConfiguredV8, reviewConfiguredV7);
+  });
+});
+
+// Version 10 of the review events records the bases of a verdict, which
+// runs on the record added; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v10 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = { sha256: 'a'.repeat(64), bytes: 120 };
+  const run = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ command: 'node probe-1.mjs', printed: ['TypeError: Cannot read properties of undefined'], probe: { blob, name: 'probe-1.mjs' }, at: 3, exitCode: 1, ...change });
+  const verdict = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'the probe threw', basis: 'ran', runs: [run()], ...change });
+  const recorded = (...verdicts: Record<string, unknown>[]): Record<string, unknown> => ({ phase: 'verification', groupId: 'g1', workerId, verdicts });
+  const entry = (runs: unknown[] | undefined): Record<string, unknown> => ({ method: 'old-code', source: 'test/parse.test.ts', evidence: 'red before, green after', ...(runs === undefined ? {} : { runs }) });
+  const answer = (runs: unknown[] | undefined): Record<string, unknown> => ({
+    phase: 'fixes', key: 'c1-1', workerId,
+    findings: [{ id: 'SCAN-1', status: 'applied', file: 'src/parse.ts', line: 41, note: 'guarded', message: { subject: 'fix: Guard the empty input', body: 'Why.' }, files: ['src/parse.ts'], corrections: [], validation: [entry(runs)], requiredFiles: [] }],
+    drift: [], tests: [], suite: { result: 'pass', command: 'npm test', failures: '' }, violations: [], comparisons: [],
+  });
+  const cited = (found: unknown): Record<string, unknown> => ({ command: 'npx tsx probe-1.mjs', printed: ['ok'], probe: null, found });
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV10, { verdictBases });
+  });
+
+  it('records a verdict\'s basis and runs only from version 2 of verdicts.recorded, which names them on every verdict', () => {
+    assert.equal(verdictsRecordedV1.safeParse(recorded(verdict())).success, false, 'version 1 has no basis');
+    assert.equal(verdictsRecordedV1.safeParse(recorded({ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'e' })).success, true);
+    assert.equal(verdictsRecordedV2.safeParse(recorded({ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'e' })).success, false, 'version 2 names the basis and the runs');
+    for (const basis of verdictBases) assert.equal(verdictsRecordedV2.safeParse(recorded(verdict({ basis, runs: [] }))).success, true, basis);
+    assert.equal(verdictsRecordedV2.safeParse(recorded(verdict({ basis: 'guessed' }))).success, false, 'a basis of the three');
+    assert.equal(verdictsRecordedV2.safeParse(recorded(verdict())).success, true);
+    assert.equal(verdictsRecordedV2.safeParse(recorded(verdict({ runs: [run({ probe: null, exitCode: null })] }))).success, true, 'a run with no probe and no exit code');
+  });
+
+  it('holds a cited run to the caps of the answer: three runs, one to five lines, each and the command within their lengths', () => {
+    const accepts = (change: Record<string, unknown>): boolean => verdictsRecordedV2.safeParse(recorded(verdict(change))).success;
+    assert.equal(accepts({ runs: [run(), run(), run()] }), true);
+    assert.equal(accepts({ runs: [run(), run(), run(), run()] }), false, 'at most three runs');
+    assert.equal(accepts({ runs: [run({ printed: [] })] }), false, 'at least one line');
+    assert.equal(accepts({ runs: [run({ printed: Array.from({ length: citedRunLimitsV1.lines }, () => 'x') })] }), true);
+    assert.equal(accepts({ runs: [run({ printed: Array.from({ length: citedRunLimitsV1.lines + 1 }, () => 'x') })] }), false, 'at most five lines');
+    assert.equal(accepts({ runs: [run({ printed: ['x'.repeat(citedRunLimitsV1.line + 1)] })] }), false, 'a line within its length');
+    assert.equal(accepts({ runs: [run({ command: 'x'.repeat(citedRunLimitsV1.command + 1) })] }), false, 'a command within its length');
+    assert.equal(accepts({ runs: [run({ probe: { blob, name: '' } })] }), false, 'a probe has a name');
+    assert.equal(accepts({ runs: [run({ probe: { name: 'probe-1.mjs' } })] }), false, 'a probe is frozen');
+  });
+
+  it('records the runs of a validation entry only from version 5 of fix.recorded, each found or not', () => {
+    assert.equal(fixRecordedV4.safeParse(answer([cited({ at: 2, exitCode: 0 })])).success, false, 'version 4 has no runs in its entries');
+    assert.equal(fixRecordedV4.safeParse(answer(undefined)).success, true);
+    assert.equal(fixRecordedV5.safeParse(answer(undefined)).success, false, 'version 5 names the runs of each entry');
+    assert.equal(fixRecordedV5.safeParse(answer([])).success, true);
+    assert.equal(fixRecordedV5.safeParse(answer([cited({ at: 2, exitCode: 0 }), cited(null)])).success, true, 'one run found and one not');
+    assert.equal(fixRecordedV5.safeParse(answer([cited(null), cited(null), cited(null), cited(null)])).success, true);
+    assert.equal(fixRecordedV5.safeParse(answer([cited(null), cited(null), cited(null), cited(null), cited(null)])).success, false, 'at most four runs');
+    assert.equal(fixRecordedV5.safeParse(answer([{ ...cited(null), probe: { blob, name: 'probe-1.mjs' } }])).success, true, 'a frozen probe');
+  });
+
+  it('records a review.configured@9 exactly as version 8 records it: the version alone says the run cites its runs (TD6 of runs on the record)', () => {
+    assert.equal(reviewConfiguredV9, reviewConfiguredV8);
   });
 });
 

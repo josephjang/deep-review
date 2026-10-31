@@ -454,7 +454,7 @@ describe('the brief for the person', () => {
     const fix = state.review!.fix!;
     const validated = (methods: readonly string[]): Brief => {
       const answer = fix.answers.fixes['c1-1']!;
-      const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran' })) }));
+      const findings = answer.findings.map((finding) => ({ ...finding, validation: methods.map((method) => ({ method, source: 'test/a.test.ts', evidence: 'it ran', runs: [] })) }));
       return briefOf({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState);
     };
     const row = (brief: Brief, form: 'report' | 'chat' = 'report'): string => briefMarkdown(brief, form).at(-1)!;

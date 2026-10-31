@@ -51,6 +51,7 @@ import {
   statistics,
   surveyAnswer,
   withBaseChecks,
+  withCitedRuns,
   withDecisions,
   withDocumentationStep,
   withFixPass,
@@ -1285,5 +1286,43 @@ describe('the checks on the base in the fix state', () => {
     refused(rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'build', 'skipped', 2), ...baseSkip('empty-tree'), replaces: { attempt: 1, outcome: 'skipped' } }, 4), /runs the build check again in base-checks, whose last current run is its result/);
     const skippedAgain = rootCommit.clone().add('check.ran', { ...checkRun('base-checks', 'test', 'skipped', 2), ...baseSkip('empty-tree'), replaces: null }, 4);
     assert.deepEqual(skippedAgain.review().fix?.checks.runs['base-checks'].map((run) => [run.kind, run.attempt]), [['build', 1], ['lint', 1], ['test', 2]], 'the reopened attempt adds no run of build');
+  });
+});
+
+// R7, R9 and TD7 of runs on the record.
+describe('the cited runs of a validation in the fix state', () => {
+  const refused = (history: History, message: RegExp): void => {
+    assert.throws(() => history.fold(), (error: unknown) => error instanceof InvalidHistoryError && message.test(error.message), message.source);
+  };
+  /** A decided fix run with the documentation step and the checks on the base, configured at version 9 unless `cited` is false, at its first fixer. */
+  const atFixer = (cited = true): History => {
+    const atBaseline = withBaseChecks(withDocumentationStep(checksPhase(decidedOf(withFixPass(mergeRanked())), 'baseline-checks'), null));
+    return (cited ? withCitedRuns(atBaseline) : atBaseline).start('fixes').add('fixes.planned', fixPlan).worker(50, 'fixer fixes:c1-1');
+  };
+  /** c1-1's answer with one validation entry citing `runs`, at version 5 with no comparison. */
+  const validated = (runs: readonly unknown[]): Record<string, unknown> => {
+    const answer = fixAnswer(worker(50));
+    const findings = (answer.findings as Record<string, unknown>[]).map((finding) => ({ ...finding, validation: [{ method: 'old-code', source: 'test/a.test.ts', evidence: 'red before the fix, green after', runs }] }));
+    return { ...answer, findings, comparisons: [] };
+  };
+  const found = { command: 'npx vitest run test/a.test.ts', printed: ['1 failed'], probe: null, found: { at: 4, exitCode: 1 } };
+  const missing = { command: 'node probe-1.mjs', printed: ['TypeError'], probe: { blob: reference('9', 120), name: 'probe-1.mjs' }, found: null };
+
+  it('folds each validation entry with the runs it cites, found or not', () => {
+    const answer = atFixer().add('fix.recorded', validated([found, missing]), 5).review().fix!.answers.fixes['c1-1']!;
+    assert.deepEqual(answer.findings[0]!.validation[0]!.runs, [found, missing]);
+    assert.deepEqual(lastAnswerOf(atFixer().add('fix.recorded', validated([found]), 5).review().fix!, 'RIPPLE-1')?.finding.validation[0]!.runs, [found]);
+  });
+
+  it('reads an entry of an answer before version 5 as one that cites no run', () => {
+    const entry = { method: 'existing', source: 'npm test', evidence: 'passed' };
+    const answer = fixAnswer(worker(50), { findings: (fixAnswer(worker(50)).findings as Record<string, unknown>[]).map((finding) => ({ ...finding, validation: [entry] })) });
+    assert.deepEqual(atFixer().add('fix.recorded', answer, 2).review().fix!.answers.fixes['c1-1']!.findings[0]!.validation, [{ ...entry, runs: [] }]);
+    assert.deepEqual(atFixer(false).add('fix.recorded', { ...answer, comparisons: [] }, 4).review().fix!.answers.fixes['c1-1']!.findings[0]!.validation, [{ ...entry, runs: [] }]);
+  });
+
+  it('refuses a cited run in a run configured before runs on the record, and one found before the first place of the record', () => {
+    refused(atFixer(false).add('fix.recorded', validated([found]), 5), /cites runs in the validation of fixes:c1-1, which a run configured before runs on the record does not/);
+    refused(atFixer().add('fix.recorded', validated([{ ...found, found: { at: 0, exitCode: 1 } }]), 5), /records a run of the validation of fixes:c1-1 before the first place of its record/);
   });
 });

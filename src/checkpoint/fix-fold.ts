@@ -24,7 +24,7 @@
  */
 import { answersFindings, batchKeySchema, clusterIdSchema, fixPhases, isCheckPhase, isEditingPhase, repairUnitKey, type Phase } from '../review/vocabulary.ts';
 import { standingAnswer, withApplied } from './answer-state.ts';
-import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixRecordedV4, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
+import type { CheckRan, CheckStarted, ChecksPlannedV1, ChecksPlannedV2, ChecksPlannedV3, ClaimsLost, CommitsCreated, CommitsDropped, CommitsPrepared, DocumentationPlanned, FilesClaimed, FixesPlanned, FixesReplanned, FixPinned, FixPinnedV2, FixRecorded, FixRecordedV4, FixRecordedV5, FixReopened, FixSettingsRecorded, TreeRestored, TreeRevised, UnitUnattempted } from './events.ts';
 import { batchOf, baseKinds, comparableKinds, driftLineKey, budgetStoppedUnits, claimRefusal, documentationReadiness, claimsOfRound, emptyFixState, exactPath, firstRoundHolders, firstRoundSettled, heldByAnother, heldByOthers, holdersKeyedBy, isNotAttempted, lastAnswerOf, lastCurrentRun, lastFreshRun, nextSeries, openStart, plannedCheckOfV2, roundOf, routeOf, runHead, runStanding, secondCut, secondRoundFiles, settledClusters, takenOnBase, unitIdsOf, type ChecksPlanned, type CheckRunState, type CheckStartState, type FixState, type PathHolder, type PlannedCheck, type ReopeningState, type RestorationState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
 import { answered, invalid, requireReview, requireRunning, requireUnanswered, withFreshAttempts, withReview, type ReviewState } from './review-fold.ts';
@@ -339,11 +339,17 @@ const treeRestored: Reducer<TreeRestored> = (state, payload, event) => {
  * An answer of an editing unit. Its comparisons with the base are the
  * repair's alone, of the kinds that failed or timed out there
  * (`comparableKinds`), once each (R2, TD6 of the facts before a merge):
- * the engine drops any other entry before it records the answer.
+ * the engine drops any other entry before it records the answer. Its
+ * validation entries cite runs only in a run configured at
+ * `review.configured@9`, and a run found in the record has its place from
+ * 1 (R7 of runs on the record).
  */
-const fixRecorded: Reducer<FixRecordedV4> = (state, payload, event, drafts: FoldDrafts) => {
+const fixRecorded: Reducer<FixRecordedV5> = (state, payload, event, drafts: FoldDrafts) => {
   const { current, review, fix } = requireFix(state, event);
   requireRunning(review, event, payload.phase);
+  const cited = payload.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs));
+  if (cited.length > 0 && !review.citedRuns) throw invalid(event, `cites runs in the validation of ${payload.phase}:${payload.key}, which a run configured before runs on the record does not`);
+  if (cited.some((run) => run.found !== null && run.found.at < 1)) throw invalid(event, `records a run of the validation of ${payload.phase}:${payload.key} before the first place of its record`);
   if (payload.comparisons.length > 0 && payload.phase !== 'repair') throw invalid(event, `compares checks with the base in ${payload.phase}:${payload.key}, which only the repair does`);
   const comparable = comparableKinds(fix);
   const compared = new Set<string>();
@@ -374,8 +380,14 @@ const fixRecorded: Reducer<FixRecordedV4> = (state, payload, event, drafts: Fold
   return withReview(current, { ...review, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
 };
 
-/** An answer recorded before version 4, which holds no comparison with the base. */
-const fixRecordedV3: Reducer<FixRecorded> = (state, payload, event, drafts) => fixRecorded(state, { ...payload, comparisons: [] }, event, drafts);
+/** The findings of an answer recorded before version 5, whose validation entries cite no run. */
+const withoutRuns = (findings: FixRecorded['findings']): FixRecordedV5['findings'] => findings.map((finding) => ({ ...finding, validation: finding.validation.map((entry) => ({ ...entry, runs: [] })) }));
+
+/** An answer recorded at version 4, whose validation entries cite no run. */
+const fixRecordedV4: Reducer<FixRecordedV4> = (state, payload, event, drafts) => fixRecorded(state, { ...payload, findings: withoutRuns(payload.findings) }, event, drafts);
+
+/** An answer recorded before version 4, which holds no comparison with the base and cites no run. */
+const fixRecordedV3: Reducer<FixRecorded> = (state, payload, event, drafts) => fixRecorded(state, { ...payload, findings: withoutRuns(payload.findings), comparisons: [] }, event, drafts);
 
 const treeRevised: Reducer<TreeRevised> = (state, payload, event) => {
   const { current, review, fix } = requireFix(state, event);
@@ -675,7 +687,8 @@ export const fixReducers = {
   'fix.recorded@1': fixRecordedV3,
   'fix.recorded@2': fixRecordedV3,
   'fix.recorded@3': fixRecordedV3,
-  'fix.recorded@4': fixRecorded,
+  'fix.recorded@4': fixRecordedV4,
+  'fix.recorded@5': fixRecorded,
   'tree.revised@1': treeRevised,
   'tree.revised@2': treeRevised,
   'tree.revised@3': treeRevised,

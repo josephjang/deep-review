@@ -80,7 +80,7 @@ describe('the report of a fix run', () => {
     const state = fixRun().fold();
     const fix = state.review!.fix!;
     const repaired = fix.answers.repair[repairUnitKey]!;
-    const validation = [{ method: 'existing' as const, source: 'npm run lint', evidence: 'passed after RIPPLE-1 read <stdin>' }];
+    const validation = [{ method: 'existing' as const, source: 'npm run lint', evidence: 'passed after RIPPLE-1 read <stdin>', runs: [] }];
     const findings = repaired.findings.map((finding) => (finding.id === 'lint' ? { ...finding, validation } : finding));
     const report = render({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, repair: { [repairUnitKey]: { ...repaired, findings } } } } } });
     assert.match(report, /^- Its fix: applied, formatted the guard; patch 3\n- Validation, as its fixer reports it: existing, npm run lint: passed after RIPPLE-1 \(finding 1\) read \\<stdin>$/m);
@@ -580,7 +580,7 @@ describe('the Documentation section of the report', () => {
     const state = documentedFixRun([line('./docs/a.md', 'parse throws on a null'), line('../outside.md', 'parse throws')], answeredStep).fold();
     const fix = state.review!.fix!;
     const step = fix.answers.documentation[documentationUnitKey]!;
-    const findings = step.findings.map((finding) => (finding.id === 'doc-1' ? { ...finding, note: 'said <stdin> is read', message: { subject: 'docs(a): Say *all* is read', body: 'Why.' }, validation: [{ method: 'static' as const, source: 'docs/a.md', evidence: 'reads __all__' }] } : finding));
+    const findings = step.findings.map((finding) => (finding.id === 'doc-1' ? { ...finding, note: 'said <stdin> is read', message: { subject: 'docs(a): Say *all* is read', body: 'Why.' }, validation: [{ method: 'static' as const, source: 'docs/a.md', evidence: 'reads __all__', runs: [] }] } : finding));
     const text = section({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, documentation: { [documentationUnitKey]: { ...step, findings } } } } } });
     assert.match(text, /^Note: said \\<stdin> is read\nCommit message: docs\(a\): Say \\\*all\\\* is read$/m);
     assert.match(text, /^Validation: static, docs\/a\.md: reads \\_\\_all\\_\\_$/m);

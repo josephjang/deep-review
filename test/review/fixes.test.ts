@@ -24,7 +24,7 @@ function finding(primary: CandidateState, verdict: Verdict = 'CONFIRMED', member
     finding: { id: primary.id, members: members.map((member) => member.id), severity: 'major', summary: `${primary.id} summary`, reason: 'reason' },
     primary,
     members,
-    resolution: { verdict, unverified, evidence: unverified ? null : 'evidence' },
+    resolution: { verdict, unverified, evidence: unverified ? null : 'evidence', basis: null, runs: [] },
   };
 }
 

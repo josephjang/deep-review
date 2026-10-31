@@ -252,7 +252,7 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Ans
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares }), payload: recorded },
+    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares, cites: false }), payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
       version: writtenVersion('tree.revised', [phase]),

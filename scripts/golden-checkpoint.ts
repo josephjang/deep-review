@@ -2154,6 +2154,107 @@ try {
       patches: [checkpoint.evidence.put('From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001\nSubject: [PATCH] fix: Keep the bytes in changed()\n\n---\n')],
     }, 7);
   });
+  // A seventeenth run, a fix run configured at version 9, with runs on the
+  // record (TD6 of runs on the record). Its verifier ran a probe from its
+  // scratch directory and cites the run, found at place 2 of its record,
+  // with the probe frozen; it records its verdict at version 2. The fixer
+  // applies SCAN-1 and cites two runs in its validation, one found in its
+  // record and one not, so its answer is recorded at version 5. The run
+  // stops after its fixes.
+  const citedRun = checkpoint.createRun({ worktree: '/fixture/cited' });
+  const cited = new ReviewHistory(checkpoint, citedRun.id, checkpoint.append(citedRun.id, citedRun.lastSequence, [{ kind: 'scope.captured', version: 2, payload: { ...fixScope, request: { paths: [], exclude: [] }, excluded: { paths: [], count: 0 } } }]).lastSequence);
+  cited.add('review.configured', documentedConfiguration, 9);
+  cited.phaseV6('survey', () => {
+    cited.launch('d01', 'surveyor survey:survey');
+    cited.finishWorker('d01');
+    cited.add('survey.recorded', {
+      workerId: cited.id('d01'),
+      conventions: [],
+      userRules: [],
+      checks: [
+        { kind: 'build', command: comparedChecks.build, basis: 'stated', source: { path: 'package.json', quote: '"build"' }, missingTool: null, reason: null },
+        { kind: 'typecheck', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no type checker' },
+        { kind: 'lint', command: null, basis: null, source: null, missingTool: null, reason: 'the project has no linter' },
+        { kind: 'test', command: comparedChecks.test, basis: 'stated', source: { path: 'package.json', quote: '"test"' }, missingTool: null, reason: null },
+      ],
+      note: '',
+    });
+    cited.add('checks.planned', { checks: [
+      { kind: 'build', command: comparedChecks.build, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"build"', basis: 'stated' } },
+      { kind: 'typecheck', command: null, origin: 'none', layer: null, reason: 'the project has no type checker', source: null },
+      { kind: 'lint', command: null, origin: 'none', layer: null, reason: 'the project has no linter', source: null },
+      { kind: 'test', command: comparedChecks.test, origin: 'survey', layer: null, reason: null, source: { path: 'package.json', quote: '"test"', basis: 'stated' } },
+    ] }, 3);
+  });
+  cited.phaseV6('triage', () => {
+    cited.launch('d02', 'triage triage:SCAN');
+    cited.finishWorker('d02');
+    cited.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: cited.id('d02'), candidates: [cited.candidate('SCAN-1', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+  });
+  cited.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `d${String(10 + finderAngles.indexOf(angle))}`;
+      cited.launch(tag, `finder-${angle} finders:${angle}`);
+      cited.finishWorker(tag);
+      cited.add('candidates.recorded', { phase: 'finders', key: angle, workerId: cited.id(tag), candidates: [], leads: null, change: null }, 2);
+    }
+  });
+  cited.phaseV6('deduplication', () => {});
+  const probe = { blob: checkpoint.evidence.put('import { changed } from "../src/changed.ts";\nconsole.log(changed("keep"));\n'), name: 'probe-1.mjs' };
+  cited.phaseV6('verification', () => {
+    cited.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] });
+    cited.launch('d31', 'verifier verification:g1');
+    cited.finishWorker('d31');
+    cited.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: cited.id('d31'), verdicts: [{
+      id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'the probe printed the input without the bytes it was told to keep', basis: 'ran',
+      runs: [{ command: 'node probe-1.mjs', printed: ['kep'], probe, at: 2, exitCode: 0 }],
+    }] }, 2);
+  });
+  cited.phaseV6('sweep', () => {
+    cited.launch('d32', 'sweep sweep:sweep');
+    cited.finishWorker('d32');
+    cited.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: cited.id('d32'), candidates: [], leads: null, change: null }, 2);
+  });
+  cited.phaseV6('sweep-deduplication', () => {});
+  cited.phaseV6('sweep-verification', () => cited.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  cited.phaseV6('merge-rank', () => {
+    cited.launch('d33', 'merge-rank merge-rank:merge-rank');
+    cited.finishWorker('d33');
+    cited.add('ranking.recorded', { workerId: cited.id('d33'), findings: [{ id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() removes the bytes it was told to keep', reason: 'the output differs from the input' }] });
+  });
+  cited.phaseV6('decision', () => {
+    cited.launch('d34', 'decider decision:decision');
+    cited.finishWorker('d34');
+    cited.add('decisions.recorded', { workerId: cited.id('d34'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'the commit says the bytes are kept', fix: { approach: 'keep the bytes in changed()', rejected: [] }, leave: null, ask: null, departure: null },
+    ] });
+  });
+  cited.phaseV6('baseline-checks', () => {
+    cited.checkV3('baseline-checks', 'build', comparedChecks.build, 'passed');
+    cited.checkV3('baseline-checks', 'test', comparedChecks.test, 'passed');
+  });
+  cited.phaseV6('fixes', () => {
+    cited.add('fixes.planned', {
+      routes: [{ id: 'SCAN-1', route: 'fixer' }],
+      clusters: [{ id: 'c1', findingIds: ['SCAN-1'], files: ['src/changed.ts'] }],
+      batches: [{ key: 'c1-1', cluster: 'c1', findingIds: ['SCAN-1'] }],
+    });
+    cited.launch('d40', 'fixer fixes:c1-1');
+    cited.finishWorker('d40');
+    const applied = finding('SCAN-1', 'applied', ['src/changed.ts'], 'fix: Keep the bytes in changed()');
+    cited.add('fix.recorded', {
+      phase: 'fixes', key: 'c1-1', workerId: cited.id('d40'),
+      findings: [{ ...applied, validation: [{ ...applied.validation[0]!, runs: [
+        { command: 'node probe-1.mjs', printed: ['keep'], probe: { blob: probe.blob, name: probe.name }, found: { at: 5, exitCode: 0 } },
+        { command: 'npm test -- test/changed.test.ts', printed: ['1 failed'], probe: null, found: null },
+      ] }] }],
+      drift: [], tests: [], suite: { result: 'pass', command: comparedChecks.test, failures: '' }, violations: [], comparisons: [],
+    }, 5);
+    cited.add('tree.revised', { phase: 'fixes', source: { kind: 'fix', key: 'c1-1', workerId: cited.id('d40') }, change: { findings: ['SCAN-1'], message: message('fix: Keep the bytes in changed()') }, files: [
+      { path: 'src/changed.ts', status: 'modified', before: cited.frozen('after\n'), beforeSymlink: false, symlink: false, after: cited.frozen('after; // the bytes kept\n') },
+    ] }, 2);
+    cited.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
+  }, 'completed', { end: true });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

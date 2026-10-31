@@ -778,6 +778,30 @@ export function withBaseChecks(history: History): History {
 }
 
 /**
+ * The same history with runs on the record (TD6 of runs on the record):
+ * its configuration, recorded at version 8 (`withBaseChecks`), recorded at
+ * version 9 instead, whose payload is the same, and each verdict recorded
+ * at version 2 with `change` over the basis `traced` and no run, as a
+ * verifier of such a run records a verdict that rests on no run.
+ */
+export function withCitedRuns(history: History, change: Record<string, unknown> = {}): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'review.configured') assert.equal(event.version, 8, 'a run with runs on the record has the checks on the base');
+    if (event.kind === 'verdicts.recorded') {
+      const payload = event.payload as { readonly verdicts: readonly Record<string, unknown>[] };
+      result.add(event.kind, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, basis: 'traced', runs: [], ...change })) }, 2);
+      continue;
+    }
+    result.add(event.kind, event.payload, event.kind === 'review.configured' ? 9 : event.version);
+  }
+  return result;
+}
+
+/** One run a verdict cites as `verdicts.recorded@2` records it, found at place `at` of its verifier's record. */
+export const verdictRun = (at = 3, change: Record<string, unknown> = {}): Record<string, unknown> => ({ command: 'node probe-1.mjs', printed: ['TypeError: Cannot read properties of null'], probe: { blob: reference('9', 120), name: 'probe-1.mjs' }, at, exitCode: 1, ...change });
+
+/**
  * A decided fix run with the documentation step and the checks on the
  * base, through its checks after the fixes: each check passes before the
  * fixes and after them unless `before` and `after` say otherwise, so a
