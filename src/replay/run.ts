@@ -24,7 +24,7 @@ import { ReviewRefusedError, StructuralCheckError } from '../review/errors.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { acquireStartLock, type ReleaseLock } from '../review/lock.ts';
 import { pinnedRole, readPolicy, resolvePolicy } from '../review/policy.ts';
-import { foundVerdictRuns } from '../review/cited-runs.ts';
+import { checkCitedVerdicts } from '../review/cited-runs.ts';
 import { checkVerdicts, verifierOutputSchema, verifierOutputSchemaV2, type VerifierOutput, type VerifierOutputV2 } from '../review/schemas.ts';
 import { budgetSpendOf, settledWorkers, spendOf } from '../review/spend.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
@@ -343,8 +343,8 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     const answer = receipt.output as VerifierOutput | VerifierOutputV2;
     try {
       checkVerdicts(answer, group.candidates.length);
-      // Each cited run is looked up in the replayed worker's own record, as the run looks it up; its probe is frozen nowhere, since a replay writes nothing to the run's checkpoint.
-      if (cited) foundVerdictRuns((answer as VerifierOutputV2).verdicts, receipt.runs ?? []);
+      // Each cited run is looked up in the replayed worker's own record and its probe frozen from the worker's own scratch directory, as the run does, so an answer the run would refuse fails the attempt; the probe goes to the replay's own checkpoint, since a replay writes nothing to the run's.
+      if (cited) checkCitedVerdicts((answer as VerifierOutputV2).verdicts, receipt.runs ?? [], replay.fold(run.id).workers[receipt.workerId]?.launch.scratch ?? null, replay.evidence);
     } catch (error) {
       if (error instanceof StructuralCheckError) return `structural check: ${error.message}`;
       throw error;

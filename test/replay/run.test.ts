@@ -5,7 +5,7 @@ import { after, before, describe, it } from 'node:test';
 import { Checkpoint } from '../../src/checkpoint/checkpoint.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
-import { splitRoleText, withoutScratchNote } from '../../src/replay/prompt.ts';
+import { splitRoleText, withoutScratchNote, withProbeSentence } from '../../src/replay/prompt.ts';
 import { promptsDirectoryName, replayCheckpointDirectoryName, replayVerifier, resultsFileName, summaryFileName, type ReplayOptions, type ReplayOutcome } from '../../src/replay/run.ts';
 import { agreementOf, parseResults, recordedSampleName } from '../../src/replay/samples.ts';
 import { acquireStartLock } from '../../src/review/lock.ts';
@@ -170,10 +170,11 @@ describe('replayVerifier', () => {
     assert.equal(codex.model, readPolicy(box.rolesRoot).runtimes.codex!.strong);
     assert.equal(codex.spend?.costUsd, null);
     assert.deepEqual(outcome.results.candidates.map((candidate) => [candidate.samples['claude-1']?.verdict, candidate.samples['codex-1']?.verdict]), [['PLAUSIBLE', 'CONFIRMED'], ['PLAUSIBLE', 'CONFIRMED'], ['PLAUSIBLE', 'REFUTED']]);
-    // The other runtime's verifiers were sent the recorded prompts too.
+    // The other runtime's verifiers were sent the recorded prompts too, but for the probe sentence, which follows Codex's reading worker, which has no scratch directory.
     const prompts = replayedPrompts(output);
     assert.equal(prompts.length, 4);
-    for (const entry of prompts) assert.equal(entry.prompt, recordedPrompt(entry.label!));
+    for (const [index, entry] of prompts.entries()) assert.equal(entry.prompt, index < 2 ? recordedPrompt(entry.label!) : withProbeSentence(recordedPrompt(entry.label!), false));
+    assert.notEqual(prompts[2]!.prompt, recordedPrompt(prompts[2]!.label!), 'the run cites its runs, so its probe sentence is the other runtime\'s');
     assert.deepEqual(prompts.map((entry) => entry.model), ['opus', 'opus', codex.model, codex.model]);
   });
 
@@ -432,6 +433,34 @@ describe('replayVerifier of a run by whether it cites its runs', () => {
     assert.deepEqual(basisOf('claude-1'), ['ran', 'ran', null]);
     const summary = readFileSync(join(output, summaryFileName), 'utf8');
     assert.match(summary, /^## How the verdicts were established\n\n\| Sample \| Ran code \| Traced the lines \| The lines alone \|\n\|---\|---\|---\|---\|\n\| recorded \| 0 \| 3 \| 0 \|\n\| claude-1 \| 2 \| 0 \| 0 \|$/m);
+  });
+
+  it('refuses a replayed answer whose probe the run would refuse, and freezes the probes it keeps in the replay\'s own checkpoint', async (t) => {
+    const box = ReviewSandbox.forTest(t);
+    const runId = await box.configuredAt(9);
+    box.script(reviewScript);
+    assert.equal((await box.review('claude')).kind, 'report', box.logs.join('\n'));
+    const recordedBlobs = readdirSync(join(box.checkpoint.root, 'artifacts')).length;
+    // Replayed, g1's verifier writes its probes in its scratch directory; g2's cites a run of a file outside it, which the record holds.
+    const outside = join(box.directory, 'outside.mjs');
+    writeFileSync(outside, 'console.log("outside");\n');
+    const run = { command: `node ${outside}`, printed: ['outside'], probe: outside };
+    box.script({ 'verifier:verification:g2': { runs: [{ command: run.command, output: 'outside\n', exitCode: 0 }], output: { verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'e', basis: 'ran', runs: [run] }] } } });
+    const output = join(box.directory, 'replay-probe');
+    const logs: string[] = [];
+    const outcome = await replayOnce(box, runId, output, logs);
+    assert.deepEqual(outcome.unverified, ['claude-1 verification:g2']);
+    assert.match(logs.join('\n'), /claude-1 verification:g2: attempt 1 of 2 gave no verdicts \(structural check: The verdict for index 0 cites a probe the engine cannot freeze: the probe [^\n]*outside\.mjs is outside the scratch directory /);
+    assert.deepEqual(outcome.results.candidates.map((candidate) => candidate.samples['claude-1']?.basis ?? null), ['ran', 'ran', null]);
+    const checkpoint = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
+    try {
+      // The fake verifier's probe for each candidate of g1, as citingVerifierStep writes it.
+      const probes = [0, 1].map((index) => Buffer.from(`console.log(${JSON.stringify(`fake probe for [${String(index)}] ran`)});\n`, 'utf8'));
+      for (const bytes of probes) assert.ok(existsSync(checkpoint.evidence.pathOf({ sha256: sha256Hex(bytes), bytes: bytes.length })), 'g1\'s probes are frozen in the replay\'s checkpoint');
+    } finally {
+      checkpoint.close();
+    }
+    assert.equal(readdirSync(join(box.checkpoint.root, 'artifacts')).length, recordedBlobs, 'the run\'s checkpoint gets no blob');
   });
 
   // Claude's reading worker has a scratch directory and Codex's has none (`readOnlyScratch`).
