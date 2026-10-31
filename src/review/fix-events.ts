@@ -257,15 +257,16 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Ans
   const answered = { phase, key: unit.key, workerId: receipt.workerId, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
   // The launcher held the answer of a repair that compares to `repairOutputSchema` or `repairOutputSchemaV2`, so its `comparisons` is there.
   const comparisons = compares ? keptComparisons(requireFix(state), (output as RepairOutput).comparisons, context.log) : [];
-  // An answer whose entries cite no run is written at the version of today, whose entries hold no `runs` (TD7 of runs on the record).
+  // The payload takes the shape of the version it is written at: one before version 5, which an answer whose entries cite no run is (TD7 of runs on the record), holds no `runs`, and one before version 4 no `comparisons`.
+  const version = writtenVersion('fix.recorded', [phase], { comparisons: compares, cites });
   const uncited: FixRecorded = { ...answered, findings: findings.map((finding) => ({ ...finding, validation: finding.validation.map(({ runs: _runs, ...entry }) => entry) })) };
-  const recorded: FixRecorded | FixRecordedV4 | FixRecordedV5 = cites ? { ...answered, findings, comparisons } : compares ? { ...uncited, comparisons } : uncited;
+  const recorded: FixRecorded | FixRecordedV4 | FixRecordedV5 = version >= 5 ? { ...answered, findings, comparisons } : version >= 4 ? { ...uncited, comparisons } : uncited;
 
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares, cites }), payload: recorded },
+    { kind: 'fix.recorded', version, payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
       version: writtenVersion('tree.revised', [phase]),
