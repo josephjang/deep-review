@@ -55,6 +55,29 @@ export function normalized(text: string): string {
 /** The last segment of a path, by either separator, since a worker on Windows names its probe with backslashes. */
 const baseName = (path: string): string => path.split(/[\\/]/).filter((part) => part !== '').at(-1) ?? '';
 
+/** A character of a file name: a letter, a digit, `.`, `_` or `-`. */
+const isNameCharacter = (character: string): boolean => /^[\p{L}\p{N}._-]$/u.test(character);
+
+/**
+ * The first place from `from` where `text` holds `needle` as a whole, or
+ * -1: a match that neither starts nor ends inside a run of the characters
+ * `isPart` accepts, so a needle that begins with such a character is not
+ * preceded by one, and likewise at its end. An empty needle is held
+ * nowhere.
+ */
+function indexOfWhole(text: string, needle: string, from: number, isPart: (character: string) => boolean): number {
+  if (needle === '') return -1;
+  const startsPart = isPart(needle[0]!);
+  const endsPart = isPart(needle.at(-1)!);
+  for (let at = text.indexOf(needle, from); at >= 0; at = text.indexOf(needle, at + 1)) {
+    const end = at + needle.length;
+    if (startsPart && at > 0 && isPart(text[at - 1]!)) continue;
+    if (endsPart && end < text.length && isPart(text[end]!)) continue;
+    return at;
+  }
+  return -1;
+}
+
 /** Whether `output` holds each line of `lines`, in order, each after the end of the one before. */
 function holdsInOrder(output: string, lines: readonly string[]): boolean {
   let from = 0;
@@ -70,18 +93,20 @@ function holdsInOrder(output: string, lines: readonly string[]): boolean {
  * The run of `record` that `cited` names, or null when none does: the
  * last whose normalized output holds each cited line, normalized and
  * trimmed, in the order cited, and, for a cited probe, whose command holds
- * the probe's base name. The last is taken because a worker often runs a
- * probe, changes it and runs it again, and its answer follows the run it
- * saw last (TD4 of runs on the record). A run with no output is never
- * found.
+ * the probe's base name as a whole name, not inside a longer file name.
+ * The last is taken because a worker often runs a probe, changes it and
+ * runs it again, and its answer follows the run it saw last (TD4 of runs
+ * on the record). A run with no output is never found, nor any run for a
+ * probe whose path has no base name.
  */
 export function findRun(record: readonly ShellRun[], cited: CitedRun): FoundRun | null {
   const lines = cited.printed.map((line) => normalized(line).trim());
   const name = cited.probe === null ? null : baseName(cited.probe);
+  if (name === '') return null;
   for (let index = record.length - 1; index >= 0; index -= 1) {
     const run = record[index]!;
     if (run.output === null) continue;
-    if (name !== null && !run.command.includes(name)) continue;
+    if (name !== null && indexOfWhole(run.command, name, 0, isNameCharacter) < 0) continue;
     if (holdsInOrder(normalized(run.output), lines)) return { at: index + 1, exitCode: run.exitCode };
   }
   return null;
