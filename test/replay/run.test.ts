@@ -432,7 +432,7 @@ describe('replayVerifier of a run by whether it cites its runs', () => {
     assert.deepEqual(basisOf(recordedSampleName), ['traced', 'traced', 'traced']);
     assert.deepEqual(basisOf('claude-1'), ['ran', 'ran', null]);
     const summary = readFileSync(join(output, summaryFileName), 'utf8');
-    assert.match(summary, /^## How the verdicts were established\n\n\| Sample \| Ran code \| Traced the lines \| The lines alone \|\n\|---\|---\|---\|---\|\n\| recorded \| 0 \| 3 \| 0 \|\n\| claude-1 \| 2 \| 0 \| 0 \|$/m);
+    assert.match(summary, /^## How the verdicts were established\n\n\| Sample \| ran \| traced \| read \|\n\|---\|---\|---\|---\|\n\| recorded \| 0 \| 3 \| 0 \|\n\| claude-1 \| 2 \| 0 \| 0 \|$/m);
   });
 
   it('refuses a replayed answer whose probe the run would refuse, and freezes the probes it keeps in the replay\'s own checkpoint', async (t) => {
