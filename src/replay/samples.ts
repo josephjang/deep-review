@@ -278,12 +278,10 @@ function pairsOf<T>(items: readonly T[]): [T, T][] {
   return items.flatMap((first, index) => items.slice(index + 1).map((second): [T, T] => [first, second]));
 }
 
-/** The words of each basis in the summary's table. */
-const basisWords: Readonly<Record<VerdictBasis, string>> = { ran: 'Ran code', traced: 'Traced the lines', read: 'The lines alone' };
-
 /**
  * The summary's count of each sample's verdicts by how its verifier
- * established them (R10 of runs on the record), or nothing when no
+ * established them (R10 of runs on the record), each basis headed by the
+ * value the workers answer with, as `report --stats` heads it, or nothing when no
  * verdict of the results gives a basis, as none of a run configured
  * before runs on the record does.
  */
@@ -293,7 +291,7 @@ function basisLines(results: ReplayResults): string[] {
     '',
     '## How the verdicts were established',
     '',
-    `| Sample | ${verdictBases.map((basis) => basisWords[basis]).join(' | ')} |`,
+    `| Sample | ${verdictBases.join(' | ')} |`,
     `|---|${verdictBases.map(() => '---').join('|')}|`,
     ...results.samples.map((sample) => {
       const counts = countsOf(results, sample.name);
