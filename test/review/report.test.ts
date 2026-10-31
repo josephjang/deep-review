@@ -583,7 +583,7 @@ describe('the runs on the record in the report', () => {
     assert.match(report, /^Validation: existing, npm run lint: lint passes\. Its record shows shell run 7\. Its record does not show: npm test -- a\.$/m);
   });
 
-  it('writes each scratch directory of the run\'s workers as <scratch> in a cited command and its lines, by either separator and under /private, and leaves a path that only begins as one does', () => {
+  it('writes each scratch directory of the run\'s workers and their scratch base as <scratch> in a cited command and its lines, by either separator and under /private', () => {
     const verifier = `/tmp/deep-review-scratch/c023873040998054/${worker(90)}`;
     const fixer = `C:\\Users\\me\\AppData\\Local\\Temp\\deep-review-scratch\\c023873040998054\\${worker(91)}`;
     const history = withCitedRuns(checkedRun(), { basis: 'ran', runs: [verdictRun(3, { command: `node ${verifier}/p.mjs`, printed: [`wrote ${fixer.replaceAll('\\', '/')}/out.txt`, `kept ${verifier}-old/p.mjs`, `at file:///private${verifier}/p.mjs:3`] })] });
@@ -592,10 +592,10 @@ describe('the runs on the record in the report', () => {
     const review = state.review!;
     const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2, { command: `node ${fixer}\\p.mjs`, printed: ['ok'], probe: null }) as unknown as VerdictRun] } };
     const report = render(validated({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } }, [{ command: `node ${verifier}`, printed: ['passes'], probe: null, found: null }]));
-    assert.match(report, new RegExp(`^- Shell run 3 of its record: node \\\\<scratch>/p\\.mjs printed "wrote \\\\<scratch>/out\\.txt" / "kept ${RegExp.escape(verifier)}-old/p\\.mjs" / "at file://\\\\<scratch>/p\\.mjs:3", exit 1\\.`, 'm'));
+    assert.match(report, new RegExp(`^- Shell run 3 of its record: node \\\\<scratch>/p\\.mjs printed "wrote \\\\<scratch>/out\\.txt" / "kept \\\\<scratch>/${worker(90)}-old/p\\.mjs" / "at file://\\\\<scratch>/p\\.mjs:3", exit 1\\.`, 'm'));
     assert.match(report, /^ {2}Shell run 2 of its record: node \\<scratch>\\p\.mjs printed "ok", exit 1\.$/m);
     assert.match(report, /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\. Its record does not show: node \\<scratch>\.$/m);
-    assert.doesNotMatch(report.replaceAll(`${verifier}-old`, ''), /deep-review-scratch/, 'no other line names a scratch directory');
+    assert.doesNotMatch(report, /deep-review-scratch/, 'no other line names a directory under the scratch base');
   });
 
   it('writes the scratch directory as <scratch> in the validation lines of the repair and of the documentation step', () => {

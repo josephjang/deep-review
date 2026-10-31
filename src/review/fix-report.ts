@@ -14,6 +14,7 @@ import { allBatches, committedRevisions, cutShortChecks, isCutAttempt, isNotAtte
 import type { RunState } from '../checkpoint/fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
+import { isCheckpointScratchKey } from '../runtime/scratch.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { baseWords, briefChecksOf, notComparedPlainWords, notComparedReasons, notComparedWords, skippedReason, type BriefCheck, type NotComparedReason } from './brief-checks.ts';
@@ -158,16 +159,28 @@ function answersFor(fix: FixState, id: string): { readonly phase: 'fixes' | 'ans
 }
 
 /**
- * The scratch directories of the run's workers as a cited run can spell
- * them (R8 of runs on the record): each as recorded and with forward
- * slashes, which a worker on Windows may write for backslashes, longest
- * first, so one inside another is never cut short; `withoutScratch`
- * matches a Windows spelling in any case. The verdict does not record
- * which verifier gave it, so a report takes every worker's.
+ * The local directories of the run as a cited run can spell them (R8 of
+ * runs on the record): each worker's scratch directory and, for one the
+ * engine made, the scratch base of the checkpoint that holds it, with the
+ * claims directory, the check manifests and the worktree of the base;
+ * each as recorded and with forward slashes, which a worker on Windows may
+ * write for backslashes, longest first, so one inside another is never cut
+ * short; `withoutScratch` matches a Windows spelling in any case. The
+ * verdict does not record which verifier gave it, so a report takes every
+ * worker's.
  */
 export function scratchSpellings(workers: RunState['workers']): string[] {
-  const recorded = Object.values(workers).flatMap(({ launch }) => (launch.scratch === null ? [] : [launch.scratch, launch.scratch.replaceAll('\\', '/')]));
+  const directories = Object.values(workers).flatMap(({ launch }) => (launch.scratch === null ? [] : [launch.scratch, ...scratchBaseOf(launch.scratch)]));
+  const recorded = directories.flatMap((directory) => [directory, directory.replaceAll('\\', '/')]);
   return [...new Set(recorded)].sort((a, b) => b.length - a.length);
+}
+
+/** The scratch base that holds a scratch directory the engine made, the directory above it named by `checkpointScratchKey`; none for one a caller gave elsewhere, whose parent is no directory of the run. */
+function scratchBaseOf(scratch: string): string[] {
+  const parentEnd = Math.max(scratch.lastIndexOf('/'), scratch.lastIndexOf('\\'));
+  if (parentEnd <= 0) return [];
+  const parent = scratch.slice(0, parentEnd);
+  return isCheckpointScratchKey(parent.slice(Math.max(parent.lastIndexOf('/'), parent.lastIndexOf('\\')) + 1)) ? [parent] : [];
 }
 
 /**

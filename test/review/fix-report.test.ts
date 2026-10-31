@@ -731,6 +731,27 @@ describe('the scratch directories in a worker\'s quoted text (R8 of runs on the 
     assert.equal(withoutScratch('cat /home/u/tmp/dr/abcd/x.py /home/u/tmp/dr/x.py', list), 'cat /home/u/tmp/dr/abcd/x.py /home/u/tmp/dr/x.py', 'a path that goes on into a longer name, or stops short, stays');
   });
 
+  it('writes every directory under the scratch base of a worker\'s scratch directory as <scratch>: the claims directory, the check manifests and the worktree of the base', () => {
+    const base = '/tmp/deep-review-scratch/c023873040998054';
+    const list = scratchSpellings({ w1: { launch: { scratch: `${base}/w1` } }, w2: { launch: { scratch: null } } } as unknown as RunState['workers']);
+    assert.deepEqual(list, [`${base}/w1`, base]);
+    assert.equal(withoutScratch(`node ${base}/w1/p.mjs`, list), 'node <scratch>/p.mjs', 'a worker\'s own directory stays <scratch>');
+    assert.equal(withoutScratch(`cd ${base}/claims/run-1/round-1 && ls ${base}/run-1/checks/fixes-test`, list), 'cd <scratch>/claims/run-1/round-1 && ls <scratch>/run-1/checks/fixes-test');
+    assert.equal(withoutScratch(`git -C /private${base}/run-1/base status`, list), 'git -C <scratch>/run-1/base status');
+    assert.equal(withoutScratch('ls /tmp/deep-review-scratch/c023873040998055/w1', list), 'ls /tmp/deep-review-scratch/c023873040998055/w1', 'another checkpoint\'s base stays');
+  });
+
+  it('writes the scratch base of a Windows scratch directory as <scratch> in any case, by either separator', () => {
+    const list = scratchSpellings({ w1: { launch: { scratch: 'C:\\Users\\Runner\\AppData\\Local\\Temp\\deep-review-scratch\\c023873040998054\\w1' } } } as unknown as RunState['workers']);
+    assert.equal(withoutScratch('cd c:\\users\\runner\\appdata\\local\\temp\\deep-review-scratch\\C023873040998054\\claims', list), 'cd <scratch>\\claims');
+    assert.equal(withoutScratch('cd C:/Users/Runner/AppData/Local/Temp/deep-review-scratch/c023873040998054/claims', list), 'cd <scratch>/claims');
+  });
+
+  it('takes no scratch base for a scratch directory whose parent is no checkpoint\'s, as one a caller gave', () => {
+    assert.deepEqual(scratchSpellings({ w1: { launch: { scratch: '/tmp/mine/w1' } }, w2: { launch: { scratch: '/w2' } }, w3: { launch: { scratch: '/tmp/C023873040998054/w3' } } } as unknown as RunState['workers']), ['/tmp/C023873040998054/w3', '/tmp/mine/w1', '/w2']);
+    assert.deepEqual(scratch, [windows, windows.replaceAll('\\', '/')], 'a parent named k is no checkpoint\'s');
+  });
+
   it('writes every line of a report the same by one list, whose pattern it compiles once, and none by an empty one', () => {
     const list = ['/tmp/dr/abc'];
     const lines = ['node /tmp/dr/abc/a.mjs', 'wrote /tmp/dr/abc/b.txt and /tmp/dr/abc/c.txt', 'node /tmp/dr/abc/a.mjs'];
