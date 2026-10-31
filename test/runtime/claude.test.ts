@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { z } from 'zod';
-import { maxDecodeBytes, outputLines, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
+import { maxDecodeBytes, maxLineBytes, type Decoded, type LaunchPlan } from '../../src/runtime/adapter.ts';
 import {
   claudeAdapter,
   claudeCommand,
@@ -85,7 +85,7 @@ describe('claudeTools', () => {
 describe('claude command', () => {
   it('builds a read-only worker with a shell and a scratch directory', () => {
     assert.deepEqual(claudeAdapter.command(invocation(), plan()).args, [
-      '--print', '--output-format', 'json', '--model', 'sonnet', '--effort', 'high',
+      '--print', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--effort', 'high',
       '--session-id', session,
       '--add-dir', resolve('/checkpoint/scratch/w'),
       ...tail('Read,Glob,Grep,Bash'),
@@ -94,7 +94,7 @@ describe('claude command', () => {
 
   it('builds an editor with a budget and no shell', () => {
     assert.deepEqual(claudeAdapter.command(invocation({ access: 'edit', shell: false, budgetUsd: 2.5, effort: 'max' }), plan()).args, [
-      '--print', '--output-format', 'json', '--model', 'sonnet', '--effort', 'max',
+      '--print', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--effort', 'max',
       '--session-id', session,
       '--add-dir', resolve('/checkpoint/scratch/w'),
       '--max-budget-usd', '2.5',
@@ -120,9 +120,9 @@ describe('claude command', () => {
   it('continues a session with --resume and the same permission and schema flags', () => {
     const fresh = claudeAdapter.command(invocation(), plan()).args;
     const continued = claudeAdapter.command(invocation({ resume: session }), plan({ resume: session })).args;
-    assert.deepEqual(continued.slice(0, 9), ['--print', '--output-format', 'json', '--model', 'sonnet', '--effort', 'high', '--resume', session]);
+    assert.deepEqual(continued.slice(0, 10), ['--print', '--output-format', 'stream-json', '--verbose', '--model', 'sonnet', '--effort', 'high', '--resume', session]);
     assert.equal(continued.includes('--session-id'), false);
-    assert.deepEqual(continued.slice(9), fresh.slice(9));
+    assert.deepEqual(continued.slice(10), fresh.slice(10));
   });
 
   it('refuses to build a command without a session id', () => {
@@ -342,8 +342,16 @@ describe('claude decode', () => {
       total_cost_usd: 0.01,
       ...change,
     });
-  const decode = (stdout: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): Decoded =>
+  // The events of Claude Code 2.1.310's stream-json for one Bash call that printed `a`, as it printed them.
+  const init = { type: 'system', subtype: 'init', session_id: session, tools: ['Bash'] };
+  const call = (id: string, name: string, input: Record<string, unknown>): Record<string, unknown> => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } });
+  const result = (id: string, content: unknown, isError?: boolean): Record<string, unknown> => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, ...(isError === undefined ? {} : { is_error: isError }) }] } });
+  const echoed = [call('toolu_1', 'Bash', { command: 'echo a', description: 'Echo a' }), result('toolu_1', 'a', false)];
+  const stream = (...lines: (Record<string, unknown> | string)[]): string => lines.map((line) => `${typeof line === 'string' ? line : JSON.stringify(line)}\n`).join('');
+  const decodeStdout = (stdout: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): Decoded =>
     claudeAdapter.decode(invocation(change), plan(planChange), textOutputs(stdout));
+  /** Decode a stream whose last line is `envelope`, after the events of one Bash call, so each rule of the envelope holds for the last result event of a stream. */
+  const decode = (envelope: string, change: Partial<InvocationInput> = {}, planChange: Partial<LaunchPlan> = {}): Decoded => decodeStdout(stream(init, ...echoed, envelope), change, planChange);
   /** The error of a failed result; an answer or a budget stop fails the assertion. */
   const failure = (decoded: Decoded): string => {
     assert.equal(decoded.result.kind, 'failed');
@@ -355,7 +363,7 @@ describe('claude decode', () => {
       sessionIds: [session],
       usage: { usage: { input_tokens: 3 }, modelUsage: { sonnet: {} }, total_cost_usd: 0.01 },
       denials: [],
-      runs: null,
+      runs: [{ command: 'echo a', output: 'a', exitCode: 0 }],
       result: { kind: 'answer', value: { answer: 'ok' } },
     });
   });
@@ -437,24 +445,79 @@ describe('claude decode', () => {
     assert.deepEqual(decode(envelope({ structured_output: null })).result, { kind: 'answer', value: null });
   });
 
-  it('reports no session, usage or denials when there is no envelope or it is not an object', () => {
-    for (const [stdout, pattern] of [['', /printed no result envelope/], ['  \n', /printed no result envelope/], ['{"type":', /not JSON/], ['[1]', /not an object/], ['null', /not an object/], ['"text"', /not an object/]] as const) {
-      const decoded = decode(stdout);
-      assert.match(failure(decoded), pattern);
+  it('reports no session, usage or denials when the stream has no result event', () => {
+    for (const stdout of ['', '  \n', stream(init, ...echoed)]) {
+      const decoded = decodeStdout(stdout);
+      assert.equal(failure(decoded), 'Claude Code printed no result event');
       assert.deepEqual(decoded.sessionIds, []);
       assert.equal(decoded.usage, null);
       assert.equal(decoded.denials, null);
     }
+    assert.deepEqual(decodeStdout(stream(init, ...echoed)).runs, [{ command: 'echo a', output: 'a', exitCode: 0 }], 'a well-formed stream still gives its runs');
   });
 
-  it('fails a stdout above the decode cap by name, since the envelope is read whole, even when its lines hold one', () => {
-    // The launcher hands over no text above the cap; a complete envelope in the lines is not read.
-    const outputs = { stdout: null, stdoutLines: outputLines(Buffer.from(envelope())), stderr: '', finalMessage: null };
+  it('reads the last result event as the envelope', () => {
+    const decoded = decodeStdout(stream(init, envelope({ subtype: 'error_during_execution', is_error: true, result: 'boom' }), ...echoed, envelope({ structured_output: { answer: 'last' } })));
+    assert.deepEqual(decoded.result, { kind: 'answer', value: { answer: 'last' } });
+  });
+
+  it('fails a line that is not an event object by its number, and gives no runs, keeping what the envelope says', () => {
+    for (const [bad, reason] of [['{"type":', /^Claude Code printed line 3 that is not JSON/], ['[1]', /^Claude Code printed line 3 that is not an event object$/], ['null', /not an event object/], ['"text"', /not an event object/]] as const) {
+      const decoded = decodeStdout(stream(init, '', bad, ...echoed, envelope()));
+      assert.match(failure(decoded), reason);
+      assert.equal(decoded.runs, null);
+      assert.deepEqual(decoded.sessionIds, [session]);
+      assert.deepEqual(decoded.denials, []);
+    }
+    const alone = decodeStdout('{"type":');
+    assert.match(failure(alone), /line 1 that is not JSON/);
+    assert.deepEqual(alone.sessionIds, []);
+    assert.equal(alone.usage, null);
+  });
+
+  it('fails a line too long to decode, naming it', () => {
+    const lines = [JSON.stringify(init), null, envelope()];
+    const decoded = claudeAdapter.decode(invocation(), plan(), { stdout: null, stdoutLines: lines, stderr: '', finalMessage: null });
+    assert.equal(failure(decoded), `Claude Code printed line 2 that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`);
+    assert.equal(decoded.runs, null);
+  });
+
+  it('decodes a stdout above the decode cap from its lines, the envelope at its end', () => {
+    const printed = 'x'.repeat(maxDecodeBytes);
+    const outputs = textOutputs(stream(init, call('toolu_1', 'Bash', { command: 'cat big' }), result('toolu_1', printed, false), envelope()));
+    assert.equal(outputs.stdout, null, 'the launcher hands over no whole text above the cap');
     const decoded = claudeAdapter.decode(invocation(), plan(), outputs);
-    assert.equal(failure(decoded), `Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
-    assert.deepEqual(decoded.sessionIds, []);
-    assert.equal(decoded.usage, null);
-    assert.equal(decoded.denials, null);
+    assert.deepEqual(decoded.result, { kind: 'answer', value: { answer: 'ok' } });
+    assert.equal(decoded.runs?.[0]?.output, printed);
+  });
+
+  it('reads each Bash call as a shell run with the output and exit code of its result (R1 of runs on the record)', () => {
+    const decoded = decodeStdout(stream(
+      init,
+      call('toolu_1', 'Bash', { command: 'echo a', description: 'Echo a' }),
+      call('toolu_r', 'Read', { file_path: '/x' }),
+      result('toolu_r', 'file text'),
+      result('toolu_1', 'a', false),
+      // Exactly what 2.1.310 printed for `sh -c 'echo forty-two; exit 3'`.
+      call('toolu_2', 'Bash', { command: "sh -c 'echo forty-two; exit 3'" }),
+      result('toolu_2', 'Exit code 3\nforty-two', true),
+      call('toolu_3', 'Bash', { command: 'sleep 999' }),
+      result('toolu_3', 'Command timed out after 2m', true),
+      call('toolu_4', 'Bash', { command: 'never answered' }),
+      call('toolu_5', 'Bash', { command: 'printf' }),
+      result('toolu_5', [{ type: 'text', text: 'one' }, { type: 'image', source: {} }, { type: 'text', text: 'two' }], false),
+      call('toolu_6', 'StructuredOutput', { answer: 'ok' }),
+      result('toolu_6', 'Structured output provided successfully'),
+      envelope(),
+    ));
+    assert.deepEqual(decoded.result, { kind: 'answer', value: { answer: 'ok' } });
+    assert.deepEqual(decoded.runs, [
+      { command: 'echo a', output: 'a', exitCode: 0 },
+      { command: "sh -c 'echo forty-two; exit 3'", output: 'Exit code 3\nforty-two', exitCode: 3 },
+      { command: 'sleep 999', output: 'Command timed out after 2m', exitCode: null },
+      { command: 'never answered', output: null, exitCode: null },
+      { command: 'printf', output: 'one\ntwo', exitCode: 0 },
+    ]);
   });
 
   it('expects the resumed session on a continuation', () => {
@@ -555,6 +618,11 @@ describe('Claude Code worker through the launcher', () => {
 
   it('refuses an oversized command line before anything is recorded or run', async () => {
     await assert.rejects(box.run(box.claude({ outputSchema: hugeSchema })), InvalidInvocationError);
+    assert.ok(box.untouched());
+  });
+
+  it('refuses a Claude Code whose help lacks --verbose, which stream-json needs, before anything is recorded or run', async () => {
+    await assert.rejects(box.run(box.claude(), { FAKE_HELP_OMIT: '--verbose' }), /lacks flags the adapter uses: --verbose \(in --help\)/);
     assert.ok(box.untouched());
   });
 

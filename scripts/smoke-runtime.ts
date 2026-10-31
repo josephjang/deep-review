@@ -124,6 +124,7 @@ function print(runtime: string, line: Line): void {
         seconds: (Date.parse(receipt.process.endedAt) - Date.parse(receipt.process.startedAt)) / 1000,
         output: receipt.output,
         denials: receipt.denials,
+        runs: receipt.runs,
         files: line.files,
         usage: receipt.runtime.usage,
       },

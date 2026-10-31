@@ -6,13 +6,26 @@
 // the id it resumes. FAKE_COMMAND_OUTPUT, a byte count, adds a command to the
 // default turn whose aggregated_output is that many bytes long, all on the
 // one line of its item.completed event. With FAKE_SCRIPT set and a review
-// worker's prompt on stdin, the scripted step decides the final message.
+// worker's prompt on stdin, the scripted step decides the final message and
+// the command items before it.
 // A probe loads only fake-probe.ts; fake-runtime.ts is loaded only when the
 // fake acts as a worker. Started as a script it runs in a process of its
 // own; codexFake runs it on any host (fake-host.ts).
 import { writeFileSync } from 'node:fs';
+import type { ShellRun } from '../../src/runtime/adapter.ts';
 import { processHost, type FakeHost } from './fake-host.ts';
 import { printHelp, versionOutput } from './fake-probe.ts';
+
+/** The `command_execution` items Codex prints for each shell run, started and completed; a null output or exit code is left out of the item. */
+function commandItems(runs: readonly ShellRun[]): Record<string, unknown>[] {
+  return runs.flatMap((run, index) => {
+    const item = { id: `item_r${String(index)}`, type: 'command_execution', command: run.command };
+    return [
+      { type: 'item.started', item: { ...item, aggregated_output: '', status: 'in_progress' } },
+      { type: 'item.completed', item: { ...item, ...(run.output === null ? {} : { aggregated_output: run.output }), ...(run.exitCode === null ? {} : { exit_code: run.exitCode }), status: run.exitCode === 0 ? 'completed' : 'failed' } },
+    ];
+  });
+}
 
 /** Act as the Codex CLI on `host`, and give the exit code. */
 export async function codexFake(host: FakeHost): Promise<number> {
@@ -60,7 +73,7 @@ export async function codexFake(host: FakeHost): Promise<number> {
   const exit = await beginScriptedStep(host, scripted.step, stdin);
   const output = scripted.step.malformed === true ? '"not the shape the schema describes"' : JSON.stringify(scripted.step.output);
   if (finalFile !== undefined) writeFileSync(finalFile, output);
-  await host.write('stdout', stream(output));
+  await host.write('stdout', stream(output, commandItems(scripted.step.runs ?? [])));
   return exit;
 }
 

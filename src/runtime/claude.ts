@@ -1,6 +1,7 @@
 import type { Access, DeniedTool, Effort } from '../checkpoint/events.ts';
 import { claudeLimit } from './claude-limits.ts';
-import { emptyUsageSummary, maxDecodeBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
+import { readClaudeStream } from './claude-stream.ts';
+import { emptyUsageSummary, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { launcherPins, pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { InheritedOverrideError, InvalidInvocationError } from './errors.ts';
@@ -10,6 +11,7 @@ import { finiteNumber, isObject, sumOrNull } from './json.ts';
 export const claudeFlags = [
   '--print',
   '--output-format',
+  '--verbose',
   '--model',
   '--effort',
   '--session-id',
@@ -267,7 +269,9 @@ export function claudeCommand(invocation: Invocation, plan: LaunchPlan, settings
   const environment = claudeEnvironment(plan.environment, invocation.effort, plan.platform);
   const args = [
     '--print',
-    '--output-format', 'json',
+    // The stream of every turn, so the frozen stdout holds each shell run; `--print` refuses stream-json without `--verbose`.
+    '--output-format', 'stream-json',
+    '--verbose',
     '--model', invocation.model,
     '--effort', invocation.effort,
     // A fresh worker runs under the id the ledger already holds; a
@@ -325,32 +329,29 @@ const isBudgetStop = (envelope: Record<string, unknown>): boolean =>
   envelope.terminal_reason === 'budget_exhausted' || (typeof envelope.subtype === 'string' && envelope.subtype.startsWith('error_max_budget'));
 
 /**
- * Read the `--output-format json` envelope. The session ids are the one the
- * envelope names, if any; the launcher adds the pinned or continued id to
- * every finish, so a worker that never answered still names its transcript.
- * The envelope is one JSON value, so stdout is read whole: a stdout above
- * the decode cap, which the launcher does not hand over as one text, fails
- * the worker, and its bytes are still frozen as evidence.
+ * Read the `--output-format stream-json --verbose` stream a line at a time,
+ * so a stdout of any length is decoded (TD1 of runs on the record). Its
+ * last `result` event is the envelope `--output-format json` printed alone,
+ * and every rule of that envelope applies to it unchanged. The session ids
+ * are the one the envelope names, if any; the launcher adds the pinned or
+ * continued id to every finish, so a worker that never answered still names
+ * its transcript. A line that is not an event fails the worker by its
+ * number, keeping what the envelope said when there is one, as a malformed
+ * Codex stream keeps its thread; such a stream gives no runs.
  */
 export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const expected = plan.sessionId;
-  const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null, runs: null }): Decoded => ({ ...known, result: { kind: 'failed', error } });
-
-  const stdout = outputs.stdout;
-  if (stdout === null) return failed(`Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch (error) {
-    return failed(stdout.trim() === '' ? 'Claude Code printed no result envelope' : `Claude Code printed a result envelope that is not JSON: ${(error as Error).message}`);
-  }
-  if (!isObject(parsed)) return failed('Claude Code printed a result envelope that is not an object');
-  const envelope = parsed;
+  const facts = readClaudeStream(outputs.stdoutLines);
+  const runs = facts.malformed === null ? facts.runs : null;
+  const envelope = facts.envelope;
+  const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null, runs }): Decoded => ({ ...known, result: { kind: 'failed', error } });
+  if (envelope === null) return failed(facts.malformed ?? 'Claude Code printed no result event');
 
   const observed = typeof envelope.session_id === 'string' && envelope.session_id.length > 0 ? envelope.session_id : null;
   const usage = { usage: envelope.usage ?? null, modelUsage: envelope.modelUsage ?? null, total_cost_usd: envelope.total_cost_usd ?? null };
   const denials = Array.isArray(envelope.permission_denials) ? deniedTools(envelope.permission_denials) : null;
-  const known = { sessionIds: observed === null ? [] : [observed], usage, denials, runs: null };
+  const known = { sessionIds: observed === null ? [] : [observed], usage, denials, runs };
+  if (facts.malformed !== null) return failed(facts.malformed, known);
 
   // The ledger named this session before launch; an answer from any other session is not this worker's.
   if (observed !== expected) return failed(`Claude Code answered from session ${String(observed)}, not ${String(expected)}`, known);
@@ -426,7 +427,7 @@ const claudeRuntime: Omit<RuntimeAdapter, 'command'> = {
     effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     resume: true,
     costInUsd: true,
-    shellRecord: false,
+    shellRecord: true,
   },
   qualification: {
     version: { args: ['--version'], pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)$/ },
