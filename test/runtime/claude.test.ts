@@ -355,6 +355,7 @@ describe('claude decode', () => {
       sessionIds: [session],
       usage: { usage: { input_tokens: 3 }, modelUsage: { sonnet: {} }, total_cost_usd: 0.01 },
       denials: [],
+      runs: null,
       result: { kind: 'answer', value: { answer: 'ok' } },
     });
   });

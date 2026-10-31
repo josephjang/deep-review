@@ -7,7 +7,7 @@ import { RunClosedError, StaleRevisionError } from '../checkpoint/errors.ts';
 import { sessionIdSchema, type DeniedTool, type WorkerFinish, type WorkerLaunch, type WorkerOutcome } from '../checkpoint/events.ts';
 import type { RunState, WorkerState } from '../checkpoint/fold.ts';
 import { sha256Hex, type ArtifactReference } from '../evidence/store.ts';
-import { maxDecodeBytes, outputLines, type Decoded, type DecodedResult, type LaunchPlan, type RuntimeAdapter, type WorkerOutputs } from './adapter.ts';
+import { maxDecodeBytes, outputLines, type Decoded, type DecodedResult, type LaunchPlan, type RuntimeAdapter, type ShellRun, type WorkerOutputs } from './adapter.ts';
 import { compileOutputSchema, parseInvocation, type Invocation, type InvocationInput } from './contract.ts';
 import { withPathFirst, workerEnvironment } from './environment.ts';
 import { InvalidInvocationError, UnsupportedCapabilityError } from './errors.ts';
@@ -49,6 +49,13 @@ export interface WorkerReceipt {
   };
   /** Refused tool calls, or null when the runtime gives no evidence either way. Never changes the outcome. */
   readonly denials: readonly DeniedTool[] | null;
+  /**
+   * The shell runs the decode read from the frozen stdout, as `Decoded.runs`
+   * gives them, or null when nothing was decoded. Carried in memory only:
+   * the frozen stdout is their record, so no event holds them (TD2 of runs
+   * on the record).
+   */
+  readonly runs: readonly ShellRun[] | null;
   /** The answer, validated against the output schema; null unless the outcome is `completed`. */
   readonly output: unknown;
   /** Why a failed worker failed when it was no fault of its unit's, or null (R4 of resumable runs). */
@@ -259,6 +266,7 @@ export async function runWorker(checkpoint: Checkpoint, runId: string, input: In
     process: { exitCode: finish.exitCode, signal: finish.signal, termination: finish.termination, startedAt: finish.startedAt, endedAt: finish.endedAt },
     runtime: { name: adapter.name, version, sessionIds: finish.sessionIds, usage: settled.usage },
     denials: finish.denials,
+    runs: settled.runs,
     output: settled.output,
     cause: settled.cause,
     finish: options.deferFinish === true ? finished : null,
@@ -417,6 +425,7 @@ interface Settled {
   /** The session ids the outputs named that the ledger can hold; `runWorker` adds the pinned one. */
   readonly observedSessionIds: readonly string[];
   readonly usage: unknown;
+  readonly runs: readonly ShellRun[] | null;
   readonly output: unknown;
   readonly cause: FailureCause | null;
   /** Some process file could not be frozen, so the io directory holds its only copy. */
@@ -468,7 +477,7 @@ const usageText = (usage: unknown): string | null => (usage === null || usage ==
 export const withPinnedSession = (pinned: string | null, observed: readonly string[]): string[] => [...new Set(pinned === null ? observed : [pinned, ...observed])];
 
 /** A decode that has no answer to offer: the session ids the outputs named, and why. */
-const undecoded = (sessionIds: readonly string[], error: string): Decoded => ({ sessionIds, usage: null, denials: null, result: { kind: 'failed', error } });
+const undecoded = (sessionIds: readonly string[], error: string): Decoded => ({ sessionIds, usage: null, denials: null, runs: null, result: { kind: 'failed', error } });
 
 /**
  * Why a failed worker failed when it was no fault of its unit's: `cut`, a
@@ -580,6 +589,7 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
     },
     observedSessionIds: sessionIds,
     usage: decoded.usage ?? null,
+    runs: decoded.runs,
     output,
     cause: cause ?? null,
     keepProcessFiles: false,
@@ -660,6 +670,7 @@ function launcherFailure(result: ProcessResult, error: unknown, known: Known, io
     },
     observedSessionIds: known.sessionIds,
     usage: null,
+    runs: null,
     output: null,
     cause: null,
     keepProcessFiles: !known.frozen,

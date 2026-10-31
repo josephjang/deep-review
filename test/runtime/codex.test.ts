@@ -543,7 +543,7 @@ describe('codex decode', () => {
   const answered = { kind: 'answer', value: { answer: 'ok' } };
 
   it('reads a completed turn: one thread, usage, the final message as the answer, no denial evidence', () => {
-    assert.deepEqual(decode(stream(...happy())), { sessionIds: [thread], usage, denials: null, result: answered });
+    assert.deepEqual(decode(stream(...happy())), { sessionIds: [thread], usage, denials: null, runs: [], result: answered });
   });
 
   it('accepts CRLF line endings and a final message that differs only in surrounding whitespace', () => {
@@ -558,12 +558,38 @@ describe('codex decode', () => {
     assert.deepEqual(decode(stream(started, turnStarted, ...command, ...agent(message), done)).result, answered);
   });
 
+  it('reads each completed command as a shell run, in the order of the stream (R1 of runs on the record)', () => {
+    const commands = [
+      { type: 'item.started', item: { id: 'item_1', type: 'command_execution', command: 'node probe.mjs', aggregated_output: '', status: 'in_progress' } },
+      { type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'node probe.mjs', aggregated_output: 'TypeError: x\n', exit_code: 1, status: 'failed' } },
+      { type: 'item.completed', item: { id: 'item_2', type: 'command_execution', command: 'ls', exit_code: 0, status: 'completed' } },
+      { type: 'item.completed', item: { id: 'item_3', type: 'command_execution', command: 'sleep 1', aggregated_output: 'cut short', status: 'completed' } },
+    ];
+    const decoded = decode(stream(started, turnStarted, ...commands, ...agent(message), done));
+    assert.deepEqual(decoded.result, answered);
+    assert.deepEqual(decoded.runs, [
+      { command: 'node probe.mjs', output: 'TypeError: x\n', exitCode: 1 },
+      { command: 'ls', output: '', exitCode: 0 },
+      { command: 'sleep 1', output: 'cut short', exitCode: null },
+    ]);
+  });
+
+  it('gives the runs of a well-formed stream that fails the worker, and none of a stream with a malformed line', () => {
+    const command = { type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'ls', aggregated_output: 'a', exit_code: 0, status: 'completed' } };
+    const unfinished = decode(stream(started, turnStarted, command));
+    assert.match(failure(unfinished), /exactly one completed turn/);
+    assert.deepEqual(unfinished.runs, [{ command: 'ls', output: 'a', exitCode: 0 }]);
+    const malformed = decode(`${stream(started, turnStarted, command)}not json\n${stream(...agent(message), done)}`);
+    assert.match(failure(malformed), /not JSON/);
+    assert.equal(malformed.runs, null);
+  });
+
   it('keeps a completed turn that reconnected on the way, with the error still in its stdout', () => {
     // codex-cli reports a transient stream error as a top-level error event and a warning as an error item.
     const reconnect = { type: 'error', message: 'Reconnecting... 1/5 (stream disconnected before completion)' };
     const warning = { type: 'item.completed', item: { id: 'item_0', type: 'error', message: 'Under-development features enabled' } };
     const stdout = stream(started, turnStarted, reconnect, warning, ...agent(message), done);
-    assert.deepEqual(decode(stdout), { sessionIds: [thread], usage, denials: null, result: answered });
+    assert.deepEqual(decode(stdout), { sessionIds: [thread], usage, denials: null, runs: [], result: answered });
     assert.match(stdout, /Reconnecting\.\.\. 1\/5/);
   });
 
@@ -614,7 +640,7 @@ describe('codex decode', () => {
 
   it('reads the stream from its lines alone, never needing all of stdout as one text', () => {
     const outputs = { ...textOutputs(stream(...happy()), '', message), stdout: null };
-    assert.deepEqual(codexAdapter.decode(invocation(), plan(), outputs), { sessionIds: [thread], usage, denials: null, result: answered });
+    assert.deepEqual(codexAdapter.decode(invocation(), plan(), outputs), { sessionIds: [thread], usage, denials: null, runs: [], result: answered });
   });
 
   it('fails a line too long to decode, naming it, and keeps the thread and usage the other lines hold', () => {
@@ -641,7 +667,7 @@ describe('codex decode', () => {
   });
 
   it('expects the continued session and reports the thread it observed when that differs', () => {
-    assert.deepEqual(decode(stream(...happy()), message, { sessionId: thread, resume: thread }), { sessionIds: [thread], usage, denials: null, result: answered });
+    assert.deepEqual(decode(stream(...happy()), message, { sessionId: thread, resume: thread }), { sessionIds: [thread], usage, denials: null, runs: [], result: answered });
     const other = '0199a3c4-0000-7f80-9a1b-2c3d4e5f6a7b';
     const decoded = decode(stream(...happy()), message, { sessionId: other, resume: other });
     assert.match(failure(decoded), new RegExp(`ran thread ${thread}, not the continued session ${other}`));
