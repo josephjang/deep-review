@@ -8,6 +8,7 @@
  */
 import { z } from 'zod';
 import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError } from './errors.ts';
 import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
@@ -432,7 +433,7 @@ export function checkVerdicts(output: VerifierOutput | VerifierOutputV2, count: 
     const what = `The verdict for index ${String(verdict.index)}`;
     if (verdict.basis === 'ran' && verdict.runs.length === 0) throw new StructuralCheckError(`${what} rests on a run and cites none`);
     if (verdict.basis !== 'ran' && verdict.runs.length > 0) throw new StructuralCheckError(`${what} is ${verdict.basis} and cites a run, which only a verdict that rests on a run does`);
-    if (verdict.runs.some((run) => run.printed.some((line) => line.trim() === ''))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
+    if (verdict.runs.some((run) => run.printed.some(isBlankCitedLine))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
   }
   const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(', ')} of the ${String(count)} candidates in the group`);

@@ -52,6 +52,9 @@ export function normalized(text: string): string {
   return text.replace(/\r\n?/g, '\n').replace(terminalEscapes, '').replace(/[ \t]+$/gm, '');
 }
 
+/** Whether a cited line is blank as the lookup compares it, such as one made only of spaces or of the escape sequences of a terminal: every output holds it, so no lookup can find a run by it. */
+export const isBlankCitedLine = (line: string): boolean => normalized(line).trim() === '';
+
 /** The last segment of a path, by either separator, since a worker on Windows names its probe with backslashes. */
 const baseName = (path: string): string => path.split(/[\\/]/).filter((part) => part !== '').at(-1) ?? '';
 
@@ -97,9 +100,11 @@ function holdsInOrder(output: string, lines: readonly string[]): boolean {
  * The last is taken because a worker often runs a probe, changes it and
  * runs it again, and its answer follows the run it saw last (TD4 of runs
  * on the record). A run with no output is never found, nor any run for a
- * probe whose path has no base name.
+ * cited line that `isBlankCitedLine` holds blank or for a probe whose path
+ * has no base name.
  */
 export function findRun(record: readonly ShellRun[], cited: CitedRun): FoundRun | null {
+  if (cited.printed.some(isBlankCitedLine)) return null;
   const lines = cited.printed.map((line) => normalized(line).trim());
   const name = cited.probe === null ? null : baseName(cited.probe);
   if (name === '') return null;
@@ -168,13 +173,13 @@ export function freezeProbe(scratch: string | null, path: string, evidence: Pick
  * worker's record, or null, and its probe frozen from the worker's scratch
  * directory, or null. It never throws, so the edits of the answer stand
  * whatever its validation cites; each reason a run is recorded with less
- * than it cites goes to `log`. A cited line that is blank after trimming
- * is in every output, so a run that cites one is not found.
+ * than it cites goes to `log`. A run that cites a line `isBlankCitedLine`
+ * holds blank is not found, and the log names the blank line.
  */
 export function validationRun(record: readonly ShellRun[], cited: CitedRun, scratch: string | null, evidence: Pick<EvidenceStore, 'put'>, log: (reason: string) => void): ValidationRun {
   const command = cited.command.slice(0, 200);
-  const blank = cited.printed.some((line) => normalized(line).trim() === '');
-  const found = blank ? null : findRun(record, cited);
+  const blank = cited.printed.some(isBlankCitedLine);
+  const found = findRun(record, cited);
   if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);
   else if (found === null) log(`cites a run that the record of its shell runs does not hold: ${command}`);
   const freeze = cited.probe === null ? null : freezeProbe(scratch, cited.probe, evidence);

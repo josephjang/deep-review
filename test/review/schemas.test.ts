@@ -196,6 +196,7 @@ describe('the structural checks', () => {
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [])] }, 1), (error: unknown) => error instanceof StructuralCheckError && /index 0 rests on a run and cites none/.test(error.message));
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'read', [run()])] }, 1), /index 0 is read and cites a run, which only a verdict that rests on a run does/);
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [run(['ok', ' \t '])])] }, 1), /index 0 cites a blank line of what a run printed/);
+    assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [run(['\u001b[0m', ' \u001b[31m\u001b[39m '])])] }, 1), /index 0 cites a blank line of what a run printed/, 'a line made only of terminal escapes is blank as the lookup compares it');
   });
 
   it('give the cited runs of a verifier\'s answer the caps the ledger records, and refuse a verdict without its basis', () => {
