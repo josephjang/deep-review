@@ -5,7 +5,8 @@
 // mark of a known failure names (test/helpers/resume-marks.ts). The fixed
 // set of the fix pass holds the first and the last append of a phase, the
 // launch and the end of a worker and of a check, a worker and a check
-// while they run, the record of a revision, the documentation step while
+// while they run, the end of a verifier whose answer cites a run with a
+// probe, the record of a revision, the documentation step while
 // its worker runs and at its end, the step before the report is written,
 // and `commit` before and after it moves the branch. The fixed set of the
 // base holds the checks on the base of the change: the worktree of the
@@ -29,6 +30,8 @@ const fixPoints = [
   'worker.finished triage triage:SCAN',
   // A worker while it runs at its last attempt, the first having failed (W1).
   'child finder-RIPPLE finders:RIPPLE#2',
+  // A verifier's end, after its cited probe is frozen and before its answer is recorded with it (R11 of runs on the record).
+  'worker.finished verifier verification:g1',
   // The end of a check, and the last check before the fixes while it runs, the order of #25.
   'check.ran baseline-checks build',
   'child check test#1',
@@ -92,7 +95,15 @@ function contractOf(scenario: Scenario, points: readonly string[]): () => Refere
 }
 
 describe('the contract of resumable runs', { timeout: 1_800_000, concurrency: sandboxConcurrency }, () => {
-  contractOf(fixScenario, fixPoints);
+  const expected = contractOf(fixScenario, fixPoints);
+
+  it('records each verdict of the run with no stop with the run it rests on and its probe frozen, so every stop is crossed by a run that cites runs (R11 of runs on the record)', () => {
+    const { outcome } = expected();
+    const verdicts = Object.values(outcome.state.review!.candidates).flatMap((candidate) => (candidate.verdict === null ? [] : [candidate.verdict]));
+    assert.ok(verdicts.length > 0, 'the run has verdicts');
+    assert.ok(verdicts.every((verdict) => verdict.basis === 'ran' && verdict.runs.length === 1 && verdict.runs[0]!.probe !== null), JSON.stringify(verdicts));
+    assert.equal(outcome.cited.length, verdicts.length);
+  });
 });
 
 describe('the contract of resumable runs, with the checks on the base', { timeout: 1_800_000, concurrency: sandboxConcurrency }, () => {

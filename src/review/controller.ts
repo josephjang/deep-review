@@ -31,7 +31,7 @@ import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/su
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import { withPathFirst } from '../runtime/environment.ts';
-import { PreflightError } from '../runtime/errors.ts';
+import { PreflightError, UnsupportedCapabilityError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
 import { preflight, type PreflightOptions } from '../runtime/preflight.ts';
@@ -585,8 +585,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
-      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 8 says the run has the documentation step (TD4 of the documentation step) and the checks on the base (TD8 of the facts before a merge).
-      state = append(checkpoint, state, [{ kind: 'review.configured', version: 8, payload: configure.payload }]);
+      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 9 says the run has the documentation step (TD4 of the documentation step), the checks on the base (TD8 of the facts before a merge) and runs on the record (TD6 of runs on the record).
+      state = append(checkpoint, state, [{ kind: 'review.configured', version: 9, payload: configure.payload }]);
       const pinnedNow = configure.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure.resolved)) log(line);
@@ -1236,6 +1236,8 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       // Compared only with a configuration the caller gave: one that gives none, as an answer pass, reads no file for it (R6 of the configuration).
       await resumePinned(found, pinned, { ...context, source: context.configuration }, 'resume', settingOf(pinned, 'tools.path').value ?? []);
     } else {
+      // A run configured now has its verdicts cite their runs, which the engine looks up in each worker's record of its shell runs (R1, R4 of runs on the record); a runtime whose record holds none is refused before the run exists.
+      if (!context.adapter.capabilities.shellRecord) throw new UnsupportedCapabilityError(context.adapter.name, 'shellRecord', 'record the shell runs of a worker, which the verdicts of a run cite');
       const policy = readPolicy(context.rolesRoot);
       // Pass 2, at the base of the change: the one a run that captured its scope recorded, else the one the request names now (R4 of the configuration).
       const base = found?.scope?.base ?? scopeBase(context.worktree, scopeRequest!);
