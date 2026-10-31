@@ -296,7 +296,34 @@ The gate records each metric of the requirements for each run, and reads each ci
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The work is in pull request #93, after the proposal. It came in units, each a commit that passes typecheck and lint alone: the shell runs of a Codex worker's stream, with `ShellRun`, `Decoded.runs`, `Capabilities.shellRecord` and the runs on the receipt; the stream of a Claude Code worker and its shell runs; the ledger (`review.configured@9`, `verdicts.recorded@2`, `fix.recorded@5`, `reviewVocabularyV10`, the fold and the golden fixture `schema-1-17`), which no engine configured yet; the lookup of `src/review/cited-runs.ts`; the verifier's answer and its lookup; replay; the switch that configures new runs at version 9 and refuses a runtime without `shellRecord`; the editing workers' answers and their lookup; the report and `--stats`; the README; and the build of `dist/`.
+
+At the head of the work, `npm run check` passed (3090 tests: 3077 passed, 0 failed, 13 skipped, against 3006 passed before the work), `npm run verify` passed, and `npm run test:contract` passed 89 of 89, against 85 before the work: a stop point between the freezing of a verifier's probe and the append of its finish joins the others, and the part "nothing false" compares each cited run of a verdict and of a validation by its place, exit code, cited lines, probe name and probe hash. `npm run resume-test` ran 984 cases on Linux, and none broke the contract. `npm run build` changed only the engine bundle of each artifact and its hash: no skill text and no role prompt changed, so the digest of the roles stays (PD6).
+
+The event shapes of the stream were read on Claude Code 2.1.310, not the 2.1.314 of Context, by hand and through `npm run smoke`: a `Bash` call is a `tool_use` block of an `assistant` event, its result a `tool_result` block of a later `user` event, a command that exited 3 gives `is_error: true` and the content `Exit code 3` and its output, and the last line is the `result` event with every field of the envelope. `--print` refuses `stream-json` without `--verbose`. A `Bash` call with no output gives the content `(Bash completed with no output)`, and a resumed session's stream holds only the turns of its own process. The smoke run of Codex 0.164.0 on Linux gave the runs of its editor, each command wrapped as `/usr/bin/zsh -lc "..."`.
+
+### Changes of the proposal during the work
+
+- When a Claude Code stream has a line that is not an event and still holds a `result` event, the worker fails with the number of that line, and its finish keeps the session id, the usage and the denials of the envelope, as a malformed Codex stream keeps its thread and usage. Such a stream gives no runs.
+- On Claude Code a command that exited nonzero has `Exit code <n>` as the first line of its output, as the worker saw it, and Codex records no such line. The lookup matches cited lines in order anywhere in the output, so the line does not stand in its way.
+- `verdictBasisSchema` is in `src/review/vocabulary.ts`, beside `verdictSchema`.
+- The fold refuses a cited run of a validation entry in a run configured before version 9, and a `found.at` below 1, as it refuses the same of a verdict.
+- A frozen probe is named by the base name of the path that the worker gave. A probe of a validation run that the engine did not find is still frozen when it can be, since the place and the probe are recorded apart.
+- A cited line that is blank after trimming fails a verifier's answer in `checkVerdicts`, and in an editing worker's answer makes its run not found, since a blank line is in every output.
+- A run with no exit code on record reads `no exit code on record` in the report and in the fixer's task. Two cited runs of one entry found at the same place are named once.
+- The second table of `--stats` counts the cited runs of the editing workers by phase, not by role: the repair and an answer pass run in the role `fixer`, so a table by role would merge them with the fixers. It has a row for each editing phase that ran.
+- The summary of a replay gives the verdicts by basis only when some verdict has one, so the summary of a run configured before this change reads as before.
+- A cited command is worker text, so the block of a finding can name the scratch directory of its worker, a local path, as an evidence line could already. "About this run" stays the one part that names a local path that the engine writes.
+
+### A real run
+
+A fix run on Claude Code 2.1.310, with the engine of this branch, `sonnet` as the strong model and `haiku` as the fast one, reviewed the last commit of a repository of two files made for it, whose change reads `input.length` before it tests `input == null`. It took 3 minutes 35 seconds and spent 1.20 USD. Both verifier groups answered at the first attempt: 5 verdicts with the basis `ran` cited one run each, the engine found each, as shell run 1 of its record, and froze the two probes, both named `p.mjs`. Two verdicts had the basis `read`. The validation entries of its two fixers cited 4 runs, and the engine found all 4; the entries that rest on a reading of the source cited none, and their lines name no run. The brief is the brief of the same run without cited runs, and the evidence store of the run took 1.2 MB. The report and the ledger stay outside the repository, with the author.
+
+### The gate (R12)
+
+No check of the gate has run yet: neither the fix run of deep-review on this pull request on Claude Code, nor the fix run on pallets/click #3878 on Codex on Windows.
 
 ## Risks & Migration
 
