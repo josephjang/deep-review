@@ -46,6 +46,16 @@ describe('findRun', () => {
     assert.equal(findRun(record, cited(['TypeError'], '/tmp/scratch/other.mjs')), null);
   });
 
+  it('finds a cited probe only where the command holds its base name as a whole name, and never for a path with no base name', () => {
+    const named = (command: string): ShellRun[] => [run(command, 'hello\n')];
+    assert.equal(findRun(named('python data.py'), cited(['hello'], 'a.py')), null, 'a.py is not data.py');
+    assert.equal(findRun(named('python a.pyc'), cited(['hello'], 'a.py')), null, 'a.py is not a.pyc');
+    assert.deepEqual(findRun(named('python /tmp/s/a.py'), cited(['hello'], 'a.py')), { at: 1, exitCode: 0 });
+    assert.deepEqual(findRun(named('bash -lc \'python a.py\''), cited(['hello'], '/tmp/s/a.py')), { at: 1, exitCode: 0 }, 'inside the quotes of the wrapper of Codex');
+    assert.deepEqual(findRun(named('a.py'), cited(['hello'], 'a.py')), { at: 1, exitCode: 0 }, 'the whole command');
+    for (const probe of ['/', '\\', '']) assert.equal(findRun(named('python a.py'), cited(['hello'], probe)), null, JSON.stringify(probe));
+  });
+
   it('takes the last of two runs that match, the one the worker saw last', () => {
     const rerun = [run('node probe.mjs', 'threw\n', 1), run('node probe.mjs', 'threw\n', 2)];
     assert.deepEqual(findRun(rerun, cited(['threw'], 'probe.mjs')), { at: 2, exitCode: 2 });
