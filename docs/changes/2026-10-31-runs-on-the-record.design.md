@@ -349,7 +349,21 @@ Claude Code denied one Bash call each to 8 of the 11 fixers, three of them a cop
 
 At the head of the fixes, `npm run check` passed (3118 tests: 3105 passed, 0 failed, 13 skipped), `npm run verify` passed, and `npm run test:contract` passed 89 of 89.
 
-The Codex half, the fix run on pallets/click #3878 on Codex on Windows, has not run.
+The Codex half ran on Windows: a fix run of deep-review on pallets/click #3878, in a fresh clone at the head `f8c5a8e` against the base `2247b35`, with the engine of the head of this pull request after the fixes of the gate on Claude Code, copied out of `dist/codex` and run by hand with `review --runtime codex --branch --base 2247b35 --fix`. It ran on Codex 0.160.0, not the 0.164.0 of the Linux runs, with the default models and the shipped Codex Windows sandbox, `none`. It took about 30 minutes over 24 workers, and Codex reports no spend. It had 17 findings: 6 fixed, 1 question and 10 left as is. The author keeps its ledger outside the repository, and a reader written apart from the engine read each cited run again in the frozen stream of its worker.
+
+Cited runs of verifiers found at the first answer: 10 of 10, and the reader agrees at each recorded place. No answer failed. Verdicts by grade and basis, of 21 verdicts in 4 answers:
+
+| Verdict | ran | traced | read |
+|---|---|---|---|
+| CONFIRMED | 8 | 0 | 2 |
+| PLAUSIBLE | 0 | 0 | 8 |
+| REFUTED | 2 | 0 | 1 |
+
+The risk "Codex on Windows runs few probes" did not show on this run: the 4 verifiers made 32 shell runs, and 10 of the 21 verdicts rest on one. A reading Codex worker has no scratch directory, so each probe ran as a PowerShell here-string piped to a Python interpreter, and the runtime wrapped each command as `pwsh.exe -NoProfile -Command '...'`; the lookup found each by its printed lines through that wrapper (PD8). Six of the verifiers' runs failed because the machine had no `python` on its path, only the interpreters of uv, and the verifiers then ran one of those by its full path.
+
+Validation entries of the editing workers: 18 of 18 cited runs found, every entry that cites a run shown in full (6 `old-code` entries with 12 runs, 3 `existing` with 5, 1 `limited` with 1); the 2 `static` entries cite none. The evidence store took 4.1 MB, of which the streams of the workers are 1.9 MB; a Codex worker's stream was frozen before this change too, so the change adds only the frozen probes on this runtime.
+
+Two things the run showed that this change does not settle. The report names a local path that no folder of the engine holds: the verifiers' cited commands give the full path of the uv interpreter under the user's profile, in 9 lines of the findings, and `<scratch>` does not cover it, as it does not cover the path of the reviewed repository or of the checkpoint; issue #95 follows it. The removal of the worktree of the base logged `Filename too long` from git, the risk of a long path on Windows that the facts before a merge named; the directory was gone after the run, and `git worktree list` of the clone lists only the clone.
 
 ## Risks & Migration
 
