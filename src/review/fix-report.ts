@@ -176,9 +176,14 @@ const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
 /**
  * A cited run's command or printed line with each scratch directory of
  * `scratch` written `<scratch>`, since it is a local path of the machine
- * the worker ran on (R8 of runs on the record), with the `/private` that
- * macOS puts before its temporary directory when a path is resolved, as
- * Node does in a stack trace. A Windows spelling, one with a drive letter
+ * the worker ran on (R8 of runs on the record), with the path segments
+ * just before it: a path that ends in a scratch directory is another name
+ * of it, as the `/private` that macOS puts before its temporary directory
+ * when a path is resolved, as Node does in a stack trace, or a mount, and
+ * its prefix is as local. Each such segment begins with a separator and
+ * holds no space, separator, quote, `:` or `;`, so the text before the
+ * first, such as `--dir=` or a list's earlier path, stays. A Windows
+ * spelling, one with a drive letter
  * or a backslash, matches in any case, since a Windows file system ignores
  * case; a POSIX one only as written, since another directory can differ
  * from it only in case. A path that goes on into a longer name stays as
@@ -196,7 +201,7 @@ function scratchPattern(scratch: readonly string[]): RegExp {
   const known = scratchPatterns.get(scratch);
   if (known !== undefined) return known;
   const directories = scratch.map((directory) => (windowsPath(directory) ? `(?i:${RegExp.escape(directory)})` : RegExp.escape(directory)));
-  const pattern = new RegExp(`(?:/private(?=/))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu');
+  const pattern = new RegExp(`(?:(?:[/\\\\][^\\s/\\\\'"\`:;]+)+(?=[/\\\\]))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu');
   scratchPatterns.set(scratch, pattern);
   return pattern;
 }
