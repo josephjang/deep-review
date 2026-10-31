@@ -10,6 +10,7 @@ import { promptsDirectoryName, replayCheckpointDirectoryName, replayVerifier, re
 import { agreementOf, parseResults, recordedSampleName } from '../../src/replay/samples.ts';
 import { acquireStartLock } from '../../src/review/lock.ts';
 import { readPolicy } from '../../src/review/policy.ts';
+import { probeSentence } from '../../src/review/tasks.ts';
 import { assembleRoles } from '../../src/roles/assemble.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
 import { baseEnvironment, fakeClaude, fakeCodex } from '../helpers/launcher.ts';
@@ -376,13 +377,16 @@ describe('replayVerifier', () => {
 
 // R10 of runs on the record.
 describe('replayVerifier of a run by whether it cites its runs', () => {
-  /** Replay run `runId` of `box` once through the fake Claude into `output`. */
-  const replayOnce = (box: ReviewSandbox, runId: string, output: string, logs: string[]): Promise<ReplayOutcome> =>
+  /** Replay run `runId` of `box` once through the fake `runtime`, Claude by default, into `output`. */
+  const replayOnce = (box: ReviewSandbox, runId: string, output: string, logs: string[], runtime: 'claude' | 'codex' = 'claude'): Promise<ReplayOutcome> =>
     replayVerifier({
-      source: box.checkpoint, runId, tree: box.repo, output, runtime: 'claude', executable: process.execPath, executableArgs: [fakeClaude], rolesRoot: box.rolesRoot,
+      source: box.checkpoint, runId, tree: box.repo, output, runtime, executable: process.execPath, executableArgs: [runtime === 'claude' ? fakeClaude : fakeCodex], rolesRoot: box.rolesRoot,
       roleText: 'recorded', repeat: 1, concurrency: 1, engine: '0.0.0-test', log: (line) => { logs.push(line); },
       environment: { ...baseEnvironment, FAKE_SCRIPT: box.scriptFile }, scratchRoot: box.scratchRoot,
     });
+  /** The prompt each verifier of `checkpoint` was launched with, as its launch froze it, in launch order. */
+  const launchedPrompts = (checkpoint: Checkpoint): string[] => checkpoint.foldRuns().flatMap((run) => Object.values(run.workers)).filter((worker) => worker.launch.label?.startsWith('verifier ') === true).map((worker) => checkpoint.evidence.read(worker.launch.prompt).toString('utf8'));
+
   /** The output schema each replayed verifier was launched with, as text, in launch order. */
   const replayedSchemas = (output: string): string[] => {
     const checkpoint = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
@@ -429,4 +433,29 @@ describe('replayVerifier of a run by whether it cites its runs', () => {
     const summary = readFileSync(join(output, summaryFileName), 'utf8');
     assert.match(summary, /^## How the verdicts were established\n\n\| Sample \| Ran code \| Traced the lines \| The lines alone \|\n\|---\|---\|---\|---\|\n\| recorded \| 0 \| 3 \| 0 \|\n\| claude-1 \| 2 \| 0 \| 0 \|$/m);
   });
+
+  // Claude's reading worker has a scratch directory and Codex's has none (`readOnlyScratch`).
+  for (const [recordedOn, replayedOn] of [['claude', 'codex'], ['codex', 'claude']] as const) {
+    it(`asks a verifier recorded on ${recordedOn} and replayed on ${replayedOn} for a probe as its own scratch directory allows`, async (t) => {
+      const box = ReviewSandbox.forTest(t);
+      const runId = await box.configuredAt(9, recordedOn);
+      box.script(reviewScript);
+      assert.equal((await box.review(recordedOn)).kind, 'report', box.logs.join('\n'));
+      for (const prompt of launchedPrompts(box.checkpoint)) assert.ok(prompt.includes(probeSentence(recordedOn === 'claude')), 'the recorded task asks for the probe its worker could run');
+      box.script({});
+      const output = join(box.directory, 'replay-other-runtime');
+      await replayOnce(box, runId, output, [], replayedOn);
+      const checkpoint = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
+      try {
+        const prompts = launchedPrompts(checkpoint);
+        assert.equal(prompts.length, 2);
+        for (const prompt of prompts) {
+          assert.ok(prompt.includes(probeSentence(replayedOn === 'claude')), prompt);
+          assert.ok(!prompt.includes(probeSentence(recordedOn === 'claude')), 'no sentence of the recorded runtime is left to contradict the scratch note');
+        }
+      } finally {
+        checkpoint.close();
+      }
+    });
+  }
 });

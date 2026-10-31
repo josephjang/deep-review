@@ -3,11 +3,14 @@
  * worker's launch froze: the same text, less the launcher's scratch note
  * (the replay's own launch adds one for its own scratch directory), with
  * the repository the scope block names and the directory its frozen blobs
- * are read from replaced by where the replay has them, and, on request,
- * with the role prompt replaced by another. Nothing else changes, so a
- * replayed verifier judges exactly what the recorded one was asked.
+ * are read from replaced by where the replay has them, the sentence on how
+ * to run a probe made the one for the scratch directory the replayed
+ * worker has or lacks, and, on request, with the role prompt replaced by
+ * another. Nothing else changes, so a replayed verifier judges exactly
+ * what the recorded one was asked.
  */
 import { posix, win32 } from 'node:path';
+import { probeSentence } from '../review/tasks.ts';
 import { composePrompt } from '../runtime/launcher.ts';
 import { ReplayRefusedError } from './errors.ts';
 
@@ -27,6 +30,8 @@ export interface PromptRewrite {
   readonly blobs: readonly FrozenBlob[];
   /** The role prompt to put in place of the recorded one, or null to keep the recorded one. */
   readonly roleText: string | null;
+  /** Whether the replayed worker has a scratch directory, which the probe sentence of a verifier's task follows (`probeSentence`); null for a task that asks for no probe, a run configured before runs on the record. */
+  readonly probeScratch: boolean | null;
 }
 
 /**
@@ -161,8 +166,28 @@ export function withRoleText(prompt: string, roleText: string): string {
   return `${roleText.endsWith('\n') ? roleText : `${roleText}\n`}${task}`;
 }
 
+/**
+ * The prompt with the probe sentence of its task for a worker with a
+ * scratch directory, or without one, replaced by the one for `scratch`
+ * (`probeSentence`, R4 and R10 of runs on the record): a run recorded on a
+ * runtime whose reading worker has a scratch directory, replayed on one
+ * whose reading worker has none, or the reverse, would otherwise ask for a
+ * probe the launcher's scratch note then contradicts. The task's citing
+ * paragraph comes before its candidates, so the first sentence of the task
+ * section is the paragraph's own. A prompt that holds the sentence for
+ * `scratch`, or neither, stays as it is.
+ */
+export function withProbeSentence(prompt: string, scratch: boolean): string {
+  const { roleText, task } = splitRoleText(prompt);
+  const other = probeSentence(!scratch);
+  const at = task.indexOf(other);
+  if (at === -1) return prompt;
+  return `${roleText}${task.slice(0, at)}${probeSentence(scratch)}${task.slice(at + other.length)}`;
+}
+
 /** The prompt of a replayed worker's invocation, from the bytes a recorded launch froze. */
 export function replayPrompt(recorded: string, rewrite: PromptRewrite): string {
   const located = withStore(withRepository(withoutScratchNote(recorded, rewrite.scratch), rewrite.tree), rewrite.blobs);
-  return rewrite.roleText === null ? located : withRoleText(located, rewrite.roleText);
+  const probed = rewrite.probeScratch === null ? located : withProbeSentence(located, rewrite.probeScratch);
+  return rewrite.roleText === null ? probed : withRoleText(probed, rewrite.roleText);
 }

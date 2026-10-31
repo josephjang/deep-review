@@ -172,7 +172,7 @@ For a run configured with this change, `candidateLines` gives, after the evidenc
 
 ### Replay (R10)
 
-`src/replay/run.ts` gives each replayed verifier the schema of its recorded run: `verifierOutputSchemaV2` for a run configured with this change, else `verifierOutputSchema`. For a V2 answer, it runs the lookup over the runs of the replayed worker's receipt, and a run that is not found fails the attempt, as an answer that fails `checkVerdicts` does. It freezes no probe in the checkpoint of the run. The results of a sample keep the verdicts, and the summary counts them by basis.
+`src/replay/run.ts` gives each replayed verifier the schema of its recorded run: `verifierOutputSchemaV2` for a run configured with this change, else `verifierOutputSchema`. For a run configured with this change, `replayPrompt` replaces the probe sentence of the recorded task with the one for the scratch directory that the replayed worker has or lacks (`probeSentence` in `tasks.ts`), so a run recorded on Claude Code and replayed on Codex, or the reverse, is not asked for a probe that the launcher's scratch note then contradicts. For a V2 answer, it runs the lookup over the runs of the replayed worker's receipt, and a run that is not found fails the attempt, as an answer that fails `checkVerdicts` does. It freezes no probe in the checkpoint of the run. The results of a sample keep the verdicts, and the summary counts them by basis.
 
 ### The events and the fold (R9)
 
