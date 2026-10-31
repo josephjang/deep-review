@@ -529,9 +529,11 @@ export const citingValidationWords = 'In each validation entry, cite in `runs`';
  * record): cite each, as a verifier cites one, and know that each is
  * looked up in its record and that the report says which the record
  * shows. It refuses no answer for a run the record does not hold, so the
- * task does not say it does.
+ * task does not say it does. It says how a run is found, since in the gate
+ * of runs on the record (R12) the runs not found were fixers' runs whose
+ * probe a shell loop named or whose lines were cited out of order.
  */
-const citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not.`;
+const citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not. Name a probe's file in the command that runs it, not through a loop or a variable that builds the name, and copy the cited lines in the order the run printed them, since a run is found only by its probe's name and its lines in that order.`;
 
 /**
  * What a fixer's task, in a run with runs on the record, says of a probe
