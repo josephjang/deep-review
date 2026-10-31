@@ -719,6 +719,17 @@ describe('the scratch directories in a cited run (R8 of runs on the record)', ()
     assert.equal(withoutScratch('node /TMP/dr/abc/p.mjs', ['/tmp/dr/abc', ...scratch]), 'node /TMP/dr/abc/p.mjs', 'a Windows spelling beside it folds no POSIX one');
   });
 
+  it('writes a path that ends in a scratch directory as <scratch> whole, its prefix with it, and keeps the text before the prefix\'s first separator', () => {
+    const list = ['/tmp/dr/abc'];
+    assert.equal(withoutScratch('cat /home/u/tmp/dr/abc/x.py', list), 'cat <scratch>/x.py');
+    assert.equal(withoutScratch('ls /x/private/tmp/dr/abc/x.py', list), 'ls <scratch>/x.py');
+    assert.equal(withoutScratch('at file:///private/tmp/dr/abc/p.mjs:3', list), 'at file://<scratch>/p.mjs:3');
+    assert.equal(withoutScratch('run --dir=/mnt/tmp/dr/abc "/mnt/tmp/dr/abc/a b"', list), 'run --dir=<scratch> "<scratch>/a b"');
+    assert.equal(withoutScratch('PATH=/usr/bin:/mnt/tmp/dr/abc/bin', list), 'PATH=/usr/bin:<scratch>/bin', 'a list keeps its earlier path');
+    assert.equal(withoutScratch('cat D:\\mnt\\tmp\\dr\\abc\\x.py', ['\\tmp\\dr\\abc']), 'cat D:<scratch>\\x.py');
+    assert.equal(withoutScratch('cat /home/u/tmp/dr/abcd/x.py /home/u/tmp/dr/x.py', list), 'cat /home/u/tmp/dr/abcd/x.py /home/u/tmp/dr/x.py', 'a path that goes on into a longer name, or stops short, stays');
+  });
+
   it('writes every line of a report the same by one list, whose pattern it compiles once, and none by an empty one', () => {
     const list = ['/tmp/dr/abc'];
     const lines = ['node /tmp/dr/abc/a.mjs', 'wrote /tmp/dr/abc/b.txt and /tmp/dr/abc/c.txt', 'node /tmp/dr/abc/a.mjs'];
