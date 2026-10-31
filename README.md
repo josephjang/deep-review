@@ -102,7 +102,13 @@ with its session id whenever the runtime lets the engine choose it, and is
 closed by `worker.finished` whatever the process did. The prompt, the
 schema, stdout, stderr and the answer are evidence. The outcome is
 `completed`, `budget`, `timeout` or `failed`, and refused tool calls are
-listed beside it without changing it. A worker writes temporary files to
+listed beside it without changing it. A Claude Code worker prints the
+stream of its turns (`--output-format stream-json --verbose`), whose last
+`result` event is the envelope the adapter reads its answer from, and a
+Codex worker prints its event stream, so on both runtimes the frozen
+stdout holds each shell command the worker ran with the output it saw;
+the adapter reads these shell runs, the worker's record, from it, and no
+event holds them a second time. A worker writes temporary files to
 its own scratch directory under the system's temporary directory, never
 into the reviewed tree or the git directory, and at a timeout its whole
 process tree is killed. On Windows, the Codex adapter confines its
@@ -202,6 +208,25 @@ earlier engine. Every way a run stops short of a report names the
 operator's action: run again, raise the budget, restore the tree,
 settle a check the machine cannot run, or abandon.
 
+Each verdict gives its basis: `ran` when a run of code showed the
+result, `traced` when the verifier followed the code line by line, and
+`read` when the lines alone settle the claim. A verdict that rests on a
+run cites it, at most three: the command, one to five lines it printed,
+copied exactly, and the probe file in the verifier's scratch directory
+when it wrote one. The engine looks for each cited run in the verifier's
+record, as the last shell run whose output holds the cited lines in
+order, ignoring line endings, terminal colors and trailing spaces, and
+whose command names the probe's file, and freezes the probe in the
+evidence store when its real path is inside the scratch directory and
+it holds at most 64 KiB. An answer that cites a run the record does not
+hold, or a probe that cannot be frozen, fails as an answer that fails a
+structural check does: the group runs again, and a second failure
+leaves it unverified. The engine runs no probe itself. A run that an
+earlier engine configured keeps the answers it was configured with, also
+when this engine resumes it, and its verdicts have no basis. See
+`docs/changes/2026-10-31-runs-on-the-record.requirements.md` and its
+design.
+
 The report is Markdown rendered by the engine into the evidence store,
 and a copy of it beside the ledger, under `reports/` in the checkpoint,
 named by the day the run started and the run, is what a person opens.
@@ -223,7 +248,10 @@ meaning that says who compared the failures; and What deep-review fixed,
 one row per fix with how its fixer reports checking it and its patch.
 Each finding is named by its number, its rank in the run. One block per
 finding follows, from where it is and why to its decision, its fix, its
-patch and each validation its fixers report; then the evidence:
+patch and each validation its fixers report, with the basis of its
+verdict and each run the verdict cites after its evidence, and after
+each validation which of its cited runs its worker's record shows; then
+the evidence:
 Documentation updates, Checks, Patches, What the review covered, Refuted
 at verification, and About this run, with the repository, the commits,
 the engine, the runtime, the models and the settings, the one part that
@@ -243,7 +271,9 @@ with `--brief`, the whole brief as a chat shows it; with `--finding
 <number>`, the block of any finding, by its number or its id; with
 `--fixes`, a line for each fix with the subject of its commit message;
 and with `--stats`, the statistics per phase, the angles, the digest of
-the roles and the clusters of the fix pass, which the report leaves out.
+the roles and the clusters of the fix pass, which the report leaves out,
+and in a run whose verdicts cite runs, the verdicts of each grade by
+basis and the cited runs of each editing phase, found or not.
 See `docs/changes/2026-10-20-run-brief.requirements.md` and its design,
 `docs/changes/2026-10-24-questions-in-the-chat.md`,
 `docs/changes/2026-10-28-facts-before-a-merge.requirements.md` and
@@ -375,7 +405,16 @@ claim and one refusal, and it starts no process. A fixer returns a
 schema the engine validates: per finding a status (`applied`,
 `already-applied`, `deferred`, `blocked`), a note, and for a finding
 it edited, the files and their commit message, which for a blocked or
-deferred finding says the change is partial.
+deferred finding says the change is partial, and per finding how it
+validated the fix, each entry citing the shell runs it rests on in the
+form of a verifier's cited run. The engine looks for each in the
+fixer's record as it looks for a verifier's and records whether it
+found it, but never refuses an answer for a run it did not find, so the
+edits stand and the report names that run. A fixer's task gives each
+candidate's cited runs and frozen probe, and asks it to run the probe
+on the code before its fix and after it, when it can, and cite both.
+The documentation worker, the repair worker and an answer pass cite
+their runs in the same way.
 Before each snapshot it runs the quick checks it was given, since each
 finding becomes a commit the repository must accept alone. After
 each finding it runs `deep-review snapshot`, which copies what it
