@@ -453,7 +453,9 @@ export async function replayVerifier(options: ReplayOptions): Promise<ReplayOutc
   const roleText = options.roleText === 'current' ? roles.find((role) => role.key === verifierRole)?.prompt ?? null : null;
   if (options.roleText === 'current' && roleText === null) throw new ReplayRefusedError(`The roles directory ${options.rolesRoot} assembles no ${verifierRole} role`);
   const blobs: FrozenBlob[] = collectArtifactReferences(scope).map((reference) => ({ sha256: reference.sha256, path: source.evidence.pathOf(reference) }));
-  const prompted: PromptedGroup[] = groups.map((group) => ({ group, prompt: replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText }) }));
+  // A replayed verifier is a reading worker launched with no scratch directory of its own, so it gets one exactly when its runtime can allow a reading worker one (`chooseScratch`); a run with runs on the record asks it for a probe to match.
+  const probeScratch = state.review?.citedRuns === true ? adapter.capabilities.readOnlyScratch : null;
+  const prompted: PromptedGroup[] = groups.map((group) => ({ group, prompt: replayPrompt(source.evidence.read(group.launch.prompt).toString('utf8'), { scratch: group.launch.scratch, tree, blobs, roleText, probeScratch }) }));
 
   const sourceVerifiers = new Set(Object.values(state.workers).filter((worker) => parseUnitLabel(worker.launch.label)?.role === verifierRole).map((worker) => worker.launch.workerId));
   /** The SHA-256 of the role prompt a composed prompt opens with. */

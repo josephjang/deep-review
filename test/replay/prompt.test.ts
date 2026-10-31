@@ -7,8 +7,9 @@ import type { ScopeState } from '../../src/checkpoint/events.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
-import { recordedStorePrefix, replayPrompt, splitRoleText, withoutScratchNote, withRepository, withRoleText, withStore, type FrozenBlob } from '../../src/replay/prompt.ts';
+import { recordedStorePrefix, replayPrompt, splitRoleText, withoutScratchNote, withProbeSentence, withRepository, withRoleText, withStore, type FrozenBlob } from '../../src/replay/prompt.ts';
 import { composeWorkerPrompt, inlinePatchLimitBytes, scopeBlock } from '../../src/review/prompts.ts';
+import { probeSentence } from '../../src/review/tasks.ts';
 import { composePrompt } from '../../src/runtime/launcher.ts';
 
 const refused = (pattern: RegExp) => (error: unknown): boolean => {
@@ -203,9 +204,25 @@ describe('a replay\'s prompt', () => {
     const scope = scopeWith('a patch\n');
     const recorded = composePrompt(composed(scope, '/recorded/repo'), '/tmp/scratch/w1');
     const blobs = blobsOf(scope);
-    const kept = replayPrompt(recorded, { scratch: '/tmp/scratch/w1', tree: '/replay/tree', blobs, roleText: null });
+    const kept = replayPrompt(recorded, { scratch: '/tmp/scratch/w1', tree: '/replay/tree', blobs, roleText: null, probeScratch: null });
     assert.equal(kept, withStore(composed(scope, '/replay/tree'), blobs));
-    const swapped = replayPrompt(recorded, { scratch: '/tmp/scratch/w1', tree: '/replay/tree', blobs, roleText: 'Another verifier.\n' });
+    const swapped = replayPrompt(recorded, { scratch: '/tmp/scratch/w1', tree: '/replay/tree', blobs, roleText: 'Another verifier.\n', probeScratch: null });
     assert.equal(swapped, withStore(composed(scope, '/replay/tree', 'Another verifier.\n'), blobs));
+  });
+
+  it('gives a replayed verifier the probe sentence for the scratch directory it has or lacks, and leaves a prompt that holds the other or neither (R10 of runs on the record)', () => {
+    const scope = scopeWith('a patch\n');
+    /** A citing verifier's task whose paragraph ends with the probe sentence for `scratch`, and whose candidate quotes the same sentence. */
+    const citing = (scratch: boolean): string => `Group g1: 1 candidate.\n\nGive each verdict a \`basis\`. ${probeSentence(scratch)}\n\n[0] SCAN-1 (SCAN) at src/a.ts:2\n    summary: a\n    detail: ${probeSentence(scratch)}`;
+    const recorded = (scratch: boolean): string => composed(scope, '/recorded/repo', 'You are the verifier.\n', citing(scratch));
+    // Recorded with a scratch directory, replayed without one, and the reverse.
+    assert.equal(withProbeSentence(recorded(true), false), composed(scope, '/recorded/repo', 'You are the verifier.\n', `Group g1: 1 candidate.\n\nGive each verdict a \`basis\`. ${probeSentence(false)}\n\n[0] SCAN-1 (SCAN) at src/a.ts:2\n    summary: a\n    detail: ${probeSentence(true)}`), 'only the paragraph\'s sentence, the first, is replaced');
+    assert.equal(withProbeSentence(recorded(false), true), composed(scope, '/recorded/repo', 'You are the verifier.\n', `Group g1: 1 candidate.\n\nGive each verdict a \`basis\`. ${probeSentence(true)}\n\n[0] SCAN-1 (SCAN) at src/a.ts:2\n    summary: a\n    detail: ${probeSentence(false)}`));
+    assert.equal(withProbeSentence(recorded(true), true), recorded(true), 'a prompt that holds the sentence for its worker stays');
+    assert.equal(withProbeSentence(composed(scope, '/recorded/repo'), true), composed(scope, '/recorded/repo'), 'a task with no probe sentence stays');
+    const blobs = blobsOf(scope);
+    const replayed = replayPrompt(composePrompt(recorded(true), '/tmp/scratch/w1'), { scratch: '/tmp/scratch/w1', tree: '/replay/tree', blobs, roleText: null, probeScratch: false });
+    assert.ok(replayed.includes(`basis\`. ${probeSentence(false)}\n`), replayed);
+    assert.equal(replayPrompt(composePrompt(recorded(true), null), { scratch: null, tree: '/replay/tree', blobs, roleText: null, probeScratch: null }), withStore(composed(scope, '/replay/tree', 'You are the verifier.\n', citing(true)), blobs), 'a run that asks for no probe keeps its sentence');
   });
 });
