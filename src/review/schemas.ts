@@ -156,7 +156,7 @@ export const verifierOutputSchemaV2 = z.strictObject({
     verdict: verdictSchema,
     evidence: z.string().min(1).max(1000),
     basis: verdictBasisSchema,
-    runs: z.array(citedRunSchema).max(3),
+    runs: z.array(citedRunSchema).max(citedRunLimitsV1.runsPerVerdict),
   })),
 });
 export type VerifierOutputV2 = z.infer<typeof verifierOutputSchemaV2>;
@@ -321,7 +321,7 @@ export const fixerOutputSchemaV2 = z.strictObject({
   ...fixerOutputSchema.shape,
   findings: z.array(z.strictObject({
     ...fixerFinding.shape,
-    validation: z.array(z.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: z.array(citedRunSchema).max(4) })).max(20),
+    validation: z.array(z.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: z.array(citedRunSchema).max(citedRunLimitsV1.runsPerEntry) })).max(20),
   })),
 });
 export type FixerOutputV2 = z.infer<typeof fixerOutputSchemaV2>;
