@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { maxDecodeBytes, maxLineBytes, outputLines } from '../../src/runtime/adapter.ts';
+import { maxDecodeBytes, maxLineBytes, outputLines, readEvents } from '../../src/runtime/adapter.ts';
 
 const lines = (text: string | Buffer, maxBytes?: number): (string | null)[] => [...outputLines(Buffer.isBuffer(text) ? text : Buffer.from(text, 'utf8'), maxBytes)];
 
@@ -50,5 +50,31 @@ describe('outputLines', () => {
 
   it('allows a line longer than the cap on a whole output, since one event can carry all a command printed', () => {
     assert.ok(maxLineBytes > maxDecodeBytes);
+  });
+});
+
+describe('readEvents', () => {
+  const read = (lines: (string | null)[]): { malformed: string | null; events: unknown[] } => {
+    const events: unknown[] = [];
+    const malformed = readEvents(lines, 'Runtime', (event) => events.push(event));
+    return { malformed, events };
+  };
+
+  it('passes each event object to the observer in order and returns null for a stream with none malformed', () => {
+    assert.deepEqual(read([]), { malformed: null, events: [] });
+    assert.deepEqual(read(['{"a":1}', '', '  ', '{"b":2}']), { malformed: null, events: [{ a: 1 }, { b: 2 }] });
+  });
+
+  it('names the runtime and the line, blank lines counted, of a line too long, not JSON or not an object', () => {
+    assert.equal(read(['', null]).malformed, `Runtime printed line 2 that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`);
+    assert.match(read(['{}', '', '{"a":']).malformed ?? '', /^Runtime printed line 3 that is not JSON: /);
+    for (const bad of ['[1]', 'null', '"text"', '7']) assert.equal(read([bad]).malformed, 'Runtime printed line 1 that is not an event object');
+  });
+
+  it('keeps the first malformed line and still observes every event after it', () => {
+    assert.deepEqual(read(['{"a":1}', '[1]', '{"b":2}', 'x', null, '{"c":3}']), {
+      malformed: 'Runtime printed line 2 that is not an event object',
+      events: [{ a: 1 }, { b: 2 }, { c: 3 }],
+    });
   });
 });
