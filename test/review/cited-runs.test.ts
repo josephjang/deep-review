@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -162,5 +162,17 @@ describe('freezeProbe', () => {
     assert.equal(freezeProbe(scratch, 'edge.mjs', evidence).kind, 'frozen', 'exactly 64 KiB is frozen');
     const none = freezeProbe(null, 'probe.mjs', evidence);
     assert.deepEqual(none, { kind: 'refused', reason: 'the probe probe.mjs cannot be frozen: the worker had no scratch directory' });
+  });
+
+  it('refuses a probe the engine cannot read, and validationRun only logs it, never throwing', (t) => {
+    // Root reads a file of any mode, and Windows has no mode that denies the owner a read.
+    if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('a mode cannot deny this process a read');
+    writeFileSync(join(scratch, 'locked.py'), 'print(1)\n');
+    chmodSync(join(scratch, 'locked.py'), 0o000);
+    assert.equal(reason('locked.py'), 'the probe locked.py cannot be read: EACCES');
+    const reasons: string[] = [];
+    const recorded = validationRun([run('python locked.py', '1\n')], cited(['1'], 'locked.py', 'python locked.py'), scratch, evidence, (logged) => reasons.push(logged));
+    assert.deepEqual(recorded, { command: 'python locked.py', printed: ['1'], probe: null, found: { at: 1, exitCode: 0 } });
+    assert.deepEqual(reasons, ['cites a probe the engine cannot freeze: the probe locked.py cannot be read: EACCES']);
   });
 });

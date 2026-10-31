@@ -152,8 +152,9 @@ export function foundVerdictRuns(verdicts: readonly CitingVerdict[], record: rea
  * Freeze the probe a worker cites at `path` (R5, PD9, TD8 of runs on the
  * record): resolved against its scratch directory, links followed, and
  * frozen only when its real path lies inside the real path of that
- * directory, it is a regular file, and it holds at most `probeLimitBytes`.
- * Anything else is refused with the reason, as is a probe of a worker
+ * directory, it is a regular file the engine can read, and it holds at
+ * most `probeLimitBytes`. Anything else is refused with the reason, never
+ * thrown, as is a probe of a worker
  * given no scratch directory, so no file of the reviewed tree, the
  * checkpoint or the operator is ever frozen.
  */
@@ -167,10 +168,16 @@ export function freezeProbe(scratch: string | null, path: string, evidence: Pick
     return refused('names no file');
   }
   if (!isInside(scratch, real)) return refused(`is outside the scratch directory ${scratch}`);
-  const stat = statSync(real);
-  if (!stat.isFile()) return refused('is not a regular file');
-  if (stat.size > probeLimitBytes) return refused(`holds ${String(stat.size)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
-  const bytes = readFileSync(real);
+  let bytes: Buffer;
+  try {
+    const stat = statSync(real);
+    if (!stat.isFile()) return refused('is not a regular file');
+    if (stat.size > probeLimitBytes) return refused(`holds ${String(stat.size)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
+    bytes = readFileSync(real);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return refused(code === undefined ? 'cannot be read' : `cannot be read: ${code}`);
+  }
   if (bytes.length > probeLimitBytes) return refused(`holds ${String(bytes.length)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
   return { kind: 'frozen', probe: { blob: evidence.put(bytes), name: baseName(path) } };
 }
