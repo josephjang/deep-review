@@ -340,15 +340,26 @@ export interface VerifierCiting {
 }
 
 /**
+ * The sentence of a verifier's task on how it runs a probe, for a worker
+ * with a scratch directory or without one (R4, PD9 of runs on the
+ * record). The engine freezes a cited probe from the file as it is when
+ * the worker ends, so a file changed after the run it cites would be
+ * recorded with bytes that run never executed. Replay puts the sentence
+ * for its own worker in place of the recorded one.
+ */
+export function probeSentence(scratch: boolean): string {
+  return scratch
+    ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else. Write each probe you cite as a file of its own, with a name no other probe of your answer uses, and do not change that file after the run you cite: the engine keeps the file as it is when you finish.`
+    : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
+}
+
+/**
  * The paragraph of a verifier's task that asks for each verdict's basis
  * and the runs it rests on (R2, R3, R4, PD6 of runs on the record). It
  * asks for no probe the rubric does not: the rubric says when to run one.
  */
 function citingParagraph({ scratch }: VerifierCiting): string {
-  const probe = scratch
-    ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else.`
-    : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
-  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probe}`;
+  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probeSentence(scratch)}`;
 }
 
 /** A verifier's task over one group; with `citing`, the task of a run with runs on the record, which asks for each verdict's basis and runs. */

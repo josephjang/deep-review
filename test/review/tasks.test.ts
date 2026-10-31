@@ -310,6 +310,15 @@ describe('the task texts', () => {
     assert.match(verifierTask('g1', [candidate('A-1', 'SCAN'), candidate('A-2', 'SCAN')]), /2 candidates, numbered \[0\] to \[1\]/);
   });
 
+  it('asks a verifier with a scratch directory to keep each cited probe in a file of its own, unchanged after its cited run (R4 of runs on the record)', () => {
+    const scratch = verifierTask('g1', [outside], { scratch: true });
+    assert.match(scratch, /an answer that cites a run not there is discarded whole and the group is run again\. When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in `probe`; give `probe` as null for a run of anything else\. Write each probe you cite as a file of its own, with a name no other probe of your answer uses, and do not change that file after the run you cite: the engine keeps the file as it is when you finish\.\n/);
+    const reading = verifierTask('g1', [outside], { scratch: false });
+    assert.match(reading, /group is run again\. When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give `probe` as null\.\n/);
+    assert.doesNotMatch(reading, /a file of its own/);
+    assert.doesNotMatch(verifierTask('g1', [outside]), /When your rubric has you run a probe/, 'no citing, no probe sentence');
+  });
+
   it('gives the sweep the verified and refuted lists and the angles not run', () => {
     const task = sweepTask({
       verified: [{ candidate: candidate('RIPPLE-1', 'RIPPLE'), verdict: 'CONFIRMED', unverified: false }, { candidate: unlocated, verdict: 'PLAUSIBLE', unverified: true }],
