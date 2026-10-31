@@ -161,25 +161,33 @@ function answersFor(fix: FixState, id: string): { readonly phase: 'fixes' | 'ans
  * The scratch directories of the run's workers as a cited run can spell
  * them (R8 of runs on the record): each as recorded and with forward
  * slashes, which a worker on Windows may write for backslashes, longest
- * first, so one inside another is never cut short. The verdict does not
- * record which verifier gave it, so a report takes every worker's.
+ * first, so one inside another is never cut short; `withoutScratch`
+ * matches a Windows spelling in any case. The verdict does not record
+ * which verifier gave it, so a report takes every worker's.
  */
 export function scratchSpellings(workers: RunState['workers']): string[] {
   const recorded = Object.values(workers).flatMap(({ launch }) => (launch.scratch === null ? [] : [launch.scratch, launch.scratch.replaceAll('\\', '/')]));
   return [...new Set(recorded)].sort((a, b) => b.length - a.length);
 }
 
+/** Whether a path is spelled for Windows: it begins with a drive letter or holds a backslash. */
+const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
+
 /**
  * A cited run's command or printed line with each scratch directory of
  * `scratch` written `<scratch>`, since it is a local path of the machine
  * the worker ran on (R8 of runs on the record), with the `/private` that
  * macOS puts before its temporary directory when a path is resolved, as
- * Node does in a stack trace. A path that goes on into a longer name stays
- * as written.
+ * Node does in a stack trace. A Windows spelling, one with a drive letter
+ * or a backslash, matches in any case, since a Windows file system ignores
+ * case; a POSIX one only as written, since another directory can differ
+ * from it only in case. A path that goes on into a longer name stays as
+ * written.
  */
 export function withoutScratch(text: string, scratch: readonly string[]): string {
   if (scratch.length === 0) return text;
-  return text.replace(new RegExp(`(?:/private(?=/))?(?:${scratch.map((directory) => RegExp.escape(directory)).join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
+  const directories = scratch.map((directory) => (windowsPath(directory) ? `(?i:${RegExp.escape(directory)})` : RegExp.escape(directory)));
+  return text.replace(new RegExp(`(?:/private(?=/))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
 }
 
 /**
