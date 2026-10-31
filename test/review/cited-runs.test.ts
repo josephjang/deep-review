@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { EvidenceStore } from '../../src/evidence/store.ts';
-import { findRun, freezeProbe, normalized, probeLimitBytes, type CitedRun } from '../../src/review/cited-runs.ts';
+import { findRun, foundVerdictRuns, freezeProbe, normalized, probeLimitBytes, type CitedRun } from '../../src/review/cited-runs.ts';
+import { StructuralCheckError } from '../../src/review/errors.ts';
 import type { ShellRun } from '../../src/runtime/adapter.ts';
 
 const run = (command: string, output: string | null, exitCode: number | null = 0): ShellRun => ({ command, output, exitCode });
@@ -53,6 +54,19 @@ describe('findRun', () => {
   it('never finds a run with no output, such as a call with no result', () => {
     assert.equal(findRun([run('npm test', null, null)], cited(['npm test'])), null);
     assert.equal(findRun([], cited(['anything'])), null);
+  });
+});
+
+describe('foundVerdictRuns', () => {
+  const record = [run('node probe.mjs', 'threw\n', 1)];
+
+  it('gives each cited run of each verdict with its place, in the order of the answer', () => {
+    assert.deepEqual(foundVerdictRuns([{ index: 1, runs: [] }, { index: 0, runs: [cited(['threw'])] }], record), [[], [{ cited: cited(['threw']), found: { at: 1, exitCode: 1 } }]]);
+  });
+
+  it('refuses an answer with a run the record does not hold, naming the verdict and the start of the command', () => {
+    const long = `node ${'x'.repeat(300)}`;
+    assert.throws(() => foundVerdictRuns([{ index: 2, runs: [cited(['passed'], null, long)] }], record), (error: unknown) => error instanceof StructuralCheckError && error.message === `The verdict for index 2 cites a run that the record of its shell runs does not hold: ${long.slice(0, 200)}`);
   });
 });
 

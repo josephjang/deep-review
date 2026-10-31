@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
@@ -11,15 +11,17 @@ import { flagCheckSettings, noCheckSettings } from '../../src/review/checks/disc
 import { lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { contributionOf, groupCandidates, invocationFor, standingSurvey, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
-import { fixerOutputSchema, outputSchemaOf, repairOutputSchema } from '../../src/review/schemas.ts';
+import { fixerOutputSchema, outputSchemaOf, repairOutputSchema, verifierOutputSchemaV2 } from '../../src/review/schemas.ts';
 import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
+import type { ShellRun } from '../../src/runtime/adapter.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { EvidenceStore } from '../../src/evidence/store.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { deciderAnswer, fixerAnswer } from '../helpers/fake-runtime.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
-import { answer, askDecision, baselined, checkRun, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withDocumentationStep, type History, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, baselined, checkRun, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withCitedRuns, withDocumentationStep, type History, finish, launch, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -131,6 +133,7 @@ describe('invocationFor', () => {
     newScratch: () => '/scratch/new',
     snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`,
     unelevatedEditors: false,
+    readerScratch: true,
     claims: { directoryOf: () => '/scratch/claims/run/round-1', command: (key, directory) => `node "/engine/main.mjs" claim --path '<path>' --unit ${key} --in "${directory}"`, live: () => null, caseInsensitive: () => false },
     documentation: () => ({ patches: [], exclude: [] }),
   });
@@ -533,7 +536,7 @@ describe('the repair of a run with the checks on the base', () => {
     state, worktree: '/w', roles,
     configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 600_000 })) },
     scopeBlock: () => '## Scope', survey: () => noSurveyInputs, commitMessages: () => ({ kind: 'read', messages: [], withTree: false }), evidence,
-    newScratch: () => '/scratch/new', snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`, unelevatedEditors: false,
+    newScratch: () => '/scratch/new', snapshotCommand: (into) => `node "/engine/main.mjs" snapshot --finding <index> --into "${into}"`, unelevatedEditors: false, readerScratch: true,
     claims: { directoryOf: () => '/scratch/claims/run/round-1', command: () => 'claim', live: () => null, caseInsensitive: () => false },
     documentation: () => ({ patches: [], exclude: [] }),
   });
@@ -605,6 +608,116 @@ describe('the repair of a run with the checks on the base', () => {
       const receipt = await box.run(box.codex({ prompt: invocation.prompt, outputSchema: invocation.outputSchema }), { FAKE_SCRIPT: script });
       assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
       assert.deepEqual((receipt.output as { comparisons: unknown }).comparisons, []);
+    });
+  });
+});
+
+// R2, R3, R4, R5, TD5 and PD3 of runs on the record.
+describe('the verifier of a run with runs on the record', () => {
+  const verifierId = '00000000-0000-4000-8000-0000000000aa';
+  /** A decided run with the documentation step and the checks on the base, configured at version 9 unless `cited` is false, with its first verification group planned and its verifier launched with `scratch`. */
+  const planned = (cited: boolean, scratch: string | null = null): History => {
+    const history = found()
+      .start('deduplication').worker(20, 'deduplication deduplication:deduplication').add('deduplication.recorded', { phase: 'deduplication', workerId: worker(20), groups: [] }).finish('deduplication')
+      .start('verification').add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['RIPPLE-1'] }] });
+    const base = withBaseChecks(withDocumentationStep(decidedOf(history, null), null));
+    return (cited ? withCitedRuns(base) : base).add('worker.launched', { ...launch(verifierId, 'verifier verification:g1'), scratch });
+  };
+  const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+  const context = (state: RunState, readerScratch = true): PhaseContext => ({
+    state, worktree: '/w', roles,
+    configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 600_000 })) },
+    scopeBlock: () => '## Scope', survey: () => noSurveyInputs, commitMessages: () => ({ kind: 'read', messages: [], withTree: false }), evidence: { read: () => Buffer.alloc(0), pathOf: () => '/evidence' },
+    newScratch: () => '/scratch/new', snapshotCommand: () => 'snapshot', unelevatedEditors: false, readerScratch,
+    claims: { directoryOf: () => '/scratch/claims', command: () => 'claim', live: () => null, caseInsensitive: () => false },
+    documentation: () => ({ patches: [], exclude: [] }),
+  });
+  const verifier = unit('verification', 'g1', 'verifier');
+
+  it('answers in its own schema, and asks for the basis and the runs, a probe file where it has a scratch directory and a command where it has none', () => {
+    const invocation = invocationFor(verifier, context(planned(true).fold()));
+    assert.equal(invocation.outputSchema, verifierOutputSchemaV2);
+    assert.match(invocation.prompt, /Give each verdict a `basis`: `ran` when a run of code showed the result, `traced` when you followed the code line by line to it, `read` when the lines alone settle the claim\./);
+    assert.match(invocation.prompt, /an answer that cites a run not there is discarded whole and the group is run again\. When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in `probe`/);
+    assert.match(invocationFor(verifier, context(planned(true).fold(), false)).prompt, /When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give `probe` as null\./);
+  });
+
+  it('keeps the schema and the task of a run configured before runs on the record, also when this engine resumes it (TD5)', () => {
+    const invocation = invocationFor(verifier, context(planned(false).fold()));
+    assert.equal(invocation.outputSchema, outputSchemaOf('verifier'));
+    assert.doesNotMatch(invocation.prompt, /basis|`runs`|probe/);
+  });
+
+  describe('its answer', () => {
+    let root: string;
+    let scratch: string;
+    let evidence: EvidenceStore;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'deep-review-cited-'));
+      scratch = join(root, 'scratch');
+      mkdirSync(scratch);
+      writeFileSync(join(scratch, 'probe-1.mjs'), 'parse(null);\n');
+      evidence = new EvidenceStore(join(root, 'artifacts'));
+    });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+    const record = (): ShellRun[] => [
+      { command: 'ls', output: 'probe-1.mjs\n', exitCode: 0 },
+      { command: `node ${join(scratch, 'probe-1.mjs')}`, output: 'Exit code 1\nTypeError: Cannot read properties of null\n', exitCode: 1 },
+    ];
+    const cited = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ command: 'node probe-1.mjs', printed: ['TypeError: Cannot read properties of null'], probe: 'probe-1.mjs', ...change });
+    const answer = (runs: readonly unknown[], basis = 'ran'): unknown => ({ verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'the probe threw', basis, runs }] });
+    const events = (output: unknown, history: History, runs: readonly ShellRun[] | null = record()): NewEvent[] =>
+      contributionOf(verifier, receipt(output, { runs }), { state: history.fold(), worktree: '/w', evidence, match: () => false, claims: null, survey: () => noSurveyInputs, claimsLost: false, log: () => {} });
+
+    it('records a verdict whose cited run is in its record at version 2, with the run\'s place, its exit code and its probe frozen, which the fold takes', () => {
+      const history = planned(true, scratch);
+      const [event] = events(answer([cited()]), history);
+      assert.equal(event?.kind, 'verdicts.recorded');
+      assert.equal(event?.version, 2);
+      const run = (event!.payload as { verdicts: { runs: Record<string, unknown>[] }[] }).verdicts[0]!.runs[0]!;
+      assert.deepEqual({ ...run, probe: null }, { command: 'node probe-1.mjs', printed: ['TypeError: Cannot read properties of null'], probe: null, at: 2, exitCode: 1 });
+      const probe = run.probe as { blob: { sha256: string; bytes: number }; name: string };
+      assert.equal(probe.name, 'probe-1.mjs');
+      assert.equal(evidence.read(probe.blob).toString('utf8'), 'parse(null);\n');
+      const verdict = history.add('worker.finished', finish(verifierId)).add(event!.kind, event!.payload, event!.version).review().candidates['RIPPLE-1']!.verdict;
+      assert.equal(verdict?.basis, 'ran');
+      assert.deepEqual(verdict?.runs.map((entry) => [entry.at, entry.exitCode, entry.probe?.name]), [[2, 1, 'probe-1.mjs']]);
+    });
+
+    it('records a verdict that rests on no run with its basis and no run', () => {
+      const [event] = events(answer([], 'read'), planned(true, scratch));
+      assert.deepEqual((event!.payload as { verdicts: unknown[] }).verdicts, [{ id: 'RIPPLE-1', verdict: 'CONFIRMED', evidence: 'the probe threw', basis: 'read', runs: [] }]);
+    });
+
+    it('fails the attempt of an answer that cites a run its record does not hold, naming the run, and freezes nothing for it (PD3)', () => {
+      const missing = events(answer([cited(), cited({ printed: ['TypeError: Cannot read properties of undefined'] })]), planned(true, scratch));
+      assert.deepEqual(missing.map((event) => event.kind), ['attempt.failed']);
+      assert.match((missing[0]!.payload as { reason: string }).reason, /^structural check: The verdict for index 0 cites a run that the record of its shell runs does not hold: node probe-1\.mjs$/);
+      assert.equal(readdirSync(join(root, 'artifacts')).length, 0, 'no probe is frozen for an answer refused for a missing run');
+      assert.deepEqual(events(answer([cited()]), planned(true, scratch), null).map((event) => event.kind), ['attempt.failed'], 'a worker with no record holds no run');
+    });
+
+    it('fails the attempt of an answer whose probe cannot be frozen: outside the scratch directory, or of a worker with none', () => {
+      writeFileSync(join(root, 'probe-1.mjs'), 'outside\n');
+      const outside = events(answer([cited({ probe: '../probe-1.mjs' })]), planned(true, scratch));
+      assert.match((outside[0]!.payload as { reason: string }).reason, /^structural check: The verdict for index 0 cites a probe the engine cannot freeze: the probe \.\.\/probe-1\.mjs is outside the scratch directory/);
+      const none = events(answer([cited()]), planned(true, null));
+      assert.match((none[0]!.payload as { reason: string }).reason, /the worker had no scratch directory$/);
+    });
+
+    it('fails the attempt of an answer whose basis and runs disagree, or that cites a blank line', () => {
+      const reasons = [answer([], 'ran'), answer([cited()], 'traced'), answer([cited({ printed: ['  '] })])].map((output) => (events(output, planned(true, scratch))[0]!.payload as { reason: string }).reason);
+      assert.deepEqual(reasons, [
+        'structural check: The verdict for index 0 rests on a run and cites none',
+        'structural check: The verdict for index 0 is traced and cites a run, which only a verdict that rests on a run does',
+        'structural check: The verdict for index 0 cites a blank line of what a run printed',
+      ]);
+    });
+
+    it('records a version 1 verdict for a run configured before runs on the record, whatever runs its record holds', () => {
+      const [event] = events({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }, planned(false, scratch));
+      assert.equal(event?.version, 1);
+      assert.deepEqual((event!.payload as { verdicts: unknown[] }).verdicts, [{ id: 'RIPPLE-1', verdict: 'REFUTED', evidence: 'e' }]);
     });
   });
 });

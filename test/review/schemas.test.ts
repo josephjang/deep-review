@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { changeReadingSchema, changeTextLengthV1 } from '../../src/checkpoint/events.ts';
+import { changeReadingSchema, changeTextLengthV1, citedRunLimitsV1, verdictsRecordedV2 } from '../../src/checkpoint/events.ts';
 import { StructuralCheckError } from '../../src/review/errors.ts';
 import {
   changeSourceLimits,
@@ -22,6 +22,7 @@ import {
   sweepOutputSchema,
   triageOutputSchema,
   verifierOutputSchema,
+  verifierOutputSchemaV2,
   type DeciderOutput,
 } from '../../src/review/schemas.ts';
 import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
@@ -186,6 +187,32 @@ describe('the structural checks', () => {
     assert.throws(() => checkVerdicts({ verdicts: [verdict(0), verdict(3)] }, 2), /A verdict names index 3, but the candidates are numbered \[0\] to \[1\]/);
     assert.throws(() => checkVerdicts({ verdicts: [] }, 1), /No verdict for index 0/);
     assert.throws(() => checkVerdicts({ verdicts: [verdict(2), verdict(0)] }, 4), /No verdict for index 1, 3 of the 4 candidates/, 'every gap, in order, wherever it falls');
+  });
+
+  it('hold the basis of a verdict to its runs in an answer that gives one: a verdict that ran cites a run, one of another basis none, and no cited line is blank (R2, R3 of runs on the record)', () => {
+    const run = (printed: string[] = ['TypeError']) => ({ command: 'node probe.mjs', printed, probe: null });
+    const verdict = (index: number, basis: 'ran' | 'traced' | 'read', runs: ReturnType<typeof run>[]) => ({ index, verdict: 'CONFIRMED' as const, evidence: 'e', basis, runs });
+    assert.doesNotThrow(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [run()]), verdict(1, 'traced', []), verdict(2, 'read', [])] }, 3));
+    assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [])] }, 1), (error: unknown) => error instanceof StructuralCheckError && /index 0 rests on a run and cites none/.test(error.message));
+    assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'read', [run()])] }, 1), /index 0 is read and cites a run, which only a verdict that rests on a run does/);
+    assert.throws(() => checkVerdicts({ verdicts: [verdict(0, 'ran', [run(['ok', ' \t '])])] }, 1), /index 0 cites a blank line of what a run printed/);
+  });
+
+  it('give the cited runs of a verifier\'s answer the caps the ledger records, and refuse a verdict without its basis', () => {
+    const answer = (runs: unknown[], basis = 'ran') => ({ verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'e', basis, runs }] });
+    const run = (change: Record<string, unknown> = {}) => ({ command: 'node probe.mjs', printed: ['x'], probe: 'probe.mjs', ...change });
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run(), run(), run()])).success, true);
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run(), run(), run(), run()])).success, false, 'at most three runs');
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run({ printed: Array.from({ length: citedRunLimitsV1.lines + 1 }, () => 'x') })])).success, false, 'at most five lines');
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run({ printed: ['x'.repeat(citedRunLimitsV1.line + 1)] })])).success, false);
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run({ command: 'x'.repeat(citedRunLimitsV1.command + 1) })])).success, false);
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([run({ probe: 'x'.repeat(citedRunLimitsV1.probe + 1) })])).success, false);
+    assert.equal(verifierOutputSchemaV2.safeParse({ verdicts: [{ index: 0, verdict: 'CONFIRMED', evidence: 'e' }] }).success, false, 'each verdict gives its basis and its runs');
+    assert.equal(verifierOutputSchema.safeParse(answer([])).success, false, 'the answer of a run before runs on the record has neither');
+    const longest = run({ command: 'x'.repeat(citedRunLimitsV1.command), printed: Array.from({ length: citedRunLimitsV1.lines }, () => 'y'.repeat(citedRunLimitsV1.line)), probe: null });
+    assert.equal(verifierOutputSchemaV2.safeParse(answer([longest])).success, true);
+    const recorded = { phase: 'verification', groupId: 'g1', workerId: '00000000-0000-4000-8000-000000000001', verdicts: [{ id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'e', basis: 'ran', runs: [{ ...longest, at: 1, exitCode: 0 }] }] };
+    assert.equal(verdictsRecordedV2.safeParse(recorded).success, true, 'the longest run an answer may cite is one the ledger records');
   });
 
   it('accept a ranking that names every index once and refuse a repeat, a gap, or an index outside the list', () => {

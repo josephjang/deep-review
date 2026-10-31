@@ -7,9 +7,9 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
-import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, comparisonWordsLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -128,6 +128,37 @@ export const verifierOutputSchema = z.strictObject({
   verdicts: z.array(z.strictObject({ index, verdict: verdictSchema, evidence: z.string().min(1).max(1000) })),
 });
 export type VerifierOutput = z.infer<typeof verifierOutputSchema>;
+
+/**
+ * A run as a worker cites it (R3 of runs on the record): the command as it
+ * ran it, one to five lines of what the run printed that show the result,
+ * each copied exactly, and the path of the probe file in its scratch
+ * directory, or null for a run that is not of a probe file. The caps are
+ * the ones the ledger records (`citedRunLimitsV1`).
+ */
+export const citedRunSchema = z.strictObject({
+  command: z.string().min(1).max(citedRunLimitsV1.command),
+  printed: z.array(z.string().min(1).max(citedRunLimitsV1.line)).min(1).max(citedRunLimitsV1.lines),
+  probe: z.string().min(1).max(citedRunLimitsV1.probe).nullable(),
+});
+
+/**
+ * The verifier's answer in a run configured with runs on the record (R2,
+ * R3 of runs on the record): each verdict also gives how it was
+ * established, and cites the runs it rests on, at most three.
+ * `invocationFor` gives it to the verification units of such a run alone
+ * (TD5), and `checkVerdicts` holds its basis to its runs.
+ */
+export const verifierOutputSchemaV2 = z.strictObject({
+  verdicts: z.array(z.strictObject({
+    index,
+    verdict: verdictSchema,
+    evidence: z.string().min(1).max(1000),
+    basis: verdictBasisSchema,
+    runs: z.array(citedRunSchema).max(3),
+  })),
+});
+export type VerifierOutputV2 = z.infer<typeof verifierOutputSchemaV2>;
 
 /** The findings after merge and rank: a primary candidate, the candidates folded into it, and a severity. */
 export const mergeRankOutputSchema = z.strictObject({
@@ -358,13 +389,24 @@ export function checkDeduplication(output: DeduplicationOutput, count: number): 
   }
 }
 
-/** Refuse a verifier answer that gives an index twice, misses one, or names one outside the group. */
-export function checkVerdicts(output: VerifierOutput, count: number): void {
+/**
+ * Refuse a verifier answer that gives an index twice, misses one, or names
+ * one outside the group; and in an answer that gives each verdict its
+ * basis (R2, R3 of runs on the record), a verdict that rests on a run and
+ * cites none, one of another basis that cites a run, or a cited line that
+ * is blank.
+ */
+export function checkVerdicts(output: VerifierOutput | VerifierOutputV2, count: number): void {
   const seen = new Set<number>();
   for (const verdict of output.verdicts) {
     if (verdict.index >= count) throw outOfRange('A verdict', verdict.index, count);
     if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
     seen.add(verdict.index);
+    if (!('basis' in verdict)) continue;
+    const what = `The verdict for index ${String(verdict.index)}`;
+    if (verdict.basis === 'ran' && verdict.runs.length === 0) throw new StructuralCheckError(`${what} rests on a run and cites none`);
+    if (verdict.basis !== 'ran' && verdict.runs.length > 0) throw new StructuralCheckError(`${what} is ${verdict.basis} and cites a run, which only a verdict that rests on a run does`);
+    if (verdict.runs.some((run) => run.printed.some((line) => line.trim() === ''))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
   }
   const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(', ')} of the ${String(count)} candidates in the group`);

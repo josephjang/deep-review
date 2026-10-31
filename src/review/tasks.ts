@@ -330,11 +330,33 @@ export function deduplicationTask(candidates: readonly CandidateState[]): string
   ].join('\n');
 }
 
-/** A verifier's task over one group. */
-export function verifierTask(groupId: string, candidates: readonly CandidateState[]): string {
+/**
+ * How a verifier of a run with runs on the record cites its runs (R2, R3,
+ * R4 of runs on the record): whether it has a scratch directory to write a
+ * probe file in, which a reading Codex worker does not (PD9).
+ */
+export interface VerifierCiting {
+  readonly scratch: boolean;
+}
+
+/**
+ * The paragraph of a verifier's task that asks for each verdict's basis
+ * and the runs it rests on (R2, R3, R4, PD6 of runs on the record). It
+ * asks for no probe the rubric does not: the rubric says when to run one.
+ */
+function citingParagraph({ scratch }: VerifierCiting): string {
+  const probe = scratch
+    ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else.`
+    : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
+  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probe}`;
+}
+
+/** A verifier's task over one group; with `citing`, the task of a run with runs on the record, which asks for each verdict's basis and runs. */
+export function verifierTask(groupId: string, candidates: readonly CandidateState[], citing: VerifierCiting | null = null): string {
   const list = candidates.map((candidate, index) => candidateItem(index, candidate)).join('\n');
   return [
     `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? '' : 's'}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
+    ...(citing === null ? [] : ['', citingParagraph(citing)]),
     '',
     list,
   ].join('\n');

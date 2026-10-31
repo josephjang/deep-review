@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictRun, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -17,8 +17,10 @@ import { poolCandidates, type CandidateState, type ReviewState } from '../checkp
 import { lastSurvey } from '../checkpoint/survey-state.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import type { AssembledRole } from '../roles/assemble.ts';
+import type { ShellRun } from '../runtime/adapter.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
+import { foundVerdictRuns, freezeProbe } from './cited-runs.ts';
 import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
@@ -38,6 +40,7 @@ import {
   checkVerdicts,
   outputSchemaOf,
   repairOutputSchema,
+  verifierOutputSchemaV2,
   type CandidateOutput,
   type DeciderOutput,
   type DeduplicationOutput,
@@ -47,6 +50,7 @@ import {
   type SweepOutput,
   type TriageOutput,
   type VerifierOutput,
+  type VerifierOutputV2,
 } from './schemas.ts';
 import { settledKinds, unsettledKinds } from './checks/discover.ts';
 import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey.ts';
@@ -88,6 +92,8 @@ export interface PhaseContext {
   readonly snapshotCommand: (into: string) => string;
   /** Whether the run's editors work in Codex's unelevated Windows sandbox (`editorsUnderUnelevatedSandbox`). */
   readonly unelevatedEditors: boolean;
+  /** Whether a read-only worker of the run's runtime is given a scratch directory (`Capabilities.readOnlyScratch`), where a verifier writes its probes (PD9 of runs on the record). */
+  readonly readerScratch: boolean;
   /** Where a fixes-phase unit claims files. */
   readonly claims: ClaimsContext;
   /** What the documentation step's task names beyond the fold, the patches of the fixes put in the evidence store when first asked for, before the launch (R2 of the documentation step). */
@@ -480,6 +486,8 @@ export interface DocumentationPatch {
 /** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, the commit messages of the change the triage's task lists, and the documentation step's patches and patterns. */
 export interface TaskOptions {
   readonly editing?: EditingTaskInput | null;
+  /** Whether a read-only worker is given a scratch directory, which a verifier's task of a run with runs on the record names (`PhaseContext.readerScratch`). */
+  readonly readerScratch?: boolean | null;
   readonly evidence?: Pick<EvidenceStore, 'read' | 'pathOf'> | null;
   readonly survey?: SurveyInputs | null;
   readonly commitMessages?: ChangeMessages | null;
@@ -552,8 +560,12 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
     case 'sweep-deduplication':
       return deduplicationTask(poolCandidates(review, unit.phase));
     case 'verification':
-    case 'sweep-verification':
-      return verifierTask(unit.key, groupCandidates(review, unit.phase, unit.key));
+    case 'sweep-verification': {
+      const group = groupCandidates(review, unit.phase, unit.key);
+      if (!review.citedRuns) return verifierTask(unit.key, group);
+      if (options.readerScratch === undefined || options.readerScratch === null) throw new Error('The verifier\'s task of a run with runs on the record says where to write a probe, and needs to know whether it has a scratch directory');
+      return verifierTask(unit.key, group, { scratch: options.readerScratch });
+    }
     case 'sweep':
       return sweepTask({
         verified: survivors(review, 'verification').map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified })),
@@ -596,9 +608,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
  * round's claims directory with its siblings, which its task's claim
  * command writes, and its task names what each cluster holds as the fold
  * and the directory's live markers say at the launch (R2, R8 of commit
- * series integrity). Each unit answers in its role's schema, but the
- * repair of a run with the checks on the base answers in its own, which
- * carries its comparisons (TD6 of the facts before a merge).
+ * series integrity). Each unit answers in its schema (`unitOutputSchema`).
  */
 export function invocationFor(unit: Unit, context: PhaseContext): InvocationInput {
   const role = context.roles.get(unit.role);
@@ -612,7 +622,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const commitMessages = unit.phase === 'triage' ? context.commitMessages() : null;
   const documentation = unit.phase === 'documentation' ? context.documentation() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation }) }, context.scopeBlock(unit.phase));
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation, readerScratch: context.readerScratch }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -622,13 +632,27 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
     access: scratch === null ? 'read-only' : 'edit',
     shell: true,
     prompt,
-    outputSchema: comparesWithBase(review, unit.phase) ? repairOutputSchema : outputSchemaOf(unit.role),
+    outputSchema: unitOutputSchema(unit, review),
     timeoutMs: policy.timeoutMs,
     ...(policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd }),
     ...(scratch === null ? {} : { scratch }),
     ...(shared === null ? {} : { shared }),
     label: unitLabel(unit.role, unit.phase, unit.key),
   };
+}
+
+/**
+ * The schema a unit answers in: its role's, but the repair of a run with
+ * the checks on the base answers in its own, which carries its comparisons
+ * (TD6 of the facts before a merge), and a verifier of a run with runs on
+ * the record in its own, which gives each verdict's basis and runs (TD5
+ * of runs on the record). A run configured before either keeps the schema
+ * it was configured with, also when this engine resumes it.
+ */
+function unitOutputSchema(unit: Unit, review: ReviewState): InvocationInput['outputSchema'] {
+  if (comparesWithBase(review, unit.phase)) return repairOutputSchema;
+  if (unit.role === 'verifier' && review.citedRuns) return verifierOutputSchemaV2;
+  return outputSchemaOf(unit.role);
 }
 
 /** The failed attempt a unit records for a receipt or a refused answer, the unit's own fault, or for a unit that ran while its claims directory was removed, the environment's (R12 of commit series integrity). */
@@ -732,12 +756,35 @@ function failedWithEdits(unit: Unit, receipt: WorkerReceipt, reason: string, con
   return [...attempt.claims, failure, ...attempt.revisions];
 }
 
+/**
+ * The runs each verdict of a verifier's answer cites, as the ledger
+ * records them, in the order of the answer (R4, R5, PD3 of runs on the
+ * record): each found in the verifier's record of shell runs
+ * (`foundVerdictRuns`), with its place and exit code, and its probe frozen
+ * from the scratch directory its launch recorded. A cited run the record
+ * does not hold, or a probe that cannot be frozen, throws
+ * `StructuralCheckError`, so the attempt fails and the unit runs again as
+ * for any structural check. Every run is
+ * found before any probe is frozen, so an answer refused for a missing run
+ * leaves no blob behind; a stop after a freeze and before the append
+ * leaves one that no event names, as a refused launch leaves its prompt.
+ */
+function recordedVerdictRuns(output: VerifierOutputV2, record: readonly ShellRun[], scratch: string | null, evidence: Pick<EvidenceStore, 'put'>): VerdictRun[][] {
+  return foundVerdictRuns(output.verdicts, record).map((runs, position) => runs.map(({ cited, found }): VerdictRun => {
+    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
+    const freeze = freezeProbe(scratch, cited.probe, evidence);
+    if (freeze.kind === 'refused') throw new StructuralCheckError(`The verdict for index ${String(output.verdicts[position]!.index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
+    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
+  }));
+}
+
 /** The events a unit's contribution is recorded as, each kind with its own payload. */
 type ContributionEvent =
   | { readonly kind: 'survey.recorded'; readonly version: 1; readonly payload: SurveyRecorded }
   | { readonly kind: 'candidates.recorded'; readonly version: 2; readonly payload: CandidatesRecorded }
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
+  | { readonly kind: 'verdicts.recorded'; readonly version: 2; readonly payload: VerdictsRecordedV2 }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
   | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded };
 
@@ -783,8 +830,16 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     }
     case 'verification':
     case 'sweep-verification': {
-      const output = receipt.output as VerifierOutput;
       const group = groupCandidates(review, unit.phase, unit.key);
+      if (review.citedRuns) {
+        // The launcher held the answer of a verifier of such a run to `verifierOutputSchemaV2` (`unitOutputSchema`).
+        const output = receipt.output as VerifierOutputV2;
+        checkVerdicts(output, group.length);
+        const runs = recordedVerdictRuns(output, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
+        const verdicts = output.verdicts.map((verdict, position) => ({ id: group[verdict.index]!.id, verdict: verdict.verdict, evidence: verdict.evidence, basis: verdict.basis, runs: runs[position]! }));
+        return { kind: 'verdicts.recorded', version: 2, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts } };
+      }
+      const output = receipt.output as VerifierOutput;
       checkVerdicts(output, group.length);
       const verdicts = output.verdicts.map((verdict) => ({ id: group[verdict.index]!.id, verdict: verdict.verdict, evidence: verdict.evidence }));
       return { kind: 'verdicts.recorded', version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts } };
