@@ -13,6 +13,7 @@ import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { isInside } from '../paths.ts';
 import type { ShellRun } from '../runtime/adapter.ts';
 import { StructuralCheckError } from './errors.ts';
+import { truncated } from './steps.ts';
 
 /** A run as a worker cites it: the command as it ran it, one to five lines of what it printed, and the path of its probe file, or null for a probe run as a command. */
 export interface CitedRun {
@@ -38,6 +39,9 @@ export type ProbeFreeze = { readonly kind: 'frozen'; readonly probe: FrozenProbe
 
 /** The largest probe the engine freezes (R5, PD9 of runs on the record). */
 export const probeLimitBytes = 64 * 1024;
+
+/** The most characters of a cited command that a refusal or a log line quotes. */
+const quotedCommandLength = 200;
 
 /** The escape sequences of a terminal: a control sequence (CSI) and an operating system command (OSC), ended by BEL or ST. */
 const terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
@@ -135,15 +139,15 @@ export interface CitingVerdict {
  * Each run each verdict cites, with where `findRun` found it in the
  * verifier's record, in the order of the answer (R4, PD3 of runs on the
  * record). A cited run the record does not hold throws
- * `StructuralCheckError`, naming the verdict and the first 200 characters
- * of the command, so the answer fails as one that fails any structural
- * check does: in a review the unit runs again, and in replay the attempt
- * fails.
+ * `StructuralCheckError`, naming the verdict and the command, cut by
+ * `truncated` to 200 characters and never inside a surrogate pair, so the
+ * answer fails as one that fails any structural check does: in a review
+ * the unit runs again, and in replay the attempt fails.
  */
 export function foundVerdictRuns(verdicts: readonly CitingVerdict[], record: readonly ShellRun[]): { readonly cited: CitedRun; readonly found: FoundRun }[][] {
   return verdicts.map((verdict) => verdict.runs.map((cited) => {
     const found = findRun(record, cited);
-    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${cited.command.slice(0, 200)}`);
+    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${truncated(cited.command, quotedCommandLength)}`);
     return { cited, found };
   }));
 }
@@ -192,7 +196,7 @@ export function freezeProbe(scratch: string | null, path: string, evidence: Pick
  * holds blank is not found, and the log names the blank line.
  */
 export function validationRun(record: readonly ShellRun[], cited: CitedRun, scratch: string | null, evidence: Pick<EvidenceStore, 'put'>, log: (reason: string) => void): ValidationRun {
-  const command = cited.command.slice(0, 200);
+  const command = truncated(cited.command, quotedCommandLength);
   const blank = cited.printed.some(isBlankCitedLine);
   const found = findRun(record, cited);
   if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);

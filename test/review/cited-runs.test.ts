@@ -105,7 +105,16 @@ describe('foundVerdictRuns', () => {
 
   it('refuses an answer with a run the record does not hold, naming the verdict and the start of the command', () => {
     const long = `node ${'x'.repeat(300)}`;
-    assert.throws(() => foundVerdictRuns([{ index: 2, runs: [cited(['passed'], null, long)] }], record), (error: unknown) => error instanceof StructuralCheckError && error.message === `The verdict for index 2 cites a run that the record of its shell runs does not hold: ${long.slice(0, 200)}`);
+    assert.throws(() => foundVerdictRuns([{ index: 2, runs: [cited(['passed'], null, long)] }], record), (error: unknown) => error instanceof StructuralCheckError && error.message === `The verdict for index 2 cites a run that the record of its shell runs does not hold: ${long.slice(0, 188)} [truncated]`);
+  });
+
+  it('never cuts the quoted command inside a surrogate pair', () => {
+    const command = `${'a'.repeat(187)}\u{1F600} done ${'b'.repeat(20)}`;
+    assert.throws(() => foundVerdictRuns([{ index: 0, runs: [cited(['passed'], null, command)] }], record), (error: unknown) => error instanceof StructuralCheckError && error.message.isWellFormed() && error.message.endsWith(`${'a'.repeat(187)} [truncated]`));
+    const reasons: string[] = [];
+    validationRun(record, cited(['passed'], null, command), null, { put: (): never => assert.fail('no probe is cited') }, (reason) => reasons.push(reason));
+    assert.equal(reasons.length, 1);
+    assert.ok(reasons[0]!.isWellFormed(), JSON.stringify(reasons[0]));
   });
 });
 
