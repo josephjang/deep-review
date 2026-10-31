@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
+import type { ShellRun } from '../../src/runtime/adapter.ts';
 import { holdIfNamed, waitForFile, writeWhole, type FakeHost } from './fake-host.ts';
 
 /**
@@ -65,6 +66,17 @@ export interface ScriptStep {
   readonly stderr?: string;
   /** Answer as Claude Code does at a usage or session limit (Claude only): a result with `is_error` true, these words in `result`, and no structured output (R14 of resumable runs). */
   readonly limit?: string;
+  /**
+   * The shell runs the worker's stream records before its answer, each
+   * printed as its runtime prints one, so the decode reads them back as
+   * given, but for what each runtime adds: Claude Code puts the line
+   * `Exit code <n>` before the output of a command that exited nonzero, as
+   * its worker sees it, and gives a run with a null output no result, so its
+   * exit code reads back null too; Codex reads a null output back as empty,
+   * and fails the worker for a null exit code, as for a command that never
+   * ran.
+   */
+  readonly runs?: readonly ShellRun[];
 }
 
 /** The script: steps by `<role>:<phase>:<unit>`, `<role>:<unit>`, `<role>` or `*`, the most specific key winning. */

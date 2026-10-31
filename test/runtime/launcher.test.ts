@@ -40,6 +40,10 @@ describe('runWorker', () => {
     box.close();
   });
 
+  /** A prompt the fakes read as a review worker's, so a FAKE_SCRIPT step decides what they print. */
+  const scriptedPrompt = 'Role: tester\nPhase: testing\nUnit: u1\n\nAnswer ok.';
+  const scriptFile = (): string => join(box.directory, 'script.json');
+
   /** Every reference on both of the worker's events resolves to verified evidence (R6). */
   const assertEvidence = (receipt: WorkerReceipt): void => {
     const worker = box.worker(receipt.workerId);
@@ -132,7 +136,7 @@ describe('runWorker', () => {
 
     const failures: [string, Record<string, string>, RegExp][] = [
       ['a nonzero exit with a valid envelope', { FAKE_EXIT: '3' }, /exited with code 3/],
-      ['no envelope and a nonzero exit', { FAKE_STDOUT: '', FAKE_STDERR: 'boom', FAKE_EXIT: '3' }, /printed no result envelope/],
+      ['no result event and a nonzero exit', { FAKE_STDOUT: '', FAKE_STDERR: 'boom', FAKE_EXIT: '3' }, /printed no result event/],
       ['output that is not JSON', { FAKE_STDOUT: 'Error: something' }, /not JSON/],
       ['an answer the schema rejects', { FAKE_OUTPUT: '{"answer":42}' }, /does not match the output schema/],
       ['an envelope without a denial list', { FAKE_STDOUT: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'ok' } }) }, /no permission_denials array/],
@@ -186,6 +190,31 @@ describe('runWorker', () => {
       assert.deepEqual(receipt.denials, [{ tool: 'Bash', detail: 'touch x' }]);
       const worker = box.worker(receipt.workerId);
       assert.deepEqual(worker.status === 'finished' && worker.finish.denials, [{ tool: 'Bash', detail: 'touch x' }]);
+    });
+
+    it('decodes a Claude Code stdout above the decode cap a line at a time, its envelope at the end, and carries the run that printed most of it', async () => {
+      writeFileSync(scriptFile(), JSON.stringify({ '*': { output: { answer: 'ok' }, runs: [{ command: 'cat big', output: 'x'.repeat(maxDecodeBytes), exitCode: 0 }] } }));
+      const receipt = await box.run(box.claude({ prompt: scriptedPrompt }), { FAKE_SCRIPT: scriptFile() });
+      assert.equal(receipt.outcome, 'completed', receipt.error ?? '');
+      assert.ok(receipt.evidence.stdout.bytes > maxDecodeBytes);
+      assert.deepEqual(receipt.runs?.map((run) => ({ ...run, output: run.output?.length })), [{ command: 'cat big', output: maxDecodeBytes, exitCode: 0 }]);
+      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
+      assertEvidence(receipt);
+    });
+
+    it('carries the shell runs a scripted worker printed, as each runtime records them (R1 of runs on the record)', async () => {
+      const runs = [
+        { command: 'node probe.mjs', output: 'TypeError: x\nat probe.mjs:1', exitCode: 1 },
+        { command: 'ls', output: 'a\nb', exitCode: 0 },
+      ];
+      writeFileSync(scriptFile(), JSON.stringify({ '*': { output: { answer: 'ok' }, runs } }));
+      const claude = await box.run(box.claude({ prompt: scriptedPrompt }), { FAKE_SCRIPT: scriptFile() });
+      assert.equal(claude.outcome, 'completed', claude.error ?? '');
+      // Claude Code shows its worker the exit code of a failed command as the first line of the output.
+      assert.deepEqual(claude.runs, [{ ...runs[0], output: `Exit code 1\n${runs[0]!.output}` }, runs[1]]);
+      const codex = await box.run(box.codex({ prompt: scriptedPrompt }), { FAKE_SCRIPT: scriptFile() });
+      assert.equal(codex.outcome, 'completed', codex.error ?? '');
+      assert.deepEqual(codex.runs, runs);
     });
   });
 
@@ -693,15 +722,6 @@ describe('runWorker', () => {
       assert.equal(receipt.denials, null);
       const worker = box.worker(receipt.workerId);
       assert.equal(worker.status === 'finished' && worker.finish.denials, null);
-    });
-
-    it('refuses to decode a Claude Code stdout above the decode cap, freezes it, and keeps the pinned session', async () => {
-      const receipt = await box.run(box.claude(), { FAKE_HUGE: String(maxDecodeBytes + 1) });
-      assert.equal(receipt.outcome, 'failed');
-      assert.equal(receipt.error, `Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
-      assert.equal(receipt.evidence.stdout.bytes, maxDecodeBytes + 1);
-      assert.deepEqual(receipt.runtime.sessionIds, [box.worker(receipt.workerId).launch.sessionId]);
-      assertEvidence(receipt);
     });
 
     it('refuses to decode a final message above 16 MiB, freezes it, and keeps the session', async () => {

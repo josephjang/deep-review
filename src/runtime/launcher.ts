@@ -599,8 +599,8 @@ function settleOutputs(checkpoint: Checkpoint, adapter: RuntimeAdapter, invocati
 /**
  * Decode the outputs through the adapter. stdout is offered whole, as null
  * when it is above the decode cap, and a line at a time whatever its size,
- * so a runtime that reads it by line (Codex) is judged however long its
- * stream ran, and one that reads it whole (Claude) refuses it by name. A
+ * so a runtime that reads it by line (Claude and Codex) is judged however
+ * long its stream ran, and one that reads it whole refuses it by name. A
  * stderr or final message above the cap is not decoded, but the session ids
  * are still read from the outputs with those cut to the cap: a runtime names
  * its session first (Codex's `thread.started` opens its stream), and a worker
