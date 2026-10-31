@@ -68,11 +68,11 @@ function realGit(run2 = execFileSync, exists = existsSync) {
   const binary = win32.join(execPath, "git.exe");
   return exists(binary) ? binary : "git";
 }
-function gitLocator(resolve14 = realGit) {
+function gitLocator(resolve15 = realGit) {
   let resolved;
   return (platform = process.platform) => {
     if (platform !== "win32") return "git";
-    resolved ??= resolve14();
+    resolved ??= resolve15();
     return resolved;
   };
 }
@@ -295,7 +295,7 @@ async function runProcess(request) {
       return notStarted(error62.message, startedAt);
     }
     superviseChild(guard2);
-    return await new Promise((resolve14) => {
+    return await new Promise((resolve15) => {
       let started = false;
       let kill;
       const expire = (graceLeftMs) => {
@@ -322,7 +322,7 @@ async function runProcess(request) {
       guard2.on("error", (error62) => {
         if (started) return;
         clearTimeout(timer);
-        resolve14(notStarted(`the guard did not start: ${error62.message}`, startedAt));
+        resolve15(notStarted(`the guard did not start: ${error62.message}`, startedAt));
       });
       guard2.stdin?.on("error", () => {
       });
@@ -332,12 +332,12 @@ async function runProcess(request) {
         guard2.stdin?.destroy();
         const endedAt = (/* @__PURE__ */ new Date()).toISOString();
         const result = readGuardResult(resultFile);
-        if (kill !== void 0 && kill.status !== "not-running") resolve14({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
-        else if (result?.termination === "exited") resolve14({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
-        else if (result?.termination === "not-started") resolve14(notStarted(result.error, startedAt, endedAt));
+        if (kill !== void 0 && kill.status !== "not-running") resolve15({ termination: "killed", exitCode: code, signal, treeKillError: kill.status === "root-only" ? kill.error : null, startedAt, endedAt });
+        else if (result?.termination === "exited") resolve15({ termination: "exited", exitCode: result.exitCode, signal: result.signal, startedAt, endedAt });
+        else if (result?.termination === "not-started") resolve15(notStarted(result.error, startedAt, endedAt));
         else {
           endLeftGroup(guard2.pid);
-          resolve14({ termination: "exited", exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
+          resolve15({ termination: "exited", exitCode: null, signal: null, guardEnd: { exitCode: code, signal }, startedAt, endedAt });
         }
       });
     });
@@ -491,13 +491,13 @@ async function runGuard(argv) {
       writeResult(resultFile, { termination: "not-started", error: error62.message });
       return 1;
     }
-    return await new Promise((resolve14) => {
+    return await new Promise((resolve15) => {
       let started = false;
       let settled3 = false;
       const settle4 = (code) => {
         settled3 = true;
         process.stdin.destroy();
-        resolve14(code);
+        resolve15(code);
       };
       child.once("spawn", () => {
         started = true;
@@ -4011,8 +4011,8 @@ var init_schemas = __esm({
       const _normalized = cached(() => normalizeDef(def));
       const memo2 = globalConfig.memoizer;
       const generateFastpass = (shape) => {
-        const normalized = _normalized.value;
-        const syms = normalized.symbolKeys;
+        const normalized2 = _normalized.value;
+        const syms = normalized2.symbolKeys;
         const doc = new Doc(["payload", "ctx"], { shape, inst, memo: memo2, syms });
         const parseStr = (k) => `shape[${k}]._zod.run({ value: input[${k}], issues: [] }, ctx)`;
         const prefixStr = (id, k) => `
@@ -4030,11 +4030,11 @@ var init_schemas = __esm({
         doc.write(`const input = payload.value;`);
         const ids2 = /* @__PURE__ */ Object.create(null);
         let counter = 0;
-        for (const key of normalized.allKeys) {
+        for (const key of normalized2.allKeys) {
           ids2[key] = `key_${counter++}`;
         }
         doc.write(memo2 ? `const newResult = memo.alloc(inst, payload, {}, ctx);` : `const newResult = {};`);
-        for (const key of normalized.allKeys) {
+        for (const key of normalized2.allKeys) {
           if (key === "__proto__")
             continue;
           const id = ids2[key];
@@ -5058,7 +5058,7 @@ function isRef(value) {
 function cloneIssues(issues) {
   return issues.map((iss) => iss.path ? { ...iss, path: iss.path.slice() } : { ...iss });
 }
-function isRecursive(inst, stack, resolve14) {
+function isRecursive(inst, stack, resolve15) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -5068,7 +5068,7 @@ function isRecursive(inst, stack, resolve14) {
   let result = NONE;
   const check2 = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer3 = isRecursive(child, stack, resolve14);
+      const answer3 = isRecursive(child, stack, resolve15);
       if (answer3 > result)
         result = answer3;
     }
@@ -5079,7 +5079,7 @@ function isRecursive(inst, stack, resolve14) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve14) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve15) : NONE;
       if (child > answer3)
         answer3 = child;
     }
@@ -5143,7 +5143,7 @@ function isRecursive(inst, stack, resolve14) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve14 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve15 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -20251,23 +20251,23 @@ function fromJSONSchema(schema, params) {
   if (typeof schema === "boolean") {
     return schema ? z.any() : z.never();
   }
-  let normalized;
+  let normalized2;
   try {
-    normalized = JSON.parse(JSON.stringify(schema));
+    normalized2 = JSON.parse(JSON.stringify(schema));
   } catch {
     throw new Error("fromJSONSchema input is not valid JSON (possibly cyclic); use $defs/$ref for recursive schemas");
   }
-  const version2 = detectVersion(normalized, params?.defaultTarget);
-  const defs = normalized.$defs || normalized.definitions || {};
+  const version2 = detectVersion(normalized2, params?.defaultTarget);
+  const defs = normalized2.$defs || normalized2.definitions || {};
   const ctx = {
     version: version2,
     defs,
     refs: /* @__PURE__ */ new Map(),
     processing: /* @__PURE__ */ new Set(),
-    rootSchema: normalized,
+    rootSchema: normalized2,
     registry: params?.registry ?? globalRegistry
   };
-  return convertSchema(normalized, ctx);
+  return convertSchema(normalized2, ctx);
 }
 var z, RECOGNIZED_KEYS, SCHEMA_KEYWORDS, SCHEMA_MAP_KEYWORDS, fullTime;
 var init_from_json_schema = __esm({
@@ -21325,7 +21325,7 @@ function refineDocumentationPlan(plan, context) {
 function isDocumentItem(item) {
   return item.file !== null;
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, eventRegistry;
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -22733,6 +22733,43 @@ var init_events = __esm({
       }),
       patches: external_exports.array(artifactReferenceSchema).max(2e3)
     });
+    reviewVocabularyV10 = {
+      verdictBases: ["ran", "traced", "read"]
+    };
+    verdictBasisSchemaV10 = external_exports.enum(reviewVocabularyV10.verdictBases);
+    reviewConfiguredV9 = reviewConfiguredV8;
+    citedRunLimitsV1 = { command: 2e3, line: 300, lines: 5, probe: 400 };
+    frozenProbeSchemaV1 = external_exports.strictObject({ blob: artifactReferenceSchema, name: external_exports.string().min(1).max(citedRunLimitsV1.probe) });
+    citedRunFieldsV1 = {
+      command: external_exports.string().min(1).max(citedRunLimitsV1.command),
+      printed: external_exports.array(external_exports.string().min(1).max(citedRunLimitsV1.line)).min(1).max(citedRunLimitsV1.lines),
+      probe: frozenProbeSchemaV1.nullable()
+    };
+    foundRunFieldsV1 = { at: external_exports.number().int(), exitCode: external_exports.number().int().nullable() };
+    verdictsRecordedV2 = external_exports.strictObject({
+      phase: verificationPhaseSchema,
+      groupId: groupIdSchema,
+      workerId: external_exports.uuid(),
+      verdicts: external_exports.array(external_exports.strictObject({
+        id: candidateIdSchema,
+        verdict: verdictSchema,
+        evidence: external_exports.string().min(1).max(1e3),
+        basis: verdictBasisSchemaV10,
+        runs: external_exports.array(external_exports.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(3)
+      })).min(1)
+    });
+    validationRunSchemaV1 = external_exports.strictObject({ ...citedRunFieldsV1, found: external_exports.strictObject(foundRunFieldsV1).nullable() });
+    fixedFindingSchemaV2 = external_exports.strictObject({
+      ...fixedFindingSchema.shape,
+      validation: external_exports.array(external_exports.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: external_exports.array(validationRunSchemaV1).max(4) })).max(20)
+    });
+    fixRecordedV5 = external_exports.strictObject({
+      ...fixRecordedV4.shape,
+      findings: external_exports.array(fixedFindingSchemaV2)
+    }).refine((recorded) => new Set(recorded.findings.map((finding) => finding.id)).size === recorded.findings.length, {
+      message: "each finding is answered once",
+      path: ["findings"]
+    });
     eventRegistry = defineRegistry({
       "run.created": { 1: { schema: runCreatedV1 } },
       "run.abandoned": { 1: { schema: runAbandonedV1 } },
@@ -22740,7 +22777,7 @@ var init_events = __esm({
       "worker.launched": { 1: { schema: workerLaunchedV1 } },
       "worker.finished": { 1: { schema: workerFinishedV1 } },
       "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
-      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 } },
+      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 } },
       "limits.changed": { 1: { schema: limitsChangedV1 } },
       "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 } },
       "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 } },
@@ -22750,7 +22787,7 @@ var init_events = __esm({
       "angle.failed": { 1: { schema: angleFailedV1 } },
       "deduplication.recorded": { 1: { schema: deduplicationRecordedV1 } },
       "verification.planned": { 1: { schema: verificationPlannedV1 } },
-      "verdicts.recorded": { 1: { schema: verdictsRecordedV1 } },
+      "verdicts.recorded": { 1: { schema: verdictsRecordedV1 }, 2: { schema: verdictsRecordedV2 } },
       "group.unverified": { 1: { schema: groupUnverifiedV1 } },
       "ranking.recorded": { 1: { schema: rankingRecordedV1 } },
       "report.written": { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 } },
@@ -22760,7 +22797,7 @@ var init_events = __esm({
       "check.started": { 1: { schema: checkStartedV1 }, 2: { schema: checkStartedV2 } },
       "check.ran": { 1: { schema: checkRanV1 }, 2: { schema: checkRanV2 }, 3: { schema: checkRanV3 }, 4: { schema: checkRanV4 } },
       "tree.restored": { 1: { schema: treeRestoredV1 } },
-      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 } },
+      "fix.recorded": { 1: { schema: fixRecordedV1 }, 2: { schema: fixRecordedV2 }, 3: { schema: fixRecordedV3 }, 4: { schema: fixRecordedV4 }, 5: { schema: fixRecordedV5 } },
       "tree.revised": { 1: { schema: treeRevisedV1 }, 2: { schema: treeRevisedV2 }, 3: { schema: treeRevisedV3 } },
       "unit.unattempted": { 1: { schema: unitUnattemptedV1 }, 2: { schema: unitUnattemptedV2 } },
       "commits.prepared": { 1: { schema: commitsPreparedV1 } },
@@ -22807,7 +22844,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -22930,6 +22967,13 @@ var init_vocabulary = __esm({
     suiteResultSchema = external_exports.enum(suiteResults);
     verdicts = ["CONFIRMED", "PLAUSIBLE", "REFUTED"];
     verdictSchema2 = external_exports.enum(verdicts);
+    verdictBases = ["ran", "traced", "read"];
+    verdictBasisSchema = external_exports.enum(verdictBases);
+    verdictBasisWords = {
+      ran: "it ran code",
+      traced: "it traced the lines",
+      read: "the lines alone settle it"
+    };
     decisionKinds = ["fix", "leave", "ask"];
     decisionKindSchema = external_exports.enum(decisionKinds);
     decisionCountWords = (counts) => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
@@ -23545,11 +23589,11 @@ function documentationReadiness(fix) {
   if (!fix.revisions.some((revision) => revision.phase === "fixes")) return { kind: "no-fixes-revision" };
   return { kind: "ready" };
 }
-function documentationItemsOf(fix, resolve14) {
+function documentationItemsOf(fix, resolve15) {
   const groups = /* @__PURE__ */ new Map();
   for (const batch of allBatches(fix)) {
     for (const line of fix.answers.fixes[batch.key]?.drift ?? []) {
-      const path = resolve14(line.file);
+      const path = resolve15(line.file);
       const group = documentKey({ path, file: line.file });
       const entry = groups.get(group) ?? { file: line.file, path, drift: [] };
       entry.drift.push({ key: batch.key, file: line.file, what: line.what });
@@ -23696,7 +23740,7 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
-function configure(state, payload, event, { surveyed, decided, documented, compared }) {
+function configure(state, payload, event, { surveyed, decided, documented, compared, cited }) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
   if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (state.review !== null) throw invalid(event, "is configured for review twice");
@@ -23705,6 +23749,7 @@ function configure(state, payload, event, { surveyed, decided, documented, compa
     configuration: payload,
     documentationStep: documented,
     baseChecksStep: compared,
+    citedRuns: cited,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
@@ -23792,6 +23837,24 @@ function requireOpenGroup(review2, event, phase, groupId) {
   if (isUnverified(review2, phase, groupId)) throw invalid(event, `has ${event.kind} for group ${groupId} after it was marked unverified`);
   return group.candidateIds;
 }
+function recordVerdicts(state, payload, event, drafts, cited) {
+  const { current, review: review2 } = requireReview(state, event);
+  if (review2.citedRuns !== cited) throw invalid(event, cited ? "records verdicts with their bases and runs, which a run configured before runs on the record does not" : "records verdicts without their bases and runs, which its configuration asks for");
+  requireRunning(review2, event, payload.phase);
+  const expected = requireOpenGroup(review2, event, payload.phase, payload.groupId);
+  const given = payload.verdicts.map((verdict) => verdict.id);
+  if (new Set(given).size !== given.length) throw invalid(event, `records two verdicts for one candidate in group ${payload.groupId}`);
+  if (given.length !== expected.length || !expected.every((id) => given.includes(id))) {
+    throw invalid(event, `records verdicts for [${given.join(", ")}] in group ${payload.groupId}, which holds [${expected.join(", ")}]`);
+  }
+  for (const { id, basis, runs } of payload.verdicts) {
+    if (basis === "ran" !== runs.length > 0) throw invalid(event, `records the verdict of ${id} with the basis ${String(basis)} and ${String(runs.length)} runs, but a verdict cites runs exactly when it rests on one`);
+    if (runs.some((run2) => run2.at < 1)) throw invalid(event, `records a run of the verdict of ${id} before the first place of its record`);
+  }
+  const candidates = drafts.writable(review2.candidates);
+  for (const { id, verdict, evidence, basis, runs } of payload.verdicts) candidates[id] = { ...candidates[id], verdict: { verdict, evidence, basis, runs } };
+  return withReview(current, { ...review2, candidates, units: answered(review2, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
+}
 function isAnswered(review2, phase, key) {
   return (review2.units[phase][key]?.answeredBy ?? null) !== null;
 }
@@ -23806,7 +23869,7 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsRecorded, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
@@ -23818,14 +23881,15 @@ var init_review_fold = __esm({
     unsettled = { settings: null, fixSettings: null };
     unsurveyed = { survey: { userRules: "apply" } };
     unpinnedCodex = (runtime, worktree) => ({ codex: runtime === "codex" && !worktree.startsWith("/") ? { windowsSandbox: "unelevated" } : null });
-    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true });
-    configuredV7 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false });
-    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false });
-    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false });
-    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false });
-    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false });
-    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false });
-    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false });
+    configured = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true });
+    configuredV8 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: false });
+    configuredV7 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false, cited: false });
+    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false });
+    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false });
+    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false });
+    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false });
+    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false });
+    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false });
     limitsChanged = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
       if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -23930,19 +23994,8 @@ var init_review_fold = __esm({
       }
       return withReview(current, { ...review2, plans: { ...review2.plans, [payload.phase]: payload.groups } }, event);
     };
-    verdictsRecorded = (state, payload, event, drafts) => {
-      const { current, review: review2 } = requireReview(state, event);
-      requireRunning(review2, event, payload.phase);
-      const expected = requireOpenGroup(review2, event, payload.phase, payload.groupId);
-      const given = payload.verdicts.map((verdict) => verdict.id);
-      if (new Set(given).size !== given.length) throw invalid(event, `records two verdicts for one candidate in group ${payload.groupId}`);
-      if (given.length !== expected.length || !expected.every((id) => given.includes(id))) {
-        throw invalid(event, `records verdicts for [${given.join(", ")}] in group ${payload.groupId}, which holds [${expected.join(", ")}]`);
-      }
-      const candidates = drafts.writable(review2.candidates);
-      for (const { id, verdict, evidence } of payload.verdicts) candidates[id] = { ...candidates[id], verdict: { verdict, evidence } };
-      return withReview(current, { ...review2, candidates, units: answered(review2, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
-    };
+    verdictsRecorded = (state, payload, event, drafts) => recordVerdicts(state, payload, event, drafts, true);
+    verdictsRecordedV12 = (state, payload, event, drafts) => recordVerdicts(state, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, basis: null, runs: [] })) }, event, drafts, false);
     groupUnverified = (state, payload, event, drafts) => {
       const { current, review: review2 } = requireReview(state, event);
       requireRunning(review2, event, payload.phase);
@@ -24004,7 +24057,8 @@ var init_review_fold = __esm({
       "review.configured@5": configuredV5,
       "review.configured@6": configuredV6,
       "review.configured@7": configuredV7,
-      "review.configured@8": configured,
+      "review.configured@8": configuredV8,
+      "review.configured@9": configured,
       "limits.changed@1": limitsChanged,
       "phase.started@1": phaseStarted,
       "phase.started@2": phaseStarted,
@@ -24042,7 +24096,8 @@ var init_review_fold = __esm({
       "angle.failed@1": angleFailed,
       "deduplication.recorded@1": deduplicationRecorded,
       "verification.planned@1": verificationPlanned,
-      "verdicts.recorded@1": verdictsRecorded,
+      "verdicts.recorded@1": verdictsRecordedV12,
+      "verdicts.recorded@2": verdictsRecorded,
       "group.unverified@1": groupUnverified,
       "ranking.recorded@1": rankingRecorded,
       "decisions.recorded@1": decisionsRecorded,
@@ -24249,7 +24304,7 @@ function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (given.length !== expected.length || given.some((revision, index2) => revision !== expected[index2])) throw invalid(event, `${verb} commits for [${given.join(", ")}], not [${expected.join(", ")}]`);
   if (payload.commits.at(-1).sha !== payload.to) throw invalid(event, "moves the branch to a commit that is not its last");
 }
-var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV42, checkRanV32, checkStarted, treeRestored, fixRecorded, fixRecordedV32, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
+var withFix, configuredPhases, checksPlannedV12, checksPlannedV22, checksPlannedV32, fixesPlanned, fixesReplanned, runState, checkRan, checkRanV42, checkRanV32, checkStarted, treeRestored, fixRecorded, withoutRuns, fixRecordedV42, fixRecordedV32, treeRevised, filesClaimed, claimsLost, unitUnattempted, documentationPlanned, fixPinned, fixPinnedV22, commitsCreated, commitsPrepared, commitsDropped, fixReopened, fixReducers;
 var init_fix_fold = __esm({
   "src/checkpoint/fix-fold.ts"() {
     "use strict";
@@ -24402,6 +24457,9 @@ var init_fix_fold = __esm({
     fixRecorded = (state, payload, event, drafts) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requireRunning(review2, event, payload.phase);
+      const cited = payload.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs));
+      if (cited.length > 0 && !review2.citedRuns) throw invalid(event, `cites runs in the validation of ${payload.phase}:${payload.key}, which a run configured before runs on the record does not`);
+      if (cited.some((run2) => run2.found !== null && run2.found.at < 1)) throw invalid(event, `records a run of the validation of ${payload.phase}:${payload.key} before the first place of its record`);
       if (payload.comparisons.length > 0 && payload.phase !== "repair") throw invalid(event, `compares checks with the base in ${payload.phase}:${payload.key}, which only the repair does`);
       const comparable3 = comparableKinds(fix);
       const compared = /* @__PURE__ */ new Set();
@@ -24429,7 +24487,9 @@ var init_fix_fold = __esm({
       const personAnswers = answersFindings(payload.phase) ? withApplied(review2.answers, { phase: payload.phase, key: payload.key }, payload.findings) : review2.answers;
       return withReview(current, { ...review2, answers: personAnswers, fix: { ...fix, answers, violationHolders }, units: answered(review2, drafts, { phase: payload.phase, key: payload.key }, payload.workerId) }, event);
     };
-    fixRecordedV32 = (state, payload, event, drafts) => fixRecorded(state, { ...payload, comparisons: [] }, event, drafts);
+    withoutRuns = (findings) => findings.map((finding) => ({ ...finding, validation: finding.validation.map((entry) => ({ ...entry, runs: [] })) }));
+    fixRecordedV42 = (state, payload, event, drafts) => fixRecorded(state, { ...payload, findings: withoutRuns(payload.findings) }, event, drafts);
+    fixRecordedV32 = (state, payload, event, drafts) => fixRecorded(state, { ...payload, findings: withoutRuns(payload.findings), comparisons: [] }, event, drafts);
     treeRevised = (state, payload, event) => {
       const { current, review: review2, fix } = requireFix(state, event);
       requireRunning(review2, event, payload.phase);
@@ -24581,7 +24641,8 @@ var init_fix_fold = __esm({
       "fix.recorded@1": fixRecordedV32,
       "fix.recorded@2": fixRecordedV32,
       "fix.recorded@3": fixRecordedV32,
-      "fix.recorded@4": fixRecorded,
+      "fix.recorded@4": fixRecordedV42,
+      "fix.recorded@5": fixRecorded,
       "tree.revised@1": treeRevised,
       "tree.revised@2": treeRevised,
       "tree.revised@3": treeRevised,
@@ -26871,6 +26932,13 @@ function observeItem(facts, event) {
     return;
   }
   facts.pending.delete(item.id);
+  if (item.type === "command_execution") {
+    facts.runs.push({
+      command: typeof item.command === "string" ? item.command : "",
+      output: typeof item.aggregated_output === "string" ? item.aggregated_output : "",
+      exitCode: typeof item.exit_code === "number" ? item.exit_code : null
+    });
+  }
   if (item.status === "failed" && !survivableFailure(item)) {
     facts.itemProblem = `Codex item ${item.id} (${String(item.type)}) failed`;
     return;
@@ -26916,7 +26984,8 @@ function readStream(lines) {
     lastError: null,
     itemProblem: null,
     pending: /* @__PURE__ */ new Set(),
-    lastMessage: void 0
+    lastMessage: void 0,
+    runs: []
   };
   let number5 = 0;
   for (const line of lines) {
@@ -26944,7 +27013,8 @@ function readStream(lines) {
 function decodeCodex(_invocation, plan, outputs) {
   const facts = readStream(outputs.stdoutLines);
   const { sessionIds, usage: usage2 } = facts;
-  const failed2 = (error62) => ({ sessionIds, usage: usage2, denials: null, result: { kind: "failed", error: error62 } });
+  const runs = facts.malformed === null ? facts.runs : null;
+  const failed2 = (error62) => ({ sessionIds, usage: usage2, denials: null, runs, result: { kind: "failed", error: error62 } });
   if (facts.malformed !== null) return failed2(facts.malformed);
   const refusals = [...outputs.stderr.matchAll(refusedCommand)].map((match) => match[1].trim());
   if (refusals.length > 0) {
@@ -26975,7 +27045,7 @@ function decodeCodex(_invocation, plan, outputs) {
   } catch (error62) {
     return failed2(`Codex wrote a final message that is not JSON: ${error62.message}`);
   }
-  return { sessionIds, usage: usage2, denials: null, result: { kind: "answer", value } };
+  return { sessionIds, usage: usage2, denials: null, runs, result: { kind: "answer", value } };
 }
 function summarizeCodexUsage(usage2) {
   if (!isObject2(usage2)) return emptyUsageSummary;
@@ -27058,7 +27128,8 @@ var init_codex = __esm({
         readOnlyScratch: false,
         effortLevels: ["low", "medium", "high", "xhigh"],
         resume: true,
-        costInUsd: false
+        costInUsd: false,
+        shellRecord: true
       },
       qualification: {
         version: { args: ["--version"], pattern: /^codex-cli (\d+\.\d+\.\d+)$/ },
@@ -27487,10 +27558,10 @@ function validateExclude(exclude) {
   }
 }
 function validateScopePath(path) {
-  const normalized = path.replaceAll("\\", "/");
+  const normalized2 = path.replaceAll("\\", "/");
   if (path.length === 0 || path.includes("\0")) throw new InvalidScopeRequestError(`Empty or NUL-containing scope path: ${JSON.stringify(path)}`);
-  if (normalized.startsWith("/") || /^[a-zA-Z]:/.test(normalized)) throw new InvalidScopeRequestError(`Scope path must be relative to the repository: ${path}`);
-  const parts = normalized.split("/");
+  if (normalized2.startsWith("/") || /^[a-zA-Z]:/.test(normalized2)) throw new InvalidScopeRequestError(`Scope path must be relative to the repository: ${path}`);
+  const parts = normalized2.split("/");
   if (parts.some((part) => part === "..")) throw new InvalidScopeRequestError(`Scope path must not leave the repository: ${path}`);
   if (parts.some((part) => part.toLowerCase() === ".git")) throw new InvalidScopeRequestError(`Scope path must not name the git directory: ${path}`);
 }
@@ -27628,12 +27699,12 @@ function namesScope(named, scope) {
   }
 }
 function normalizeRequest(request) {
-  const normalized = {
+  const normalized2 = {
     paths: request.paths.map((path) => path.replaceAll("\\", "/").replace(/\/+$/, ""))
   };
-  if (request.ref !== void 0) normalized.ref = request.ref;
-  if (request.range !== void 0) normalized.range = { from: request.range.from, to: request.range.to, mergeBase: request.range.mergeBase };
-  return normalized;
+  if (request.ref !== void 0) normalized2.ref = request.ref;
+  if (request.range !== void 0) normalized2.range = { from: request.range.from, to: request.range.to, mergeBase: request.range.mergeBase };
+  return normalized2;
 }
 var freezeLimitBytes, maxScopeFiles, maxExcludedNamed, maxExcludePatterns;
 var init_capture = __esm({
@@ -28634,9 +28705,81 @@ var init_source = __esm({
   }
 });
 
+// src/review/cited-runs.ts
+import { readFileSync as readFileSync10, realpathSync as realpathSync3, statSync as statSync4 } from "node:fs";
+import { resolve as resolve10 } from "node:path";
+function normalized(text3) {
+  return text3.replace(/\r\n?/g, "\n").replace(terminalEscapes, "").replace(/[ \t]+$/gm, "");
+}
+function holdsInOrder(output2, lines) {
+  let from = 0;
+  for (const line of lines) {
+    const at = output2.indexOf(line, from);
+    if (at < 0) return false;
+    from = at + line.length;
+  }
+  return true;
+}
+function findRun(record2, cited) {
+  const lines = cited.printed.map((line) => normalized(line).trim());
+  const name = cited.probe === null ? null : baseName(cited.probe);
+  for (let index2 = record2.length - 1; index2 >= 0; index2 -= 1) {
+    const run2 = record2[index2];
+    if (run2.output === null) continue;
+    if (name !== null && !run2.command.includes(name)) continue;
+    if (holdsInOrder(normalized(run2.output), lines)) return { at: index2 + 1, exitCode: run2.exitCode };
+  }
+  return null;
+}
+function foundVerdictRuns(verdicts2, record2) {
+  return verdicts2.map((verdict) => verdict.runs.map((cited) => {
+    const found = findRun(record2, cited);
+    if (found === null) throw new StructuralCheckError(`The verdict for index ${String(verdict.index)} cites a run that the record of its shell runs does not hold: ${cited.command.slice(0, 200)}`);
+    return { cited, found };
+  }));
+}
+function freezeProbe(scratch, path, evidence) {
+  const refused = (reason) => ({ kind: "refused", reason: `the probe ${path} ${reason}` });
+  if (scratch === null) return refused("cannot be frozen: the worker had no scratch directory");
+  let real;
+  try {
+    real = realpathSync3.native(resolve10(scratch, path));
+  } catch {
+    return refused("names no file");
+  }
+  if (!isInside(scratch, real)) return refused(`is outside the scratch directory ${scratch}`);
+  const stat = statSync4(real);
+  if (!stat.isFile()) return refused("is not a regular file");
+  if (stat.size > probeLimitBytes) return refused(`holds ${String(stat.size)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
+  const bytes = readFileSync10(real);
+  if (bytes.length > probeLimitBytes) return refused(`holds ${String(bytes.length)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
+  return { kind: "frozen", probe: { blob: evidence.put(bytes), name: baseName(path) } };
+}
+function validationRun(record2, cited, scratch, evidence, log) {
+  const command = cited.command.slice(0, 200);
+  const blank = cited.printed.some((line) => normalized(line).trim() === "");
+  const found = blank ? null : findRun(record2, cited);
+  if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);
+  else if (found === null) log(`cites a run that the record of its shell runs does not hold: ${command}`);
+  const freeze = cited.probe === null ? null : freezeProbe(scratch, cited.probe, evidence);
+  if (freeze?.kind === "refused") log(`cites a probe the engine cannot freeze: ${freeze.reason}`);
+  return { command: cited.command, printed: [...cited.printed], probe: freeze?.kind === "frozen" ? freeze.probe : null, found };
+}
+var probeLimitBytes, terminalEscapes, baseName;
+var init_cited_runs = __esm({
+  "src/review/cited-runs.ts"() {
+    "use strict";
+    init_paths();
+    init_errors7();
+    probeLimitBytes = 64 * 1024;
+    terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+    baseName = (path) => path.split(/[\\/]/).filter((part) => part !== "").at(-1) ?? "";
+  }
+});
+
 // src/review/claims.ts
 import { createHash as createHash5 } from "node:crypto";
-import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync10, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync as readdirSync4, readFileSync as readFileSync11, statSync as statSync5 } from "node:fs";
 import { basename as basename2, dirname as dirname2, isAbsolute as isAbsolute4, join as join16, relative as relative2, sep as sep2 } from "node:path";
 function claimsDirectoryFor(scratchBase, runId, round) {
   return join16(scratchBase, claimsDirectoryName, runId, `round-${String(round)}`);
@@ -28703,7 +28846,7 @@ function readHeld(dir) {
   const file2 = join16(dir, heldFileName);
   let text3;
   try {
-    text3 = readFileSync10(file2, "utf8");
+    text3 = readFileSync11(file2, "utf8");
   } catch (error62) {
     if (error62.code === "ENOENT" || error62.code === "ENOTDIR") throw new ClaimsDirectoryLostError(dir);
     throw error62;
@@ -28721,7 +28864,7 @@ function readMarker(dir, hash2, generation, caseInsensitive, now) {
   const file2 = join16(dir, `${hash2}.${String(generation)}.json`);
   let text3;
   try {
-    text3 = readFileSync10(file2, "utf8");
+    text3 = readFileSync11(file2, "utf8");
   } catch (error62) {
     if (error62.code === "ENOENT") return void 0;
     throw error62;
@@ -28731,7 +28874,7 @@ function readMarker(dir, hash2, generation, caseInsensitive, now) {
     if (parsed.success && namesItsPath(parsed.data.path, hash2, caseInsensitive)) return { whole: true, hash: hash2, generation, ...parsed.data };
   } catch {
   }
-  const written = statSync4(file2, { throwIfNoEntry: false })?.mtimeMs;
+  const written = statSync5(file2, { throwIfNoEntry: false })?.mtimeMs;
   if (written !== void 0 && now.getTime() - written >= tornMarkerAfterMs) return "torn";
   return { whole: false, hash: hash2, generation };
 }
@@ -28872,7 +29015,7 @@ var init_claims = __esm({
     flipCase = (text3) => text3.replaceAll(/[A-Za-z]/g, (letter) => letter <= "Z" ? letter.toLowerCase() : letter.toUpperCase());
     caseProbeFileSystem = {
       list: (directory) => readdirSync4(directory),
-      stat: (path) => statSync4(path, { throwIfNoEntry: false })
+      stat: (path) => statSync5(path, { throwIfNoEntry: false })
     };
   }
 });
@@ -28907,11 +29050,11 @@ function resolveReportedPath(worktree, lookup, raw, wording = fixerWording) {
   return held.length === 1 ? held[0] : name;
 }
 function resolveFixerAnswer(output2, context) {
-  const resolve14 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
+  const resolve15 = (raw) => resolveReportedPath(context.worktree, context.lookup, raw);
   const own2 = /* @__PURE__ */ new Set([...context.owned, ...context.claimed]);
   const findings = output2.findings.map(({ edits, ...finding }) => {
-    const files = [...new Set((edits?.files ?? []).map(resolve14))];
-    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve14))];
+    const files = [...new Set((edits?.files ?? []).map(resolve15))];
+    const requiredFiles = [...new Set(finding.requiredFiles.map(resolve15))];
     const held = requiredFiles.filter((path) => own2.has(path));
     if (held.length > 0) throw new StructuralCheckError(`Finding [${String(finding.index)}] is blocked on ${held.join(", ")}, which its own cluster owns or claimed`);
     return { ...finding, files, message: edits?.message ?? null, requiredFiles };
@@ -29547,8 +29690,8 @@ function workingList(review2, phase) {
   return poolCandidates(review2, phase).filter((candidate) => candidate.duplicateOf === null);
 }
 function resolutionOf(candidate) {
-  if (candidate.verdict !== null) return { verdict: candidate.verdict.verdict, unverified: false, evidence: candidate.verdict.evidence };
-  if (candidate.unverified) return { verdict: "PLAUSIBLE", unverified: true, evidence: null };
+  if (candidate.verdict !== null) return { verdict: candidate.verdict.verdict, unverified: false, evidence: candidate.verdict.evidence, basis: candidate.verdict.basis, runs: candidate.verdict.runs };
+  if (candidate.unverified) return { verdict: "PLAUSIBLE", unverified: true, evidence: null, basis: null, runs: [] };
   return null;
 }
 function survivors(review2, phase) {
@@ -29567,8 +29710,8 @@ function mergedResolution(candidates) {
   const resolutions = candidates.map(resolutionOf).filter((resolution) => resolution !== null);
   const verdict = resolutions.some((resolution) => resolution.verdict === "CONFIRMED") ? "CONFIRMED" : "PLAUSIBLE";
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
-  const evidence = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null)?.evidence ?? null;
-  return { verdict, unverified, evidence };
+  const shown = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null);
+  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [] };
 }
 function compareFindings(a, b) {
   const severity = severities.indexOf(a.finding.severity) - severities.indexOf(b.finding.severity);
@@ -30000,7 +30143,7 @@ var init_compare = __esm({
 });
 
 // src/review/tree.ts
-import { lstatSync as lstatSync6, readFileSync as readFileSync11 } from "node:fs";
+import { lstatSync as lstatSync6, readFileSync as readFileSync12 } from "node:fs";
 import { join as join18 } from "node:path";
 function expectedAt(expected, base, path) {
   return expected.has(path) ? expected.get(path) ?? null : base(path);
@@ -30040,7 +30183,7 @@ function readTreeEntry(worktree, path) {
   }
   if (stat === void 0) return null;
   if (stat.isSymbolicLink()) return { bytes: readLinkText(absolute), symlink: true };
-  if (stat.isFile()) return { bytes: readFileSync11(absolute), symlink: false };
+  if (stat.isFile()) return { bytes: readFileSync12(absolute), symlink: false };
   return null;
 }
 function matchesExpected(expected, now) {
@@ -30129,7 +30272,7 @@ var init_tree = __esm({
 });
 
 // src/review/drift.ts
-import { chmodSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, rmSync as rmSync3, statSync as statSync5, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { chmodSync, lstatSync as lstatSync7, mkdirSync as mkdirSync4, rmSync as rmSync3, statSync as statSync6, symlinkSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname3, join as join19 } from "node:path";
 function expectedTreeOf(state) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
@@ -30235,7 +30378,7 @@ function parentInTheWay(worktree, path) {
 function createFile(worktree, path, absolute, bytes) {
   writeFileSync4(absolute, bytes);
   if (process.platform === "win32" || indexMode(worktree, path) !== "100755") return;
-  const { mode } = statSync5(absolute);
+  const { mode } = statSync6(absolute);
   chmodSync(absolute, mode | (mode & 292) >> 2);
 }
 function indexMode(worktree, path) {
@@ -30295,8 +30438,8 @@ var init_event_versions = __esm({
       "worktree.checked": ({ moment }) => moment === "restored" ? 6 : 0,
       // The faults of a failed attempt that version 7 first records: a kill mark and the provider's usage limit (R4, R14 of resumable runs).
       "attempt.failed": ({ fault }) => fault === "cut" || fault === "limit" ? 7 : 0,
-      // The answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
-      "fix.recorded": ({ comparisons }) => comparisons ? 4 : 0
+      // An answer one of whose validation entries cites a run, which version 5 first records (R7, TD7 of runs on the record); else the answer of the repair of a run with the checks on the base, which carries its comparisons with the base (TD6, TD7 of the facts before a merge).
+      "fix.recorded": ({ comparisons, cites }) => cites ? 5 : comparisons ? 4 : 0
     };
   }
 });
@@ -30384,6 +30527,11 @@ function checkVerdicts(output2, count3) {
     if (verdict.index >= count3) throw outOfRange("A verdict", verdict.index, count3);
     if (seen.has(verdict.index)) throw new StructuralCheckError(`Two verdicts name index ${String(verdict.index)}`);
     seen.add(verdict.index);
+    if (!("basis" in verdict)) continue;
+    const what = `The verdict for index ${String(verdict.index)}`;
+    if (verdict.basis === "ran" && verdict.runs.length === 0) throw new StructuralCheckError(`${what} rests on a run and cites none`);
+    if (verdict.basis !== "ran" && verdict.runs.length > 0) throw new StructuralCheckError(`${what} is ${verdict.basis} and cites a run, which only a verdict that rests on a run does`);
+    if (verdict.runs.some((run2) => run2.printed.some((line) => line.trim() === ""))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
   }
   const missing = missingIndexes(seen, count3);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(", ")} of the ${String(count3)} candidates in the group`);
@@ -30431,7 +30579,7 @@ function checkDecisions(output2, count3) {
   const missing = missingIndexes(seen, count3);
   if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count3)} the task gave`);
 }
-var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, mergeRankOutputSchema, decisionText2, deciderOutputSchema, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, outOfRange, missingIndexes;
+var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, mergeRankOutputSchema, decisionText2, deciderOutputSchema, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
 var init_schemas3 = __esm({
   "src/review/schemas.ts"() {
     "use strict";
@@ -30484,6 +30632,20 @@ var init_schemas3 = __esm({
     });
     verifierOutputSchema = external_exports.strictObject({
       verdicts: external_exports.array(external_exports.strictObject({ index, verdict: verdictSchema2, evidence: external_exports.string().min(1).max(1e3) }))
+    });
+    citedRunSchema = external_exports.strictObject({
+      command: external_exports.string().min(1).max(citedRunLimitsV1.command),
+      printed: external_exports.array(external_exports.string().min(1).max(citedRunLimitsV1.line)).min(1).max(citedRunLimitsV1.lines),
+      probe: external_exports.string().min(1).max(citedRunLimitsV1.probe).nullable()
+    });
+    verifierOutputSchemaV2 = external_exports.strictObject({
+      verdicts: external_exports.array(external_exports.strictObject({
+        index,
+        verdict: verdictSchema2,
+        evidence: external_exports.string().min(1).max(1e3),
+        basis: verdictBasisSchema,
+        runs: external_exports.array(citedRunSchema).max(3)
+      }))
     });
     mergeRankOutputSchema = external_exports.strictObject({
       findings: external_exports.array(external_exports.strictObject({ primary: index, members: external_exports.array(index), severity: severitySchema2, summary: external_exports.string().min(1).max(400), reason: external_exports.string().min(1).max(2e3) }))
@@ -30579,6 +30741,18 @@ var init_schemas3 = __esm({
         words: external_exports.string().min(1).max(comparisonWordsLengthV1)
       }))
     });
+    fixerFinding = fixerOutputSchema.shape.findings.element;
+    fixerOutputSchemaV2 = external_exports.strictObject({
+      ...fixerOutputSchema.shape,
+      findings: external_exports.array(external_exports.strictObject({
+        ...fixerFinding.shape,
+        validation: external_exports.array(external_exports.strictObject({ ...fixerFinding.shape.validation.element.shape, runs: external_exports.array(citedRunSchema).max(4) })).max(20)
+      }))
+    });
+    repairOutputSchemaV2 = external_exports.strictObject({
+      ...fixerOutputSchemaV2.shape,
+      comparisons: repairOutputSchema.shape.comparisons
+    });
     outOfRange = (what, value, count3) => new StructuralCheckError(`${what} names index ${String(value)}, but the candidates are numbered [0] to [${String(count3 - 1)}]`);
     missingIndexes = (seen, count3) => Array.from({ length: count3 }, (_, position) => position).filter((position) => !seen.has(position));
   }
@@ -30586,7 +30760,7 @@ var init_schemas3 = __esm({
 
 // src/review/snapshot.ts
 import { createHash as createHash6 } from "node:crypto";
-import { existsSync as existsSync6, lstatSync as lstatSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync12, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync6, lstatSync as lstatSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync5, readFileSync as readFileSync13, renameSync as renameSync4, rmSync as rmSync4, writeFileSync as writeFileSync5 } from "node:fs";
 import { dirname as dirname4, join as join20 } from "node:path";
 function safePath(path) {
   try {
@@ -30600,7 +30774,7 @@ function safePath(path) {
 function readManifest(into) {
   const file2 = join20(into, snapshotManifestFileName);
   if (!existsSync6(file2)) return null;
-  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync12(file2, "utf8")));
+  const parsed = snapshotManifestSchema.safeParse(JSON.parse(readFileSync13(file2, "utf8")));
   if (!parsed.success) throw new Error(`${file2} is not a snapshot manifest: ${external_exports.prettifyError(parsed.error)}`);
   return parsed.data;
 }
@@ -30676,7 +30850,7 @@ function readSnapshot(into, finding) {
     if (listed2 === "absent") return null;
     let bytes;
     try {
-      bytes = readFileSync12(join20(into, String(finding), ...path.split("/")));
+      bytes = readFileSync13(join20(into, String(finding), ...path.split("/")));
     } catch {
       return void 0;
     }
@@ -30687,7 +30861,7 @@ function readListing(into, finding) {
   const listingFile = join20(into, `${String(finding)}.json`);
   if (!existsSync6(listingFile)) return null;
   try {
-    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync12(listingFile, "utf8")));
+    const parsed = snapshotListingSchema.safeParse(JSON.parse(readFileSync13(listingFile, "utf8")));
     return parsed.success && parsed.data.finding === finding ? parsed.data : null;
   } catch {
     return null;
@@ -30864,22 +31038,35 @@ function fixAnswerEvents(unit, receipt, context) {
   const read = worktreeReader(worktree);
   const base = baseOf(context);
   requireOwnedReported([.../* @__PURE__ */ new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
-  const byIndex = new Map(resolved.findings.map(({ index: index2, ...finding }) => [index2, finding]));
-  const findings = ids2.map((id, index2) => ({ id, ...byIndex.get(index2) }));
-  const answered2 = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
-  const recorded = compares ? { ...answered2, comparisons: keptComparisons(requireFix2(state), output2.comparisons, context.log) } : answered2;
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
+  const cited = state.review.citedRuns ? citedValidationRuns(output2, receipt.runs ?? [], scratch, evidence, context.log) : null;
+  const byIndex = new Map(resolved.findings.map(({ index: index2, ...finding }) => [index2, finding]));
+  const findings = ids2.map((id, index2) => {
+    const { validation, ...finding } = byIndex.get(index2);
+    return { id, ...finding, validation: validation.map(({ method, source, evidence: words }, entry) => ({ method, source, evidence: words, runs: cited?.get(index2)?.[entry] ?? [] })) };
+  });
+  const cites = findings.some((finding) => finding.validation.some((entry) => entry.runs.length > 0));
+  const answered2 = { phase, key: unit.key, workerId: receipt.workerId, drift: output2.drift, tests: output2.tests, suite: output2.suite, violations: [...resolved.violations] };
+  const comparisons = compares ? keptComparisons(requireFix2(state), output2.comparisons, context.log) : [];
+  const uncited = { ...answered2, findings: findings.map((finding) => ({ ...finding, validation: finding.validation.map(({ runs: _runs, ...entry }) => entry) })) };
+  const recorded = cites ? { ...answered2, findings, comparisons } : compares ? { ...uncited, comparisons } : uncited;
   const into = scratch === null ? null : join21(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index2) => into === null ? null : readSnapshot(into, index2), worktree: read }, expected, base, [...owned, ...resolved.named], ids2, context.match);
   return [
     ...claims,
-    { kind: "fix.recorded", version: writtenVersion("fix.recorded", [phase], { comparisons: compares }), payload: recorded },
+    { kind: "fix.recorded", version: writtenVersion("fix.recorded", [phase], { comparisons: compares, cites }), payload: recorded },
     ...revisions.map((revision) => ({
       kind: "tree.revised",
       version: writtenVersion("tree.revised", [phase]),
       payload: { phase, source: { kind: "fix", key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] }
     }))
   ];
+}
+function citedValidationRuns(output2, record2, scratch, evidence, log) {
+  return new Map(output2.findings.map((finding) => [
+    finding.index,
+    finding.validation.map((entry) => entry.runs.map((run2) => validationRun(record2, run2, scratch, evidence, (reason) => log(`the validation of finding [${String(finding.index)}] ${reason}`))))
+  ]));
 }
 function attemptOwner(phase, key) {
   switch (phase) {
@@ -30946,6 +31133,7 @@ var init_fix_events = __esm({
     "use strict";
     init_fix_state();
     init_review_fold();
+    init_cited_runs();
     init_claim_events();
     init_claims();
     init_drift();
@@ -30967,7 +31155,7 @@ var init_fix_events = __esm({
 });
 
 // src/review/lock.ts
-import { mkdirSync as mkdirSync6, readFileSync as readFileSync13, rmSync as rmSync5, writeFileSync as writeFileSync6 } from "node:fs";
+import { mkdirSync as mkdirSync6, readFileSync as readFileSync14, rmSync as rmSync5, writeFileSync as writeFileSync6 } from "node:fs";
 import { constants } from "node:os";
 import { join as join22 } from "node:path";
 import { DatabaseSync as DatabaseSync2 } from "node:sqlite";
@@ -30983,7 +31171,7 @@ function holderPath(path) {
 function lockHolder(path) {
   let text3;
   try {
-    text3 = readFileSync13(holderPath(path), "utf8").trim();
+    text3 = readFileSync14(holderPath(path), "utf8").trim();
   } catch (error62) {
     if (error62.code === "ENOENT") return null;
     throw error62;
@@ -31789,7 +31977,7 @@ function positiveLimit(name, value) {
   return value;
 }
 function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes: maxOutputBytes2 }) {
-  return new Promise((resolve14, reject) => {
+  return new Promise((resolve15, reject) => {
     let child;
     try {
       child = spawn3(executable, [...args], {
@@ -31843,7 +32031,7 @@ function runProbe({ executable, args, environment, timeoutMs, maxOutputBytes: ma
       settled3 = true;
       clearTimeout(timer);
       if (code === 0) {
-        resolve14(Buffer.concat(stdout).toString("utf8"));
+        resolve15(Buffer.concat(stdout).toString("utf8"));
         return;
       }
       const printedError = Buffer.concat(stderr).toString("utf8").trim();
@@ -31905,6 +32093,83 @@ var init_claude_limits = __esm({
     ];
     resetPhrase = /\bresets? (?:at )?(?<when>[^\n|]+?)\.?\s*$/i;
     epochReset = /\|(?<seconds>\d{9,11})\s*$/;
+  }
+});
+
+// src/runtime/claude-stream.ts
+function resultText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return null;
+  return content.flatMap((block) => isObject2(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : []).join("\n");
+}
+function exitCodeOf(isError, output2) {
+  if (isError === false) return 0;
+  if (isError !== true || output2 === null) return null;
+  const named = /^Exit code (\d+)\r?(?:\n|$)/.exec(output2);
+  return named === null ? null : Number(named[1]);
+}
+function blocksOf(event) {
+  const content = isObject2(event.message) ? event.message.content : void 0;
+  return Array.isArray(content) ? content.filter(isObject2) : [];
+}
+function observe3(facts, event) {
+  switch (event.type) {
+    case "assistant":
+      for (const block of blocksOf(event)) {
+        if (block.type !== "tool_use" || block.name !== "Bash") continue;
+        const command = isObject2(block.input) && typeof block.input.command === "string" ? block.input.command : "";
+        if (typeof block.id === "string") facts.waiting.set(block.id, facts.runs.length);
+        facts.runs.push({ command, output: null, exitCode: null });
+      }
+      break;
+    case "user":
+      for (const block of blocksOf(event)) {
+        if (block.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+        const id = block.tool_use_id;
+        const index2 = facts.waiting.get(id);
+        if (index2 === void 0) continue;
+        facts.waiting.delete(id);
+        const output2 = resultText(block.content);
+        facts.runs[index2] = { command: facts.runs[index2].command, output: output2, exitCode: exitCodeOf(block.is_error, output2) };
+      }
+      break;
+    case "result":
+      facts.envelope = event;
+      break;
+    default:
+      break;
+  }
+}
+function readClaudeStream(lines) {
+  const facts = { envelope: null, malformed: null, runs: [], waiting: /* @__PURE__ */ new Map() };
+  let number5 = 0;
+  for (const line of lines) {
+    number5 += 1;
+    if (line === null) {
+      facts.malformed ??= `Claude Code printed line ${String(number5)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
+      continue;
+    }
+    if (line.trim() === "") continue;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch (error62) {
+      facts.malformed ??= `Claude Code printed line ${String(number5)} that is not JSON: ${error62.message}`;
+      continue;
+    }
+    if (!isObject2(event)) {
+      facts.malformed ??= `Claude Code printed line ${String(number5)} that is not an event object`;
+      continue;
+    }
+    observe3(facts, event);
+  }
+  return facts;
+}
+var init_claude_stream = __esm({
+  "src/runtime/claude-stream.ts"() {
+    "use strict";
+    init_adapter();
+    init_json();
   }
 });
 
@@ -32001,8 +32266,10 @@ function claudeCommand(invocation, plan, settings2 = {}) {
   const environment = claudeEnvironment(plan.environment, invocation.effort, plan.platform);
   const args = [
     "--print",
+    // The stream of every turn, so the frozen stdout holds each shell run; `--print` refuses stream-json without `--verbose`.
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--model",
     invocation.model,
     "--effort",
@@ -32053,21 +32320,16 @@ function deniedTools(denials) {
 }
 function decodeClaude(invocation, plan, outputs) {
   const expected = plan.sessionId;
-  const failed2 = (error62, known2 = { sessionIds: [], usage: null, denials: null }) => ({ ...known2, result: { kind: "failed", error: error62 } });
-  const stdout = outputs.stdout;
-  if (stdout === null) return failed2(`Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
-  let parsed;
-  try {
-    parsed = JSON.parse(stdout);
-  } catch (error62) {
-    return failed2(stdout.trim() === "" ? "Claude Code printed no result envelope" : `Claude Code printed a result envelope that is not JSON: ${error62.message}`);
-  }
-  if (!isObject2(parsed)) return failed2("Claude Code printed a result envelope that is not an object");
-  const envelope = parsed;
+  const facts = readClaudeStream(outputs.stdoutLines);
+  const runs = facts.malformed === null ? facts.runs : null;
+  const envelope = facts.envelope;
+  const failed2 = (error62, known2 = { sessionIds: [], usage: null, denials: null, runs }) => ({ ...known2, result: { kind: "failed", error: error62 } });
+  if (envelope === null) return failed2(facts.malformed ?? "Claude Code printed no result event");
   const observed = typeof envelope.session_id === "string" && envelope.session_id.length > 0 ? envelope.session_id : null;
   const usage2 = { usage: envelope.usage ?? null, modelUsage: envelope.modelUsage ?? null, total_cost_usd: envelope.total_cost_usd ?? null };
   const denials = Array.isArray(envelope.permission_denials) ? deniedTools(envelope.permission_denials) : null;
-  const known = { sessionIds: observed === null ? [] : [observed], usage: usage2, denials };
+  const known = { sessionIds: observed === null ? [] : [observed], usage: usage2, denials, runs };
+  if (facts.malformed !== null) return failed2(facts.malformed, known);
   if (observed !== expected) return failed2(`Claude Code answered from session ${String(observed)}, not ${String(expected)}`, known);
   if (isBudgetStop(envelope)) {
     const result = typeof envelope.result === "string" && envelope.result.length > 0 ? `: ${envelope.result}` : "";
@@ -32110,6 +32372,7 @@ var init_claude = __esm({
   "src/runtime/claude.ts"() {
     "use strict";
     init_claude_limits();
+    init_claude_stream();
     init_adapter();
     init_environment();
     init_errors5();
@@ -32117,6 +32380,7 @@ var init_claude = __esm({
     claudeFlags = [
       "--print",
       "--output-format",
+      "--verbose",
       "--model",
       "--effort",
       "--session-id",
@@ -32172,7 +32436,8 @@ var init_claude = __esm({
         readOnlyScratch: true,
         effortLevels: ["low", "medium", "high", "xhigh", "max"],
         resume: true,
-        costInUsd: true
+        costInUsd: true,
+        shellRecord: true
       },
       qualification: {
         version: { args: ["--version"], pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)$/ },
@@ -32233,8 +32498,8 @@ var init_runtimes = __esm({
 
 // src/runtime/launcher.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { existsSync as existsSync7, mkdirSync as mkdirSync7, readFileSync as readFileSync14, rmSync as rmSync7, statSync as statSync6, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join24, resolve as resolve10 } from "node:path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync7, readFileSync as readFileSync15, rmSync as rmSync7, statSync as statSync7, writeFileSync as writeFileSync7 } from "node:fs";
+import { join as join24, resolve as resolve11 } from "node:path";
 async function runWorker(checkpoint, runId, input2, options2 = {}) {
   const invocation = parseInvocation(input2);
   const state = checkpoint.fold(runId);
@@ -32339,6 +32604,7 @@ async function runWorker(checkpoint, runId, input2, options2 = {}) {
     process: { exitCode: finish.exitCode, signal: finish.signal, termination: finish.termination, startedAt: finish.startedAt, endedAt: finish.endedAt },
     runtime: { name: adapter.name, version: version2, sessionIds: finish.sessionIds, usage: settled3.usage },
     denials: finish.denials,
+    runs: settled3.runs,
     output: settled3.output,
     cause: settled3.cause,
     finish: options2.deferFinish === true ? finished : null,
@@ -32391,7 +32657,7 @@ function continuedWorker(state, invocation, schemaDigest) {
   return previous;
 }
 function requireDirectory(worktree) {
-  const stat = statSync6(worktree, { throwIfNoEntry: false });
+  const stat = statSync7(worktree, { throwIfNoEntry: false });
   if (stat === void 0 || !stat.isDirectory()) throw new InvalidInvocationError(`The run's worktree ${worktree} is not a directory`);
 }
 function composePrompt(prompt, scratch) {
@@ -32413,7 +32679,7 @@ function appendFresh(checkpoint, runId, event, check2) {
   }
 }
 function readIfPresent(path) {
-  return existsSync7(path) ? readFileSync14(path) : null;
+  return existsSync7(path) ? readFileSync15(path) : null;
 }
 function truncate(error62) {
   if (error62.length <= maxErrorLength) return error62;
@@ -32497,6 +32763,7 @@ function settleOutputs(checkpoint, adapter, invocation, plan, result, io, known)
     },
     observedSessionIds: sessionIds,
     usage: decoded.usage ?? null,
+    runs: decoded.runs,
     output: output2,
     cause: cause ?? null,
     keepProcessFiles: false
@@ -32552,6 +32819,7 @@ function launcherFailure(result, error62, known, io) {
     },
     observedSessionIds: known.sessionIds,
     usage: null,
+    runs: null,
     output: null,
     cause: null,
     keepProcessFiles: !known.frozen
@@ -32585,7 +32853,7 @@ var init_launcher = __esm({
       shell: { name: "shell", requested: (invocation) => invocation.shell },
       schema: { name: "output schema digest", requested: (_invocation, schemaDigest) => schemaDigest, recorded: (launch) => launch.schema.sha256 },
       // The ledger holds the resolved path chooseScratch recorded; the caller's is compared in the same spelling, and may be left out.
-      scratch: { name: "scratch directory", requested: (invocation) => invocation.scratch === void 0 ? void 0 : resolve10(invocation.scratch) },
+      scratch: { name: "scratch directory", requested: (invocation) => invocation.scratch === void 0 ? void 0 : resolve11(invocation.scratch) },
       // A new process: its own id, label, prompt, spend and time, under the session it resumes.
       workerId: "own",
       label: "own",
@@ -32601,7 +32869,7 @@ var init_launcher = __esm({
     };
     usageText = (usage2) => usage2 === null || usage2 === void 0 ? null : JSON.stringify(usage2) ?? null;
     withPinnedSession = (pinned, observed) => [...new Set(pinned === null ? observed : [pinned, ...observed])];
-    undecoded = (sessionIds, error62) => ({ sessionIds, usage: null, denials: null, result: { kind: "failed", error: error62 } });
+    undecoded = (sessionIds, error62) => ({ sessionIds, usage: null, denials: null, runs: null, result: { kind: "failed", error: error62 } });
     failedWith = (error62) => ({ outcome: "failed", error: error62, output: null });
   }
 });
@@ -32824,7 +33092,7 @@ var init_configuration = __esm({
 });
 
 // src/review/checks/run.ts
-import { mkdirSync as mkdirSync8, readFileSync as readFileSync15, rmSync as rmSync8, writeFileSync as writeFileSync8 } from "node:fs";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync16, rmSync as rmSync8, writeFileSync as writeFileSync8 } from "node:fs";
 import { join as join26 } from "node:path";
 function shellInvocation(command, platform = process.platform, shell) {
   if (platform === "win32") {
@@ -32908,7 +33176,7 @@ async function runCheck(evidence, request) {
 }
 function readOutput(file2) {
   try {
-    return readFileSync15(file2);
+    return readFileSync16(file2);
   } catch (error62) {
     if (error62.code === "ENOENT") return Buffer.alloc(0);
     throw error62;
@@ -32933,7 +33201,7 @@ var init_run = __esm({
 
 // src/review/checks/base.ts
 import { mkdirSync as mkdirSync9, mkdtempSync as mkdtempSync2, readdirSync as readdirSync6, rmSync as rmSync9 } from "node:fs";
-import { isAbsolute as isAbsolute8, join as join27, relative as relative4, resolve as resolve11, sep as sep4 } from "node:path";
+import { isAbsolute as isAbsolute8, join as join27, relative as relative4, resolve as resolve12, sep as sep4 } from "node:path";
 function makeBaseTree(context, base) {
   if (isEmptyTree(base)) return { kind: "none", skip: { reason: "empty-tree", error: baseSkipReasons["empty-tree"] } };
   try {
@@ -32996,7 +33264,7 @@ function insideReviewed(reviewed, directory) {
   try {
     return isInside(reviewed, directory);
   } catch {
-    const path = relative4(canonicalPath(reviewed), resolve11(directory));
+    const path = relative4(canonicalPath(reviewed), resolve12(directory));
     return path === "" || !(path === ".." || path.startsWith(`..${sep4}`) || isAbsolute8(path));
   }
 }
@@ -33580,10 +33848,15 @@ function deduplicationTask(candidates) {
     list
   ].join("\n");
 }
-function verifierTask(groupId, candidates) {
+function citingParagraph({ scratch }) {
+  const probe = scratch ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else.` : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
+  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probe}`;
+}
+function verifierTask(groupId, candidates, citing = null) {
   const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
   return [
     `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? "" : "s"}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
+    ...citing === null ? [] : ["", citingParagraph(citing)],
     "",
     list
   ].join("\n");
@@ -33652,7 +33925,7 @@ function earlierWork(unit, unfinished2) {
   if (unfinished2.length === 0) return warning;
   return `${warning} An earlier attempt left edits for ${unfinished2.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
 }
-function editingTail(input2, unit, answerSuffix = "") {
+function editingTail(input2, unit, answerSuffix = "", citingTail = []) {
   return [
     ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
     snapshotBlock(input2.snapshotCommand, unit),
@@ -33660,15 +33933,25 @@ function editingTail(input2, unit, answerSuffix = "") {
     ...input2.mayHoldWork ? [earlierWork(unit, input2.unfinished), ""] : [],
     `${answerFields(unit)}${answerSuffix}`,
     "",
+    ...input2.citing ? [citingValidationRule, "", ...citingTail.flatMap((line) => [line, ""])] : [],
     scratchRule
   ];
 }
+function taskRunLine(run2) {
+  const printed = run2.printed.map((line) => `"${inlineText(line)}"`).join(" / ");
+  const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
+  const probe = run2.probe === null ? "" : `; its probe, ${inlineText(run2.probe.name)}, is frozen at ${run2.probe.path}`;
+  return `        run: ${inlineText(run2.command)} printed ${printed}, ${exit}${probe}`;
+}
 function candidateLines(head2, candidate) {
+  const basis = candidate.cited?.basis ?? null;
   return [
     head2,
     `        summary: ${candidate.summary}`,
     `        detail: ${candidate.detail}`,
-    `        evidence: ${evidenceWords(candidate.evidence)}`
+    `        evidence: ${evidenceWords(candidate.evidence)}`,
+    ...basis === null ? [] : [`        how its verifier established it: ${verdictBasisWords[basis]}`],
+    ...(candidate.cited?.runs ?? []).map(taskRunLine)
   ];
 }
 function decidedLines(decision, answered2) {
@@ -33788,6 +34071,7 @@ function fixerTask(input2) {
   ].join("\n"));
   const decided = input2.findings.some((finding) => finding.decision !== null);
   const answered2 = input2.findings.some((finding) => finding.answered !== null);
+  const probed = input2.findings.some((finding) => [finding.primary, ...finding.members].some((candidate) => candidate.cited?.runs.some((run2) => run2.probe !== null) ?? false));
   const { head: head2, round, ownership } = unitLines(input2);
   return [
     `${head2}: ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], in the order to apply them.`,
@@ -33801,7 +34085,7 @@ function fixerTask(input2) {
     "",
     checksBlock(input2.checks, input2.baselineFailures),
     "",
-    ...editingTail(input2, "finding")
+    ...editingTail(input2, "finding", "", probed ? [probeRule] : [])
   ].join("\n");
 }
 function outputTail(name, tail, path) {
@@ -33940,7 +34224,7 @@ function mergeRankTask(inputs) {
     list
   ].join("\n");
 }
-var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
+var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, citingValidationWords, citingValidationRule, probeRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
 var init_tasks = __esm({
   "src/review/tasks.ts"() {
     "use strict";
@@ -33964,6 +34248,9 @@ var init_tasks = __esm({
     claimPathPlaceholder = "<path>";
     scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
     unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
+    citingValidationWords = "In each validation entry, cite in `runs`";
+    citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not.`;
+    probeRule = "A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it, when it can run here, and cite both runs, with that path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.";
     fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
     verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
     evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
@@ -34015,10 +34302,14 @@ function batchOutcomes(review2, batch) {
     return { batch: batch.key, id, outcome: finding?.status ?? "not attempted", note: finding?.note ?? null };
   });
 }
-function taskCandidate(candidate) {
+function taskCandidate(candidate, evidence = null) {
   const resolution = resolutionOf(candidate);
   if (resolution === null) throw new Error(`Candidate ${candidate.id} is ranked with no verdict and no unverified mark`);
-  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence };
+  const cited = evidence === null ? null : {
+    basis: resolution.basis,
+    runs: resolution.runs.map((run2) => ({ command: run2.command, printed: run2.printed, exitCode: run2.exitCode, probe: run2.probe === null ? null : { name: run2.probe.name, path: evidence.pathOf(run2.probe.blob) } }))
+  };
+  return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, cited };
 }
 function deciderFindings(review2) {
   return rankedFindings(review2).map((entry) => ({
@@ -34027,7 +34318,7 @@ function deciderFindings(review2) {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map(taskCandidate)
+    candidates: [entry.primary, ...entry.members].map((candidate) => taskCandidate(candidate))
   }));
 }
 function answeredFor(review2, decision, id) {
@@ -34081,7 +34372,7 @@ function fixerTaskOf(unit, review2, editing, evidence) {
     if (entry === void 0) throw new Error(`Batch ${batch.key} names finding ${id}, which the ranking does not hold`);
     const decision = decidedFor(review2, decided, id);
     return {
-      ...taskFinding(review2, ranked2, entry, decision),
+      ...taskFinding(review2, ranked2, entry, decision, evidence),
       firstRound: inSecondRound ? firstRoundBlock(review2, plan.batches, id, blockedOn.get(id) ?? []) : null
     };
   });
@@ -34101,11 +34392,13 @@ function fixerTaskOf(unit, review2, editing, evidence) {
     unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHoldWork(review2, "fixes", unit.key, cluster.files, [...earlier, ...inSecondRound ? plan.batches : []].map((sibling) => sibling.key)),
     unfinished: unfinishedIds(review2, "fixes", unit.key),
-    baselineFailures: baselineFailuresOf(review2, evidence)
+    baselineFailures: baselineFailuresOf(review2, evidence),
+    citing: review2.citedRuns
   });
 }
-function taskFinding(review2, ranked2, entry, decision) {
+function taskFinding(review2, ranked2, entry, decision, evidence) {
   const id = entry.finding.id;
+  const cited = review2.citedRuns ? evidence : null;
   return {
     id,
     severity: entry.finding.severity,
@@ -34113,8 +34406,8 @@ function taskFinding(review2, ranked2, entry, decision) {
     unverified: entry.resolution.unverified,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    primary: taskCandidate(entry.primary),
-    members: entry.members.map(taskCandidate),
+    primary: taskCandidate(entry.primary, cited),
+    members: entry.members.map((member) => taskCandidate(member, cited)),
     decision,
     supersedes: (review2.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked2.get(left.id);
@@ -34130,7 +34423,7 @@ function answerTaskOf(unit, review2, editing, evidence) {
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const findings = [...ranked2.values()].filter((entry) => pass.ids.includes(entry.finding.id)).map((entry) => {
     const decision = decidedFor(review2, decided, entry.finding.id, true);
-    const finding = { ...taskFinding(review2, ranked2, entry, decision), firstRound: null };
+    const finding = { ...taskFinding(review2, ranked2, entry, decision, evidence), firstRound: null };
     if (finding.answered === null) throw new Error(`Finding ${entry.finding.id} is in answer pass ${unit.key} with no answer owing an edit`);
     return finding;
   });
@@ -34147,7 +34440,8 @@ function answerTaskOf(unit, review2, editing, evidence) {
     unelevatedSandbox: editing.unelevatedSandbox,
     mayHoldWork: mayHold,
     unfinished: unfinishedIds(review2, "answer", unit.key),
-    baselineFailures: baselineFailuresOf(review2, evidence)
+    baselineFailures: baselineFailuresOf(review2, evidence),
+    citing: review2.citedRuns
   });
 }
 function decidedFor(review2, decided, id, answered2 = false) {
@@ -34206,7 +34500,7 @@ function repairTaskOf(review2, editing, evidence) {
   const owned = fixPassRevisedPaths(fix);
   const answers = Object.values(fix.answers.fixes).flatMap((answer3) => answer3.findings.map((finding) => ({ batch: answer3.key, id: finding.id, status: finding.status, note: finding.note })));
   const documentation = (fix.answers.documentation[documentationUnitKey]?.findings ?? []).map((finding) => ({ id: finding.id, status: finding.status, note: finding.note }));
-  return repairTask({ checks, baseChecks: review2.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey) });
+  return repairTask({ checks, baseChecks: review2.baseChecksStep, owned, answers, documentation, allChecks: fix.checks.planned?.checks ?? [], snapshotCommand: editing.snapshotCommand, unelevatedSandbox: editing.unelevatedSandbox, mayHoldWork: mayHoldWork(review2, "repair", repairUnitKey, owned), unfinished: unfinishedIds(review2, "repair", repairUnitKey), citing: review2.citedRuns });
 }
 function documentationDecided(review2, id) {
   const decision = review2.decisions?.find((candidate) => candidate.id === id) ?? null;
@@ -34238,7 +34532,8 @@ function documentationTaskOf(review2, editing, evidence, options2) {
     snapshotCommand: editing.snapshotCommand,
     mayHoldWork: mayHoldWork(review2, "documentation", documentationUnitKey, owned),
     unfinished: unfinishedIds(review2, "documentation", documentationUnitKey),
-    unelevatedSandbox: editing.unelevatedSandbox
+    unelevatedSandbox: editing.unelevatedSandbox,
+    citing: review2.citedRuns
   });
 }
 function standingSurvey(review2) {
@@ -34288,8 +34583,12 @@ function taskFor(unit, review2, options2 = {}) {
     case "sweep-deduplication":
       return deduplicationTask(poolCandidates(review2, unit.phase));
     case "verification":
-    case "sweep-verification":
-      return verifierTask(unit.key, groupCandidates(review2, unit.phase, unit.key));
+    case "sweep-verification": {
+      const group = groupCandidates(review2, unit.phase, unit.key);
+      if (!review2.citedRuns) return verifierTask(unit.key, group);
+      if (options2.readerScratch === void 0 || options2.readerScratch === null) throw new Error("The verifier's task of a run with runs on the record says where to write a probe, and needs to know whether it has a scratch directory");
+      return verifierTask(unit.key, group, { scratch: options2.readerScratch });
+    }
     case "sweep":
       return sweepTask({
         verified: survivors(review2, "verification").map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified })),
@@ -34334,7 +34633,7 @@ function invocationFor(unit, context) {
   const survey = unit.phase === "survey" ? context.survey() : null;
   const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
   const documentation = unit.phase === "documentation" ? context.documentation() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2, documentation }) }, context.scopeBlock(unit.phase));
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2, documentation, readerScratch: context.readerScratch }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -34344,13 +34643,20 @@ function invocationFor(unit, context) {
     access: scratch === null ? "read-only" : "edit",
     shell: true,
     prompt,
-    outputSchema: comparesWithBase(review2, unit.phase) ? repairOutputSchema : outputSchemaOf(unit.role),
+    outputSchema: unitOutputSchema(unit, review2),
     timeoutMs: policy.timeoutMs,
     ...policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd },
     ...scratch === null ? {} : { scratch },
     ...shared2 === null ? {} : { shared: shared2 },
     label: unitLabel(unit.role, unit.phase, unit.key)
   };
+}
+function unitOutputSchema(unit, review2) {
+  const cited = review2.citedRuns;
+  if (comparesWithBase(review2, unit.phase)) return cited ? repairOutputSchemaV2 : repairOutputSchema;
+  if (!cited) return outputSchemaOf(unit.role);
+  if (unit.role === "verifier") return verifierOutputSchemaV2;
+  return isEditingPhase(unit.phase) ? fixerOutputSchemaV2 : outputSchemaOf(unit.role);
 }
 function failed(unit, receipt, reason, fault) {
   return { kind: "attempt.failed", version: writtenVersion("attempt.failed", [unit.phase], { fault }), payload: { phase: unit.phase, key: unit.key, workerId: receipt.workerId, reason: truncated(reason, maxRecordedTextLength), fault } };
@@ -34413,6 +34719,14 @@ function failedWithEdits(unit, receipt, reason, context, fault = "unit") {
   const attempt = attemptRevisionEvents(context, unit.phase, unit.key, receipt.workerId, reason, "failed");
   return [...attempt.claims, failure2, ...attempt.revisions];
 }
+function recordedVerdictRuns(output2, record2, scratch, evidence) {
+  return foundVerdictRuns(output2.verdicts, record2).map((runs, position) => runs.map(({ cited, found }) => {
+    if (cited.probe === null) return { command: cited.command, printed: [...cited.printed], probe: null, ...found };
+    const freeze = freezeProbe(scratch, cited.probe, evidence);
+    if (freeze.kind === "refused") throw new StructuralCheckError(`The verdict for index ${String(output2.verdicts[position].index)} cites a probe the engine cannot freeze: ${freeze.reason}`);
+    return { command: cited.command, printed: [...cited.printed], probe: freeze.probe, ...found };
+  }));
+}
 function contributionEvent(unit, receipt, review2, context) {
   const { state, worktree } = context;
   switch (unit.phase) {
@@ -34448,8 +34762,15 @@ function contributionEvent(unit, receipt, review2, context) {
     }
     case "verification":
     case "sweep-verification": {
-      const output2 = receipt.output;
       const group = groupCandidates(review2, unit.phase, unit.key);
+      if (review2.citedRuns) {
+        const output3 = receipt.output;
+        checkVerdicts(output3, group.length);
+        const runs = recordedVerdictRuns(output3, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
+        const verdicts3 = output3.verdicts.map((verdict, position) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence, basis: verdict.basis, runs: runs[position] }));
+        return { kind: "verdicts.recorded", version: 2, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts3 } };
+      }
+      const output2 = receipt.output;
       checkVerdicts(output2, group.length);
       const verdicts2 = output2.verdicts.map((verdict) => ({ id: group[verdict.index].id, verdict: verdict.verdict, evidence: verdict.evidence }));
       return { kind: "verdicts.recorded", version: 1, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts2 } };
@@ -34488,6 +34809,7 @@ var init_phases = __esm({
     init_fix_state();
     init_review_fold();
     init_survey_state();
+    init_cited_runs();
     init_claim_events();
     init_documents();
     init_errors7();
@@ -35037,6 +35359,13 @@ function answersFor(fix, id) {
   });
   return [...fixes, ...answered2];
 }
+function validationEvidence(entry, said2) {
+  const words = said2(entry.evidence);
+  const found = [...new Set(entry.runs.flatMap((run2) => run2.found === null ? [] : [`shell run ${String(run2.found.at)}`]))];
+  const record2 = [...found.length === 0 ? [] : [`Its record shows ${listed(found)}.`], ...entry.runs.filter((run2) => run2.found === null).map((run2) => `Its record does not show: ${said2(run2.command)}.`)];
+  if (record2.length === 0) return words;
+  return `${words}${/[.!?]$/.test(words) ? "" : "."} ${record2.join(" ")}`;
+}
 function fixBlockLines(review2, fix, id, quote) {
   const fate = fateOf(review2, fix, id);
   if (fate.outcome === "held for the author") return ["Fix: held for the author; a run configured before the decision step held a PLAUSIBLE finding of a design angle, and no fixer saw it."];
@@ -35066,7 +35395,7 @@ function fixBlockLines(review2, fix, id, quote) {
   for (const { phase, key, batch, finding } of answers) {
     const by = answers.length === 1 ? "its fixer" : phase === "fixes" ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
     const quote2 = saidIn(batch);
-    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote2(validation.source)}: ${quote2(validation.evidence)}`);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote2(validation.source)}: ${validationEvidence(validation, quote2)}`);
   }
   return lines;
 }
@@ -35123,7 +35452,7 @@ function documentationSection(review2, fix, numbers) {
       `Note: ${said2(finding.note)}`,
       ...finding.message === null ? [] : [`Commit message: ${said2(finding.message.subject)}`],
       ...finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(", ")}; ${patchNote(patchesOf(fix, item.id, "documentation"))}`],
-      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${said2(entry.evidence)}`)
+      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${validationEvidence(entry, said2)}`)
     ];
     const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${said2(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index2 + 1)}. ${item.id} ${outcome}`, "", ...document, ...answered2, ...took, ""];
@@ -35214,7 +35543,7 @@ function checksSection(review2, fix, scope, evidencePath, numbers) {
     const said2 = (text3) => workerText(text3, numbers);
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check2.kind).flatMap((finding) => [
       `- Its fix: ${statusWords[finding.status]}, ${said2(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`,
-      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${said2(validation.evidence)}`)
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${validationEvidence(validation, said2)}`)
     ]);
     return [...head2, `- Command: ${codeSpan(check2.command)}`, ...source, ...runs, ...fixed, ""];
   });
@@ -35985,6 +36314,17 @@ function marks(candidate, unverified) {
   const list = [...where, ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
+function citedRunLines(basis, runs, said2) {
+  if (basis === null) return [];
+  return [
+    `How the verifier established it: ${verdictBasisWords[basis]}.`,
+    ...runs.map((run2) => {
+      const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
+      const probe = run2.probe === null ? "" : ` The probe is ${storeNameOf(run2.probe.blob)}, named ${said2(run2.probe.name)}.`;
+      return `Shell run ${String(run2.at)} of its record: ${said2(run2.command)} printed ${run2.printed.map((line) => `"${said2(line)}"`).join(" / ")}, ${exit}.${probe}`;
+    })
+  ];
+}
 function findingBlock(state, finding, entry, decision, numbers) {
   const review2 = state.review;
   const { primary, members: members2, resolution } = entry;
@@ -35996,6 +36336,7 @@ function findingBlock(state, finding, entry, decision, numbers) {
     ...firstSentence(entry.finding.summary) === inlineText(entry.finding.summary).trim() ? [] : [`Summary: ${said2(entry.finding.summary)}`],
     `Reason: ${said2(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? "none; the verifier of this group failed twice" : said2(resolution.evidence)}`,
+    ...citedRunLines(resolution.basis, resolution.runs, said2),
     ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2 }),
     ...review2.fix === null ? [] : fixBlockLines(review2, review2.fix, finding.id, { numbers, own: own2 })
   ];
@@ -36199,8 +36540,8 @@ function renderReport(state, input2) {
   const refutedSection = [
     "## Refuted at verification",
     "",
-    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}
-  Evidence: ${said2(evidence)}`)
+    // A refuted candidate's basis and runs follow its evidence as a finding's do (R8 of runs on the record).
+    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}`, `Evidence: ${said2(evidence)}`, ...citedRunLines(candidate.verdict.basis, candidate.verdict.runs, said2)].join("\n  "))
   ];
   const conventions = conventionsReportSection(review2, (path) => localPathWords(path, places));
   const fixed = input2.fix === void 0 ? [] : fixSections(state, storeNameOf, input2.fix.patches.map(storeNameOf), numbers);
@@ -36414,9 +36755,9 @@ function claimLines(event) {
   }
   return [];
 }
-function refusingEmptyChange(resolve14) {
+function refusingEmptyChange(resolve15) {
   try {
-    return resolve14();
+    return resolve15();
   } catch (error62) {
     if (error62 instanceof EmptyChangeError) throw new ReviewRefusedError(`${error62.message}; nothing to review`);
     throw error62;
@@ -36561,7 +36902,7 @@ async function runReview(options2) {
       log(`run ${runId}: scope captured, ${String(state.scope.files.length)} files${excluded2 === 0 ? "" : `; scope.exclude left out ${String(excluded2)} changed path${excluded2 === 1 ? "" : "s"}`}`);
     }
     if (configure2 !== null) {
-      state = append(checkpoint, state, [{ kind: "review.configured", version: 8, payload: configure2.payload }]);
+      state = append(checkpoint, state, [{ kind: "review.configured", version: 9, payload: configure2.payload }]);
       const pinnedNow = configure2.payload;
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}`);
       for (const line of configuredLines(runId, configure2.resolved)) log(line);
@@ -36772,6 +37113,7 @@ async function runReview(options2) {
             newScratch: () => join31(scratchBase, randomUUID4()),
             snapshotCommand: (into) => snapshotCommandFor(engineEntry, into),
             unelevatedEditors,
+            readerScratch: adapter.capabilities.readOnlyScratch,
             claims,
             documentation: () => ({ patches: fixPatches(state), exclude: state.scope?.request.exclude ?? [] })
           };
@@ -36961,6 +37303,7 @@ async function openRun(context) {
     if (found !== null && pinned !== null) {
       await resumePinned(found, pinned, { ...context, source: context.configuration }, "resume", settingOf(pinned, "tools.path").value ?? []);
     } else {
+      if (!context.adapter.capabilities.shellRecord) throw new UnsupportedCapabilityError(context.adapter.name, "shellRecord", "record the shell runs of a worker, which the verdicts of a run cite");
       const policy = readPolicy(context.rolesRoot);
       const base = found?.scope?.base ?? scopeBase(context.worktree, scopeRequest);
       let resolved = context.source.resolve({ base, policy, runtime: context.adapter.name, costInUsd: context.adapter.capabilities.costInUsd });
@@ -37477,8 +37820,8 @@ var init_answer = __esm({
 });
 
 // src/review/executable.ts
-import { realpathSync as realpathSync3 } from "node:fs";
-import { delimiter as delimiter2, extname, isAbsolute as isAbsolute9, join as join32, posix as posix2, resolve as resolve12, win32 as win323 } from "node:path";
+import { realpathSync as realpathSync4 } from "node:fs";
+import { delimiter as delimiter2, extname, isAbsolute as isAbsolute9, join as join32, posix as posix2, resolve as resolve13, win32 as win323 } from "node:path";
 function refuseShim(executable, platform = process.platform) {
   const extension = (platform === "win32" ? win323 : posix2).extname(executable);
   if (shellShims.has(extension.toLowerCase())) {
@@ -37491,9 +37834,9 @@ function refuseShim(executable, platform = process.platform) {
 }
 function resolveExecutable(name, environment = process.env, platform = process.platform, cwd = process.cwd()) {
   if (isAbsolute9(name) || name.includes("/") || name.includes("\\")) {
-    const absolute = resolve12(cwd, name);
+    const absolute = resolve13(cwd, name);
     if (!isFile(absolute)) throw new ReviewRefusedError(`${absolute} is not a file; pass --executable with the runtime's executable`, "runtime-unqualified");
-    return refuseShim(realpathSync3.native(absolute), platform);
+    return refuseShim(realpathSync4.native(absolute), platform);
   }
   const path = spellingsOf(environment, "PATH", platform).map(([, value]) => value ?? "").find((value) => value.length > 0) ?? "";
   const directories = path.split(delimiter2).filter((directory) => directory.length > 0);
@@ -37501,7 +37844,7 @@ function resolveExecutable(name, environment = process.env, platform = process.p
   for (const directory of directories) {
     for (const extension of extensions) {
       const candidate = join32(directory.replaceAll('"', ""), `${name}${extension}`);
-      if (isFile(candidate)) return refuseShim(realpathSync3.native(candidate), platform);
+      if (isFile(candidate)) return refuseShim(realpathSync4.native(candidate), platform);
     }
   }
   throw new ReviewRefusedError(`no ${name} was found on PATH; install the runtime or pass --executable with its path`, "runtime-unqualified");
@@ -37777,6 +38120,26 @@ function fixPassPart(review2, fix) {
     ...paths.length === 0 ? [] : ["", "| Path | Held by |", "|---|---|", ...paths.map((path) => `| ${tableCell(path)} | ${tableCell(holderOf(path))} |`)]
   ];
 }
+function citedRunsPart(review2) {
+  const recorded = Object.values(review2.candidates).flatMap((candidate) => candidate.verdict === null ? [] : [candidate.verdict]);
+  const lines = [
+    "## Runs on the record",
+    "",
+    "The verdicts of each grade, by how the verifier established each:",
+    "",
+    `| Verdict | ${verdictBases.join(" | ")} |`,
+    `|---|${verdictBases.map(() => "---|").join("")}`,
+    ...verdicts.map((verdict) => `| ${verdict} | ${verdictBases.map((basis) => String(recorded.filter((entry) => entry.verdict === verdict && entry.basis === basis).length)).join(" | ")} |`)
+  ];
+  const fix = review2.fix;
+  if (fix === null) return lines;
+  const rows = editingPhases.filter((phase) => review2.phases[phase].status !== "skipped").map((phase) => {
+    const runs = Object.values(fix.answers[phase]).flatMap((answer3) => answer3.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs)));
+    const found = runs.filter((run2) => run2.found !== null).length;
+    return `| ${phase} | ${String(found)} | ${String(runs.length - found)} |`;
+  });
+  return [...lines, "", "The runs the validations of the editing workers cite, by whether the worker's record holds each:", "", "| Phase | Found | Not found |", "|---|---|---|", ...rows];
+}
 function renderStats(state, statistics) {
   const review2 = state.review;
   if (review2 === null) throw new Error(`Run ${state.id} has no review to report on`);
@@ -37785,6 +38148,8 @@ function renderStats(state, statistics) {
     ["## Statistics", "", ...statisticsTable(review2, statistics)],
     ["## Angles", "", "| Angle | Ran | Lead from SCAN |", "|---|---|---|", ...angles.map((angle) => angleRow(review2, angle))],
     ["## Roles", "", `Roles digest: ${review2.configuration.rolesDigest}`],
+    // A run configured before runs on the record says nothing of runs (R9 of runs on the record).
+    ...review2.citedRuns ? [citedRunsPart(review2)] : [],
     ...review2.fix === null ? [] : [fixPassPart(review2, review2.fix)]
   ];
   return parts.flatMap((part, index2) => index2 === 0 ? part : ["", ...part]);
@@ -38074,7 +38439,7 @@ __export(command_exports, {
   usage: () => usage
 });
 import { existsSync as existsSync10, mkdirSync as mkdirSync11, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname6, join as join33, relative as relative5, resolve as resolve13 } from "node:path";
+import { dirname as dirname6, join as join33, relative as relative5, resolve as resolve14 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 function number4(flag, text3) {
@@ -38210,7 +38575,7 @@ async function run(argv, io) {
   }
   if (command === "snapshot") return snapshot(values, io);
   if (command === "claim") return claim2(values, io);
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve14(io.cwd, values.repo));
   switch (command) {
     case "review":
       return review(values, io, location.root, location.worktree, location.commonDir);
@@ -38392,8 +38757,8 @@ function snapshot(values, io) {
   const finding = values.finding;
   if (finding === void 0 || !/^(0|[1-9][0-9]{0,5})$/.test(finding)) throw new UsageError(`--finding must be a finding's index, a whole number from 0, not ${JSON.stringify(finding ?? "")}`);
   if (values.into === void 0 || values.into.trim() === "") throw new UsageError("--into <dir> is required");
-  const into = resolve13(io.cwd, values.into);
-  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo)).worktree;
+  const into = resolve14(io.cwd, values.into);
+  const worktree = readManifest(into)?.worktree ?? locateCheckpoint(values.repo === void 0 ? io.cwd : resolve14(io.cwd, values.repo)).worktree;
   const listing = takeSnapshot({ worktree, finding: Number(finding), into });
   io.stdout(`snapshot ${finding}: ${String(Object.keys(listing.paths).length)} paths into ${into}
 `);
@@ -38404,7 +38769,7 @@ function claim2(values, io) {
   if (paths.length !== 1 || paths[0].trim() === "") throw new UsageError("--path <path> is required, once");
   if (values.unit === void 0 || values.unit.trim() === "") throw new UsageError("--unit <key> is required");
   if (values.in === void 0 || values.in.trim() === "") throw new UsageError("--in <dir> is required");
-  const dir = resolve13(io.cwd, values.in);
+  const dir = resolve14(io.cwd, values.in);
   const { worktree } = readHeld(dir);
   if (isInside(worktree, io.cwd) && canonicalPath(io.cwd) !== canonicalPath(worktree)) {
     throw new UsageError(`run the claim command from the repository root ${worktree}, not from ${relative5(worktree, io.cwd)}, so the path names the file the repository does`);
@@ -38443,11 +38808,11 @@ async function configCommand(values, rest, io) {
 `);
     return 0;
   }
-  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve13(io.cwd, values.repo));
+  const location = locateCheckpoint(values.repo === void 0 ? io.cwd : resolve14(io.cwd, values.repo));
   if (subcommand === "validate") {
     const layer = values.layer ?? "repository";
     if (!fileLayers.includes(layer)) throw new UsageError(`--layer must be one of ${fileLayers.join(", ")}, not ${JSON.stringify(layer)}`);
-    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve13(io.cwd, argument);
+    const path = argument === void 0 ? repositoryConfigFile(location.worktree) : resolve14(io.cwd, argument);
     const read = readConfigBytes(layer, path);
     if (read === null) throw new ReviewRefusedError(`${path} is not a file to validate`);
     if ("problem" in read) throw new ReviewRefusedError(read.problem);
@@ -38536,7 +38901,7 @@ function invocationOf(values, io, worktree, commonDir) {
   if (setOther !== void 0) throw new UsageError(`${setOther.flag} applies only to runtime ${setOther.name.split(".")[1]}, not ${runtime}`);
   const source = configurationSource({
     worktree,
-    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve13(io.cwd, values.config) },
+    locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: values.config === void 0 ? null : resolve14(io.cwd, values.config) },
     repositoryConfig: values["no-repository-config"] !== true,
     flags: layer
   });
