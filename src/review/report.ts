@@ -13,7 +13,7 @@
  * fix pass are in `report --stats` (stats-report.ts).
  */
 import { evidenceDirectoryName, storeNameOf } from '../checkpoint/checkpoint.ts';
-import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised } from '../checkpoint/events.ts';
+import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevised, VerdictRun } from '../checkpoint/events.ts';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -29,7 +29,7 @@ import { findingNumbers, ranAgain, rankedFindings, refuted, type ReportFinding }
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
-import { angles, type Angle, type Phase } from './vocabulary.ts';
+import { angles, verdictBasisWords, type Angle, type Phase, type VerdictBasis } from './vocabulary.ts';
 
 /** A Codex Windows sandbox as the ledger records it, which the report renders from rather than from the adapter's vocabulary. */
 type PinnedWindowsSandbox = NonNullable<ReviewConfiguration['codex']>['windowsSandbox'];
@@ -81,6 +81,27 @@ function marks(candidate: CandidateState, unverified: boolean): string {
 /** The location a finding prints: the repository path and line, or the raw one for an unlocated candidate. */
 const shortLocation = (candidate: CandidateState): string => inlineText(repositoryLocation(candidate) ?? rawLocation(candidate));
 
+/**
+ * How a verifier established a verdict and the runs it cites, as the lines
+ * after its evidence (R8 of runs on the record): the basis in fixed words,
+ * then one line per run with its place in the verifier's record, its
+ * command and the lines it printed, quoted and escaped as the evidence is,
+ * its exit code, or that the record gives none, and its probe by its name
+ * in the evidence store. None for a verdict with no basis: an unverified
+ * candidate's, or one of a run configured before runs on the record.
+ */
+export function citedRunLines(basis: VerdictBasis | null, runs: readonly VerdictRun[], said: (text: string) => string): string[] {
+  if (basis === null) return [];
+  return [
+    `How the verifier established it: ${verdictBasisWords[basis]}.`,
+    ...runs.map((run) => {
+      const exit = run.exitCode === null ? 'no exit code on record' : `exit ${String(run.exitCode)}`;
+      const probe = run.probe === null ? '' : ` The probe is ${storeNameOf(run.probe.blob)}, named ${said(run.probe.name)}.`;
+      return `Shell run ${String(run.at)} of its record: ${said(run.command)} printed ${run.printed.map((line) => `"${said(line)}"`).join(' / ')}, ${exit}.${probe}`;
+    }),
+  ];
+}
+
 /** What became of a finding, as the first line of its block says it (R6 of the report for the person). */
 const statusWords: Readonly<Record<FindingStatus, string>> = {
   question: 'A question for you',
@@ -97,7 +118,8 @@ const statusWords: Readonly<Record<FindingStatus, string>> = {
  * anchor by its number, the heading with the number and the first sentence
  * of its summary, the line of its status, its severity and the verdict as
  * the verifier gave it, then each field that has content: where, the
- * summary when it says more, the reason and the evidence of the verifier,
+ * summary when it says more, the reason and the evidence of the verifier
+ * with how it was established and the runs it cites (`citedRunLines`),
  * the decision (decision-report.ts), and the fix (fix-report.ts). The text
  * of a worker is quoted with the number added after an id of another
  * finding, and escaped.
@@ -113,6 +135,7 @@ function findingBlock(state: RunState, finding: BriefFinding, entry: ReportFindi
     ...(firstSentence(entry.finding.summary) === inlineText(entry.finding.summary).trim() ? [] : [`Summary: ${said(entry.finding.summary)}`]),
     `Reason: ${said(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? 'none; the verifier of this group failed twice' : said(resolution.evidence)}`,
+    ...citedRunLines(resolution.basis, resolution.runs, said),
     ...(decision === null ? [] : decisionBlockLines(review, decision, { run: state.id, numbers, own })),
     ...(review.fix === null ? [] : fixBlockLines(review, review.fix, finding.id, { numbers, own })),
   ];
@@ -458,7 +481,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const refutedSection = [
     '## Refuted at verification',
     '',
-    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said(candidate.summary)}\n  Evidence: ${said(evidence)}`)),
+    // A refuted candidate's basis and runs follow its evidence as a finding's do (R8 of runs on the record).
+    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said(candidate.summary)}`, `Evidence: ${said(evidence)}`, ...citedRunLines(candidate.verdict!.basis, candidate.verdict!.runs, said)].join('\n  '))),
   ];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has none.
   const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));

@@ -3,7 +3,9 @@
  * person): the parts of a run that serve a maintainer of deep-review and
  * that the report no longer holds, rendered from the fold alone like the
  * report. The statistics of each phase, the angles with their leads, the
- * digest of the roles, and for a fix run the clusters and batches that held
+ * digest of the roles, the verdicts by basis and the runs the validations
+ * cite (R8 of runs on the record), and for a fix run the clusters and
+ * batches that held
  * each finding, who held each path a revision changed, and the files a
  * finding was first blocked on.
  */
@@ -15,7 +17,7 @@ import { angleRan } from './brief.ts';
 import { counted, inlineText, tableCell } from './markdown.ts';
 import { usd, type ReportInput } from './report.ts';
 import { rankedFindings } from './state.ts';
-import { angles, phases, type Angle } from './vocabulary.ts';
+import { angles, editingPhases, phases, verdictBases, verdicts, type Angle } from './vocabulary.ts';
 
 const count = (value: number | null): string => (value === null ? '-' : String(value));
 /** A cost cell: the reported sum, and how many workers' cost it leaves out. */
@@ -92,7 +94,36 @@ function fixPassPart(review: ReviewState, fix: FixState): string[] {
   ];
 }
 
-/** The Markdown of `report --stats`: the statistics, the angles, the digest of the roles, and for a fix run its fix pass. The run must be configured for review. */
+/**
+ * The part of runs on the record (R8 of runs on the record), for a run
+ * configured with it: the verdicts of each grade by how the verifier
+ * established each, and in a fix run the runs the validations of each
+ * editing phase cite, by whether the worker's record holds each. Its rows
+ * are phases and not roles, since the repair and an answer pass share the
+ * fixer's role.
+ */
+function citedRunsPart(review: ReviewState): string[] {
+  const recorded = Object.values(review.candidates).flatMap((candidate) => (candidate.verdict === null ? [] : [candidate.verdict]));
+  const lines = [
+    '## Runs on the record',
+    '',
+    'The verdicts of each grade, by how the verifier established each:',
+    '',
+    `| Verdict | ${verdictBases.join(' | ')} |`,
+    `|---|${verdictBases.map(() => '---|').join('')}`,
+    ...verdicts.map((verdict) => `| ${verdict} | ${verdictBases.map((basis) => String(recorded.filter((entry) => entry.verdict === verdict && entry.basis === basis).length)).join(' | ')} |`),
+  ];
+  const fix = review.fix;
+  if (fix === null) return lines;
+  const rows = editingPhases.filter((phase) => review.phases[phase].status !== 'skipped').map((phase) => {
+    const runs = Object.values(fix.answers[phase]).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs)));
+    const found = runs.filter((run) => run.found !== null).length;
+    return `| ${phase} | ${String(found)} | ${String(runs.length - found)} |`;
+  });
+  return [...lines, '', 'The runs the validations of the editing workers cite, by whether the worker\'s record holds each:', '', '| Phase | Found | Not found |', '|---|---|---|', ...rows];
+}
+
+/** The Markdown of `report --stats`: the statistics, the angles, the digest of the roles, for a run with runs on the record its runs, and for a fix run its fix pass. The run must be configured for review. */
 export function renderStats(state: RunState, statistics: ReportInput['statistics']): string[] {
   const review = state.review;
   if (review === null) throw new Error(`Run ${state.id} has no review to report on`);
@@ -101,6 +132,8 @@ export function renderStats(state: RunState, statistics: ReportInput['statistics
     ['## Statistics', '', ...statisticsTable(review, statistics)],
     ['## Angles', '', '| Angle | Ran | Lead from SCAN |', '|---|---|---|', ...angles.map((angle) => angleRow(review, angle))],
     ['## Roles', '', `Roles digest: ${review.configuration.rolesDigest}`],
+    // A run configured before runs on the record says nothing of runs (R9 of runs on the record).
+    ...(review.citedRuns ? [citedRunsPart(review)] : []),
     ...(review.fix === null ? [] : [fixPassPart(review, review.fix)]),
   ];
   return parts.flatMap((part, index) => (index === 0 ? part : ['', ...part]));
