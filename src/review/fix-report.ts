@@ -207,6 +207,9 @@ export function validationEvidence(entry: Pick<ValidationEntry, 'evidence' | 'ru
   return `${words}${/[.!?]$/.test(words) ? '' : '.'} ${record.join(' ')}`;
 }
 
+/** A validation entry as each validation line gives it after its own prefix: its method, its source, and its evidence (`validationEvidence`), the worker's text quoted. */
+const validationText = (entry: Pick<ValidationEntry, 'method' | 'source' | 'evidence' | 'runs'>, said: (text: string) => string, scratch: readonly string[]): string => `${entry.method}, ${said(entry.source)}: ${validationEvidence(entry, said, scratch)}`;
+
 /** What a fixer's text can name, for its quotes: the numbers of the findings, the finding the block is about, and the findings of its batch in the order its task numbered them; and the scratch directories of the run's workers, which a cited run's command writes `<scratch>` (`scratchSpellings`). */
 export interface FixQuote {
   readonly numbers: ReadonlyMap<string, number>;
@@ -255,7 +258,7 @@ export function fixBlockLines(review: ReviewState, fix: FixState, id: string, qu
   for (const { phase, key, batch, finding } of answers) {
     const by = answers.length === 1 ? 'its fixer' : phase === 'fixes' ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
     const saidOfBatch = saidIn(batch);
-    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${saidOfBatch(validation.source)}: ${validationEvidence(validation, saidOfBatch, quote.scratch)}`);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validationText(validation, saidOfBatch, quote.scratch)}`);
   }
   return lines;
 }
@@ -347,7 +350,7 @@ function documentationSection(review: ReviewState, fix: FixState, numbers: Reado
           `Note: ${said(finding.note)}`,
           ...(finding.message === null ? [] : [`Commit message: ${said(finding.message.subject)}`]),
           ...(finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(', ')}; ${patchNote(patchesOf(fix, item.id, 'documentation'))}`]),
-          ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said(entry.source)}: ${validationEvidence(entry, said, scratch)}`),
+          ...finding.validation.map((entry) => `Validation: ${validationText(entry, said, scratch)}`),
         ];
     const took = item.drift.length === 0 ? [] : ['Lines it took:', ...item.drift.map((line) => `- ${said(line.what)} (${line.key}${line.file === item.file ? '' : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index + 1)}. ${item.id} ${outcome}`, '', ...document, ...answered, ...took, ''];
@@ -507,7 +510,7 @@ function checksSection(review: ReviewState, fix: FixState, scope: ScopeState, ev
     const said = (text: string): string => workerText(text, numbers);
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check.kind).flatMap((finding) => [
       `- Its fix: ${statusWords[finding.status]}, ${said(finding.note)}; ${patchNote(patchesOf(fix, finding.id, 'repair'))}`,
-      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said(validation.source)}: ${validationEvidence(validation, said, scratch)}`),
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validationText(validation, said, scratch)}`),
     ]);
     return [...head, `- Command: ${codeSpan(check.command)}`, ...source, ...runs, ...fixed, ''];
   });
