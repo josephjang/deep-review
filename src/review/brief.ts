@@ -22,7 +22,7 @@ import { defaultInPlace, leaveWords } from './decision-report.ts';
 import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
 import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
 import type { GapKind } from './brief-json.ts';
-import { findingOutcomes, lastFixAnswer, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
+import { findingOutcomes, lastFixAnswer, scratchSpellings, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
 import { capitalized, checkAnchor, codeSpan, counted, findingAnchor, findingWords, inlineText, listed, paragraphText, quoted, tableCell } from './markdown.ts';
 import { answerCommand, lastMomentWords, needsCountLine, needsOf, shownDecisions, shownUnfinished, type BriefNeed, type NeedDeparture, type NeedQuestion, type NeedsFacts } from './needs.ts';
 import { shortRunId } from './runs.ts';
@@ -198,6 +198,8 @@ export interface Brief {
   readonly findings: readonly BriefFinding[];
   /** The number of each finding by its id and its merged ids, as `findingNumbers` gives it. */
   readonly numbers: ReadonlyMap<string, number>;
+  /** The scratch directories of the run's workers, which each quote writes `<scratch>` (`scratchSpellings`). */
+  readonly scratch: readonly string[];
   readonly status: BriefStatus;
   /** The items of "What needs you", in the order of its table, and the line that counts them (R2 of the report for the person). */
   readonly needs: readonly BriefNeed[];
@@ -295,6 +297,8 @@ interface BriefContext {
   readonly checks: readonly BriefCheck[];
   /** The number of each finding by its id and its merged ids. */
   readonly numbers: ReadonlyMap<string, number>;
+  /** The scratch directories of the run's workers, which each quote writes `<scratch>` (`scratchSpellings`). */
+  readonly scratch: readonly string[];
 }
 
 function contextOf(state: RunState, review: ReviewState): BriefContext {
@@ -303,7 +307,7 @@ function contextOf(state: RunState, review: ReviewState): BriefContext {
   const fix = review.fix;
   const outcomes = new Map(fix === null ? [] : findings.map(({ entry }) => [entry.finding.id, findingOutcomes(review, fix, entry.finding.id)] as const));
   const checks = fix === null ? [] : briefChecksOf({ ...review, fix }, state.scope!);
-  return { state, review, findings, outcomes, documents: leftDocumentsOf(review), checks, numbers: findingNumbers(review) };
+  return { state, review, findings, outcomes, documents: leftDocumentsOf(review), checks, numbers: findingNumbers(review), scratch: scratchSpellings(state.workers) };
 }
 
 /** The decisions of a kind, in rank order. */
@@ -480,6 +484,7 @@ function needsFactsOf(context: BriefContext, questions: readonly BriefQuestion[]
     uncommitted: fix === null || uncommitted === 0 ? null : { patches: uncommitted, readFirst },
     toFix: fix === null ? findings.filter(isPlanned).length : 0,
     numbers: context.numbers,
+    scratch: context.scratch,
   };
 }
 
@@ -704,6 +709,7 @@ export function briefOf(state: RunState): Brief {
     title: review.change.kind === 'given' ? review.change.reading.title : scopeTitle(state),
     findings,
     numbers: context.numbers,
+    scratch: context.scratch,
     status: statusOf(context, findings),
     needs,
     needsLine: needsCountLine(needs, facts),
@@ -768,7 +774,7 @@ export const missingAccountWords: Readonly<Record<'unrecorded' | 'none', string>
 function accountPart(brief: Brief): string[] {
   const { change } = brief;
   if (change.state !== 'given') return [missingAccountWords[change.state]];
-  const said = (text: string): string => inlineText(quoted(text, { numbers: brief.numbers }));
+  const said = (text: string): string => inlineText(quoted(text, { numbers: brief.numbers, scratch: brief.scratch }));
   const sources = (list: readonly string[]): string => list.map(inlineText).join(', ');
   const why = change.why === null ? 'The change states no reason.' : `Why, in the change's own words: ${said(change.why)} (${change.whyFrom.length === 0 ? 'it names no source' : `from ${sources(change.whyFrom)}`}).`;
   const judged = [
@@ -890,7 +896,7 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   const planned = brief.status.kind === 'review';
   const lines = [planned ? '## What deep-review would fix' : '## What deep-review fixed', ''];
   if (brief.fixes.length === 0) return [...lines, planned ? 'deep-review decided to fix no finding.' : 'deep-review fixed no finding.'];
-  const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: brief.numbers, own })));
+  const said = (text: string, own: number | null): string => tableCell(inlineText(quoted(text, { numbers: brief.numbers, own, scratch: brief.scratch })));
   // A row of a finding still a question is the default a fixer applied, which the question's answer may change.
   const asked = new Set(brief.findings.filter((finding) => finding.status === 'question').map((finding) => finding.number));
   const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.finding !== null && asked.has(fix.finding) ? ['the default of a question'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
