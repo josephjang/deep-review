@@ -1,4 +1,4 @@
-import { maxLineBytes, type ShellRun } from './adapter.ts';
+import { readEvents, type ShellRun } from './adapter.ts';
 import { isObject } from './json.ts';
 
 /**
@@ -78,32 +78,12 @@ function observe(facts: ClaudeStreamFacts, event: Record<string, unknown>): void
 }
 
 /**
- * Read the whole stream, one line at a time, before any rule is applied.
- * Lines are numbered from 1, blank ones included, and a blank one is
- * skipped. A call with no result keeps a null output, which no lookup finds.
+ * Read the whole stream, one line at a time, before any rule is applied, by
+ * the rules `readEvents` holds. A call with no result keeps a null output,
+ * which no lookup finds.
  */
 export function readClaudeStream(lines: Iterable<string | null>): ClaudeStreamFacts {
   const facts: ClaudeStreamFacts = { envelope: null, malformed: null, runs: [], waiting: new Map() };
-  let number = 0;
-  for (const line of lines) {
-    number += 1;
-    if (line === null) {
-      facts.malformed ??= `Claude Code printed line ${String(number)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
-      continue;
-    }
-    if (line.trim() === '') continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch (error) {
-      facts.malformed ??= `Claude Code printed line ${String(number)} that is not JSON: ${(error as Error).message}`;
-      continue;
-    }
-    if (!isObject(event)) {
-      facts.malformed ??= `Claude Code printed line ${String(number)} that is not an event object`;
-      continue;
-    }
-    observe(facts, event);
-  }
+  facts.malformed = readEvents(lines, 'Claude Code', (event) => observe(facts, event));
   return facts;
 }

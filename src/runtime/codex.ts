@@ -1,4 +1,4 @@
-import { emptyUsageSummary, maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type ShellRun, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
+import { emptyUsageSummary, readEvents, type Decoded, type LaunchPlan, type RuntimeAdapter, type ShellRun, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { finiteNumber, isObject } from './json.ts';
@@ -433,7 +433,6 @@ function observe(facts: StreamFacts, event: CodexEvent): void {
 /**
  * Read the whole stream, one line at a time, before any rule is applied, so
  * a malformed later line cannot hide the session id an earlier one recorded.
- * Lines are numbered from 1, blank ones included, and a blank one is skipped.
  */
 function readStream(lines: Iterable<string | null>): StreamFacts {
   const facts: StreamFacts = {
@@ -451,27 +450,7 @@ function readStream(lines: Iterable<string | null>): StreamFacts {
     lastMessage: undefined,
     runs: [],
   };
-  let number = 0;
-  for (const line of lines) {
-    number += 1;
-    if (line === null) {
-      facts.malformed ??= `Codex printed line ${String(number)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
-      continue;
-    }
-    if (line.trim() === '') continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch (error) {
-      facts.malformed ??= `Codex printed line ${String(number)} that is not JSON: ${(error as Error).message}`;
-      continue;
-    }
-    if (!isObject(event)) {
-      facts.malformed ??= `Codex printed line ${String(number)} that is not an event object`;
-      continue;
-    }
-    observe(facts, event);
-  }
+  facts.malformed = readEvents(lines, 'Codex', (event) => observe(facts, event));
   return facts;
 }
 
