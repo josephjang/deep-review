@@ -1,5 +1,6 @@
 import type { DeniedTool, Effort } from '../checkpoint/events.ts';
 import type { CompiledSchema, Invocation } from './contract.ts';
+import { isObject } from './json.ts';
 
 /**
  * What a runtime can and cannot do, declared once per adapter (TD4). The
@@ -146,6 +147,39 @@ export function outputLines(bytes: Buffer, maxBytes: number = maxLineBytes): Ite
       }
     },
   };
+}
+
+/**
+ * Read a JSON event stream whole, one line at a time, passing each event
+ * object to `observe`, so a malformed later line cannot hide what an earlier
+ * one recorded. Lines are numbered from 1, blank ones included, and a blank
+ * one is skipped. Returns why the first line that is not an event object is
+ * not one, naming `runtime` as the one that printed it, or null.
+ */
+export function readEvents(lines: Iterable<string | null>, runtime: string, observe: (event: Record<string, unknown>) => void): string | null {
+  let malformed: string | null = null;
+  let number = 0;
+  for (const line of lines) {
+    number += 1;
+    if (line === null) {
+      malformed ??= `${runtime} printed line ${String(number)} that is longer than the ${String(maxLineBytes)} bytes the launcher decodes as one line`;
+      continue;
+    }
+    if (line.trim() === '') continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch (error) {
+      malformed ??= `${runtime} printed line ${String(number)} that is not JSON: ${(error as Error).message}`;
+      continue;
+    }
+    if (!isObject(event)) {
+      malformed ??= `${runtime} printed line ${String(number)} that is not an event object`;
+      continue;
+    }
+    observe(event);
+  }
+  return malformed;
 }
 
 /** What a finished worker left behind, as text. */
