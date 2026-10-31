@@ -57,7 +57,7 @@ describe('the report of a fix run', () => {
   it('gives a finding two fixers worked the validation of each, oldest first and by its fixer, as the block lists both patches (R6 of the report for the person)', () => {
     const review = passToReport(decidedFixRun().add('answer.recorded', answer('RIPPLE-1', 'reject')).add('answer.pass', { ids: ['RIPPLE-1'] }), 1, [['RIPPLE-1', 'applied']], 2).review();
     const fix = review.fix!;
-    const validated = <Recorded extends FixRecorded>(recorded: Recorded, evidence: string): Recorded => ({ ...recorded, findings: recorded.findings.map((finding) => ({ ...finding, validation: [{ method: 'old-code' as const, source: 'test/a.test.ts', evidence }] })) });
+    const validated = <Recorded extends FixRecorded>(recorded: Recorded, evidence: string): Recorded => ({ ...recorded, findings: recorded.findings.map((finding) => ({ ...finding, validation: [{ method: 'old-code' as const, source: 'test/a.test.ts', evidence, runs: [] }] })) });
     const twice = { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': validated(fix.answers.fixes['c1-1']!, 'failed on <stdin> before the guard') }, answer: { 'pass-1': validated(fix.answers.answer['pass-1']!, 'failed before the answer') } } };
     const lines = fixBlockLines(review, twice, 'RIPPLE-1', { numbers: new Map([['RIPPLE-1', 1]]), own: 1 });
     assert.ok(lines.includes('Patch: 1, 2'), lines.join('\n'));

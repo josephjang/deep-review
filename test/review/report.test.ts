@@ -3,11 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { codexWindowsSandboxesV4, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
+import { codexWindowsSandboxesV4, type ReviewConfiguration, type ValidationRun, type VerdictRun } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { briefJson } from '../../src/review/brief-json.ts';
+import { briefMarkdown, briefOf } from '../../src/review/brief.ts';
 import { renderReport, type ReportInput } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
-import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, worker, reportInput } from '../helpers/review-history.ts';
+import { answer, askDecision, configurationV3, decidedFixRun, passToReport, configured, continuedToReport, decidedOf, decisions, fixRun, History, ranked, readOnlyReported, reference, reported, scope, statistics, triaged, verdictRun, withCitedRuns, worker, reportInput } from '../helpers/review-history.ts';
+import { checkedRun } from '../helpers/base-checks-history.ts';
 import { finderAngles } from '../../src/review/vocabulary.ts';
 
 const snapshotPath = resolve(import.meta.dirname, '../fixtures/reports/synthetic.md');
@@ -513,5 +516,80 @@ describe('the report of a run continued into the fix pass', () => {
 
   it('names the read-only report by its name in the store, whatever the input gives of the fix pass (R15 of the brief of a run)', () => {
     assert.match(renderReport(continuedToReport().fold(), reportInput), /^Continued: into the fix pass on [^,]+, after the read-only report artifacts\/e{64}$/m);
+  });
+});
+
+// R8 and PD7 of runs on the record.
+describe('the runs on the record in the report', () => {
+  /** The run of checkedRun with runs on the record, each verdict recorded with `change` over the basis traced and no run. */
+  const cited = (change: Record<string, unknown> = {}): RunState => withCitedRuns(checkedRun(), change).fold();
+  const ran = { basis: 'ran', runs: [verdictRun(3), verdictRun(5, { command: 'node -e "parse(null)"', printed: ['0', 'a <b>'], probe: null, exitCode: null })] };
+  const render = (state: RunState): string => renderReport(state, { ...reportInput, fix: { patches: [reference('1'), reference('2')], continueCommand: null } });
+  /** The run with the one validation entry of c1-1's finding citing `runs`, its evidence `evidence`. */
+  const validated = (state: RunState, runs: ValidationRun[], evidence = 'failed before the fix, passes after it.'): RunState => {
+    const fix = state.review!.fix!;
+    const answer = fix.answers.fixes['c1-1']!;
+    const findings = answer.findings.map((finding) => ({ ...finding, validation: [{ method: 'old-code' as const, source: 'test/a.test.ts', evidence, runs }] }));
+    return { ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState;
+  };
+  /** A run a validation entry cites, found at place `at` of its worker's record. */
+  const found = (at: number): ValidationRun => ({ command: `node probe-${String(at)}.mjs`, printed: ['passes'], probe: null, found: { at, exitCode: 0 } });
+  const missing: ValidationRun = { command: 'npm test -- a', printed: ['1 passing'], probe: null, found: null };
+
+  it('gives after the evidence how the verifier established it and each run, with its place, its command, the lines it printed, its exit code and its probe', () => {
+    assert.match(render(cited(ran)), /^- Evidence: [^\n]+\n- How the verifier established it: it ran code\.\n- Shell run 3 of its record: node probe-1\.mjs printed "TypeError: Cannot read properties of null", exit 1\. The probe is artifacts\/9{64}, named probe-1\.mjs\.\n- Shell run 5 of its record: node -e "parse\(null\)" printed "0" \/ "a \\<b>", no exit code on record\.$/m);
+    assert.match(render(cited()), /^- Evidence: [^\n]+\n- How the verifier established it: it traced the lines\.\n- Decision/m);
+    assert.match(render(cited({ basis: 'read' })), /^- How the verifier established it: the lines alone settle it\.$/m);
+    assert.doesNotMatch(render(checkedRun().fold()), /How the verifier established it|Shell run/, 'a run configured before runs on the record says nothing of runs');
+  });
+
+  it('shows a merged finding with the runs of the candidate whose evidence it shows', () => {
+    const state = cited(ran);
+    const review = state.review!;
+    const member = { ...review.candidates['SWEEP-2']!, unverified: false, verdict: { verdict: 'PLAUSIBLE' as const, evidence: 'Not CONFIRMED: one caller', basis: 'ran' as const, runs: [verdictRun(9) as unknown as VerdictRun] } };
+    const report = render({ ...state, review: { ...review, candidates: { ...review.candidates, 'SWEEP-2': member } } });
+    assert.match(report, /^- Shell run 3 of its record/m);
+    assert.doesNotMatch(report, /Shell run 9/, 'the PLAUSIBLE member\'s run stays with its evidence, which the CONFIRMED finding does not show');
+  });
+
+  it('gives a refuted candidate\'s basis and runs under its evidence in Refuted at verification', () => {
+    const state = cited();
+    const review = state.review!;
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2) as unknown as VerdictRun] } };
+    const report = render({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } });
+    assert.match(report, /^- SCAN-1 \(SCAN\) [^\n]+\n {2}Evidence: the caller checks first\n {2}How the verifier established it: it ran code\.\n {2}Shell run 2 of its record: node probe-1\.mjs printed "TypeError: Cannot read properties of null", exit 1\. The probe is artifacts\/9{64}, named probe-1\.mjs\.$/m);
+  });
+
+  it('ends a validation line with the runs its fixer\'s record shows and names each it does not, and with nothing for an entry that cites none', () => {
+    assert.match(render(validated(cited(ran), [found(4), found(6), missing])), /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\. Its record shows shell run 4 and shell run 6\. Its record does not show: npm test -- a\.$/m);
+    assert.match(render(validated(cited(ran), [missing], 'it passes')), /: it passes\. Its record does not show: npm test -- a\.$/m, 'words with no period get one before what the record shows');
+    assert.match(render(validated(cited(ran), [])), /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\.$/m);
+  });
+
+  it('ends the validation line of the repair under its check, and of the documentation step under its item, as a fixer\'s', () => {
+    const state = withCitedRuns(checkedRun({ after: { lint: 'failed' } })).fold();
+    const fix = state.review!.fix!;
+    const entry = { method: 'existing' as const, source: 'npm run lint', evidence: 'lint passes', runs: [found(7), missing] };
+    const repaired = fix.answers.repair.repair!;
+    const step = fix.answers.documentation.documentation!;
+    const answers = { ...fix.answers, repair: { repair: { ...repaired, findings: repaired.findings.map((finding) => ({ ...finding, validation: [entry] })) } }, documentation: { documentation: { ...step, findings: step.findings.map((finding) => ({ ...finding, validation: [entry] })) } } };
+    const report = render({ ...state, review: { ...state.review!, fix: { ...fix, answers } } } as RunState);
+    assert.match(report, /^- Validation, as its fixer reports it: existing, npm run lint: lint passes\. Its record shows shell run 7\. Its record does not show: npm test -- a\.$/m);
+    assert.match(report, /^Validation: existing, npm run lint: lint passes\. Its record shows shell run 7\. Its record does not show: npm test -- a\.$/m);
+  });
+
+  it('counts in report --stats the verdicts of each grade by basis and the runs the validations cite by whether the record holds them, and nothing of either for an older run', () => {
+    const stats = renderStats(validated(cited(ran), [found(4), missing]), statistics).join('\n');
+    assert.match(stats, /^## Runs on the record\n\nThe verdicts of each grade, by how the verifier established each:\n\n\| Verdict \| ran \| traced \| read \|\n\|---\|---\|---\|---\|\n\| CONFIRMED \| 1 \| 0 \| 0 \|\n\| PLAUSIBLE \| 0 \| 0 \| 0 \|\n\| REFUTED \| 0 \| 0 \| 0 \|\n\nThe runs the validations of the editing workers cite, by whether the worker's record holds each:\n\n\| Phase \| Found \| Not found \|\n\|---\|---\|---\|\n\| fixes \| 1 \| 1 \|\n\| documentation \| 0 \| 0 \|\n\| repair \| 0 \| 0 \|$/m);
+    assert.doesNotMatch(renderStats(checkedRun().fold(), statistics).join('\n'), /Runs on the record/);
+  });
+
+  it('leaves the brief, its short form and its JSON form as they are for the same run without its runs (PD7)', () => {
+    const local = { copy: '/r/copy.md', record: '/r/artifacts/abc', repository: '/r', store: '/r/artifacts', continueCommand: null };
+    const withRuns = briefOf(validated(cited(ran), [found(4), missing]));
+    const without = briefOf(validated(checkedRun().fold(), []));
+    assert.deepEqual(withRuns, without);
+    assert.deepEqual(briefMarkdown(withRuns, 'chat'), briefMarkdown(without, 'chat'));
+    assert.deepEqual(briefJson(withRuns, local, []), briefJson(without, local, []));
   });
 });
