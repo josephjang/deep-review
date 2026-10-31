@@ -250,8 +250,9 @@ Each finding is named by its number, its rank in the run. One block per
 finding follows, from where it is and why to its decision, its fix, its
 patch and each validation its fixers report, with the basis of its
 verdict and each run the verdict cites after its evidence, and after
-each validation which of its cited runs its worker's record shows; then
-the evidence:
+each validation which of its cited runs its worker's record shows, a
+worker's scratch directory reading `<scratch>` in a cited command and
+its lines; then the evidence:
 Documentation updates, Checks, Patches, What the review covered, Refuted
 at verification, and About this run, with the repository, the commits,
 the engine, the runtime, the models and the settings, the one part that
