@@ -30,6 +30,12 @@ export interface Capabilities {
    * says nothing about what the runtime can report.
    */
   readonly costInUsd: boolean;
+  /**
+   * The worker's stdout, which the launcher freezes as its record, holds
+   * each shell command it ran with the output it saw, and the decode reads
+   * them into `Decoded.runs` (R1 of runs on the record).
+   */
+  readonly shellRecord: boolean;
 }
 
 /**
@@ -167,6 +173,15 @@ export type DecodedResult =
   /** The provider's usage or session limit stopped the worker, no fault of its unit's (R14 of resumable runs): what the runtime said, and the reset it names, or null. */
   | { readonly kind: 'limit'; readonly error: string; readonly reset: string | null };
 
+/** One shell command a worker ran, as its runtime recorded it: its place in the record is its index plus one. */
+export interface ShellRun {
+  readonly command: string;
+  /** What the worker saw the command print, or null when the record holds no result for it. */
+  readonly output: string | null;
+  /** The exit code, or null when the runtime does not give one. */
+  readonly exitCode: number | null;
+}
+
 /** What an adapter read from a worker's outputs, before the launcher validates the answer and decides the outcome. */
 export interface Decoded {
   /**
@@ -179,6 +194,14 @@ export interface Decoded {
   readonly usage: unknown;
   /** Refused tool calls, or null when the runtime gives no evidence either way. */
   readonly denials: readonly DeniedTool[] | null;
+  /**
+   * The shell runs of the worker's record, in the order it ran them, or
+   * null when the adapter read no record: its runtime keeps none, or the
+   * stream has a line that is not an event, so no reading of it is whole.
+   * A well-formed stream gives its runs whatever else fails the worker
+   * (R1 of runs on the record).
+   */
+  readonly runs: readonly ShellRun[] | null;
   readonly result: DecodedResult;
 }
 

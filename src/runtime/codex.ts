@@ -1,4 +1,4 @@
-import { emptyUsageSummary, maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
+import { emptyUsageSummary, maxLineBytes, type Decoded, type LaunchPlan, type RuntimeAdapter, type ShellRun, type UsageSummary, type WorkerCommand, type WorkerOutputs } from './adapter.ts';
 import type { Invocation } from './contract.ts';
 import { pinVariables, spellingsOf, withoutVariables } from './environment.ts';
 import { finiteNumber, isObject } from './json.ts';
@@ -365,6 +365,8 @@ interface StreamFacts {
   readonly pending: Set<string>;
   /** The text of the last completed `agent_message`. */
   lastMessage: string | undefined;
+  /** Each completed `command_execution` item, in the order of the stream. */
+  readonly runs: ShellRun[];
 }
 
 /** Fold one item event into the facts. After the first item problem no item is looked at, since that problem decides. */
@@ -385,6 +387,13 @@ function observeItem(facts: StreamFacts, event: CodexEvent): void {
     return;
   }
   facts.pending.delete(item.id);
+  if (item.type === 'command_execution') {
+    facts.runs.push({
+      command: typeof item.command === 'string' ? item.command : '',
+      output: typeof item.aggregated_output === 'string' ? item.aggregated_output : '',
+      exitCode: typeof item.exit_code === 'number' ? item.exit_code : null,
+    });
+  }
   if (item.status === 'failed' && !survivableFailure(item)) {
     facts.itemProblem = `Codex item ${item.id} (${String(item.type)}) failed`;
     return;
@@ -440,6 +449,7 @@ function readStream(lines: Iterable<string | null>): StreamFacts {
     itemProblem: null,
     pending: new Set(),
     lastMessage: undefined,
+    runs: [],
   };
   let number = 0;
   for (const line of lines) {
@@ -472,6 +482,8 @@ function readStream(lines: Iterable<string | null>): StreamFacts {
  * is read a line at a time, so its length alone never fails a worker, and
  * all of it is read before any rule is applied. The session ids are the
  * threads the stream started; the launcher adds a continued one itself.
+ * The shell runs are its completed `command_execution` items, an output
+ * an item leaves out read as empty (R1 of runs on the record).
  *
  * A turn that completed is judged by its answer, not by what went wrong on
  * the way: an `error` event (Codex's report of a stream reconnect), an
@@ -482,7 +494,8 @@ function readStream(lines: Iterable<string | null>): StreamFacts {
 export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const facts = readStream(outputs.stdoutLines);
   const { sessionIds, usage } = facts;
-  const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, result: { kind: 'failed', error } });
+  const runs = facts.malformed === null ? facts.runs : null;
+  const failed = (error: string): Decoded => ({ sessionIds, usage, denials: null, runs, result: { kind: 'failed', error } });
 
   if (facts.malformed !== null) return failed(facts.malformed);
   const refusals = [...outputs.stderr.matchAll(refusedCommand)].map((match) => match[1]!.trim());
@@ -517,7 +530,7 @@ export function decodeCodex(_invocation: Invocation, plan: LaunchPlan, outputs: 
   } catch (error) {
     return failed(`Codex wrote a final message that is not JSON: ${(error as Error).message}`);
   }
-  return { sessionIds, usage, denials: null, result: { kind: 'answer', value } };
+  return { sessionIds, usage, denials: null, runs, result: { kind: 'answer', value } };
 }
 
 /**
@@ -592,6 +605,7 @@ const codexRuntime: Omit<RuntimeAdapter, 'command'> = {
     effortLevels: ['low', 'medium', 'high', 'xhigh'],
     resume: true,
     costInUsd: false,
+    shellRecord: true,
   },
   qualification: {
     version: { args: ['--version'], pattern: /^codex-cli (\d+\.\d+\.\d+)$/ },

@@ -334,7 +334,7 @@ const isBudgetStop = (envelope: Record<string, unknown>): boolean =>
  */
 export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: WorkerOutputs): Decoded {
   const expected = plan.sessionId;
-  const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null }): Decoded => ({ ...known, result: { kind: 'failed', error } });
+  const failed = (error: string, known: Omit<Decoded, 'result'> = { sessionIds: [], usage: null, denials: null, runs: null }): Decoded => ({ ...known, result: { kind: 'failed', error } });
 
   const stdout = outputs.stdout;
   if (stdout === null) return failed(`Claude Code printed more than the ${String(maxDecodeBytes)} bytes of stdout the launcher decodes as one result envelope; it is frozen as evidence`);
@@ -350,7 +350,7 @@ export function decodeClaude(invocation: Invocation, plan: LaunchPlan, outputs: 
   const observed = typeof envelope.session_id === 'string' && envelope.session_id.length > 0 ? envelope.session_id : null;
   const usage = { usage: envelope.usage ?? null, modelUsage: envelope.modelUsage ?? null, total_cost_usd: envelope.total_cost_usd ?? null };
   const denials = Array.isArray(envelope.permission_denials) ? deniedTools(envelope.permission_denials) : null;
-  const known = { sessionIds: observed === null ? [] : [observed], usage, denials };
+  const known = { sessionIds: observed === null ? [] : [observed], usage, denials, runs: null };
 
   // The ledger named this session before launch; an answer from any other session is not this worker's.
   if (observed !== expected) return failed(`Claude Code answered from session ${String(observed)}, not ${String(expected)}`, known);
@@ -426,6 +426,7 @@ const claudeRuntime: Omit<RuntimeAdapter, 'command'> = {
     effortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     resume: true,
     costInUsd: true,
+    shellRecord: false,
   },
   qualification: {
     version: { args: ['--version'], pattern: /^(\d+\.\d+\.\d+) \(Claude Code\)$/ },

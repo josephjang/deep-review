@@ -231,6 +231,7 @@ describe('runWorker', () => {
       assert.deepEqual(receipt.runtime.sessionIds, [freshThread]);
       assert.deepEqual(receipt.runtime.usage, { input_tokens: 11, cached_input_tokens: 0, output_tokens: 4 });
       assert.ok(receipt.evidence.stdout.bytes > maxDecodeBytes);
+      assert.deepEqual(receipt.runs?.map((run) => ({ ...run, output: run.output?.length })), [{ command: 'cat big', output: maxDecodeBytes, exitCode: 0 }], 'the receipt carries the run the stream recorded');
       assertEvidence(receipt);
     });
 
@@ -603,7 +604,7 @@ describe('runWorker', () => {
     // Node itself behind an adapter nothing else knows: it echoes the first line of its prompt.
     const echo: RuntimeAdapter = {
       name: 'node-echo',
-      capabilities: { assignsSessionId: true, budgetCap: false, denialEvidence: false, withholdShell: true, readOnlyScratch: true, effortLevels: ['low'], resume: false, costInUsd: false },
+      capabilities: { assignsSessionId: true, budgetCap: false, denialEvidence: false, withholdShell: true, readOnlyScratch: true, effortLevels: ['low'], resume: false, costInUsd: false, shellRecord: false },
       qualification: { version: { args: ['--version'], pattern: /^v(\d+\.\d+\.\d+)$/ }, help: [{ args: ['--help'], flags: ['--eval'] }] },
       summarizeUsage: () => emptyUsageSummary,
       command: (_invocation, plan) => ({
@@ -611,12 +612,12 @@ describe('runWorker', () => {
         environment: plan.environment,
       }),
       decode: (_invocation, _plan, outputs) => {
-        if (outputs.stdout === null) return { sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: 'stdout is too long to read whole' } };
+        if (outputs.stdout === null) return { sessionIds: [], usage: null, denials: null, runs: null, result: { kind: 'failed', error: 'stdout is too long to read whole' } };
         try {
           const parsed = JSON.parse(outputs.stdout) as { session: string; answer: string };
-          return { sessionIds: [parsed.session], usage: null, denials: null, result: { kind: 'answer', value: { answer: parsed.answer } } };
+          return { sessionIds: [parsed.session], usage: null, denials: null, runs: null, result: { kind: 'answer', value: { answer: parsed.answer } } };
         } catch (error) {
-          return { sessionIds: [], usage: null, denials: null, result: { kind: 'failed', error: (error as Error).message } };
+          return { sessionIds: [], usage: null, denials: null, runs: null, result: { kind: 'failed', error: (error as Error).message } };
         }
       },
     };
