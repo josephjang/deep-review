@@ -35359,10 +35359,18 @@ function answersFor(fix, id) {
   });
   return [...fixes, ...answered2];
 }
-function validationEvidence(entry, said2) {
+function scratchSpellings(workers) {
+  const recorded = Object.values(workers).flatMap(({ launch }) => launch.scratch === null ? [] : [launch.scratch, launch.scratch.replaceAll("\\", "/")]);
+  return [...new Set(recorded)].sort((a, b) => b.length - a.length);
+}
+function withoutScratch(text3, scratch) {
+  if (scratch.length === 0) return text3;
+  return text3.replace(new RegExp(`(?:/private(?=/))?(?:${scratch.map((directory) => RegExp.escape(directory)).join("|")})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, "gu"), "<scratch>");
+}
+function validationEvidence(entry, said2, scratch) {
   const words = said2(entry.evidence);
   const found = [...new Set(entry.runs.flatMap((run2) => run2.found === null ? [] : [`shell run ${String(run2.found.at)}`]))];
-  const record2 = [...found.length === 0 ? [] : [`Its record shows ${listed(found)}.`], ...entry.runs.filter((run2) => run2.found === null).map((run2) => `Its record does not show: ${said2(run2.command)}.`)];
+  const record2 = [...found.length === 0 ? [] : [`Its record shows ${listed(found)}.`], ...entry.runs.filter((run2) => run2.found === null).map((run2) => `Its record does not show: ${said2(withoutScratch(run2.command, scratch))}.`)];
   if (record2.length === 0) return words;
   return `${words}${/[.!?]$/.test(words) ? "" : "."} ${record2.join(" ")}`;
 }
@@ -35394,8 +35402,8 @@ function fixBlockLines(review2, fix, id, quote) {
   const answers = answersFor(fix, id);
   for (const { phase, key, batch, finding } of answers) {
     const by = answers.length === 1 ? "its fixer" : phase === "fixes" ? `fixer ${key}` : `the fixer of the answer pass ${key}`;
-    const quote2 = saidIn(batch);
-    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${quote2(validation.source)}: ${validationEvidence(validation, quote2)}`);
+    const saidOfBatch = saidIn(batch);
+    for (const validation of finding.validation) lines.push(`Validation, as ${by} reports it: ${validation.method}, ${saidOfBatch(validation.source)}: ${validationEvidence(validation, saidOfBatch, quote.scratch)}`);
   }
   return lines;
 }
@@ -35435,7 +35443,7 @@ function stopLimitations(review2, evidencePath) {
   for (const dropped of fix.droppedSeries) lines.push(`Dropped: the series of commits from ${dropped.from} to ${dropped.to}, which the branch never moved to, after a stop or a refused move; a later \`deep-review commit\` builds it again.`);
   return lines;
 }
-function documentationSection(review2, fix, numbers) {
+function documentationSection(review2, fix, numbers, scratch) {
   const said2 = (text3) => workerText(text3, numbers);
   const plan = fix.documentation;
   const unheld = unheldDriftLines(review2);
@@ -35452,7 +35460,7 @@ function documentationSection(review2, fix, numbers) {
       `Note: ${said2(finding.note)}`,
       ...finding.message === null ? [] : [`Commit message: ${said2(finding.message.subject)}`],
       ...finding.files.length === 0 ? [] : [`Files: ${finding.files.map(inlineText).join(", ")}; ${patchNote(patchesOf(fix, item.id, "documentation"))}`],
-      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${validationEvidence(entry, said2)}`)
+      ...finding.validation.map((entry) => `Validation: ${entry.method}, ${said2(entry.source)}: ${validationEvidence(entry, said2, scratch)}`)
     ];
     const took = item.drift.length === 0 ? [] : ["Lines it took:", ...item.drift.map((line) => `- ${said2(line.what)} (${line.key}${line.file === item.file ? "" : `, as ${inlineText(line.file)}`})`)];
     return [`### ${String(index2 + 1)}. ${item.id} ${outcome}`, "", ...document, ...answered2, ...took, ""];
@@ -35513,7 +35521,7 @@ function baseWorktreeLines(review2) {
   const errors = new Set((review2.fix?.checks.runs["base-checks"] ?? []).flatMap((run2) => run2.skipReason === "no-worktree" && run2.error !== null ? [run2.error.startsWith(prefix) ? run2.error.slice(prefix.length) : run2.error] : []));
   return [...errors].map((error62) => `Worktree of the base: could not be made: ${inlineText(error62)}`);
 }
-function checksSection(review2, fix, scope, evidencePath, numbers) {
+function checksSection(review2, fix, scope, evidencePath, numbers, scratch) {
   const { survey } = review2;
   const planned = fix.checks.planned?.checks ?? [];
   const ran = checkPhases.filter((phase) => fix.checks.runs[phase].length > 0);
@@ -35543,7 +35551,7 @@ function checksSection(review2, fix, scope, evidencePath, numbers) {
     const said2 = (text3) => workerText(text3, numbers);
     const fixed = (repaired?.findings ?? []).filter((finding) => finding.id === check2.kind).flatMap((finding) => [
       `- Its fix: ${statusWords[finding.status]}, ${said2(finding.note)}; ${patchNote(patchesOf(fix, finding.id, "repair"))}`,
-      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${validationEvidence(validation, said2)}`)
+      ...finding.validation.map((validation) => `- Validation, as its fixer reports it: ${validation.method}, ${said2(validation.source)}: ${validationEvidence(validation, said2, scratch)}`)
     ]);
     return [...head2, `- Command: ${codeSpan(check2.command)}`, ...source, ...runs, ...fixed, ""];
   });
@@ -35593,11 +35601,11 @@ function patchesSection(fix, patches, numbers) {
     ...tests.length === 0 ? [] : ["", "Tests the fixers say they added or tightened:", "", ...tests]
   ];
 }
-function fixSections(state, evidencePath, patches, numbers) {
+function fixSections(state, evidencePath, patches, numbers, scratch) {
   const review2 = state.review;
   const fix = review2?.fix ?? null;
   if (review2 === null || fix === null) return [];
-  return [documentationSection(review2, fix, numbers), checksSection(review2, fix, state.scope, evidencePath, numbers), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
+  return [documentationSection(review2, fix, numbers, scratch), checksSection(review2, fix, state.scope, evidencePath, numbers, scratch), patchesSection(fix, patches, numbers)].filter((section) => section.length > 0);
 }
 function fixHeaderLine(review2) {
   const fix = review2.fix;
@@ -36314,18 +36322,19 @@ function marks(candidate, unverified) {
   const list = [...where, ...unverified ? ["unverified"] : []];
   return list.length === 0 ? "" : ` (${list.join("; ")})`;
 }
-function citedRunLines(basis, runs, said2) {
+function citedRunLines(basis, runs, said2, scratch) {
   if (basis === null) return [];
+  const ran = (text3) => said2(withoutScratch(text3, scratch));
   return [
     `How the verifier established it: ${verdictBasisWords[basis]}.`,
     ...runs.map((run2) => {
       const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
       const probe = run2.probe === null ? "" : ` The probe is ${storeNameOf(run2.probe.blob)}, named ${said2(run2.probe.name)}.`;
-      return `Shell run ${String(run2.at)} of its record: ${said2(run2.command)} printed ${run2.printed.map((line) => `"${said2(line)}"`).join(" / ")}, ${exit}.${probe}`;
+      return `Shell run ${String(run2.at)} of its record: ${ran(run2.command)} printed ${run2.printed.map((line) => `"${ran(line)}"`).join(" / ")}, ${exit}.${probe}`;
     })
   ];
 }
-function findingBlock(state, finding, entry, decision, numbers) {
+function findingBlock(state, finding, entry, decision, numbers, scratch) {
   const review2 = state.review;
   const { primary, members: members2, resolution } = entry;
   const own2 = finding.number;
@@ -36336,9 +36345,9 @@ function findingBlock(state, finding, entry, decision, numbers) {
     ...firstSentence(entry.finding.summary) === inlineText(entry.finding.summary).trim() ? [] : [`Summary: ${said2(entry.finding.summary)}`],
     `Reason: ${said2(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? "none; the verifier of this group failed twice" : said2(resolution.evidence)}`,
-    ...citedRunLines(resolution.basis, resolution.runs, said2),
+    ...citedRunLines(resolution.basis, resolution.runs, said2, scratch),
     ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2 }),
-    ...review2.fix === null ? [] : fixBlockLines(review2, review2.fix, finding.id, { numbers, own: own2 })
+    ...review2.fix === null ? [] : fixBlockLines(review2, review2.fix, finding.id, { numbers, own: own2, scratch })
   ];
   return [
     `<a id="${findingAnchor(own2)}"></a>`,
@@ -36358,7 +36367,7 @@ function findingBlockOf(state, id) {
   if (number5 === void 0) return null;
   const finding = briefOf(state).findings.find((entry2) => entry2.number === number5);
   const entry = entriesById(review2).get(finding.id);
-  return findingBlock(state, finding, entry, review2.decisions?.find((decision) => decision.id === finding.id) ?? null, numbers);
+  return findingBlock(state, finding, entry, review2.decisions?.find((decision) => decision.id === finding.id) ?? null, numbers, scratchSpellings(state.workers));
 }
 function entriesById(review2) {
   return new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
@@ -36532,19 +36541,20 @@ function renderReport(state, input2) {
   const decidedFor2 = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review2);
   const said2 = (text3) => inlineText(quoted(text3, { numbers }));
+  const scratch = scratchSpellings(state.workers);
   const findingsSection = [
     "## Findings",
     "",
-    ...brief.findings.length === 0 ? ["No finding survived verification."] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id), decidedFor2.get(finding.id) ?? null, numbers), ""])
+    ...brief.findings.length === 0 ? ["No finding survived verification."] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id), decidedFor2.get(finding.id) ?? null, numbers, scratch), ""])
   ];
   const refutedSection = [
     "## Refuted at verification",
     "",
     // A refuted candidate's basis and runs follow its evidence as a finding's do (R8 of runs on the record).
-    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}`, `Evidence: ${said2(evidence)}`, ...citedRunLines(candidate.verdict.basis, candidate.verdict.runs, said2)].join("\n  "))
+    ...refutedList.length === 0 ? ["None."] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said2(candidate.summary)}`, `Evidence: ${said2(evidence)}`, ...citedRunLines(candidate.verdict.basis, candidate.verdict.runs, said2, scratch)].join("\n  "))
   ];
   const conventions = conventionsReportSection(review2, (path) => localPathWords(path, places));
-  const fixed = input2.fix === void 0 ? [] : fixSections(state, storeNameOf, input2.fix.patches.map(storeNameOf), numbers);
+  const fixed = input2.fix === void 0 ? [] : fixSections(state, storeNameOf, input2.fix.patches.map(storeNameOf), numbers, scratch);
   return [
     briefMarkdown(brief),
     findingsSection,
