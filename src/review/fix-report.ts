@@ -186,8 +186,19 @@ const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
  */
 export function withoutScratch(text: string, scratch: readonly string[]): string {
   if (scratch.length === 0) return text;
+  return text.replace(scratchPattern(scratch), '<scratch>');
+}
+
+/** The pattern of `withoutScratch` for each list of scratch directories, compiled once: a report quotes every cited command and line with the one list `scratchSpellings` gave it. */
+const scratchPatterns = new WeakMap<readonly string[], RegExp>();
+
+function scratchPattern(scratch: readonly string[]): RegExp {
+  const known = scratchPatterns.get(scratch);
+  if (known !== undefined) return known;
   const directories = scratch.map((directory) => (windowsPath(directory) ? `(?i:${RegExp.escape(directory)})` : RegExp.escape(directory)));
-  return text.replace(new RegExp(`(?:/private(?=/))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu'), '<scratch>');
+  const pattern = new RegExp(`(?:/private(?=/))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu');
+  scratchPatterns.set(scratch, pattern);
+  return pattern;
 }
 
 /**
