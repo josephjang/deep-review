@@ -11,19 +11,21 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import type { BaseComparison, FixedFinding, FixRecorded, FixRecordedV4, TreeRevised } from '../checkpoint/events.ts';
+import type { BaseComparison, FixedFinding, FixedFindingV2, FixRecorded, FixRecordedV4, FixRecordedV5, TreeRevised, ValidationRun } from '../checkpoint/events.ts';
 import { clusterClaims, comparableKinds, exactPath, heldByOthers, heldInRoundByOthers, holdersKeyedBy, ownedFiles, roundOf, unitIdsOf, type FixState, type PathHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { preRunStrays, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
+import type { ShellRun } from '../runtime/adapter.ts';
 import type { WorkerReceipt } from '../runtime/launcher.ts';
+import { validationRun } from './cited-runs.ts';
 import { batchOfUnit, foldedWith, holderSpelled, isPending, lateClaim, requireFix, settleClaims, settledNothing, type ClaimsAccess, type ClaimSettle } from './claim-events.ts';
 import { pathKey } from './claims.ts';
 import { expectedTreeOf } from './drift.ts';
 import { writtenVersion } from './event-versions.ts';
 import { requireOwnedReported, resolveFixerAnswer } from './fix-answer.ts';
 import { worktreeLookup, type RepoLookup } from './locations.ts';
-import { checkFixerAnswer, type FixerOutput, type RepairOutput } from './schemas.ts';
+import { checkFixerAnswer, type FixerOutput, type FixerOutputV2, type RepairOutput } from './schemas.ts';
 import { changedListed, readSnapshot, snapshotPaths, snapshotsDirectoryName, type SnapshotManifest } from './snapshot.ts';
 import * as gitApi from '../scope/git.ts';
 import { truncated, type Unit } from './steps.ts';
@@ -209,8 +211,10 @@ export function revisionMessage(revision: Pick<FindingRevision, 'findings'>, fin
  * `fix.recorded` with every path resolved and the violations, the named
  * files another cluster holds once those claims are folded, and for a
  * repair that compares with the base the comparisons the ledger keeps
- * (`keptComparisons`), then one `tree.revised` per revision its snapshots
- * give. Throws
+ * (`keptComparisons`), and in a run with runs on the record the runs each
+ * validation entry cites with where the worker's record holds each
+ * (`citedValidationRuns`), then one `tree.revised` per revision its
+ * snapshots give. Throws
  * `StructuralCheckError` for an answer that leaves out an index, reports
  * a path outside the repository, blocks a finding on a file its own
  * cluster owns or claimed, blocks one at all in the repair or the
@@ -239,26 +243,52 @@ export function fixAnswerEvents(unit: Unit, receipt: WorkerReceipt, context: Ans
   const base = baseOf(context);
   requireOwnedReported([...new Set([...owned, ...claimed])].filter((path) => !context.match(path, expectedAt(expected, base, path), read(path) ?? null)), resolved.named);
 
-  // Each resolved finding is already the ledger's shape but for its id, which takes the place of the index the answer gave it.
-  const byIndex = new Map(resolved.findings.map(({ index, ...finding }) => [index, finding]));
-  const findings = ids.map((id, index): FixedFinding => ({ id, ...byIndex.get(index)! }));
-  const answered: FixRecorded = { phase, key: unit.key, workerId: receipt.workerId, findings, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
-  // The launcher held the answer of a repair that compares to `repairOutputSchema`, so its `comparisons` is there.
-  const recorded: FixRecorded | FixRecordedV4 = compares ? { ...answered, comparisons: keptComparisons(requireFix(state), (output as RepairOutput).comparisons, context.log) } : answered;
-
-  // The fixer's snapshots are under the scratch directory its launch recorded; a worker given none took none.
+  // The fixer's snapshots and probes are under the scratch directory its launch recorded; a worker given none took none.
   const scratch = state.workers[receipt.workerId]?.launch.scratch ?? null;
+  // The launcher held the answer of an editing unit of a run with runs on the record to `fixerOutputSchemaV2` or `repairOutputSchemaV2` (`unitOutputSchema`), so its entries carry `runs`.
+  const cited = state.review!.citedRuns ? citedValidationRuns(output as FixerOutputV2, receipt.runs ?? [], scratch, evidence, context.log) : null;
+  // Each resolved finding is already the ledger's shape but for its id, which takes the place of the index the answer gave it, and the runs of its entries, which take the place of the runs the answer cites.
+  const byIndex = new Map(resolved.findings.map(({ index, ...finding }) => [index, finding]));
+  const findings = ids.map((id, index): FixedFindingV2 => {
+    const { validation, ...finding } = byIndex.get(index)!;
+    return { id, ...finding, validation: validation.map(({ method, source, evidence: words }, entry) => ({ method, source, evidence: words, runs: cited?.get(index)?.[entry] ?? [] })) };
+  });
+  const cites = findings.some((finding) => finding.validation.some((entry) => entry.runs.length > 0));
+  const answered = { phase, key: unit.key, workerId: receipt.workerId, drift: output.drift, tests: output.tests, suite: output.suite, violations: [...resolved.violations] };
+  // The launcher held the answer of a repair that compares to `repairOutputSchema` or `repairOutputSchemaV2`, so its `comparisons` is there.
+  const comparisons = compares ? keptComparisons(requireFix(state), (output as RepairOutput).comparisons, context.log) : [];
+  // An answer whose entries cite no run is written at the version of today, whose entries hold no `runs` (TD7 of runs on the record).
+  const uncited: FixRecorded = { ...answered, findings: findings.map((finding) => ({ ...finding, validation: finding.validation.map(({ runs: _runs, ...entry }) => entry) })) };
+  const recorded: FixRecorded | FixRecordedV4 | FixRecordedV5 = cites ? { ...answered, findings, comparisons } : compares ? { ...uncited, comparisons } : uncited;
+
   const into = scratch === null ? null : join(scratch, snapshotsDirectoryName);
   const revisions = revisionsFromSnapshots(evidence, { snapshot: (index) => (into === null ? null : readSnapshot(into, index)), worktree: read }, expected, base, [...owned, ...resolved.named], ids, context.match);
   return [
     ...claims,
-    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares, cites: false }), payload: recorded },
+    { kind: 'fix.recorded', version: writtenVersion('fix.recorded', [phase], { comparisons: compares, cites }), payload: recorded },
     ...revisions.map((revision): NewEvent => ({
       kind: 'tree.revised',
       version: writtenVersion('tree.revised', [phase]),
       payload: { phase, source: { kind: 'fix', key: unit.key, workerId: receipt.workerId }, change: { findings: [...revision.findings], message: revisionMessage(revision, findings) }, files: [...revision.files] } satisfies TreeRevised,
     })),
   ];
+}
+
+/**
+ * The runs each validation entry of an editing worker's answer cites, as
+ * the ledger records them (R7, PD4 of runs on the record), by the index of
+ * the answer's finding and then by the entry's place: each looked up in
+ * the worker's record of shell runs and its probe frozen from its scratch
+ * directory (`validationRun`). Nothing here throws, so the edits of the
+ * answer stand; a run the record does not hold, or a probe that cannot be
+ * frozen, is recorded without its place or its probe, with the reason in
+ * the log.
+ */
+function citedValidationRuns(output: FixerOutputV2, record: readonly ShellRun[], scratch: string | null, evidence: RevisionContext['evidence'], log: (line: string) => void): Map<number, ValidationRun[][]> {
+  return new Map(output.findings.map((finding) => [
+    finding.index,
+    finding.validation.map((entry) => entry.runs.map((run) => validationRun(record, run, scratch, evidence, (reason) => log(`the validation of finding [${String(finding.index)}] ${reason}`)))),
+  ]));
 }
 
 /** Whose attempt it was, as a revision of what it left names it: a fixes-phase batch, the documentation step, the repair, or an answer pass. */

@@ -245,7 +245,8 @@ describe('the fix pass', { timeout: 900_000, concurrency: sandboxConcurrency }, 
     assert.ok(fix.checks.runs.checks.length > 0 && fix.checks.runs.checks.every((run) => run.revisionsBefore === 3), JSON.stringify(fix.checks.runs.checks.map((run) => run.revisionsBefore)));
     const events = box.checkpoint.ledger.events(state.id);
     assert.deepEqual(events.filter((event) => event.kind === 'documentation.planned').length, 1);
-    assert.deepEqual(events.filter((event) => (event.kind === 'fix.recorded' || event.kind === 'tree.revised') && event.payload.includes('"documentation"')).map((event) => event.version), [3, 3]);
+    // The fake step's answer cites the runs of its validation, which only fix.recorded@5 holds (TD7 of runs on the record).
+    assert.deepEqual(events.filter((event) => (event.kind === 'fix.recorded' || event.kind === 'tree.revised') && event.payload.includes('"documentation"')).map((event) => event.version), [5, 3]);
     // The task named the patch of each revision of the fixes, put in the store before the launch, each holding its own revision's edits alone (R2).
     const launched = Object.values(state.workers).find((worker) => worker.launch.label === 'documentation documentation:documentation')!;
     const prompt = box.checkpoint.evidence.read(launched.launch.prompt).toString('utf8');

@@ -8,6 +8,7 @@
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { ValidationRun } from '../checkpoint/events.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { isInside } from '../paths.ts';
 import type { ShellRun } from '../runtime/adapter.ts';
@@ -134,4 +135,24 @@ export function freezeProbe(scratch: string | null, path: string, evidence: Pick
   const bytes = readFileSync(real);
   if (bytes.length > probeLimitBytes) return refused(`holds ${String(bytes.length)} bytes, more than the ${String(probeLimitBytes)} a probe may`);
   return { kind: 'frozen', probe: { blob: evidence.put(bytes), name: baseName(path) } };
+}
+
+/**
+ * A run an editing worker's validation entry cites, as the ledger records
+ * it (R7, PD4 of runs on the record): where `findRun` found it in the
+ * worker's record, or null, and its probe frozen from the worker's scratch
+ * directory, or null. It never throws, so the edits of the answer stand
+ * whatever its validation cites; each reason a run is recorded with less
+ * than it cites goes to `log`. A cited line that is blank after trimming
+ * is in every output, so a run that cites one is not found.
+ */
+export function validationRun(record: readonly ShellRun[], cited: CitedRun, scratch: string | null, evidence: Pick<EvidenceStore, 'put'>, log: (reason: string) => void): ValidationRun {
+  const command = cited.command.slice(0, 200);
+  const blank = cited.printed.some((line) => normalized(line).trim() === '');
+  const found = blank ? null : findRun(record, cited);
+  if (blank) log(`cites a blank line of what a run printed, which no lookup can find: ${command}`);
+  else if (found === null) log(`cites a run that the record of its shell runs does not hold: ${command}`);
+  const freeze = cited.probe === null ? null : freezeProbe(scratch, cited.probe, evidence);
+  if (freeze?.kind === 'refused') log(`cites a probe the engine cannot freeze: ${freeze.reason}`);
+  return { command: cited.command, printed: [...cited.printed], probe: freeze?.kind === 'frozen' ? freeze.probe : null, found };
 }
