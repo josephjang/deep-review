@@ -314,7 +314,7 @@ The event shapes of the stream were read on Claude Code 2.1.310, not the 2.1.314
 - A cited line that is blank after it is normalized and trimmed (`isBlankCitedLine`), such as one of terminal escapes alone, fails a verifier's answer in `checkVerdicts`, and in an editing worker's answer makes its run not found, since a blank line is in every output.
 - A run with no exit code on record reads `no exit code on record` in the report and in the fixer's task. Two cited runs of one entry found at the same place are named once.
 - The second table of `--stats` counts the cited runs of the editing workers by phase, not by role: the repair and an answer pass run in the role `fixer`, so a table by role would merge them with the fixers. It has a row for each editing phase that ran.
-- The summary of a replay gives the verdicts by basis only when some verdict has one, so the summary of a run configured before this change reads as before.
+- The summary of a replay gives the verdicts by basis only when some verdict has one, so the summary of a run configured before this change reads as before. It heads each basis by the value the workers answer with, `ran`, `traced` or `read`, as `report --stats` does: the author chose the values in both, after the gate asked.
 - A cited command and its lines, like the evidence and the other words of a worker, are worker text and can name the scratch directory of the worker, a local path, so the report writes each scratch directory of the run's workers, and every directory under the scratch base that holds them, such as the claims directory and the worktree of the base, in every worker text it quotes as `<scratch>`. "About this run" stays the one part of the report that names a local path, and the workers' tasks keep the paths as they are.
 
 ### A real run
@@ -323,7 +323,33 @@ A fix run on Claude Code 2.1.310, with the engine of this branch, `sonnet` as th
 
 ### The gate (R12)
 
-No check of the gate has run yet: neither the fix run of deep-review on this pull request on Claude Code, nor the fix run on pallets/click #3878 on Codex on Windows.
+The Claude Code half ran: a fix run of deep-review on pull request #93 against main, with the engine of its head, before any fix of the gate, on Claude Code 2.1.310 with the default models (`opus` and `sonnet`) and the repository's budget of 120 USD. It took about 65 minutes, spent 41.53 USD over 49 workers, and had 29 findings: 21 fixed, 3 questions and 5 left as is. The author keeps its ledger outside the repository, and the numbers below are read from it. A reader written apart from the engine read each cited run that was found again in its worker's frozen stdout, at its recorded place, and each held its cited lines in order and named its probe.
+
+Cited runs of verifiers found at the first answer: 24 of 24, against a target of at least 95 percent. No answer of a verifier failed, for a cited run or for anything else, so none was discarded for a run not found.
+
+Verdicts by grade and basis, of 52 verdicts in 21 answers:
+
+| Verdict | ran | traced | read |
+|---|---|---|---|
+| CONFIRMED | 12 | 2 | 4 |
+| PLAUSIBLE | 7 | 2 | 7 |
+| REFUTED | 4 | 3 | 11 |
+
+So 67 percent of CONFIRMED and 22 percent of REFUTED rest on a run, against the estimate of 14 and 8 percent from the words of the evidence. The change under review is the lookup itself, which invites probes, so one run does not give a rate.
+
+Validation entries of the editing workers: 51 of 58 cited runs found (88 percent). Of the two methods the metric names, `old-code` and `mutation`, 22 of 29 entries had every cited run found, and 42 of 49 cited runs were found. The record holds each of the 7 runs not found: 4 ran their probes in a shell loop that built each file's name, so no command spelled it, 2 cited their lines in another order than the run printed them, and 1 joined the output of two runs into one citation, which the lookup rightly does not find. The task of an editing worker now asks for the probe's name in the command and the lines in the order printed; the rule of the lookup stays.
+
+Bytes the run added to the evidence store: 26.6 MB, of which the streams of the Claude workers are 15.6 MB. Without the streams, at the 9.6 KB per worker that the stdout of a Claude worker averaged in three earlier runs, the run would have added about 11.4 MB, so it added about 2.3 times as much. The target, less than twice, is missed on this run. The streams are about 2.1 times the estimate of 7.2 MB: a verifier's stream averaged 123 KB and a fixer's 545 KB, the largest 2.0 MB. The frozen probes took 14.5 KB.
+
+Median spend: a verifier 0.367 USD over 21, against 0.335 over 44 in three earlier runs of the same runtime version and model, up 9.4 percent, inside the target of 10 percent; a fixer 0.667 USD over 11, against 0.956 over 36, down 30 percent. The earlier runs reviewed other changes, so these numbers do not separate the cost of the new paragraphs from that of the change under review.
+
+The run's Major findings of the lookup were real, and its fixes are in the follow-up pull request: a cited line was found inside a longer word (`0 failed` in `10 failed`), a probe matched any command that held its name as a substring, an unreadable probe threw and stopped the review, a cited probe was frozen as it was when the worker ended, `<scratch>` covered only the cited commands and lines, and a replay on another runtime asked for a probe file the replayed worker could not write. The author answered its three questions: the report writes every directory under the run's scratch base as `<scratch>`, the replay summary and `--stats` head the basis columns by the values, and the report hides only the scratch spellings the run recorded, as it is built from the checkpoint alone. The report line of a cited run now gives the command last, as the verifier's own words, since the lookup never compares it and the verifiers cited a shortened form of each of their 24 compound commands; the run had left that as finding WRAPPERS-2.
+
+Claude Code denied one Bash call each to 8 of the 11 fixers, three of them a copy of a frozen probe from the evidence store into the scratch directory, which R6 asks a fixer to make. One fixer blocked its finding for it, and the second round fixed it. The cause is not traced here.
+
+At the head of the fixes, `npm run check` passed (3118 tests: 3105 passed, 0 failed, 13 skipped), `npm run verify` passed, and `npm run test:contract` passed 89 of 89.
+
+The Codex half, the fix run on pallets/click #3878 on Codex on Windows, has not run.
 
 ## Risks & Migration
 
