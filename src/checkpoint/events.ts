@@ -2333,11 +2333,12 @@ export type ReviewConfigurationV9 = z.infer<typeof reviewConfiguredV9>;
 
 /**
  * The caps on what a worker cites of a run (R3 of runs on the record): the
- * longest command, the longest printed line and how many, and the longest
- * probe path, which a probe's base name is held to too. The answer schemas
- * of the workers that cite runs take their caps from these.
+ * longest command, the longest printed line and how many, the longest
+ * probe path, which a probe's base name is held to too, and how many runs
+ * a verdict and a validation entry may cite. The answer schemas of the
+ * workers that cite runs take their caps from these.
  */
-export const citedRunLimitsV1 = { command: 2000, line: 300, lines: 5, probe: 400 } as const;
+export const citedRunLimitsV1 = { command: 2000, line: 300, lines: 5, probe: 400, runsPerVerdict: 3, runsPerEntry: 4 } as const;
 
 /** A cited probe as the engine froze it from the worker's scratch directory (R5, TD8 of runs on the record): its blob, and its base name. */
 const frozenProbeSchemaV1 = z.strictObject({ blob: artifactReferenceSchema, name: z.string().min(1).max(citedRunLimitsV1.probe) });
@@ -2370,7 +2371,7 @@ export const verdictsRecordedV2 = z.strictObject({
     verdict: verdictSchema,
     evidence: z.string().min(1).max(1000),
     basis: verdictBasisSchemaV10,
-    runs: z.array(z.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(3),
+    runs: z.array(z.strictObject({ ...citedRunFieldsV1, ...foundRunFieldsV1 })).max(citedRunLimitsV1.runsPerVerdict),
   })).min(1),
 });
 export type VerdictsRecordedV2 = z.infer<typeof verdictsRecordedV2>;
@@ -2383,7 +2384,7 @@ const validationRunSchemaV1 = z.strictObject({ ...citedRunFieldsV1, found: z.str
 /** A finding as an editing worker answered it, each validation entry with the runs it cites, at most four (R7 of runs on the record). */
 export const fixedFindingSchemaV2 = z.strictObject({
   ...fixedFindingSchema.shape,
-  validation: z.array(z.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: z.array(validationRunSchemaV1).max(4) })).max(20),
+  validation: z.array(z.strictObject({ ...fixedFindingSchema.shape.validation.element.shape, runs: z.array(validationRunSchemaV1).max(citedRunLimitsV1.runsPerEntry) })).max(20),
 });
 export type FixedFindingV2 = z.infer<typeof fixedFindingSchemaV2>;
 /** One validation entry of a finding as the fold holds it: an entry recorded before `fix.recorded@5` reads as one that cites no run. */
