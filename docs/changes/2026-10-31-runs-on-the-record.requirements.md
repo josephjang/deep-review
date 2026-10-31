@@ -115,7 +115,7 @@ In the block of each finding, the evidence of the verifier is followed by its ba
 ```text
 Evidence: Mechanism: parse.ts:41 reads `input.length` before the guard at :44 ... Not PLAUSIBLE: the probe threw.
 How the verifier established it: it ran code.
-Shell run 3 of its record: node probe-1.mjs printed "TypeError: Cannot read properties of undefined (reading 'length')", exit 1. The probe is artifacts/9c1e..., named probe-1.mjs.
+Shell run 3 of its record printed "TypeError: Cannot read properties of undefined (reading 'length')", exit 1. The verifier gives its command as node probe-1.mjs. The probe is artifacts/9c1e..., named probe-1.mjs.
 - Validation, as its fixer reports it: old-code, test/parse.test.ts 'parses the empty string': the new test failed before the fix and passes after it. Its record shows shell run 5 and shell run 9.
 ```
 
