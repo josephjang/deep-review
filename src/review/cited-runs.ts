@@ -103,6 +103,20 @@ function holdsInOrder(output: string, lines: readonly string[]): boolean {
   return true;
 }
 
+/** The normalized output of each run a lookup has visited, so a record cited many times has each output normalized once. */
+const normalizedOutputs = new WeakMap<ShellRun, string>();
+
+/** The output of `run` as the lookup compares it, normalized the first time it is asked for, or null for a run with no output. */
+function normalizedOutput(run: ShellRun): string | null {
+  const cached = normalizedOutputs.get(run);
+  if (cached !== undefined) return cached;
+  const { output } = run;
+  if (output === null) return null;
+  const compared = normalized(output);
+  normalizedOutputs.set(run, compared);
+  return compared;
+}
+
 /**
  * The run of `record` that `cited` names, or null when none does: the
  * last whose normalized output holds each cited line, normalized and
@@ -122,9 +136,9 @@ export function findRun(record: readonly ShellRun[], cited: CitedRun): FoundRun 
   if (name === '') return null;
   for (let index = record.length - 1; index >= 0; index -= 1) {
     const run = record[index]!;
-    if (run.output === null) continue;
     if (name !== null && indexOfWhole(run.command, name, 0, isNameCharacter) < 0) continue;
-    if (holdsInOrder(normalized(run.output), lines)) return { at: index + 1, exitCode: run.exitCode };
+    const output = normalizedOutput(run);
+    if (output !== null && holdsInOrder(output, lines)) return { at: index + 1, exitCode: run.exitCode };
   }
   return null;
 }

@@ -75,6 +75,16 @@ describe('findRun', () => {
     assert.equal(findRun([], cited(['anything'])), null);
   });
 
+  it('reads and normalizes each run\'s output once however many citations look it up', () => {
+    let reads = 0;
+    const counted: ShellRun = { command: 'npm test', exitCode: 0, get output() { reads += 1; return '\u001b[32m1 passed\u001b[0m\r\n'; } };
+    const twice = [counted, run('node probe.mjs', 'threw\n', 1)];
+    assert.equal(findRun(twice, cited(['1 failed'])), null, 'a missing run visits every run');
+    assert.deepEqual(findRun(twice, cited(['1 passed'])), { at: 1, exitCode: 0 });
+    assert.deepEqual(findRun(twice, cited(['passed'])), { at: 1, exitCode: 0 });
+    assert.equal(reads, 1);
+  });
+
   it('finds no run for a cited line that is blank as the lookup compares it, such as a terminal reset alone', () => {
     for (const line of ['\u001b[0m', ' \t ', '\u001b]8;;\u0007']) {
       assert.equal(isBlankCitedLine(line), true, JSON.stringify(line));
