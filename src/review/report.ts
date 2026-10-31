@@ -84,11 +84,15 @@ const shortLocation = (candidate: CandidateState): string => inlineText(reposito
 /**
  * How a verifier established a verdict and the runs it cites, as the lines
  * after its evidence (R8 of runs on the record): the basis in fixed words,
- * then one line per run with its place in the verifier's record, its
- * command and the lines it printed, quoted and escaped as the evidence is,
- * so `said` writes each scratch directory of the run's workers
- * `<scratch>`, its exit code, or that the record gives none, and its probe
- * by its name in the evidence store. None for a verdict with no basis: an
+ * then one line per run with its place in the verifier's record, the
+ * lines it printed, its exit code, or that the record gives none, the
+ * command as the verifier gives it, and its probe by its name in the
+ * evidence store. The lines and the command are quoted and escaped as the
+ * evidence is, so `said` writes each scratch directory of the run's
+ * workers `<scratch>`. The run is found by the lines it printed and the
+ * probe's name, not by the command, which a worker often shortens, so the
+ * line gives the command as the verifier's own words, not as what the
+ * record holds at that place. None for a verdict with no basis: an
  * unverified candidate's, or one of a run configured before runs on the
  * record.
  */
@@ -99,7 +103,7 @@ export function citedRunLines(basis: VerdictBasis | null, runs: readonly Verdict
     ...runs.map((run) => {
       const exit = run.exitCode === null ? 'no exit code on record' : `exit ${String(run.exitCode)}`;
       const probe = run.probe === null ? '' : ` The probe is ${storeNameOf(run.probe.blob)}, named ${said(run.probe.name)}.`;
-      return `Shell run ${String(run.at)} of its record: ${said(run.command)} printed ${run.printed.map((line) => `"${said(line)}"`).join(' / ')}, ${exit}.${probe}`;
+      return `Shell run ${String(run.at)} of its record printed ${run.printed.map((line) => `"${said(line)}"`).join(' / ')}, ${exit}. The verifier gives its command as ${said(run.command)}.${probe}`;
     }),
   ];
 }

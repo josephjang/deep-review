@@ -537,7 +537,7 @@ describe('the runs on the record in the report', () => {
   const missing: ValidationRun = { command: 'npm test -- a', printed: ['1 passing'], probe: null, found: null };
 
   it('gives after the evidence how the verifier established it and each run, with its place, its command, the lines it printed, its exit code and its probe', () => {
-    assert.match(render(cited(ran)), /^- Evidence: [^\n]+\n- How the verifier established it: it ran code\.\n- Shell run 3 of its record: node probe-1\.mjs printed "TypeError: Cannot read properties of null", exit 1\. The probe is artifacts\/9{64}, named probe-1\.mjs\.\n- Shell run 5 of its record: node -e "parse\(null\)" printed "0" \/ "a \\<b>", no exit code on record\.$/m);
+    assert.match(render(cited(ran)), /^- Evidence: [^\n]+\n- How the verifier established it: it ran code\.\n- Shell run 3 of its record printed "TypeError: Cannot read properties of null", exit 1\. The verifier gives its command as node probe-1\.mjs\. The probe is artifacts\/9{64}, named probe-1\.mjs\.\n- Shell run 5 of its record printed "0" \/ "a \\<b>", no exit code on record\. The verifier gives its command as node -e "parse\(null\)"\.$/m);
     assert.match(render(cited()), /^- Evidence: [^\n]+\n- How the verifier established it: it traced the lines\.\n- Decision/m);
     assert.match(render(cited({ basis: 'read' })), /^- How the verifier established it: the lines alone settle it\.$/m);
     assert.doesNotMatch(render(checkedRun().fold()), /How the verifier established it|Shell run/, 'a run configured before runs on the record says nothing of runs');
@@ -557,7 +557,7 @@ describe('the runs on the record in the report', () => {
     const review = state.review!;
     const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2) as unknown as VerdictRun] } };
     const report = render({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } });
-    assert.match(report, /^- SCAN-1 \(SCAN\) [^\n]+\n {2}Evidence: the caller checks first\n {2}How the verifier established it: it ran code\.\n {2}Shell run 2 of its record: node probe-1\.mjs printed "TypeError: Cannot read properties of null", exit 1\. The probe is artifacts\/9{64}, named probe-1\.mjs\.$/m);
+    assert.match(report, /^- SCAN-1 \(SCAN\) [^\n]+\n {2}Evidence: the caller checks first\n {2}How the verifier established it: it ran code\.\n {2}Shell run 2 of its record printed "TypeError: Cannot read properties of null", exit 1\. The verifier gives its command as node probe-1\.mjs\. The probe is artifacts\/9{64}, named probe-1\.mjs\.$/m);
   });
 
   it('ends a validation line with the runs its fixer\'s record shows and names each it does not, and with nothing for an entry that cites none', () => {
@@ -592,8 +592,8 @@ describe('the runs on the record in the report', () => {
     const review = state.review!;
     const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2, { command: `node ${fixer}\\p.mjs`, printed: ['ok'], probe: null }) as unknown as VerdictRun] } };
     const report = render(validated({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } }, [{ command: `node ${verifier}`, printed: ['passes'], probe: null, found: null }]));
-    assert.match(report, new RegExp(`^- Shell run 3 of its record: node \\\\<scratch>/p\\.mjs printed "wrote \\\\<scratch>/out\\.txt" / "kept \\\\<scratch>/${worker(90)}-old/p\\.mjs" / "at file://\\\\<scratch>/p\\.mjs:3", exit 1\\.`, 'm'));
-    assert.match(report, /^ {2}Shell run 2 of its record: node \\<scratch>\\p\.mjs printed "ok", exit 1\.$/m);
+    assert.match(report, new RegExp(`^- Shell run 3 of its record printed "wrote \\\\<scratch>/out\\.txt" / "kept \\\\<scratch>/${worker(90)}-old/p\\.mjs" / "at file://\\\\<scratch>/p\\.mjs:3", exit 1\\. The verifier gives its command as node \\\\<scratch>/p\\.mjs\\.`, 'm'));
+    assert.match(report, /^ {2}Shell run 2 of its record printed "ok", exit 1\. The verifier gives its command as node \\<scratch>\\p\.mjs\.$/m);
     assert.match(report, /^- Validation, as its fixer reports it: old-code, test\/a\.test\.ts: failed before the fix, passes after it\. Its record does not show: node \\<scratch>\.$/m);
     assert.doesNotMatch(report, /deep-review-scratch/, 'no other line names a directory under the scratch base');
   });
