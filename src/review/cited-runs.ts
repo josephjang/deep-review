@@ -43,8 +43,14 @@ export const probeLimitBytes = 64 * 1024;
 /** The most characters of a cited command that a refusal or a log line quotes. */
 const quotedCommandLength = 200;
 
-/** The escape sequences of a terminal: a control sequence (CSI) and an operating system command (OSC), ended by BEL or ST. */
-const terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+/**
+ * The escape sequences of a terminal: a control sequence (CSI), an
+ * operating system command (OSC) ended by BEL or ST, and any other escape
+ * of ECMA-48, an ESC with intermediate bytes and a final byte, such as the
+ * `ESC(B` that `tput sgr0` prints. The other escapes come last, so a CSI
+ * or an OSC is removed whole.
+ */
+const terminalEscapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[ -/]*[0-~]/g;
 
 /**
  * Text as the lookup compares it: CR LF and a lone CR read as LF, the
