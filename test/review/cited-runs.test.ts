@@ -16,6 +16,12 @@ describe('normalized', () => {
     assert.equal(normalized('a  \r\nb\t\rc'), 'a\nb\nc');
     assert.equal(normalized('\u001b[31mFAIL\u001b[0m parse \u001b]8;;file:///a\u0007link\u001b]8;;\u001b\\'), 'FAIL parse link');
   });
+
+  it('drops the other escapes of a terminal, such as the charset reset of tput sgr0, a saved cursor and a reverse index', () => {
+    assert.equal(normalized('x \u001b[32mPASS\u001b(B\u001b[m foo\u001b7\u001bM\u001b8\n'), 'x PASS foo\n');
+    assert.deepEqual(findRun([run('./t.sh', '\u001b(BPASS foo\n')], cited(['PASS foo'])), { at: 1, exitCode: 0 });
+    assert.deepEqual(findRun([run('./t.sh', 'x \u001b[32mPASS\u001b(B\u001b[m foo\n')], cited(['PASS foo'])), { at: 1, exitCode: 0 });
+  });
 });
 
 describe('findRun', () => {
