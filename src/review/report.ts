@@ -21,7 +21,7 @@ import { rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateStat
 import type { ArtifactReference } from '../evidence/store.ts';
 import { angleRan, briefMarkdown, briefOf, firstSentence, passNames, type Brief, type BriefFinding, type FindingStatus } from './brief.ts';
 import { answeringLine, decisionBlockLines } from './decision-report.ts';
-import { baseWorktreeLines, fixBlockLines, fixHeaderLine, fixLimitations, fixSections, scratchSpellings, stopLimitations, withoutScratch } from './fix-report.ts';
+import { baseWorktreeLines, fixBlockLines, fixHeaderLine, fixLimitations, fixSections, scratchSpellings, stopLimitations } from './fix-report.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { matchRepositoryPath, type RepoLookup } from './locations.ts';
 import { capitalized, codeSpan, counted, findingAnchor, inlineText, listed, localPathWords, quoted } from './markdown.ts';
@@ -85,22 +85,21 @@ const shortLocation = (candidate: CandidateState): string => inlineText(reposito
  * How a verifier established a verdict and the runs it cites, as the lines
  * after its evidence (R8 of runs on the record): the basis in fixed words,
  * then one line per run with its place in the verifier's record, its
- * command and the lines it printed, each scratch directory of the run's
- * workers (`scratch`) written `<scratch>`, quoted and escaped as the
- * evidence is, its exit code, or that the record gives none, and its probe
+ * command and the lines it printed, quoted and escaped as the evidence is,
+ * so `said` writes each scratch directory of the run's workers
+ * `<scratch>`, its exit code, or that the record gives none, and its probe
  * by its name in the evidence store. None for a verdict with no basis: an
  * unverified candidate's, or one of a run configured before runs on the
  * record.
  */
-export function citedRunLines(basis: VerdictBasis | null, runs: readonly VerdictRun[], said: (text: string) => string, scratch: readonly string[]): string[] {
+export function citedRunLines(basis: VerdictBasis | null, runs: readonly VerdictRun[], said: (text: string) => string): string[] {
   if (basis === null) return [];
-  const ran = (text: string): string => said(withoutScratch(text, scratch));
   return [
     `How the verifier established it: ${verdictBasisWords[basis]}.`,
     ...runs.map((run) => {
       const exit = run.exitCode === null ? 'no exit code on record' : `exit ${String(run.exitCode)}`;
       const probe = run.probe === null ? '' : ` The probe is ${storeNameOf(run.probe.blob)}, named ${said(run.probe.name)}.`;
-      return `Shell run ${String(run.at)} of its record: ${ran(run.command)} printed ${run.printed.map((line) => `"${ran(line)}"`).join(' / ')}, ${exit}.${probe}`;
+      return `Shell run ${String(run.at)} of its record: ${said(run.command)} printed ${run.printed.map((line) => `"${said(line)}"`).join(' / ')}, ${exit}.${probe}`;
     }),
   ];
 }
@@ -125,21 +124,22 @@ const statusWords: Readonly<Record<FindingStatus, string>> = {
  * with how it was established and the runs it cites (`citedRunLines`),
  * the decision (decision-report.ts), and the fix (fix-report.ts). The text
  * of a worker is quoted with the number added after an id of another
- * finding, and escaped.
+ * finding and each scratch directory of the run's workers written
+ * `<scratch>`, and escaped.
  */
 function findingBlock(state: RunState, finding: BriefFinding, entry: ReportFinding, decision: RecordedDecision | null, numbers: ReadonlyMap<string, number>, scratch: readonly string[]): string[] {
   const review = state.review!;
   const { primary, members, resolution } = entry;
   const own = finding.number;
-  const said = (text: string): string => inlineText(quoted(text, { numbers, own }));
+  const said = (text: string): string => inlineText(quoted(text, { numbers, own, scratch }));
   const merged = members.length === 0 ? '' : `; merged into it: ${members.map((member) => `${member.id} at ${shortLocation(member)}${marks(member, false)}`).join(', ')}`;
   const fields = [
     `Where: ${shortLocation(primary)}${marks(primary, resolution.unverified)} (${finding.id}${merged})`,
     ...(firstSentence(entry.finding.summary) === inlineText(entry.finding.summary).trim() ? [] : [`Summary: ${said(entry.finding.summary)}`]),
     `Reason: ${said(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? 'none; the verifier of this group failed twice' : said(resolution.evidence)}`,
-    ...citedRunLines(resolution.basis, resolution.runs, said, scratch),
-    ...(decision === null ? [] : decisionBlockLines(review, decision, { run: state.id, numbers, own })),
+    ...citedRunLines(resolution.basis, resolution.runs, said),
+    ...(decision === null ? [] : decisionBlockLines(review, decision, { run: state.id, numbers, own, scratch })),
     ...(review.fix === null ? [] : fixBlockLines(review, review.fix, finding.id, { numbers, own, scratch })),
   ];
   return [
@@ -474,8 +474,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const numbers = findingNumbers(review);
   const decidedFor = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const refutedList = refuted(review);
-  const said = (text: string): string => inlineText(quoted(text, { numbers }));
   const scratch = scratchSpellings(state.workers);
+  const said = (text: string): string => inlineText(quoted(text, { numbers, scratch }));
   const findingsSection = [
     '## Findings',
     '',
@@ -486,7 +486,7 @@ export function renderReport(state: RunState, input: ReportInput): string {
     '## Refuted at verification',
     '',
     // A refuted candidate's basis and runs follow its evidence as a finding's do (R8 of runs on the record).
-    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said(candidate.summary)}`, `Evidence: ${said(evidence)}`, ...citedRunLines(candidate.verdict!.basis, candidate.verdict!.runs, said, scratch)].join('\n  '))),
+    ...(refutedList.length === 0 ? ['None.'] : refutedList.map(({ candidate, evidence }) => [`- ${candidate.id} (${candidate.angle})  ${shortLocation(candidate)}${marks(candidate, false)}  ${said(candidate.summary)}`, `Evidence: ${said(evidence)}`, ...citedRunLines(candidate.verdict!.basis, candidate.verdict!.runs, said)].join('\n  '))),
   ];
   // A surveyed run says which conventions the change was held to; a run configured before the survey has none.
   const conventions = conventionsReportSection(review, (path) => localPathWords(path, places));

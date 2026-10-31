@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import type { FixRecorded } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { fixBlockLines, fixLimitations, scratchSpellings, stopLimitations, withoutScratch } from '../../src/review/fix-report.ts';
+import { fixBlockLines, fixLimitations, scratchSpellings, stopLimitations } from '../../src/review/fix-report.ts';
+import { withoutScratch } from '../../src/review/markdown.ts';
 import { cutWorkerLines, limitBlockLines, lostWorkerLines, renderReport } from '../../src/review/report.ts';
 import { renderStats } from '../../src/review/stats-report.ts';
 import { describeRun } from '../../src/review/status.ts';
@@ -703,7 +704,7 @@ describe('the runs on the base in the Checks section (R8 of the facts before a m
   });
 });
 
-describe('the scratch directories in a cited run (R8 of runs on the record)', () => {
+describe('the scratch directories in a worker\'s quoted text (R8 of runs on the record)', () => {
   const windows = 'C:\\Users\\Runner\\AppData\\Local\\Temp\\deep-review-scratch\\k\\w1';
   const scratch = scratchSpellings({ w1: { launch: { scratch: windows } } } as unknown as RunState['workers']);
 

@@ -180,17 +180,55 @@ function escapedPlain(text: string): string {
   return escaped;
 }
 
-/** What a quote of a worker can name: the number of each finding by its id and its merged ids, the finding the quote is about, and for a fixer's text the findings of its batch, in the order its task numbered them. */
+/** Whether a path is spelled for Windows: it begins with a drive letter or holds a backslash. */
+const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
+
+/**
+ * A worker's text with each scratch directory of `scratch` written
+ * `<scratch>`, since it is a local path of the machine the worker ran on
+ * (R8 of runs on the record), with the path segments just before it: a
+ * path that ends in a scratch directory is another name of it, as the
+ * `/private` that macOS puts before its temporary directory when a path is
+ * resolved, as Node does in a stack trace, or a mount, and its prefix is
+ * as local. Each such segment begins with a separator and holds no space,
+ * separator, quote, `:` or `;`, so the text before the first, such as
+ * `--dir=` or a list's earlier path, stays. A Windows spelling, one with a
+ * drive letter or a backslash, matches in any case, since a Windows file
+ * system ignores case; a POSIX one only as written, since another
+ * directory can differ from it only in case. A path that goes on into a
+ * longer name stays as written.
+ */
+export function withoutScratch(text: string, scratch: readonly string[]): string {
+  if (scratch.length === 0) return text;
+  return text.replace(scratchPattern(scratch), '<scratch>');
+}
+
+/** The pattern of `withoutScratch` for each list of scratch directories, compiled once: a report quotes every worker text with the one list `scratchSpellings` gave it. */
+const scratchPatterns = new WeakMap<readonly string[], RegExp>();
+
+function scratchPattern(scratch: readonly string[]): RegExp {
+  const known = scratchPatterns.get(scratch);
+  if (known !== undefined) return known;
+  const directories = scratch.map((directory) => (windowsPath(directory) ? `(?i:${RegExp.escape(directory)})` : RegExp.escape(directory)));
+  const pattern = new RegExp(`(?:(?:[/\\\\][^\\s/\\\\'"\`:;]+)+(?=[/\\\\]))?(?:${directories.join('|')})(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])`, 'gu');
+  scratchPatterns.set(scratch, pattern);
+  return pattern;
+}
+
+/** What a quote of a worker can name: the number of each finding by its id and its merged ids, the finding the quote is about, and for a fixer's text the findings of its batch, in the order its task numbered them; and the scratch directories of the run's workers, which the quote writes `<scratch>` (`withoutScratch`), none when absent. */
 export interface QuoteContext {
   readonly numbers: ReadonlyMap<string, number>;
   readonly own?: number | null;
   readonly batch?: readonly string[] | null;
+  readonly scratch?: readonly string[];
 }
 
 /**
  * A worker's text as the report quotes it (R6, PD13, TD5 of the report for
- * the person): its words, with the number of a finding added after each id
- * of the run that names another finding than its own, and after a batch
+ * the person): its words, each scratch directory of the context written
+ * `<scratch>` (`withoutScratch`), code spans included, with the number of
+ * a finding added after each id of the run that names another finding
+ * than its own, and after a batch
  * index such as `[0]` that stands alone and names a finding of the
  * fixer's batch; outside its code spans, and then escaped as a whole
  * (`escapedText`), which a number adds no backtick or backslash to. An id
@@ -200,7 +238,7 @@ export interface QuoteContext {
  */
 export function quoted(text: string, context: QuoteContext): string {
   const alias = (number: number | undefined): string => (number === undefined || number === context.own ? '' : ` (finding ${String(number)})`);
-  return escapedText(codeParts(text).map((part) => {
+  return escapedText(codeParts(withoutScratch(text, context.scratch ?? [])).map((part) => {
     if (part.code) return part.text;
     const named = part.text.replaceAll(/(?<![/\\.#])\b[A-Z]+-[1-9][0-9]*\b(?!\/|\.\w| \(finding \d)/g, (id) => `${id}${alias(context.numbers.get(id))}`);
     return context.batch === undefined || context.batch === null
