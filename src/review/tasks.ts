@@ -527,7 +527,7 @@ const citingValidationRule = `${citingValidationWords} each shell run the entry 
  * a verifier of its findings ran (R6 of runs on the record): reproduce
  * the defect with it before the fix and after it, and cite both runs.
  */
-const probeRule = 'A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into your scratch directory under its name, run it on the code before your fix and again after it, when it can run here, and cite both runs, with that path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.';
+const probeRule = 'A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into a directory of its own inside your scratch directory, one for each candidate and named for the candidate\'s id, keeping the probe\'s name, so that two candidates\' probes of the same name never overwrite each other; run it on the code before your fix and again after it, when it can run here, and cite both runs, with the copy\'s path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.';
 
 /**
  * The lines every task of a worker that edits ends with, in one order: the
