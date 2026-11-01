@@ -285,6 +285,17 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.deepEqual(publications(box), []);
   });
 
+  it('says what a refusal after the settle recorded: that the publication a stop left open was not found', async (t) => {
+    const box = await reviewed(t);
+    const runId = box.run().id;
+    const hung = publishGh(t, publishSteps(box, { post: { hang: true } }), undefined, 10_000);
+    assert.throws(() => publishWith(box, hung.gh), PublicationOpenError);
+    const closed = publishGh(t, publishSteps(box, { pullRequest: { state: 'closed' } }), hung);
+    refused(() => publishWith(box, closed.gh), new RegExp(`is closed, and deep-review posts to an open pull request only; nothing was posted, and only that no review carries the publication ${publicationMarker(runId, 1)}, which a stop left open, was recorded$`));
+    assert.deepEqual(publications(box).map(([kind, payload]) => [kind, payload.reason]), [['publish.prepared', undefined], ['publish.dropped', 'not-found']]);
+    assert.equal(writes(closed.script), 0);
+  });
+
   it('refuses, before any call of GitHub, a run with no current report, a run of another scope, and a run whose request names paths', async (t) => {
     const noGh = (): Gh => assert.fail('a refusal before GitHub resolves no gh');
     const blocked = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
