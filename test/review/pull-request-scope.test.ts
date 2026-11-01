@@ -7,6 +7,7 @@ import { hasScopeFlags, namedScopeOf, pullRequestNameOf, UsageError } from '../.
 import type { ScopeSettings } from '../../src/config/resolve.ts';
 import type { Gh } from '../../src/github/gh.ts';
 import type { PullRequestName } from '../../src/github/pull-request.ts';
+import { replayVerifier } from '../../src/replay/run.ts';
 import { continueCommand } from '../../src/review/continue-command.ts';
 import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
 import { ReviewRefusedError } from '../../src/review/errors.ts';
@@ -16,6 +17,8 @@ import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { captureScope, namesScope, type NamedScope } from '../../src/scope/capture.ts';
 import { fakeGhCalls, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
+import { reviewScript } from '../helpers/fix-pass-fixture.ts';
+import { baseEnvironment, fakeClaude } from '../helpers/launcher.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
 
@@ -180,6 +183,21 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
     const described = describeRun(state, claudeAdapter, (reference) => box.checkpoint.evidence.pathOf(reference), { commits: 1 });
     assert.ok(described.lines.includes(`Scope: pull-request #42 of acme/widgets, 1 commit and 3 files, from the merge base with main (${base.slice(0, 8)}) to the working tree`), described.lines.join('\n'));
     // The worker the fake recorded last ran with none of the variables that hold a token for gh (R15).
+    const seen = (JSON.parse(readFileSync(recordFile, 'utf8')) as { environment: Record<string, string> }).environment;
+    assert.deepEqual(Object.keys(seen).filter((name) => name in tokens), []);
+  });
+
+  it('replays a verifier of the run without the variables that hold a token for gh (R15)', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    box.script(reviewScript);
+    reportText(await box.review('claude', { scope: pullRequestSource(box, gh) }));
+    const tokens = { GH_TOKEN: 'gh-token-1', GITHUB_TOKEN: 'gh-token-2', GH_ENTERPRISE_TOKEN: 'gh-token-3', GITHUB_ENTERPRISE_TOKEN: 'gh-token-4' };
+    const recordFile = join(box.directory, 'replay-record.json');
+    await replayVerifier({
+      source: box.checkpoint, runId: box.run().id, tree: box.repo, output: join(box.directory, 'replay'), runtime: 'claude', executable: process.execPath, executableArgs: [fakeClaude], rolesRoot: box.rolesRoot,
+      roleText: 'recorded', repeat: 1, concurrency: 1, engine: '0.0.0-test', log: () => undefined,
+      environment: { ...baseEnvironment, ...tokens, FAKE_SCRIPT: box.scriptFile, FAKE_RECORD: recordFile, FAKE_RECORD_ROLE: 'verifier' }, scratchRoot: box.scratchRoot,
+    });
     const seen = (JSON.parse(readFileSync(recordFile, 'utf8')) as { environment: Record<string, string> }).environment;
     assert.deepEqual(Object.keys(seen).filter((name) => name in tokens), []);
   });

@@ -20,6 +20,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
 import { collectArtifactReferences } from '../evidence/references.ts';
 import { sha256Hex } from '../evidence/store.ts';
+import { ghTokenVariables } from '../github/gh.ts';
 import { ReviewRefusedError, StructuralCheckError } from '../review/errors.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { acquireStartLock, type ReleaseLock } from '../review/lock.ts';
@@ -30,6 +31,7 @@ import { budgetSpendOf, settledWorkers, spendOf } from '../review/spend.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
 import type { InvocationInput } from '../runtime/contract.ts';
+import { withoutVariables } from '../runtime/environment.ts';
 import { runWorker } from '../runtime/launcher.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { defaultRuntimes, type PinnedRuntimeOptions } from '../runtime/runtimes.ts';
@@ -284,6 +286,8 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     writeWhole(join(output, summaryFileName), renderSummary(results));
   };
   const run = replay.createRun({ worktree: tree });
+  // A verifier of a run of a pull request runs the code of the change, so it is launched without the variables that hold a token for gh, as the review launched it (R15 of the review on the pull request).
+  const environment = (state.scope?.pullRequest ?? null) === null ? options.environment : withoutVariables(options.environment ?? process.env, ghTokenVariables, plan.platform);
 
   // Each pass is a sample of its own, listed before any of its workers runs, so an interrupted replay shows which sample is unfinished.
   const samples: string[] = [];
@@ -334,7 +338,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       runtimes: plan.runtimes,
       pinned: settings.pinned,
       platform: plan.platform,
-      ...(options.environment === undefined ? {} : { environment: options.environment }),
+      ...(environment === undefined ? {} : { environment }),
       ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }),
     });
     workersOf.get(sample)!.add(receipt.workerId);
