@@ -1086,7 +1086,13 @@ shows the top of the brief again with `deep-review report`. It ends
 each turn with the result it relays, in the language the user writes.
 Asked for more on one finding, it runs `report --finding <number>`; for
 the whole result, `report --brief`; for what the run changed,
-`report --fixes`; and for the statistics of the run, `report --stats`. Asked for a run the
+`report --fixes`; and for the statistics of the run, `report --stats`.
+Asked to review a pull request, it passes `--pr`, and after such a
+review that did not fix it offers to post it; asked to post it, and
+only then, it runs `publish` and shows the URL that it prints, with no
+summary of the review. A review the user wants posted is posted before
+`--fix` continues its run, since `publish` refuses a run that `--fix`
+continued. Asked for a run the
 user cannot name, it runs `status --all`. Asked for a
 configuration file, it writes it with `config init --repository`,
 `--operator` or `--clone`. Asked why a run reviewed what it did, it
