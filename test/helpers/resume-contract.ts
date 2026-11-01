@@ -20,7 +20,10 @@
  * (R11 of the facts before a merge). The scenario of a pull request is a
  * read-only run of `review --pr`, whose change the stand-in for `gh` gives
  * at its first command, and which ends with the writer's explanation (R18,
- * "A stop" of the design of the review on the pull request).
+ * "A stop" of the design of the review on the pull request); `publish`
+ * then posts it, and the stand-in stops it after it records the
+ * publication and before the post, or after the post and before its
+ * record (R13).
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -32,7 +35,8 @@ import { baseLockReason } from '../../src/review/checks/base.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { checkKinds, repairUnitKey } from '../../src/review/vocabulary.ts';
-import { fakeGh, writeFakeGhScript, type FakeGhStep } from './fake-gh.ts';
+import { lastLineMarker } from '../../src/review/publish.ts';
+import { fakeGh, fakeGhHeld, writeFakeGhScript, type FakeGhStep } from './fake-gh.ts';
 import { fixerAnswer, type Script } from './fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from './fix-pass-fixture.ts';
 import { git } from './git.ts';
@@ -61,22 +65,28 @@ export const appendWays: readonly StopWay[] = ['signal', 'kill', 'tree'];
  * before it is written, or a git call that makes or removes a worktree of
  * the base, before or after it), a child while it runs by the name and
  * count of its start (`child <name>#<n>`, as the fakes count their
- * starts), or `commit` before or after it moves the branch.
+ * starts), `commit` before or after it moves the branch, or `publish`
+ * before or after its post, where the stand-in for `gh` ends it.
  */
 export type Point =
   | { readonly kind: 'append'; readonly name: string }
   | { readonly kind: 'child'; readonly name: string; readonly hold: string }
-  | { readonly kind: 'commit'; readonly name: 'update-ref before' | 'update-ref after' };
+  | { readonly kind: 'commit'; readonly name: 'update-ref before' | 'update-ref after' }
+  | { readonly kind: 'publish'; readonly name: 'post before' | 'post after' };
 
-/** The point a name gives: `child <hold>`, `update-ref before` or `update-ref after`, else an append. */
+/** The point a name gives: `child <hold>`, `update-ref before` or `update-ref after`, `post before` or `post after`, else an append. */
 export function pointOf(name: string): Point {
   if (name.startsWith('child ')) return { kind: 'child', name, hold: name.slice('child '.length) };
   if (name === 'update-ref before' || name === 'update-ref after') return { kind: 'commit', name };
+  if (name === 'post before' || name === 'post after') return { kind: 'publish', name };
   return { kind: 'append', name };
 }
 
+/** The way that applies at a point of `publish`: the stand-in for `gh` ends the engine with SIGKILL, as a kill of the engine alone does. */
+const publishWays: readonly StopWay[] = ['kill'];
+
 /** The ways that apply at a point. */
-export const waysAt = (point: Point): readonly StopWay[] => (point.kind === 'child' ? stopWays : appendWays);
+export const waysAt = (point: Point): readonly StopWay[] => (point.kind === 'child' ? stopWays : point.kind === 'publish' ? publishWays : appendWays);
 
 /** The parts of the contract (R1, R2), in the order the design numbers them. */
 export const contractParts = ['exit', 'launches', 'nothing false', 'report', 'no orphan'] as const;
@@ -157,21 +167,43 @@ export const scenarios: readonly Scenario[] = [fixScenario, baseScenario, pullRe
 /** The number of the pull request the scenario of a pull request reviews. */
 const pullRequestNumber = 42;
 
-/** What the stand-in for `gh` answers for the pull request whose change is the last commit of `repo`: the pull request, the head of its base branch, the merge base and its files, the change of every scenario with the file no finding names. */
-function pullRequestSteps(repo: string): FakeGhStep[] {
+/**
+ * What the stand-in for `gh` answers for the pull request whose change is
+ * the last commit of `repo`: the pull request, the head of its base
+ * branch, the merge base and its files, the change of every scenario with
+ * the file no finding names, for `review --pr`; then for two runs of
+ * `publish` the pull request by its URL, the same reads and a post, the
+ * first post stopping the engine as `stop` says, and what GitHub holds.
+ * The patches give src/a.ts:2 and src/b.ts:1, where the two findings the
+ * run fixes point, a comment each.
+ */
+function pullRequestSteps(repo: string, stop: 'before' | 'after' | null = null): FakeGhStep[] {
   const head = git(repo, 'rev-parse', 'HEAD');
   const baseHead = 'd'.repeat(40);
   const files = [
-    { filename: 'src/a.ts', status: 'modified', patch: '@@ -1,3 +1,7 @@' },
-    { filename: 'src/b.ts', status: 'added', patch: '@@ -0,0 +1 @@' },
-    { filename: personFile, status: 'added', patch: '@@ -0,0 +1 @@' },
-    { filename: 'src/gone.ts', status: 'removed', patch: '@@ -1 +0,0 @@' },
+    { filename: 'src/a.ts', status: 'modified', patch: '@@ -1,3 +1,7 @@\n-export function parse(text: string) {\n-  return text.length;\n+export function parse(text: string | null) {\n+  return text!.length;\n }\n+\n+export function other() {\n+  return parse(null);\n+}' },
+    { filename: 'src/b.ts', status: 'added', patch: '@@ -0,0 +1 @@\n+export const b = parse("x");' },
+    { filename: personFile, status: 'added', patch: '@@ -0,0 +1 @@\n+export const c = 1;' },
+    { filename: 'src/gone.ts', status: 'removed', patch: '@@ -1 +0,0 @@\n-export const gone = 1;' },
   ];
-  return [
-    { endpoint: `repos/{owner}/{repo}/pulls/${String(pullRequestNumber)}`, pages: [{ body: { html_url: `https://github.com/acme/widgets/pull/${String(pullRequestNumber)}`, number: pullRequestNumber, state: 'open', merged: false, head: { sha: head }, base: { ref: 'main' }, changed_files: files.length, title: 'Parse with a guard', body: 'Why the parser needs a guard.' } }] },
+  const pull = `repos/acme/widgets/pulls/${String(pullRequestNumber)}`;
+  const pullRequest = { body: { html_url: `https://github.com/acme/widgets/pull/${String(pullRequestNumber)}`, number: pullRequestNumber, state: 'open', merged: false, head: { sha: head }, base: { ref: 'main' }, changed_files: files.length, title: 'Parse with a guard', body: 'Why the parser needs a guard.' } };
+  const reads = (endpoint: string): FakeGhStep[] => [
+    { endpoint, pages: [pullRequest] },
     { endpoint: 'repos/acme/widgets/git/ref/heads/main', pages: [{ body: { object: { sha: baseHead } } }] },
     { endpoint: `repos/acme/widgets/compare/${baseHead}...${head}`, pages: [{ body: { merge_base_commit: { sha: git(repo, 'rev-parse', 'HEAD~1') } } }] },
-    { endpoint: `repos/acme/widgets/pulls/${String(pullRequestNumber)}/files?per_page=100`, pages: [{ body: files }] },
+    { endpoint: `${pull}/files?per_page=100`, pages: [{ body: files }] },
+  ];
+  const held: FakeGhStep[] = [{ endpoint: `${pull}/reviews?per_page=100`, held: true }, { endpoint: `${pull}/reviews/1/comments?per_page=100`, held: true }];
+  return [
+    ...reads(`repos/{owner}/{repo}/pulls/${String(pullRequestNumber)}`),
+    ...reads(pull),
+    { method: 'POST', endpoint: `${pull}/reviews`, held: true, ...(stop === null ? {} : { stop }) },
+    ...held,
+    ...reads(pull),
+    { method: 'POST', endpoint: `${pull}/reviews`, held: true },
+    ...held,
+    ...held,
   ];
 }
 
@@ -205,6 +237,8 @@ export interface Outcome {
   readonly baseTrees: readonly string[];
   /** The explanation the run recorded (R18 of the review on the pull request): who recorded it, the writer or the engine, and each part it dropped and each finding it marks unexplained; none for a run that does not explain its review. */
   readonly explanation: readonly string[];
+  /** The reviews of the run the stand-in for `gh` holds, by the marker on the last line of each body, and the reviews the ledger records as posted, each by its id (R13 of the review on the pull request). */
+  readonly reviews: { readonly held: readonly number[]; readonly posted: readonly number[] };
   /** The bytes of each file of the change and of each file a fixer writes. */
   readonly files: Readonly<Record<string, string | null>>;
 }
@@ -241,6 +275,11 @@ export class ContractSandbox {
 
   close(): void {
     this.box.close();
+  }
+
+  /** Make the first post of `publish` stop the engine `when` (R13 of the review on the pull request), before any command of the run. */
+  stopPost(when: 'before' | 'after'): void {
+    writeFakeGhScript(this.ghScript!, pullRequestSteps(this.box.repo, when));
   }
 
   /** The environment of every command: the hermetic one, the sandbox's home and configuration, the fakes' files, and the temporary directory. */
@@ -314,7 +353,9 @@ export class ContractSandbox {
     const cited = [...verdictRuns, ...validationRuns];
     const recorded = state.explanation;
     const explanation = recorded === null ? [] : [recorded.workerId === null ? 'recorded by the engine' : 'recorded from the writer', ...recorded.dropped.map((part) => `dropped ${part.part === 'finding' ? `finding ${part.finding}` : part.part}`), ...recorded.unexplained.map((id) => `unexplained ${id}`)];
-    return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), explanation, files };
+    const held = this.ghScript === null ? [] : fakeGhHeld(this.ghScript).filter((review) => lastLineMarker(review.body)?.startsWith(`deep-review publication ${state.id} `) === true).map((review) => review.id);
+    const posted = state.publications.flatMap((publication) => (publication.status === 'posted' ? [publication.posted.review.id] : []));
+    return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), explanation, reviews: { held, posted }, files };
   }
 
   /** The worktrees of the base the run `runId` left: the entries of `git worktree list` locked with its reason, and the directories of its worktrees of the base under the engine's scratch directory. */
@@ -475,15 +516,17 @@ export async function stopAndResume(point: Point, way: StopWay, scenario: Scenar
   const sandbox = new ContractSandbox(scenario);
   try {
     const review = sandbox.reviewArgs();
-    if (point.kind === 'commit') {
+    if (point.kind === 'publish') sandbox.stopPost(point.name === 'post before' ? 'before' : 'after');
+    if (point.kind === 'commit' || point.kind === 'publish') {
       const first = await sandbox.run(review);
       assert.equal(first.status, 0, first.stderr);
     }
-    const args = point.kind === 'commit' ? ['commit'] : review;
-    const preload: Record<string, string> = { RESUME_STOP_AT: point.kind === 'child' ? 'child' : point.name, RESUME_STOP_WAY: way, ...(point.kind === 'child' ? { FAKE_HOLD: point.hold } : {}) };
+    const args = point.kind === 'commit' ? ['commit'] : point.kind === 'publish' ? ['publish'] : review;
+    // The stand-in for gh stops `publish` itself, so it runs with no preload.
+    const preload: Record<string, string> | null = point.kind === 'publish' ? null : { RESUME_STOP_AT: point.kind === 'child' ? 'child' : point.name, RESUME_STOP_WAY: way, ...(point.kind === 'child' ? { FAKE_HOLD: point.hold } : {}) };
     const engine = sandbox.start(args, preload);
     const ended = finished(engine);
-    const stoppedMarker = join(sandbox.stopDirectory, 'stopped');
+    const stoppedMarker = point.kind === 'publish' ? `${sandbox.ghScript!}.stopped` : join(sandbox.stopDirectory, 'stopped');
     const startedMarker = join(sandbox.startDirectory, 'started.json');
     const marker = point.kind === 'child' ? startedMarker : stoppedMarker;
     const reached = await untilOrEnded(() => existsSync(marker), engine, `${point.name} in ${way}`, commandTimeoutMs);
@@ -536,7 +579,7 @@ export async function stopAndResume(point: Point, way: StopWay, scenario: Scenar
   }
 }
 
-/** The reference: the same run with no stop, the names of its steps and of its children's starts in order, and its `commit`. */
+/** The reference: the same run with no stop, the names of its steps and of its children's starts in order, and its `commit` or its `publish`. */
 export interface Reference {
   readonly outcome: Outcome;
   /** The names of its appends and of the moments around its git calls that a point can name, in the order of the first of each. */
@@ -544,6 +587,8 @@ export interface Reference {
   readonly children: readonly string[];
   /** The subjects of the commits `commit` made after the run. */
   readonly commits: readonly string[];
+  /** The last line `publish` printed after a read-only run of a pull request, the URL of its review; null for a run that has nothing to post. */
+  readonly published: string | null;
 }
 
 /** Run the reference of a scenario in a new sandbox: the run with no stop, recording its steps, then `commit`. */
@@ -563,16 +608,21 @@ export async function reference(scenario: Scenario = fixScenario): Promise<Refer
       counts.set(name, count);
       return `child ${name}#${String(count)}`;
     });
-    // A read-only run has nothing to commit.
+    // A read-only run has nothing to commit; one of a pull request is posted.
     const fix = outcome.state.review!.fix;
-    if (fix === null) return { outcome, steps: [...new Set(steps)], children, commits: [] };
+    if (fix === null) {
+      if (scenario.pullRequest !== true) return { outcome, steps: [...new Set(steps)], children, commits: [], published: null };
+      const posted = await sandbox.run(['publish']);
+      assert.equal(posted.status, 0, posted.stderr);
+      return { outcome, steps: [...new Set(steps)], children, commits: [], published: lastLine(posted.stdout) };
+    }
     const committed = await sandbox.run(['commit']);
     assert.equal(committed.status, 0, committed.stderr);
     // One commit per revision of the run, newest first, as git log lists them.
     const revisions = fix.revisions.length;
     const commits = git(sandbox.box.repo, 'log', '--format=%s', `-${String(revisions)}`).split('\n');
     assert.equal(commits.length, revisions, 'commit made a commit per revision');
-    return { outcome, steps: [...new Set(steps)], children, commits };
+    return { outcome, steps: [...new Set(steps)], children, commits, published: null };
   } finally {
     sandbox.close();
   }
@@ -599,6 +649,7 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   const broken = new Map<ContractPart, string>();
   const outcome = stopped.outcome!;
   if (stopped.point.kind === 'commit') return brokenAtCommit(stopped, expected);
+  if (stopped.point.kind === 'publish') return brokenAtPublish(stopped, expected);
   // First: the command after the stop exits as the run with no stop exits.
   if (outcome.ran.status !== expected.outcome.ran.status) broken.set('exit', `exit ${String(outcome.ran.status)}: ${outcome.ran.stderr.trim().split('\n').slice(-2).join(' / ')}`);
   // Second: no worker that finished with an answer before the stop is launched again.
@@ -649,6 +700,30 @@ function brokenAtCommit(stopped: Stopped, expected: Reference): Map<ContractPart
   return broken;
 }
 
+/** The last line a command printed. */
+const lastLine = (text: string): string => text.trimEnd().split('\n').at(-1) ?? '';
+
+/**
+ * The parts a stop of `publish` broke (R13, "A stop" of the design of the
+ * review on the pull request): the command after it exits 0 and prints
+ * the URL of the run with no stop; and nothing false, the ledger records
+ * one review posted and no review the stand-in for `gh` does not hold, and
+ * the stand-in holds one review of the run, never two.
+ */
+function brokenAtPublish(stopped: Stopped, expected: Reference): Map<ContractPart, string> {
+  const broken = new Map<ContractPart, string>();
+  const ran = stopped.after.at(-1)!;
+  if (ran.status !== 0 || lastLine(ran.stdout) !== expected.published) broken.set('exit', `exit ${String(ran.status)}, last line ${JSON.stringify(lastLine(ran.stdout))} where the run with no stop prints ${JSON.stringify(expected.published)}: ${ran.stderr.trim().split('\n').slice(-2).join(' / ')}`);
+  const { held, posted } = stopped.outcome!.reviews;
+  const falsehoods = [
+    ...(posted.length === 1 ? [] : [`the ledger records ${String(posted.length)} reviews posted`]),
+    ...posted.filter((id) => !held.includes(id)).map((id) => `the ledger records review ${String(id)}, which GitHub does not hold`),
+    ...(held.length <= 1 ? [] : [`GitHub holds ${String(held.length)} reviews of the run`]),
+  ];
+  if (falsehoods.length > 0) broken.set('nothing false', falsehoods.join('; '));
+  return broken;
+}
+
 /** Where two texts first differ, as the line of each. */
 function firstDifference(actual: string, expected: string): string {
   const a = actual.split('\n');
@@ -660,8 +735,9 @@ function firstDifference(actual: string, expected: string): string {
 
 /**
  * Every point of the reference: each step in the order of its first
- * record, each child start, and the two points of `commit` after a fix
- * run, which alone has something to commit. The append of
+ * record, each child start, the two points of `commit` after a fix
+ * run, which alone has something to commit, and the two of `publish`
+ * after a read-only run of a pull request, which alone is posted. The append of
  * the report is not one: the run is complete after it, and a stop there
  * cuts no work (Risks of resumable runs). A point just before an append is
  * not one either: the point after the step before it stands for it, as
@@ -670,10 +746,11 @@ function firstDifference(actual: string, expected: string): string {
  */
 export function everyPoint(expected: Reference): Point[] {
   const commit = expected.outcome.state.review?.fix === null ? [] : [pointOf('update-ref before'), pointOf('update-ref after')];
-  return [...expected.steps.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), ...commit];
+  const publish = expected.published === null ? [] : [pointOf('post before'), pointOf('post after')];
+  return [...expected.steps.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), ...commit, ...publish];
 }
 
-/** Whether the reference has the point `name`: a step, a child's start, or a point of `commit`, and a point before an append when it has that append. */
+/** Whether the reference has the point `name`: a step, a child's start, a point of `commit`, or one of `publish` when it posted, and a point before an append when it has that append. */
 export const hasPoint = (expected: Reference, name: string): boolean =>
-  [...expected.steps, ...expected.children, 'update-ref before', 'update-ref after'].includes(name.startsWith('before ') ? name.slice('before '.length) : name);
+  [...expected.steps, ...expected.children, 'update-ref before', 'update-ref after', ...(expected.published === null ? [] : ['post before', 'post after'])].includes(name.startsWith('before ') ? name.slice('before '.length) : name);
 
