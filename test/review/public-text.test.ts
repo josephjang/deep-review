@@ -97,8 +97,15 @@ describe('publicWords: mentions and references', () => {
     assert.equal(words('~~~ts\n// @octocat\n\n// #12\n~~~'), '~~~ts\n// @octocat\n\n// #12\n~~~');
   });
 
-  it('leaves what GitHub does not read as one: an email, an HTML entity, a fragment and a name in a word', () => {
-    assert.equal(words('mail ada@example.com, &#12; and page#3, issue12'), 'mail ada@example.com, &#12; and page#3, issue12');
+  it('leaves what GitHub does not read as one: an email, a fragment and a name in a word', () => {
+    assert.equal(words('mail ada@example.com, page#3, issue12'), 'mail ada@example.com, page#3, issue12');
+  });
+
+  it('escapes the ampersand of an HTML entity outside code, which GitHub decodes into a mention or a reference, and leaves it in code', () => {
+    assert.equal(words('&#64;octocat, &commat;org/team and &#35;12'), '\\&`#64`;octocat, \\&commat;org/team and \\&`#35`;12', 'a #<n> after the escaped ampersand is code too');
+    assert.equal(words('a && b, &c and &#64 x'), 'a && b, &c and &`#64` x', 'an ampersand that opens no entity is text');
+    assert.equal(prose('&#x40;octocat &amp; `&#64;x`'), '\\&#x40;octocat \\&amp; `&#64;x`');
+    assert.equal(words('\\&#64;a'), '\\&`#64`;a', 'an ampersand a backslash escapes gets no second backslash');
   });
 
   it('writes the URL of an issue, a pull request and a discussion as code, without the punctuation after it', () => {

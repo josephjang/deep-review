@@ -322,11 +322,11 @@ const issueUrl = String.raw`https?://[^\s/<>\x60]+/[^\s/<>\x60]+/[^\s/<>\x60]+/(
 /** Any URL that GitHub links. */
 const anyUrl = String.raw`(?:(?:https?|ftp)://|www\.)[^\s<>\x60]+`;
 
-/** A cross-repository reference, a `GH-<n>`, a `#<n>` that is no HTML entity, and an `@name` or team that does not follow a letter, a digit, a period or a slash. */
+/** A cross-repository reference, a `GH-<n>`, a `#<n>`, and an `@name` or team that does not follow a letter, a digit, a period or a slash. A `#<n>` after an ampersand is one too, since `plainMarks` escapes the ampersand, so no `#<n>` is part of an entity. */
 const references = [
   String.raw`(?<![\p{L}\p{N}_./-])[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+#\d+(?![\p{L}\p{N}_])`,
   String.raw`(?<![\p{L}\p{N}_])[Gg][Hh]-\d+(?![\p{L}\p{N}_])`,
-  String.raw`(?<![\p{L}\p{N}_&])#\d+(?![\p{L}\p{N}_])`,
+  String.raw`(?<![\p{L}\p{N}_])#\d+(?![\p{L}\p{N}_])`,
   String.raw`(?<![\p{L}\p{N}./])@[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)?`,
 ].join('|');
 
@@ -336,10 +336,22 @@ const tokens: Readonly<Record<Voice, RegExp>> = {
   prose: new RegExp(String.raw`(?<escape>\\*)(?:(?<url>${anyUrl})|${references})`, 'gu'),
 };
 
-/** The marks that each voice escapes outside code: a backtick, which the paragraph holds alone and which could join a span written next to it, and in the writer's prose `[`, which opens a link or an image. A mark that a backslash already escapes stays. */
+/** The ampersand of an HTML entity as CommonMark reads one, named, decimal or hexadecimal and ended by a semicolon; an ampersand before anything else is text. */
+const entityAmpersand = String.raw`&(?=#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)`;
+
+/**
+ * The marks that each voice escapes outside code: a backtick, which the
+ * paragraph holds alone and which could join a span written next to it;
+ * the ampersand of an HTML entity, which GitHub decodes after the
+ * cleaning, such as `&#64;` into the `@` of a mention or `&#35;` into the
+ * `#` of a reference; and in the writer's prose `[`, which opens a link or
+ * an image. A mark that a backslash already escapes stays. The report
+ * leaves an entity as written (TD6 of the report for the person), so only
+ * the text a review posts escapes it.
+ */
 const plainMarks: Readonly<Record<Voice, RegExp>> = {
-  words: /(?<!\\)((?:\\\\)*)(`)/g,
-  prose: /(?<!\\)((?:\\\\)*)([[`])/g,
+  words: new RegExp(String.raw`(?<!\\)((?:\\\\)*)(\x60|${entityAmpersand})`, 'g'),
+  prose: new RegExp(String.raw`(?<!\\)((?:\\\\)*)(\[|\x60|${entityAmpersand})`, 'g'),
 };
 
 /**
@@ -351,16 +363,28 @@ const plainMarks: Readonly<Record<Voice, RegExp>> = {
  * not the span's backtick.
  */
 function quietPlain(text: string, voice: Voice): string {
+  // The marks are found in the whole text, since the entity an ampersand opens can go on into a token, as `&#35;` does into `#35`.
+  const marks = [...text.matchAll(plainMarks[voice])];
+  const marked = (from: number, to: number): string => {
+    let escaped = '';
+    let at = from;
+    for (const mark of marks) {
+      if (mark.index < from || mark.index >= to) continue;
+      escaped += `${text.slice(at, mark.index)}${mark[1]!}\\${mark[2]!}`;
+      at = mark.index + mark[0].length;
+    }
+    return escaped + text.slice(at, to);
+  };
   let quiet = '';
   let at = 0;
   for (const match of text.matchAll(tokens[voice])) {
     const escape = match.groups!.escape!;
     const token = match[0].slice(escape.length);
     const code = match.groups!.url === undefined ? token : urlOf(token);
-    quiet += `${text.slice(at, match.index).replace(plainMarks[voice], '$1\\$2')}${escape}${escape.length % 2 === 1 ? '\\' : ''}${codeSpan(code)}${token.slice(code.length)}`;
+    quiet += `${marked(at, match.index)}${escape}${escape.length % 2 === 1 ? '\\' : ''}${codeSpan(code)}${token.slice(code.length)}`;
     at = match.index + match[0].length;
   }
-  return quiet + text.slice(at).replace(plainMarks[voice], '$1\\$2');
+  return quiet + marked(at, text.length);
 }
 
 /** A URL without the punctuation after it that ends a sentence, and without a closing bracket that it does not open. */
