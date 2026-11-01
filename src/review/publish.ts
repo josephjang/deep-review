@@ -167,21 +167,24 @@ function settleFailure(error: unknown, run: RunState, prepared: PublishPrepared)
   return new PublicationOpenError(`run ${run.id}: the publication ${prepared.marker}, which a stop left open, is not settled, since ${error.message}; nothing is recorded, and deep-review publish looks for its review again`);
 }
 
+/** What a refusal before the publication is prepared says was recorded: nothing, unless the settle recorded that the publication a stop left open was not found. */
+const unrecordedWords = (settled: string | null): string => (settled === null ? 'nothing was posted or recorded' : `nothing was posted, and only that no review carries the publication ${settled}, which a stop left open, was recorded`);
+
 /**
- * A call of GitHub before anything is recorded, whose refusal by GitHub
- * or `gh` is a refusal of the command (R8), with an account's action for
- * a 401 or a 404; a timeout and an answer the engine cannot read stay
- * errors, exit 1, recording nothing.
+ * A call of GitHub before the publication is prepared, whose refusal by
+ * GitHub or `gh` is a refusal of the command (R8), with an account's
+ * action for a 401 or a 404, and what was recorded, `unrecorded`; a
+ * timeout and an answer the engine cannot read stay errors, exit 1.
  */
-function refusingGitHub<T>(target: PullRequestTarget, read: () => T): T {
+function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded: string): T {
   try {
     return read();
   } catch (error) {
-    if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error.message}; nothing was posted or recorded`);
+    if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     if (!(error instanceof GitHubCallError)) throw error;
     const { failure } = error;
     if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestWords(target)}`);
-    if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; nothing was posted or recorded`);
+    if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     throw error;
   }
 }
@@ -207,18 +210,19 @@ function whyNotPostable(run: RunState): string | null {
 /**
  * Read the pull request again and refuse one that is not open (PD9), a
  * head that is not the run's head, and a merge base that is not the run's
- * base (PD2): a run is posted only on the change it reviewed.
+ * base (PD2): a run is posted only on the change it reviewed. A refusal
+ * says what was recorded, `unrecorded`.
  */
-function requireUnmoved(gh: Gh, run: RunState): number {
+function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const scope = run.scope!;
   const target = targetOf(run);
   const words = pullRequestWords(target);
-  const facts = refusingGitHub(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }));
-  if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review posts to an open pull request only; nothing was posted or recorded`);
+  const facts = refusingGitHub(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }), unrecorded);
+  if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review posts to an open pull request only; ${unrecorded}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
-  const mergeBase = refusingGitHub(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head));
+  const mergeBase = refusingGitHub(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded);
   if (mergeBase !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase} now, not ${scope.base}, the base run ${run.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
@@ -310,6 +314,8 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   let gh: Gh | null = null;
   const ghOf = (): Gh => (gh ??= options.gh(run));
   const notes: string[] = [];
+  // The marker of a publication a stop left open that this command recorded as not found, which a later refusal names.
+  let settled: string | null = null;
 
   // 1. A publication a stop left open is settled by its marker before anything else (TD5).
   const open = run.publications.at(-1);
@@ -333,6 +339,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
     if (dryRun) notes.push(`${line}; the next deep-review publish records it as not found and posts the review below.`);
     else {
       run = checkpoint.append(run.id, run.lastSequence, [{ kind: 'publish.dropped', version: 1, payload: { marker: prepared.marker, reason: 'not-found' } }]);
+      settled = prepared.marker;
       log(`${line}; it is recorded as not found, and the review is posted now`);
     }
   }
@@ -345,11 +352,12 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const why = whyNotPostable(run);
   if (why !== null) throw new ReviewRefusedError(why);
   const target = targetOf(run);
-  const changedFiles = requireUnmoved(ghOf(), run);
+  const unrecorded = unrecordedWords(settled);
+  const changedFiles = requireUnmoved(ghOf(), run, unrecorded);
 
   // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded.
   const scope = run.scope!;
-  const files = refusingGitHub(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }));
+  const files = refusingGitHub(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }), unrecorded);
   const placements = placeFindings(run.review!, files);
   const lines = gitLineCounts(options.worktree, scope);
   const serial = run.publications.length + 1;
@@ -362,7 +370,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
     engine: checkpoint.engine,
     serial,
   });
-  if (form.kind === 'refused') throw new ReviewRefusedError(`${formRefusalWords(form)}; nothing was posted or recorded, and the report of the run holds all of it`);
+  if (form.kind === 'refused') throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded}, and the report of the run holds all of it`);
 
   // 5. A dry run ends with what it would post (R14).
   if (dryRun) return { kind: 'dry-run', runId: run.id, lines: dryRunLines(run, placements, form, notes) };
