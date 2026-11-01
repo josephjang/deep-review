@@ -160,11 +160,20 @@ const flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
 /** The opening of a node's shape right after its id, longest first: a label follows it. */
 const shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
 const nodeId = /^[\p{L}\p{N}_]+/u;
+/**
+ * The text of an edge written between its arrow's two halves, as in
+ * `A -- text --> B`, `A -. text .-> B` and `A == text ==> B`: an opening
+ * `--`, `-.` or `==` that is no part of a longer arrow, and the text up to
+ * the next arrow, which a semicolon in it would end early.
+ */
+const edgeText = /(?<![-=.<])<?(?:--|==|-\.)(?![-=.>])(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
 
-/** The failures of one line of a flowchart: each quoted label and each label between bars, and the label of a node that is not quoted. */
+/** The failures of one line of a flowchart: each quoted label, each label between bars and each text of an edge, and the label of a node that is not quoted. */
 function flowchartLineFailures(line: string, number: number): string[] {
   if (flowchartStyling.test(line)) return [];
   const failures: string[] = [];
+  // The quoted labels and those between bars are checked below, so they are taken out before the text of an edge is looked for.
+  for (const edge of line.replaceAll(/"[^"]*"|\|[^|]*\|/g, '""').matchAll(edgeText)) failures.push(...labelFailures(`the text of an edge on line ${String(number)}`, edge[1]!));
   let at = 0;
   while (at < line.length) {
     const char = line.charAt(at);
@@ -201,8 +210,11 @@ const sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|bo
  * message or note holds an HTML entity or a semicolon: in a flowchart each
  * quoted label and each label between bars, and in the two other kinds the
  * text after a colon, each quoted text, each label of a block or a
- * participant, and each line of a note that spans lines. A run of
- * backticks is no failure: the form fences a diagram with a longer one.
+ * participant, and each line of a note that spans lines. No line after
+ * the first holds a directive, `%%{`, which Mermaid reads anywhere in a
+ * diagram and which can change how it draws it; a comment, `%%` alone,
+ * is no failure. A run of backticks is no failure: the form fences a
+ * diagram with a longer one.
  */
 export function diagramFailures(diagram: string): string[] {
   const lines = diagram.split(/\r\n|\r|\n/);
@@ -215,6 +227,7 @@ export function diagramFailures(diagram: string): string[] {
   lines.slice(start + 1).forEach((raw, index) => {
     const line = raw.trim();
     const number = start + index + 2;
+    if (line.includes('%%{')) failures.push(`line ${String(number)} holds a directive, %%{, which changes how Mermaid draws the diagram`);
     if (line === '' || line.startsWith('%%')) return;
     if (kind === 'flowchart') {
       failures.push(...flowchartLineFailures(line, number));
