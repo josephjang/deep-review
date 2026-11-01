@@ -69,10 +69,11 @@ with no fence around it; the engine fences it.
 - In a flowchart, quote the label of every node, as `A["parse()
   returns null"]`, whatever its shape, and write a label on an arrow
   between bars, as `A -->|"on an empty input"| B`.
-- No label, message or note holds a semicolon or an HTML entity such as
-  `&lt;` or `&#59;`: GitHub decodes an entity before Mermaid reads the
-  diagram, and Mermaid ends a statement at a semicolon. Write the words
-  instead.
+- No label, message, note or text on an arrow holds a semicolon or an
+  HTML entity such as `&lt;` or `&#59;`: GitHub decodes an entity before
+  Mermaid reads the diagram, and Mermaid ends a statement at a
+  semicolon. Write the words instead.
+- Give no `%%{` directive: the diagram takes GitHub's own settings.
 - Keep a diagram to the few steps the flow needs. A diagram that only
   repeats a sentence is not needed; give null.
 

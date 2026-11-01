@@ -28807,7 +28807,7 @@ function localPathWords(path, places) {
 function paragraphText(text3) {
   const line = inlineText(text3).trimStart();
   if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, "$1\\$2");
-  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
+  return /^(?:[#>*+\-=|~]|`{3,}[^`]*$)/.test(line) ? `\\${line}` : line;
 }
 function codeParts(text3) {
   const parts = [];
@@ -35915,24 +35915,29 @@ var init_prompts = __esm({
 
 // src/review/public-text.ts
 import { readdirSync as readdirSync7 } from "node:fs";
+import { homedir as homedir3 } from "node:os";
 function rootDirectoryEntries(directory) {
-  const known = readRoots.get(directory);
-  if (known !== void 0) return known;
+  if (readRoots.has(directory)) return readRoots.get(directory);
   let entries;
   try {
     entries = readdirSync7(directory);
   } catch {
-    entries = [];
+    entries = null;
   }
   readRoots.set(directory, entries);
   return entries;
 }
 function rootEntriesOf(facts) {
   const read = facts.readDirectory ?? rootDirectoryEntries;
-  if (facts.platform !== "win32") return [...read("/")];
+  if (facts.platform !== "win32") {
+    const entries = read("/");
+    return entries === null ? null : [...entries];
+  }
   const places = [facts.worktree, facts.checkpoint, facts.gitCommon, facts.engine, ...facts.environment.SystemDrive === void 0 ? [] : [`${facts.environment.SystemDrive}\\`]];
   const drives = [...new Set(places.flatMap((place) => /^([A-Za-z]):/.exec(place)?.[1]?.toUpperCase() ?? []))].sort();
-  return [.../* @__PURE__ */ new Set([...drives.map((drive) => drive.toLowerCase()), ...drives.flatMap((drive) => read(`${drive}:\\`))])];
+  const roots = drives.map((drive) => read(`${drive}:\\`));
+  if (roots.includes(null)) return null;
+  return [.../* @__PURE__ */ new Set([...drives.map((drive) => drive.toLowerCase()), ...roots.flatMap((entries) => entries ?? [])])];
 }
 function machineContextOf(facts) {
   return {
@@ -35942,6 +35947,7 @@ function machineContextOf(facts) {
     engine: facts.engine,
     scratch: scratchSpellings(facts.workers),
     environment: facts.environment,
+    home: facts.home ?? homedir3(),
     rootEntries: rootEntriesOf(facts)
   };
 }
@@ -35951,7 +35957,20 @@ function publicWords(text3, machine) {
 function publicProse(text3, machine) {
   return cleaned(text3, machine, "prose");
 }
+function publicCode(text3, machine) {
+  return withoutMachine(text3, machine);
+}
 function cleaned(text3, machine, voice) {
+  const { text: placed, secrets } = withoutMachine(text3, machine);
+  const parts = markdownParts(placed);
+  const quiet = parts.map((part, index2) => {
+    if (part.code) return part.text;
+    const plain = escapedText(quietPlain(part.text, voice));
+    return `${parts[index2 - 1]?.code === true && plain.startsWith("`") ? " " : ""}${plain}${parts[index2 + 1]?.code === true && plain.endsWith("`") ? " " : ""}`;
+  });
+  return { text: quiet.join(""), secrets };
+}
+function withoutMachine(text3, machine) {
   const compiled = compiledOf(machine);
   let secrets = 0;
   const redact = (from, pattern, mark) => from.replace(pattern, (found) => {
@@ -35960,14 +35979,8 @@ function cleaned(text3, machine, voice) {
   });
   let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text3);
   if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)}]`);
-  const placed = withoutLocalPaths(compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch)), compiled.roots);
-  const parts = markdownParts(placed);
-  const quiet = parts.map((part, index2) => {
-    if (part.code) return part.text;
-    const plain = escapedText(quietPlain(part.text, voice));
-    return `${parts[index2 - 1]?.code === true && plain.startsWith("`") ? " " : ""}${plain}${parts[index2 + 1]?.code === true && plain.endsWith("`") ? " " : ""}`;
-  });
-  return { text: quiet.join(""), secrets };
+  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
+  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
 }
 function compiledOf(machine) {
   const known = compiledContexts.get(machine);
@@ -35986,7 +35999,8 @@ function compiledOf(machine) {
     secretValues: values.length === 0 ? null : new RegExp(values.map((value) => RegExp.escape(value)).join("|"), "g"),
     secretNames,
     places,
-    roots: new Set(machine.rootEntries.map((entry) => entry.toLowerCase()))
+    home: spellings(machine.home).map((spelling) => placePattern(spelling, String.raw`(?![\p{L}\p{N}_-]|\.[\p{L}\p{N}_-])${rest}`)),
+    roots: machine.rootEntries === null ? null : new Set(machine.rootEntries.map((entry) => entry.toLowerCase()))
   };
   compiledContexts.set(machine, compiled);
   return compiled;
@@ -36002,9 +36016,8 @@ function placePattern(spelling, after) {
 function withoutLocalPaths(text3, roots) {
   return text3.replace(localPath, (path, ...args) => {
     const { first } = args.at(-1);
-    const ending = /[.!]*$/.exec(path)[0];
-    if (first !== void 0 && !roots.has(first.replace(/[.!]+$/, "").toLowerCase())) return path;
-    return `<local path>${ending}`;
+    if (first !== void 0 && roots !== null && !roots.has(first.replace(/[.!]+$/, "").toLowerCase())) return path;
+    return localPathMark(path);
   });
 }
 function markdownParts(text3) {
@@ -36034,16 +36047,27 @@ function markdownParts(text3) {
   return parts;
 }
 function quietPlain(text3, voice) {
+  const marks2 = [...text3.matchAll(plainMarks[voice])];
+  const marked = (from, to) => {
+    let escaped = "";
+    let at2 = from;
+    for (const mark of marks2) {
+      if (mark.index < from || mark.index >= to) continue;
+      escaped += `${text3.slice(at2, mark.index)}${mark[1]}\\${mark[2]}`;
+      at2 = mark.index + mark[0].length;
+    }
+    return escaped + text3.slice(at2, to);
+  };
   let quiet = "";
   let at = 0;
   for (const match of text3.matchAll(tokens[voice])) {
     const escape = match.groups.escape;
     const token = match[0].slice(escape.length);
     const code = match.groups.url === void 0 ? token : urlOf(token);
-    quiet += `${text3.slice(at, match.index).replace(plainMarks[voice], "$1\\$2")}${escape}${escape.length % 2 === 1 ? "\\" : ""}${codeSpan(code)}${token.slice(code.length)}`;
+    quiet += `${marked(at, match.index)}${escape}${escape.length % 2 === 1 ? "\\" : ""}${codeSpan(code)}${token.slice(code.length)}`;
     at = match.index + match[0].length;
   }
-  return quiet + text3.slice(at).replace(plainMarks[voice], "$1\\$2");
+  return quiet + marked(at, text3.length);
 }
 function urlOf(text3) {
   let url2 = text3;
@@ -36054,7 +36078,7 @@ function urlOf(text3) {
     else return url2;
   }
 }
-var readRoots, secretForms, secretName, compiledContexts, segment, rest, localPath, issueUrl, anyUrl, references, tokens, plainMarks;
+var readRoots, secretForms, secretName, compiledContexts, segment, rest, localPath, localPathMark, issueUrl, anyUrl, references, tokens, entityAmpersand, plainMarks;
 var init_public_text = __esm({
   "src/review/public-text.ts"() {
     "use strict";
@@ -36079,21 +36103,23 @@ var init_public_text = __esm({
       String.raw`(?<!\\)\\{2,}[A-Za-z0-9_.$-]+[/\\]+${segment}${rest}`,
       String.raw`(?<![\p{L}\p{N}_.~/\\-])~[A-Za-z0-9_.-]*[/\\]+(?:${segment}${rest})?`
     ].join("|"), "gu");
+    localPathMark = (path) => `<local path>${/[.!]*$/.exec(path)[0]}`;
     issueUrl = String.raw`https?://[^\s/<>\x60]+/[^\s/<>\x60]+/[^\s/<>\x60]+/(?:issues|pull|pulls|discussions)/\d+[^\s<>\x60]*`;
     anyUrl = String.raw`(?:(?:https?|ftp)://|www\.)[^\s<>\x60]+`;
     references = [
       String.raw`(?<![\p{L}\p{N}_./-])[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+#\d+(?![\p{L}\p{N}_])`,
       String.raw`(?<![\p{L}\p{N}_])[Gg][Hh]-\d+(?![\p{L}\p{N}_])`,
-      String.raw`(?<![\p{L}\p{N}_&])#\d+(?![\p{L}\p{N}_])`,
+      String.raw`(?<![\p{L}\p{N}_])#\d+(?![\p{L}\p{N}_])`,
       String.raw`(?<![\p{L}\p{N}./])@[A-Za-z0-9_][A-Za-z0-9_-]*(?:/[A-Za-z0-9_][A-Za-z0-9_-]*)?`
     ].join("|");
     tokens = {
       words: new RegExp(String.raw`(?<escape>\\*)(?:(?<url>${issueUrl})|${references})`, "gu"),
       prose: new RegExp(String.raw`(?<escape>\\*)(?:(?<url>${anyUrl})|${references})`, "gu")
     };
+    entityAmpersand = String.raw`&(?=#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};|[A-Za-z][A-Za-z0-9]{1,31};)`;
     plainMarks = {
-      words: /(?<!\\)((?:\\\\)*)(`)/g,
-      prose: /(?<!\\)((?:\\\\)*)([[`])/g
+      words: new RegExp(String.raw`(?<!\\)((?:\\\\)*)(\x60|${entityAmpersand})`, "g"),
+      prose: new RegExp(String.raw`(?<!\\)((?:\\\\)*)(\[|\x60|${entityAmpersand})`, "g")
     };
   }
 });
@@ -36720,6 +36746,7 @@ function labelFailures(what, text3) {
 function flowchartLineFailures(line, number5) {
   if (flowchartStyling.test(line)) return [];
   const failures = [];
+  for (const edge of line.replaceAll(/"[^"]*"|\|[^|]*\|/g, '""').matchAll(edgeText)) failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, edge[1]));
   let at = 0;
   while (at < line.length) {
     const char = line.charAt(at);
@@ -36757,6 +36784,7 @@ function diagramFailures(diagram) {
   lines.slice(start + 1).forEach((raw, index2) => {
     const line = raw.trim();
     const number5 = start + index2 + 2;
+    if (line.includes("%%{")) failures.push(`line ${String(number5)} holds a directive, %%{, which changes how Mermaid draws the diagram`);
     if (line === "" || line.startsWith("%%")) return;
     if (kind === "flowchart") {
       failures.push(...flowchartLineFailures(line, number5));
@@ -36991,7 +37019,7 @@ function writerTask(state, input2) {
   const review2 = requireReview2(state);
   const ids2 = findingsToExplain(review2);
   const clean = (text3) => inlineText(publicWords(text3, input2.machine).text);
-  const quote = (text3, info = "") => publicWords(fenced(text3, info), input2.machine).text;
+  const quote = (text3, info = "") => fenced(publicCode(text3, input2.machine).text, info);
   const numbers = findingNumbers(review2);
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked2 = rankedFindings(review2);
@@ -37024,7 +37052,7 @@ function writerTask(state, input2) {
     "Return `conclusion`, `account` and `findings` as your role prompt defines them."
   ].join("\n");
 }
-var writerOutputShape, explanationShape, explainedFindingSchema, unexplainedFindingSchema, recordedAnswerSchema, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId, sequenceLabelled, diagramFailuresOf, repositoryPath2, sideWords, maxPartFailures, keptAny, partNameOf, writerFailures;
+var writerOutputShape, explanationShape, explainedFindingSchema, unexplainedFindingSchema, recordedAnswerSchema, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId, edgeText, sequenceLabelled, diagramFailuresOf, repositoryPath2, sideWords, maxPartFailures, keptAny, partNameOf, writerFailures;
 var init_explanation = __esm({
   "src/review/explanation.ts"() {
     "use strict";
@@ -37061,9 +37089,10 @@ var init_explanation = __esm({
     flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
     shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
     nodeId = /^[\p{L}\p{N}_]+/u;
+    edgeText = /(?<![-=.<])<?(?:--|==|-\.)(?![-=.>])(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
     sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
     diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
-    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
+    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
     sideWords = { head: "the head", base: "the merge base" };
     maxPartFailures = 100;
     keptAny = (merged) => merged.answer.conclusion !== null || merged.answer.account !== null || merged.answer.findings.length > 0;
@@ -38043,7 +38072,7 @@ var init_report = __esm({
 
 // src/review/report-copy.ts
 import { existsSync as existsSync9, mkdirSync as mkdirSync10, rmSync as rmSync10 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
+import { homedir as homedir4 } from "node:os";
 import { dirname as dirname5, join as join30 } from "node:path";
 function reportCopyPath(checkpointRoot, state) {
   return join30(checkpointRoot, reportsDirectoryName, `${state.createdAt.slice(0, 10)}-${shortRunId(state.id)}.md`);
@@ -38064,7 +38093,7 @@ function reportInputOf(checkpoint, state, context) {
     statistics,
     budgetCheck,
     store: checkpoint.evidence.root,
-    home: context.home ?? homedir3(),
+    home: context.home ?? homedir4(),
     ...review2.fix === null ? {} : { fix: { patches: review2.report.patches, continueCommand: continuing } }
   };
 }
@@ -38118,7 +38147,7 @@ var init_report_copy = __esm({
 
 // src/review/controller.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { homedir as homedir4 } from "node:os";
+import { homedir as homedir5 } from "node:os";
 import { dirname as dirname6, join as join31 } from "node:path";
 function pathDifferenceWords(difference) {
   return [
@@ -38138,6 +38167,9 @@ function refusingGitHub(read, unreadable = null) {
     throw error62;
   }
 }
+function requireCleanTree(worktree, facts) {
+  if (status(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+}
 function resolvePullRequestScope(worktree, named, gh) {
   const name = named.pullRequest;
   const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
@@ -38146,7 +38178,7 @@ function resolvePullRequestScope(worktree, named, gh) {
     if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${facts.merged ? "merged" : "closed"}, and deep-review reviews an open pull request only`);
     const head2 = head(worktree);
     if (head2 !== facts.head) throw new ReviewRefusedError(`HEAD is ${head2}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
-    if (status(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${words} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+    requireCleanTree(worktree, facts);
     const mergeBase2 = readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
     if (!hasCommit(worktree, mergeBase2)) {
       throw new ReviewRefusedError(`the clone does not hold ${mergeBase2}, the merge base GitHub gives for ${words} with its base branch ${facts.baseRef}; fetch the history down to it, such as \`git fetch --unshallow\` in a shallow clone, and run the command again`);
@@ -38643,7 +38675,7 @@ async function runReview(options2) {
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
           const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options2.rolesRoot), stoppedSpend);
           const fix = state.review.fix === null ? {} : { fix: { patches, continueCommand: continuing } };
-          const text3 = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options2.home ?? homedir4(), ...fix });
+          const text3 = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options2.home ?? homedir5(), ...fix });
           const report2 = checkpoint.evidence.put(text3);
           state = append(checkpoint, state, [
             // A run that skips a phase has no row of it, so it needs no version that names it.
@@ -38793,6 +38825,7 @@ async function openRun(context) {
     if (pullRequest !== null) {
       const head2 = head(context.worktree);
       if (head2 !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head2} since ${pullRequestWords(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
+      requireCleanTree(context.worktree, pullRequest.facts);
     }
     let configure2 = null;
     let capture = null;
@@ -39711,18 +39744,18 @@ function speakerOf(machine) {
     secrets += cleaned2.secrets;
     return cleaned2.text;
   };
-  const prose = (text3) => counted3(publicProse(text3, machine));
+  const prose = (text3) => counted3(publicProse(inlineText(text3).trim(), machine));
   return {
-    words: (text3) => inlineText(counted3(publicWords(text3, machine))).trim(),
-    prose: (text3) => inlineText(prose(text3)).trim(),
-    paragraphs: (text3) => prose(text3).split(/\r?\n[ \t]*\r?\n/).map(paragraphText).filter((paragraph) => paragraph.trim() !== ""),
-    code: (text3) => counted3(publicWords(codeSpan(inlineText(text3)), machine)),
+    words: (text3) => counted3(publicWords(inlineText(text3).trim(), machine)),
+    prose,
+    paragraphs: (text3) => text3.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== "").map(paragraphText),
+    code: (text3) => codeSpan(counted3(publicCode(inlineText(text3), machine))),
     diagram: (text3) => {
-      const body = text3.replace(/\s+$/, "");
+      const body = counted3(publicCode(text3.replace(/\s+$/, ""), machine));
       const fence = fenceFor(body);
-      return counted3(publicProse(`${fence}mermaid
+      return `${fence}mermaid
 ${body}
-${fence}`, machine));
+${fence}`;
     },
     secrets: () => secrets
   };
@@ -39914,7 +39947,7 @@ function accountLines(context, account, say, cuts) {
 function statusSection(context) {
   return { part: "status", lines: [context.words.statusLine(codeSpan(shortCommit(context.scope.head)), context.brief.status)] };
 }
-function gapsSection(context) {
+function gapsSection(context, say) {
   const { words, brief, recorded } = context;
   const gaps = brief.notExamined;
   const numberOf = (id) => brief.numbers.get(id);
@@ -39935,7 +39968,7 @@ function gapsSection(context) {
       words.gapsHeading,
       "",
       gaps.length === 0 ? `${words.noCheck} ${words.allExamined}` : words.noCheck,
-      ...gaps.length === 0 ? [] : ["", words.gapsLead, "", ...gaps.map((gap) => `- ${gap.text}`)],
+      ...gaps.length === 0 ? [] : ["", words.gapsLead, "", ...gaps.map((gap) => `- ${say.words(gap.text)}`)],
       ...notes.flatMap((note) => ["", note])
     ]
   };
@@ -40050,7 +40083,7 @@ function renderBody(context, cuts) {
     conclusionSection(context, say),
     changeSection2(context, say, cuts),
     statusSection(context),
-    gapsSection(context),
+    gapsSection(context, say),
     tableSection(context, say, cuts),
     inFullSection(context, say),
     leftSection(context, say, cuts),
@@ -40291,15 +40324,15 @@ function settleFailure(error62, run2, prepared) {
   if (kind === "missing" || kind === "no-account") return new ReviewRefusedError(`${error62.message}; the publication ${prepared.marker} of run ${run2.id}, which a stop left open, stays open until publish can read the reviews of the pull request`);
   return new PublicationOpenError(`run ${run2.id}: the publication ${prepared.marker}, which a stop left open, is not settled, since ${error62.message}; nothing is recorded, and deep-review publish looks for its review again`);
 }
-function refusingGitHub2(target, read) {
+function refusingGitHub2(target, read, unrecorded2) {
   try {
     return read();
   } catch (error62) {
-    if (error62 instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error62.message}; nothing was posted or recorded`);
+    if (error62 instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error62.message}; ${unrecorded2}`);
     if (!(error62 instanceof GitHubCallError)) throw error62;
     const { failure: failure2 } = error62;
     if (failure2.kind === "answer" && (failure2.status === 401 || failure2.status === 404)) throw new ReviewRefusedError(`${error62.message}; ${accountAction(target.host)} with an account that can read ${pullRequestWords3(target)}`);
-    if (failure2.kind === "answer" || failure2.kind === "missing" || failure2.kind === "no-account") throw new ReviewRefusedError(`${error62.message}; nothing was posted or recorded`);
+    if (failure2.kind === "answer" || failure2.kind === "missing" || failure2.kind === "no-account") throw new ReviewRefusedError(`${error62.message}; ${unrecorded2}`);
     throw error62;
   }
 }
@@ -40313,16 +40346,16 @@ function whyNotPostable(run2) {
   if (scope.request.paths.length > 0) return `run ${run2.id} reviewed only the paths --path named (${scope.request.paths.join(", ")}), so its review could not say what it left out of the pull request; review the whole pull request with deep-review review --pr ${String(scope.pullRequest.number)}`;
   return null;
 }
-function requireUnmoved(gh, run2) {
+function requireUnmoved(gh, run2, unrecorded2) {
   const scope = run2.scope;
   const target = targetOf(run2);
   const words = pullRequestWords3(target);
-  const facts = refusingGitHub2(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }));
-  if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${facts.merged ? "merged" : "closed"}, and deep-review posts to an open pull request only; nothing was posted or recorded`);
+  const facts = refusingGitHub2(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }), unrecorded2);
+  if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${facts.merged ? "merged" : "closed"}, and deep-review posts to an open pull request only; ${unrecorded2}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run2.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
-  const mergeBase2 = refusingGitHub2(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head));
+  const mergeBase2 = refusingGitHub2(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded2);
   if (mergeBase2 !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase2} now, not ${scope.base}, the base run ${run2.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
@@ -40382,6 +40415,7 @@ function publishLocked(options2, runId, log) {
   let gh = null;
   const ghOf = () => gh ??= options2.gh(run2);
   const notes = [];
+  let settled4 = null;
   const open2 = run2.publications.at(-1);
   if (open2?.status === "prepared") {
     const { prepared: prepared2 } = open2;
@@ -40403,6 +40437,7 @@ function publishLocked(options2, runId, log) {
     if (dryRun) notes.push(`${line}; the next deep-review publish records it as not found and posts the review below.`);
     else {
       run2 = checkpoint.append(run2.id, run2.lastSequence, [{ kind: "publish.dropped", version: 1, payload: { marker: prepared2.marker, reason: "not-found" } }]);
+      settled4 = prepared2.marker;
       log(`${line}; it is recorded as not found, and the review is posted now`);
     }
   }
@@ -40411,9 +40446,10 @@ function publishLocked(options2, runId, log) {
   const why = whyNotPostable(run2);
   if (why !== null) throw new ReviewRefusedError(why);
   const target = targetOf(run2);
-  const changedFiles = requireUnmoved(ghOf(), run2);
+  const unrecorded2 = unrecordedWords(settled4);
+  const changedFiles = requireUnmoved(ghOf(), run2, unrecorded2);
   const scope = run2.scope;
-  const files = refusingGitHub2(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }));
+  const files = refusingGitHub2(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }), unrecorded2);
   const placements = placeFindings(run2.review, files);
   const lines = gitLineCounts(options2.worktree, scope);
   const serial = run2.publications.length + 1;
@@ -40426,7 +40462,7 @@ function publishLocked(options2, runId, log) {
     engine: checkpoint.engine,
     serial
   });
-  if (form.kind === "refused") throw new ReviewRefusedError(`${formRefusalWords(form)}; nothing was posted or recorded, and the report of the run holds all of it`);
+  if (form.kind === "refused") throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded2}, and the report of the run holds all of it`);
   if (dryRun) return { kind: "dry-run", runId: run2.id, lines: dryRunLines(run2, placements, form, notes) };
   if (form.cuts.length > 0) log(`run ${run2.id}: the body of the review is cut to fit: ${form.cuts.map((cut) => cutWords[cut]).join(", then ")}; the report of the run holds all of it`);
   const review2 = { commit: scope.head, body: form.body, comments: form.comments.map(({ path, line, body }) => ({ path, line, body })) };
@@ -40464,7 +40500,7 @@ function publishLocked(options2, runId, log) {
   if (posted.comments.length !== form.comments.length) log(`run ${run2.id}: the review has ${counted(posted.comments.length, "comment", "comments")} that carry the marker of a finding, of the ${String(form.comments.length)} posted`);
   return { kind: "posted", runId: run2.id, url: made.url, how: "posted", comments: posted.comments.length };
 }
-var targetOf, pullRequestWords3, cutWords, recordedMessage;
+var targetOf, pullRequestWords3, unrecordedWords, cutWords, recordedMessage;
 var init_publish = __esm({
   "src/review/publish.ts"() {
     "use strict";
@@ -40488,6 +40524,7 @@ var init_publish = __esm({
       return { host, owner, repository, number: number5 };
     };
     pullRequestWords3 = (target) => `pull request #${String(target.number)} of ${target.owner}/${target.repository}`;
+    unrecordedWords = (settled4) => settled4 === null ? "nothing was posted or recorded" : `nothing was posted, and only that no review carries the publication ${settled4}, which a stop left open, was recorded`;
     cutWords = {
       "account-diagrams": "the diagrams of the account of the pull request",
       account: "the account of the pull request",
