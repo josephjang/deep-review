@@ -183,6 +183,65 @@ describe('the cleaning of what the review posts (R11)', () => {
     assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
     assert.equal(lastLine(form.comments[0]!.body), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
   });
+
+  describe('keeps code that the form puts on one line or splits into paragraphs from turning into live text', () => {
+    /** The form of a run whose fix's reason, a worker's words, is `reason`, and whose writer's answer `said` changes. */
+    const formWith = (reason: string, say: (said: ReturnType<typeof writerAnswer>) => void = () => undefined): PullRequestForm => {
+      const history = rewritten(run(), (kind, payload) => (kind === 'ranking.recorded'
+        ? { ...payload, findings: (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, reason } : finding)) }
+        : undefined));
+      const said = writerAnswer();
+      say(said);
+      return formOf(history.fold(), said);
+    };
+    /** Each `<!--` that a backslash does not escape, which hides what follows it up to the next `-->`. */
+    const commentOpeners = (text: string): number => text.match(/(?<!\\)<!--/g)?.length ?? 0;
+    const markedLast = (form: PullRequestForm): void => {
+      assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
+      assert.equal(commentOpeners(form.body), 1, 'the marker is the body\'s only comment');
+      assert.equal(lastLine(form.comments[0]!.body), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
+      assert.equal(commentOpeners(form.comments[0]!.body), 1, 'the marker is the comment\'s only comment');
+    };
+
+    it('a worker\'s fenced block, which the form joins onto one line', () => {
+      const form = formWith('~~~\n@octocat #12 <img src=x>\n~~~');
+      includes(form.comments[0]!.body, '- Reason: ~~~ `@octocat` `#12` \\<img src=x> ~~~\n');
+      markedLast(form);
+    });
+
+    it('a worker\'s fence of three backticks that four close', () => {
+      const form = formWith('```\n@octocat\n````');
+      includes(form.comments[0]!.body, '- Reason: \\`\\`\\` `@octocat` \\`\\`\\`\\`\n');
+      markedLast(form);
+    });
+
+    it('a writer\'s code block at the start of a paragraph, which stays code on its one line', () => {
+      const form = formWith('r', (said) => {
+        (said.findings[0] as ExplainedFinding).problem = '```ts\n@Injectable() class X {} // see #12\n```';
+      });
+      includes(form.comments[0]!.body, '\n\n```ts @Injectable() class X {} // see #12 ```\n\n');
+      markedLast(form);
+    });
+
+    it('a fence split at a blank line, whose second paragraph would open an HTML comment that hides the rest of the review', () => {
+      const form = formWith('~~~\nx\n\n<!--\n~~~', (said) => {
+        said.conclusion.why = '~~~\nx\n\n<!--\n~~~';
+        (said.findings[0] as ExplainedFinding).problem = '~~~\nx\n\n<!--\n~~~';
+      });
+      includes(form.body, '\n\n\\~~~ x\n\n\\<!-- ~~~\n\n');
+      includes(form.comments[0]!.body, '\n\n\\~~~ x\n\n\\<!-- ~~~\n\n');
+      includes(form.comments[0]!.body, '- Reason: ~~~ x \\<!-- ~~~\n');
+      markedLast(form);
+    });
+
+    it('a diagram whose cleaned places join two runs of backticks into a line that would close a fence chosen before', () => {
+      const form = formWith('r', (said) => {
+        said.conclusion.diagram = 'flowchart LR\n  A["a"]\n``/w/``\n  B["@octocat"]';
+      });
+      includes(form.body, '\n\n`````mermaid\nflowchart LR\n  A["a"]\n````\n  B["@octocat"]\n`````\n\n');
+      markedLast(form);
+    });
+  });
 });
 
 describe('the fit of the review (R12)', () => {

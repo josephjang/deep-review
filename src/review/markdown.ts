@@ -102,12 +102,16 @@ export const sentenceText = (text: string): string => {
  * them would open a code block), and with a leading character that would
  * open a block escaped: a heading, quote, list item, table row, fence or
  * setext underline. An ordered list marker such as `1.` has its
- * punctuation escaped, since a backslash before a digit is no escape.
+ * punctuation escaped, since a backslash before a digit is no escape. A
+ * leading backtick is escaped only when it opens a fence, a run of three
+ * or more with no backtick after it on the line: any other opens a code
+ * span or is text, and its escape would end the span and turn its code
+ * into Markdown.
  */
 export function paragraphText(text: string): string {
   const line = inlineText(text).trimStart();
   if (/^\d{1,9}[.)]/.test(line)) return line.replace(/^(\d{1,9})([.)])/, '$1\\$2');
-  return /^[#>*+\-=|`~]/.test(line) ? `\\${line}` : line;
+  return /^(?:[#>*+\-=|~]|`{3,}[^`]*$)/.test(line) ? `\\${line}` : line;
 }
 
 /**
