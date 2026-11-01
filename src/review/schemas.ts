@@ -199,6 +199,57 @@ export const deciderOutputSchema = z.strictObject({
 });
 export type DeciderOutput = z.infer<typeof deciderOutputSchema>;
 
+/**
+ * The sides a case of the writer cites lines at (PD11 of the review on the
+ * pull request): the head, or the merge base for lines the change removed.
+ */
+export const citedSides = ['head', 'base'] as const;
+export type CitedSide = (typeof citedSides)[number];
+
+/** A text of the writer's: the schema holds its length only, and `checkAnswer` in explanation.ts holds an empty one to its part, so one empty text never costs the whole answer. */
+const writerText = (max: number) => z.string().max(max);
+/** A diagram of the writer's, its Mermaid text without a fence, or null where the flow is short to say. */
+const writerDiagram = z.string().max(8000).nullable();
+
+/**
+ * What the writer returns (R18, R19 of the review on the pull request):
+ * the conclusion, with its why, a sentence for each action by the id of
+ * its finding and a diagram; the account of the pull request, with its
+ * terms, the problem before the change and the change, each with a
+ * diagram; and for each finding the task lists, its explanation, whose
+ * every case cites one range of lines at a side, or the reason it is
+ * unexplained, the other null. The ranges are numbers as the writer gives
+ * them, and the ids text: `checkAnswer` holds each to the run, part by
+ * part, so a part that fails a check is given again or dropped alone.
+ */
+export const writerOutputSchema = z.strictObject({
+  conclusion: z.strictObject({
+    why: writerText(2000),
+    actions: z.array(z.strictObject({ id: writerText(200), sentence: writerText(800) })).max(200),
+    diagram: writerDiagram,
+  }),
+  account: z.strictObject({
+    terms: z.array(z.strictObject({ term: writerText(200), meaning: writerText(800) })).max(40),
+    problem: z.strictObject({ text: writerText(4000), diagram: writerDiagram }),
+    change: z.strictObject({ text: writerText(4000), diagram: writerDiagram }),
+  }),
+  findings: z.array(z.strictObject({
+    id: writerText(200),
+    explanation: z.strictObject({
+      title: writerText(400),
+      problem: writerText(2000),
+      cases: z.array(z.strictObject({
+        sentence: writerText(800),
+        lines: z.strictObject({ side: z.enum(citedSides), path: writerText(1000), from: z.number().int(), to: z.number().int() }),
+      })).max(12),
+      diagram: writerDiagram,
+      decision: writerText(2000),
+    }).nullable(),
+    unexplained: writerText(1000).nullable(),
+  })).max(200),
+});
+export type WriterOutput = z.infer<typeof writerOutputSchema>;
+
 /** A repository path as a fixer reports it; the engine resolves it against the worktree. */
 const reportedPath = z.string().min(1).max(1000);
 
@@ -378,6 +429,8 @@ export function outputSchemaOf(role: ReviewRole): z.ZodType {
       return mergeRankOutputSchema;
     case 'decider':
       return deciderOutputSchema;
+    case 'writer':
+      return writerOutputSchema;
     case 'fixer':
     case 'documentation':
       return fixerOutputSchema;
