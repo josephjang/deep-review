@@ -171,6 +171,12 @@ describe('the rules of a diagram GitHub draws (R19)', () => {
     assert.deepEqual(diagramFailures(''), ['it starts with nothing, not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
   });
 
+  it('refuses a directive after the first line, as a line of its own or in a label, and keeps a comment', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  %%{init: {"securityLevel": "loose"}}%%\n  A["a"]'), ['line 2 holds a directive, %%{, which changes how Mermaid draws the diagram']);
+    assert.deepEqual(diagramFailures('sequenceDiagram\n  A->>B: %%{init: {}}%%'), ['line 2 holds a directive, %%{, which changes how Mermaid draws the diagram']);
+    assert.deepEqual(diagramFailures('stateDiagram-v2\n  %% a comment\n  [*] --> Open'), []);
+  });
+
   it('refuses the unquoted label of a node of a flowchart, whatever its shape', () => {
     assert.deepEqual(diagramFailures('flowchart LR\n  A[parse] --> B("ok")'), ['the label of node A on line 2 is not quoted']);
     assert.deepEqual(diagramFailures('flowchart LR\n  A{guard?} --> B((done))\n  노드[읽기]'), ['the label of node A on line 2 is not quoted', 'the label of node B on line 2 is not quoted', 'the label of node 노드 on line 3 is not quoted']);
@@ -183,6 +189,13 @@ describe('the rules of a diagram GitHub draws (R19)', () => {
       'the label on line 2 holds a semicolon',
       'the label on line 3 holds the HTML entity &#59;',
     ]);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A -- a;b --> B\n  B -. a &amp; b .-> C\n  C == x;y ==> D\n  D <-- p &lt; q --- E'), [
+      'the text of an edge on line 2 holds a semicolon',
+      'the text of an edge on line 3 holds the HTML entity &amp;',
+      'the text of an edge on line 4 holds a semicolon',
+      'the text of an edge on line 5 holds the HTML entity &lt;',
+    ]);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["a"] --> B["b"]; B --- C["c"]; C -.-> D["d"]; D ==> E["e"]; E -- "t" --> F["f"]; F == ok ==> G["g"]'), [], 'a semicolon that ends a statement, and an edge whose text holds none');
     assert.deepEqual(diagramFailures('sequenceDiagram\n  A->>B: read; then parse\n  Note over A: a &amp; b'), [
       'the text after the colon on line 2 holds a semicolon',
       'the text after the colon on line 3 holds the HTML entity &amp;',
