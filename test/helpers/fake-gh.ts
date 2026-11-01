@@ -10,8 +10,12 @@
 // line on stderr. A call that no step answers exits 1 with no answer.
 // Every call appends a line of JSON to `<FAKE_GH_SCRIPT>.calls` with its
 // arguments and its stdin (FakeGhCall), before it answers, and the steps
-// taken are listed in `<FAKE_GH_SCRIPT>.taken`. fakeGhWith gives a test a
-// `gh` that runs it under a script of its own.
+// taken are listed in `<FAKE_GH_SCRIPT>.taken`. A step marked `held`
+// answers from the reviews the stand-in holds, in `<FAKE_GH_SCRIPT>.held`,
+// as GitHub holds what is posted to it: a post of a review is held and
+// answered with it, and a list of the reviews of a pull request or of the
+// comments of one review is answered with what is held. fakeGhWith gives a
+// test a `gh` that runs it under a script of its own.
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -32,19 +36,46 @@ export interface FakeGhPage {
 /**
  * A step of the script: the call it answers, by its method, GET when
  * absent, and its endpoint as the engine wrote it; and how it answers:
- * with `pages`; with `noAccount`, as gh does with no account for the host,
- * exit 4 and no answer; or with `hang`, never ending. With `stop`, the step
- * ends the process that started the stand-in with SIGKILL, `before` it
- * logs the call and answers, as a stop before the call does, or `after`,
- * as a stop after GitHub took it does, and writes `<FAKE_GH_SCRIPT>.stopped`.
+ * with `pages`; with `held`, from the reviews the stand-in holds (see the
+ * top of this file), or with `pages` once it holds a post; with `noAccount`, as gh does with no account for the
+ * host, exit 4 and no answer; or with `hang`, never ending. With `stop`,
+ * the step ends the process that started the stand-in with SIGKILL,
+ * `before` it logs the call and answers, as a stop before the call does,
+ * or `after`, as a stop after GitHub took it does, and writes
+ * `<FAKE_GH_SCRIPT>.stopped`.
  */
 export interface FakeGhStep {
   readonly method?: string;
   readonly endpoint: string;
   readonly pages?: readonly FakeGhPage[];
+  readonly held?: boolean;
   readonly noAccount?: boolean;
   readonly hang?: boolean;
   readonly stop?: 'before' | 'after';
+}
+
+/** A comment of a review the stand-in holds. */
+export interface HeldComment {
+  readonly id: number;
+  readonly path: string;
+  readonly line: number;
+  readonly body: string;
+}
+
+/** A review the stand-in holds: its id, from 1 in the order of the posts, the pull request's endpoint it was posted to, and what was posted. */
+export interface HeldReview {
+  readonly id: number;
+  readonly pull: string;
+  readonly commit: string;
+  readonly event: string;
+  readonly body: string;
+  readonly comments: readonly HeldComment[];
+}
+
+/** The reviews the stand-in under `script` holds, in the order they were posted. */
+export function fakeGhHeld(script: string): HeldReview[] {
+  const file = `${script}.held`;
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as HeldReview[]) : [];
 }
 
 /** A call as the stand-in logged it. */
@@ -117,6 +148,38 @@ function printed(page: FakeGhPage, include: boolean): string {
   return `HTTP/2.0 ${String(status)} ${reasons[status] ?? ''}\n${lines.join('')}\r\n${body}`;
 }
 
+/** The URL GitHub gives what `pull`, `repos/<owner>/<repo>/pulls/<n>`, holds on `host`, with `anchor`. */
+const heldUrl = (host: string, pull: string, anchor: string): string => `https://${host}/${pull.replace(/^repos\//, '').replace('/pulls/', '/pull/')}#${anchor}`;
+
+/**
+ * The page a `held` step answers `endpoint` with, from what the stand-in
+ * under `script` holds: a post to `<pull>/reviews` is held, with its
+ * comments, and answered with the review; `<pull>/reviews?...` lists the
+ * reviews held for `<pull>`, and `<pull>/reviews/<id>/comments?...` the
+ * comments of one, as GitHub lists them.
+ */
+function heldPage(script: string, method: string, endpoint: string, host: string, stdin: string): FakeGhPage {
+  const held = fakeGhHeld(script);
+  const review = (entry: HeldReview): unknown => ({ id: entry.id, html_url: heldUrl(host, entry.pull, `pullrequestreview-${String(entry.id)}`), body: entry.body });
+  const post = /^(repos\/[^/]+\/[^/]+\/pulls\/\d+)\/reviews$/.exec(endpoint);
+  if (method === 'POST' && post !== null) {
+    const input = JSON.parse(stdin) as { commit_id: string; body: string; event: string; comments: { path: string; line: number; body: string }[] };
+    const id = held.length + 1;
+    const entry: HeldReview = { id, pull: post[1]!, commit: input.commit_id, event: input.event, body: input.body, comments: input.comments.map((comment, index) => ({ id: id * 1000 + index + 1, path: comment.path, line: comment.line, body: comment.body })) };
+    writeFileSync(`${script}.held`, JSON.stringify([...held, entry]));
+    return { body: review(entry) };
+  }
+  const comments = /^(repos\/[^/]+\/[^/]+\/pulls\/\d+)\/reviews\/(\d+)\/comments(?:\?.*)?$/.exec(endpoint);
+  if (comments !== null) {
+    const entry = held.find((candidate) => candidate.pull === comments[1] && candidate.id === Number(comments[2]));
+    if (entry === undefined) return { status: 404, body: { message: 'Not Found' } };
+    return { body: entry.comments.map((comment) => ({ id: comment.id, html_url: heldUrl(host, entry.pull, `discussion_r${String(comment.id)}`), body: comment.body })) };
+  }
+  const reviews = /^(repos\/[^/]+\/[^/]+\/pulls\/\d+)\/reviews(?:\?.*)?$/.exec(endpoint);
+  if (reviews !== null) return { body: held.filter((entry) => entry.pull === reviews[1]).map(review) };
+  return { status: 404, body: { message: `fake-gh holds nothing at ${endpoint}` } };
+}
+
 /** End the process that started this one, and this one, after writing the `stopped` marker. */
 function stopParent(script: string): never {
   writeFileSync(`${script}.stopped`, '');
@@ -155,7 +218,9 @@ function main(): number {
     process.stderr.write('To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.\n');
     return 4;
   }
-  const pages = step.pages ?? [{}];
+  // A held step answers with what it holds, or with its own pages once it holds a post, as GitHub that made a review and answered 502 does.
+  const held = step.held === true ? heldPage(script, method, endpoint!, option(args, '--hostname') ?? 'github.com', stdin) : null;
+  const pages = step.pages ?? (held === null ? [{}] : [held]);
   const shown = args.includes('--paginate') ? pages : pages.slice(0, 1);
   const include = args.includes('--include') || args.includes('-i');
   process.stdout.write(shown.map((page) => printed(page, include)).join('\n'));
