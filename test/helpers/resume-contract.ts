@@ -17,7 +17,10 @@
  * typecheck that fails before the fixes, after them and on the base, so
  * the phase `base-checks` makes a worktree of the base, runs build and
  * typecheck there and removes it, and the repair compares the failures
- * (R11 of the facts before a merge).
+ * (R11 of the facts before a merge). The scenario of a pull request is a
+ * read-only run of `review --pr`, whose change the stand-in for `gh` gives
+ * at its first command, and which ends with the writer's explanation (R18,
+ * "A stop" of the design of the review on the pull request).
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -29,6 +32,7 @@ import { baseLockReason } from '../../src/review/checks/base.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { checkKinds, repairUnitKey } from '../../src/review/vocabulary.ts';
+import { fakeGh, writeFakeGhScript, type FakeGhStep } from './fake-gh.ts';
 import { fixerAnswer, type Script } from './fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from './fix-pass-fixture.ts';
 import { git } from './git.ts';
@@ -113,11 +117,12 @@ export const contractScript: Script = {
 /** The rules of the stand-in checks: lint removes the line c1's fixer leaves, and every check passes. */
 export const contractChecks = { lint: { replace: { 'src/a.ts': { from: unformatted, to: '' } } } };
 
-/** A run of the contract: the script of the fakes and the rules of the stand-in checks. */
+/** A run of the contract: the script of the fakes and the rules of the stand-in checks, and whether it is the read-only run of a pull request rather than a fix run of the last commit. */
 export interface Scenario {
   readonly name: string;
   readonly script: Script;
   readonly checks: Readonly<Record<string, unknown>>;
+  readonly pullRequest?: boolean;
 }
 
 /** The scenario of the fix pass: every check passes before the fixes, so no check runs on the base. */
@@ -138,8 +143,37 @@ export const baseScenario: Scenario = {
   checks: { ...contractChecks, typecheck: 'fail' },
 };
 
+/**
+ * The scenario of a pull request (R18 of the review on the pull request):
+ * `review --pr 42`, read-only, of the change of the fix pass, which the
+ * decider decides to fix twice, so the writer explains two findings, and
+ * marks each unexplained, as the fake writer does.
+ */
+export const pullRequestScenario: Scenario = { name: 'pull-request', script: reviewScript, checks: {}, pullRequest: true };
+
 /** The scenarios the contract runs, each with its own run with no stop. */
-export const scenarios: readonly Scenario[] = [fixScenario, baseScenario];
+export const scenarios: readonly Scenario[] = [fixScenario, baseScenario, pullRequestScenario];
+
+/** The number of the pull request the scenario of a pull request reviews. */
+const pullRequestNumber = 42;
+
+/** What the stand-in for `gh` answers for the pull request whose change is the last commit of `repo`: the pull request, the head of its base branch, the merge base and its files, the change of every scenario with the file no finding names. */
+function pullRequestSteps(repo: string): FakeGhStep[] {
+  const head = git(repo, 'rev-parse', 'HEAD');
+  const baseHead = 'd'.repeat(40);
+  const files = [
+    { filename: 'src/a.ts', status: 'modified', patch: '@@ -1,3 +1,7 @@' },
+    { filename: 'src/b.ts', status: 'added', patch: '@@ -0,0 +1 @@' },
+    { filename: personFile, status: 'added', patch: '@@ -0,0 +1 @@' },
+    { filename: 'src/gone.ts', status: 'removed', patch: '@@ -1 +0,0 @@' },
+  ];
+  return [
+    { endpoint: `repos/{owner}/{repo}/pulls/${String(pullRequestNumber)}`, pages: [{ body: { html_url: `https://github.com/acme/widgets/pull/${String(pullRequestNumber)}`, number: pullRequestNumber, state: 'open', merged: false, head: { sha: head }, base: { ref: 'main' }, changed_files: files.length, title: 'Parse with a guard', body: 'Why the parser needs a guard.' } }] },
+    { endpoint: 'repos/acme/widgets/git/ref/heads/main', pages: [{ body: { object: { sha: baseHead } } }] },
+    { endpoint: `repos/acme/widgets/compare/${baseHead}...${head}`, pages: [{ body: { merge_base_commit: { sha: git(repo, 'rev-parse', 'HEAD~1') } } }] },
+    { endpoint: `repos/acme/widgets/pulls/${String(pullRequestNumber)}/files?per_page=100`, pages: [{ body: files }] },
+  ];
+}
 
 /** What a command the helper ran did. */
 export interface Ran {
@@ -169,6 +203,8 @@ export interface Outcome {
   readonly cited: readonly string[];
   /** The worktrees of the base the run left: each entry git lists locked with the run's reason, and each directory of one under the scratch directory. */
   readonly baseTrees: readonly string[];
+  /** The explanation the run recorded (R18 of the review on the pull request): who recorded it, the writer or the engine, and each part it dropped and each finding it marks unexplained; none for a run that does not explain its review. */
+  readonly explanation: readonly string[];
   /** The bytes of each file of the change and of each file a fixer writes. */
   readonly files: Readonly<Record<string, string | null>>;
 }
@@ -182,8 +218,12 @@ export class ContractSandbox {
   readonly startDirectory: string;
   /** The temporary directory of the engine, so its scratch lives and is removed with the sandbox. */
   readonly temporary: string;
+  /** The script of the stand-in for `gh`, for the scenario of a pull request; null for the others. */
+  readonly ghScript: string | null;
+  readonly scenario: Scenario;
 
   constructor(scenario: Scenario) {
+    this.scenario = scenario;
     this.box = new ReviewSandbox();
     // A file of the change no finding names, so no cluster owns it.
     write(this.box.repo, personFile, personFileText);
@@ -195,6 +235,8 @@ export class ContractSandbox {
     this.startDirectory = join(this.box.directory, 'start');
     this.temporary = join(this.box.directory, 'tmp');
     for (const directory of [this.stopDirectory, this.startDirectory, this.temporary]) mkdirSync(directory);
+    this.ghScript = scenario.pullRequest === true ? join(this.box.directory, 'gh.json') : null;
+    if (this.ghScript !== null) writeFakeGhScript(this.ghScript, pullRequestSteps(this.box.repo));
   }
 
   close(): void {
@@ -216,15 +258,17 @@ export class ContractSandbox {
       FAKE_SCRIPT: this.box.scriptFile,
       FAKE_CHECKS: this.box.checksFile,
       FAKE_START_DIR: this.startDirectory,
+      ...(this.ghScript === null ? {} : { FAKE_GH_SCRIPT: this.ghScript }),
       ...more,
     };
   }
 
-  /** The arguments of `review --fix`, the same for every command of the run. */
+  /** The arguments of `review --fix`, or of `review --pr` with the stand-in for `gh` in the scenario of a pull request, the same for every command of the run. */
   reviewArgs(): string[] {
     const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
+    const scope = this.scenario.pullRequest === true ? ['--pr', String(pullRequestNumber), '--set', `github.executable=${JSON.stringify(process.execPath)}`, '--set', `github.args=[${JSON.stringify(fakeGh)}]`] : ['--last-commit', '--fix', ...checks];
     // One worker at a time, so a stop meets the same workers in flight in every run, and they end in the same order.
-    return ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', this.box.rolesRoot, '--last-commit', '--fix', '--concurrency', '1', ...checks];
+    return ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', this.box.rolesRoot, '--concurrency', '1', ...scope];
   }
 
   /** Start the command line with `args`, with the preload when `preload` gives its variables. On POSIX it leads a process group of its own, which a tree kill addresses. */
@@ -268,7 +312,9 @@ export class ContractSandbox {
     const verdictRuns = Object.values(review.candidates).flatMap((candidate) => (candidate.verdict?.runs ?? []).map((run) => [candidate.id, candidate.verdict!.basis, run.at, run.exitCode, run.printed.join(' / '), run.probe?.name ?? 'no probe', run.probe?.blob.sha256 ?? ''].map(String).join(' ')));
     const validationRuns = Object.values(fix?.answers ?? {}).flatMap((answers) => Object.values(answers).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation.flatMap((entry) => entry.runs.map((run) => [`${answer.phase}:${answer.key}`, finding.id, entry.method, run.command, run.found?.at ?? 'not found', run.found?.exitCode ?? null].map(String).join(' '))))));
     const cited = [...verdictRuns, ...validationRuns];
-    return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), files };
+    const recorded = state.explanation;
+    const explanation = recorded === null ? [] : [recorded.workerId === null ? 'recorded by the engine' : 'recorded from the writer', ...recorded.dropped.map((part) => `dropped ${part.part === 'finding' ? `finding ${part.finding}` : part.part}`), ...recorded.unexplained.map((id) => `unexplained ${id}`)];
+    return { ran, state, events, report, revised, checks, degraded, comparisons, cited, baseTrees: this.baseTrees(state.id), explanation, files };
   }
 
   /** The worktrees of the base the run `runId` left: the entries of `git worktree list` locked with its reason, and the directories of its worktrees of the base under the engine's scratch directory. */
@@ -517,10 +563,13 @@ export async function reference(scenario: Scenario = fixScenario): Promise<Refer
       counts.set(name, count);
       return `child ${name}#${String(count)}`;
     });
+    // A read-only run has nothing to commit.
+    const fix = outcome.state.review!.fix;
+    if (fix === null) return { outcome, steps: [...new Set(steps)], children, commits: [] };
     const committed = await sandbox.run(['commit']);
     assert.equal(committed.status, 0, committed.stderr);
     // One commit per revision of the run, newest first, as git log lists them.
-    const revisions = outcome.state.review!.fix!.revisions.length;
+    const revisions = fix.revisions.length;
     const commits = git(sandbox.box.repo, 'log', '--format=%s', `-${String(revisions)}`).split('\n');
     assert.equal(commits.length, revisions, 'commit made a commit per revision');
     return { outcome, steps: [...new Set(steps)], children, commits };
@@ -565,6 +614,8 @@ export function brokenParts(stopped: Stopped, expected: Reference): Map<Contract
   if (degraded.length > 0) falsehoods.push(`degraded ${degraded.join(', ')}`);
   const comparisons = outcome.comparisons.filter((comparison) => !expected.outcome.comparisons.includes(comparison));
   if (comparisons.length > 0) falsehoods.push(`comparisons with the base ${comparisons.join(', ')}`);
+  // A stop never drops a part of the explanation nor marks a finding unexplained that the run with no stop explains (R18 of the review on the pull request).
+  if (JSON.stringify(outcome.explanation) !== JSON.stringify(expected.outcome.explanation)) falsehoods.push(`the explanation ${outcome.explanation.join(', ')} where the run with no stop has ${expected.outcome.explanation.join(', ')}`);
   const cited = outcome.cited.filter((run) => !expected.outcome.cited.includes(run));
   if (cited.length > 0 || outcome.cited.length !== expected.outcome.cited.length) falsehoods.push(`cited runs ${outcome.cited.join(', ')} where the run with no stop cites ${expected.outcome.cited.join(', ')}`);
   const fix = outcome.state.review?.fix ?? null;
@@ -609,7 +660,8 @@ function firstDifference(actual: string, expected: string): string {
 
 /**
  * Every point of the reference: each step in the order of its first
- * record, each child start, and the two points of `commit`. The append of
+ * record, each child start, and the two points of `commit` after a fix
+ * run, which alone has something to commit. The append of
  * the report is not one: the run is complete after it, and a stop there
  * cuts no work (Risks of resumable runs). A point just before an append is
  * not one either: the point after the step before it stands for it, as
@@ -617,7 +669,8 @@ function firstDifference(actual: string, expected: string): string {
  * `base-checks`, which the fixed set of the contract names.
  */
 export function everyPoint(expected: Reference): Point[] {
-  return [...expected.steps.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), pointOf('update-ref before'), pointOf('update-ref after')];
+  const commit = expected.outcome.state.review?.fix === null ? [] : [pointOf('update-ref before'), pointOf('update-ref after')];
+  return [...expected.steps.filter((name) => !name.startsWith('report.written')).map(pointOf), ...expected.children.map(pointOf), ...commit];
 }
 
 /** Whether the reference has the point `name`: a step, a child's start, or a point of `commit`, and a point before an append when it has that append. */
