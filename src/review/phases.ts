@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type ExplanationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -24,11 +24,13 @@ import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
 import { writtenVersion } from './event-versions.ts';
+import { writerContribution, writerTask } from './explanation.ts';
 import { attemptRevisionEvents, comparesWithBase, fixAnswerEvents, type AnswerContext, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
 import { pinnedRole, pinnedWindowsSandbox } from './policy.ts';
 import { composeWorkerPrompt } from './prompts.ts';
+import type { MachineContext } from './public-text.ts';
 import { snapshotsDirectoryName } from './snapshot.ts';
 import {
   checkDecisions,
@@ -99,6 +101,22 @@ export interface PhaseContext {
   readonly claims: ClaimsContext;
   /** What the documentation step's task names beyond the fold, the patches of the fixes put in the evidence store when first asked for, before the launch (R2 of the documentation step). */
   readonly documentation: () => DocumentationTaskOptions;
+  /** What the writer's launch needs beyond the fold, asked for when it launches; a run that explains its review is given it, and the launch of a writer without it is refused. */
+  readonly writer?: () => WriterLaunch;
+}
+
+/**
+ * What the writer's launch needs beyond the fold (R18, TD8 of the review
+ * on the pull request): the machine whose places and secrets each text of
+ * a worker its task quotes is cleaned of, as the review cleans what it
+ * posts; and whether the runtime can run a worker without a shell
+ * (`Capabilities.withholdShell`), so the writer, which cites lines and
+ * runs no code, gets none where it can, and elsewhere the read-only
+ * sandbox of a verifier.
+ */
+export interface WriterLaunch {
+  readonly machine: MachineContext;
+  readonly withholdShell: boolean;
 }
 
 function requireReview(state: RunState): ReviewState {
@@ -508,6 +526,8 @@ export interface TaskOptions {
   readonly survey?: SurveyInputs | null;
   readonly commitMessages?: ChangeMessages | null;
   readonly documentation?: DocumentationTaskOptions | null;
+  /** The writer's: the fold as a whole, which its brief is rendered from, the worktree its earlier answer is checked in, and the machine its quotes are cleaned of. */
+  readonly writer?: { readonly state: RunState; readonly worktree: string; readonly machine: MachineContext } | null;
 }
 
 /**
@@ -613,13 +633,15 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
     case 'report':
       throw new Error('The report phase has no worker');
     case 'explanation':
-      throw new Error('The explanation phase has no worker in this engine yet');
+      if (evidence === null || options.writer === undefined || options.writer === null) throw new Error('The writer\'s task renders the brief from the fold, checks an earlier answer in the evidence store and cleans what it quotes, and needs them');
+      return writerTask(options.writer.state, { worktree: options.writer.worktree, evidence, machine: options.writer.machine });
   }
 }
 
 /**
  * The launcher's invocation for a unit: the pinned model, effort, budget
- * and timeout of its role, with a shell, labelled with its unit. A unit
+ * and timeout of its role, with a shell but for the writer where its
+ * runtime can withhold one (`WriterLaunch`), labelled with its unit. A unit
  * of an editing phase has edit access and its own scratch directory,
  * which its task names as where its snapshots go (TD7 of the fix pass);
  * every other unit is read-only. A fixes-phase unit also shares its
@@ -640,7 +662,9 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const survey = unit.phase === 'survey' ? context.survey() : null;
   const commitMessages = unit.phase === 'triage' ? context.commitMessages() : null;
   const documentation = unit.phase === 'documentation' ? context.documentation() : null;
-  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation, readerScratch: context.readerScratch }) }, context.scopeBlock(unit.phase));
+  const writer = unit.phase === 'explanation' ? writerLaunchOf(context) : null;
+  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine };
+  const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation, readerScratch: context.readerScratch, writer: writerTaskInput }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
     executable: context.configuration.executable,
@@ -648,7 +672,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
     model: policy.model,
     effort: policy.effort,
     access: scratch === null ? 'read-only' : 'edit',
-    shell: true,
+    shell: writer === null || !writer.withholdShell,
     prompt,
     outputSchema: unitOutputSchema(unit, review),
     timeoutMs: policy.timeoutMs,
@@ -657,6 +681,12 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
     ...(shared === null ? {} : { shared }),
     label: unitLabel(unit.role, unit.phase, unit.key),
   };
+}
+
+/** What the writer's launch needs, which the controller gives a run that explains its review. */
+function writerLaunchOf(context: PhaseContext): WriterLaunch {
+  if (context.writer === undefined) throw new Error('The writer is launched with the machine its task is cleaned of and the runtime\'s shell capability, and was given neither');
+  return context.writer();
 }
 
 /**
@@ -785,7 +815,8 @@ type ContributionEvent =
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 2; readonly payload: VerdictsRecordedV2 }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
-  | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded };
+  | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded }
+  | { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecorded };
 
 /**
  * The contribution event of a completed unit whose answer passes its
@@ -855,6 +886,9 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
       checkDecisions(output, findings.length);
       return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
     }
+    case 'explanation':
+      // The answer is merged with the earlier one of its unit, and a part that fails on the unit's last attempt is dropped rather than refused (R19 of the review on the pull request).
+      return writerContribution(state, receipt, context);
     case 'fixes':
     case 'documentation':
     case 'repair':
@@ -867,7 +901,5 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     case 'answer-checks':
     case 'report':
       throw new Error(`The ${unit.phase} phase has no worker`);
-    case 'explanation':
-      throw new Error('The explanation phase has no worker in this engine yet');
   }
 }

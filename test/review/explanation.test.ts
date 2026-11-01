@@ -1,0 +1,545 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
+import { explanationRecordedV1, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
+import { EvidenceStore } from '../../src/evidence/store.ts';
+import { noCheckSettings } from '../../src/review/checks/discover.ts';
+import { checkAnswer, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput } from '../../src/review/explanation.ts';
+import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
+import { fenceFor } from '../../src/review/prompts.ts';
+import type { MachineContext } from '../../src/review/public-text.ts';
+import type { WriterOutput } from '../../src/review/schemas.ts';
+import { nextStep, type Live } from '../../src/review/steps.ts';
+import { reviewRoles } from '../../src/review/vocabulary.ts';
+import type { AssembledRole } from '../../src/roles/assemble.ts';
+import { claudeTools } from '../../src/runtime/claude.ts';
+import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
+import { askDecision, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from '../helpers/review-history.ts';
+import { commitAll, createRepository, remove, write } from '../helpers/repository.ts';
+
+/** Ten numbered lines, as the base's `src/a.ts` holds them. */
+const numbered = (count: number, word = 'line'): string => Array.from({ length: count }, (_, index) => `${word} ${String(index + 1)}`).join('\n') + '\n';
+
+/** An answer that passes every check against the repository below, for RIPPLE-1 and, when asked, SWEEP-1. */
+function goodAnswer(ids: readonly string[] = ['RIPPLE-1']): WriterOutput {
+  return {
+    conclusion: {
+      why: 'An empty input crashes parse(), so the pull request needs a fix before a merge.',
+      actions: ids.map((id) => ({ id, sentence: `Act on ${id} as decided.` })),
+      diagram: 'flowchart LR\n  A["empty input"] --> B(["parse() reads null"])\n  B -->|"no guard"| C{"crash"}',
+    },
+    account: {
+      terms: [{ term: 'parse()', meaning: 'reads a file into a value' }],
+      problem: { text: 'An empty file made parse() throw.', diagram: null },
+      change: { text: 'parse() returns null for an empty file, and its callers check for it.', diagram: 'sequenceDiagram\n  Caller->>parse: an empty file\n  parse-->>Caller: null' },
+    },
+    findings: ids.map((id) => ({
+      id,
+      explanation: {
+        title: `${id} names its cause`,
+        problem: 'A caller that passes an empty file meets a crash.',
+        cases: [{ sentence: 'An empty file reaches the read on line 4.', lines: { side: 'head', path: 'src/a.ts', from: 4, to: 5 } }],
+        diagram: null,
+        decision: 'deep-review would guard the null once, before parse() reads it.',
+      },
+      unexplained: null,
+    })),
+  };
+}
+
+/** The line counts of a fake repository: `src/a.ts` with 12 lines at the head and 10 at the base, `src/gone.ts` with 3 at the base only. */
+const fakeLines: AnswerCheckInput['lineCount'] = (side, path) => ({ 'head:src/a.ts': 12, 'base:src/a.ts': 10, 'base:src/gone.ts': 3 } as Record<string, number>)[`${side}:${path}`] ?? null;
+const check = (output: WriterOutput, ids: readonly string[] = ['RIPPLE-1']) => checkAnswer(output, { ids, lineCount: fakeLines });
+/** The failures of every part of a checked answer, by part. */
+const failuresOf = (output: WriterOutput, ids: readonly string[] = ['RIPPLE-1']): Record<string, readonly string[]> => {
+  const checked = check(output, ids);
+  return { conclusion: checked.conclusion.failures, account: checked.account.failures, ...Object.fromEntries([...checked.findings].map(([id, part]) => [`finding ${id}`, part.failures])) };
+};
+const withFinding = (change: (finding: NonNullable<WriterOutput['findings'][number]['explanation']>) => void): WriterOutput => {
+  const answer = goodAnswer();
+  change(answer.findings[0]!.explanation!);
+  return answer;
+};
+
+// R19, TD9 of the review on the pull request.
+describe('the checks of the writer\'s answer', () => {
+  it('passes an answer whose every part keeps the rules', () => {
+    for (const [part, failures] of Object.entries(failuresOf(goodAnswer()))) assert.deepEqual(failures, [], part);
+  });
+
+  it('refuses a conclusion that names an id of no finding to explain, misses one, or names one twice, and keeps an entry of no finding out of every part', () => {
+    const answer = goodAnswer();
+    answer.conclusion.actions.push({ id: 'SWEEP-1', sentence: 'Extract the helper.' }, { id: 'NOPE-9', sentence: 'Do something.' });
+    assert.deepEqual(failuresOf(answer).conclusion, [
+      'the conclusion names "SWEEP-1", which is no finding of the run that asks a person to act',
+      'the conclusion names "NOPE-9", which is no finding of the run that asks a person to act',
+    ]);
+    const missing = goodAnswer();
+    missing.conclusion.actions = [];
+    assert.deepEqual(failuresOf(missing).conclusion, ['the conclusion has no sentence for RIPPLE-1']);
+    const twice = goodAnswer();
+    twice.conclusion.actions.push({ id: 'RIPPLE-1', sentence: 'Again.' });
+    assert.deepEqual(failuresOf(twice).conclusion, ['the conclusion has more than one sentence for RIPPLE-1']);
+    const stray = goodAnswer();
+    stray.findings.push({ ...stray.findings[0]!, id: 'NOPE-9' });
+    const checked = check(stray);
+    assert.deepEqual(checked.strays, ['NOPE-9']);
+    assert.deepEqual(checked.findings.get('RIPPLE-1')?.failures, [], 'a stray entry costs no part');
+  });
+
+  it('refuses a finding the answer leaves out, explains twice, or gives both an explanation and a reason or neither', () => {
+    const left = goodAnswer();
+    left.findings = [];
+    assert.deepEqual(failuresOf(left)['finding RIPPLE-1'], ['the answer does not explain RIPPLE-1']);
+    const twice = goodAnswer();
+    twice.findings.push(twice.findings[0]!);
+    assert.deepEqual(failuresOf(twice)['finding RIPPLE-1'], ['the answer explains RIPPLE-1 2 times']);
+    const both = goodAnswer();
+    both.findings[0]!.unexplained = 'the evidence says too little';
+    assert.deepEqual(failuresOf(both)['finding RIPPLE-1'], ['RIPPLE-1 has both an explanation and the reason it is unexplained']);
+    const neither = goodAnswer();
+    neither.findings[0]!.explanation = null;
+    assert.deepEqual(failuresOf(neither)['finding RIPPLE-1'], ['RIPPLE-1 has neither an explanation nor the reason it is unexplained']);
+  });
+
+  it('takes a finding marked unexplained with its reason, and holds the reason to the rules of a text', () => {
+    const marked = goodAnswer();
+    marked.findings[0] = { id: 'RIPPLE-1', explanation: null, unexplained: 'Its evidence names no line of the head.' };
+    const part = check(marked).findings.get('RIPPLE-1')!;
+    assert.deepEqual(part, { value: { id: 'RIPPLE-1', unexplained: true, reason: 'Its evidence names no line of the head.' }, failures: [] });
+    marked.findings[0].unexplained = 'The verifier left it PLAUSIBLE.';
+    assert.deepEqual(failuresOf(marked)['finding RIPPLE-1'], ['the reason RIPPLE-1 is unexplained holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
+  });
+
+  it('refuses a case that cites a path or a range its side does not hold, or no path from the root, and takes a case on removed code at the merge base', () => {
+    const cited = (lines: { side: 'head' | 'base'; path: string; from: number; to: number }) => failuresOf(withFinding((finding) => { finding.cases = [{ sentence: 'It breaks.', lines }]; }))['finding RIPPLE-1'];
+    assert.deepEqual(cited({ side: 'head', path: 'src/missing.ts', from: 1, to: 1 }), ['case 1 of RIPPLE-1 cites src/missing.ts at the head, which holds no such file']);
+    assert.deepEqual(cited({ side: 'head', path: 'src/a.ts', from: 11, to: 13 }), ['case 1 of RIPPLE-1 cites src/a.ts:11-13, which has 12 lines at the head']);
+    assert.deepEqual(cited({ side: 'base', path: 'src/a.ts', from: 11, to: 11 }), ['case 1 of RIPPLE-1 cites src/a.ts:11, which has 10 lines at the merge base']);
+    assert.deepEqual(cited({ side: 'head', path: 'src/gone.ts', from: 1, to: 2 }), ['case 1 of RIPPLE-1 cites src/gone.ts at the head, which holds no such file'], 'the head no longer holds a removed file');
+    assert.deepEqual(cited({ side: 'base', path: 'src/gone.ts', from: 1, to: 3 }), [], 'removed code is cited at the merge base');
+    assert.deepEqual(cited({ side: 'head', path: 'src/a.ts', from: 5, to: 4 }), ['case 1 of RIPPLE-1 cites lines 5 to 4 of src/a.ts, which is no range of lines']);
+    assert.deepEqual(cited({ side: 'head', path: 'src/a.ts', from: 0, to: 2 }), ['case 1 of RIPPLE-1 cites lines 0 to 2 of src/a.ts, which is no range of lines']);
+    for (const path of ['/w/src/a.ts', '../src/a.ts', './src/a.ts', 'src\\a.ts', 'C:/w/src/a.ts', '']) {
+      assert.deepEqual(cited({ side: 'head', path, from: 1, to: 1 }), [`case 1 of RIPPLE-1 cites ${JSON.stringify(path)}, which is not a path from the root of the repository`], path);
+    }
+    assert.deepEqual(failuresOf(withFinding((finding) => { finding.cases = []; }))['finding RIPPLE-1'], ['RIPPLE-1 has no case']);
+  });
+
+  it('refuses a verdict of the review in upper case in any part, and passes a severity word and a verdict in other case', () => {
+    const verdicts = goodAnswer();
+    verdicts.conclusion.why = 'RIPPLE-1 is CONFIRMED, so act on it.';
+    verdicts.account.change.text = 'Nothing here is REFUTED.';
+    verdicts.findings[0]!.explanation!.cases[0]!.sentence = 'A PLAUSIBLE case.';
+    const failures = failuresOf(verdicts);
+    assert.deepEqual(failures.conclusion, ['the conclusion holds the verdict CONFIRMED, which the engine writes beside the finding']);
+    assert.deepEqual(failures.account, ['the account holds the verdict REFUTED, which the engine writes beside the finding']);
+    assert.deepEqual(failures['finding RIPPLE-1'], ['the explanation of RIPPLE-1 holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
+    const words = goodAnswer();
+    words.conclusion.why = 'A critical defect and a minor one: the verifier confirmed both, and nothing UNCONFIRMED is left.';
+    words.findings[0]!.explanation!.problem = 'This major problem meets every caller.';
+    assert.deepEqual(failuresOf(words), { conclusion: [], account: [], 'finding RIPPLE-1': [] }, 'the severities are ordinary words, left to the gate');
+  });
+
+  it('refuses an empty text of a part, part by part', () => {
+    const empty = goodAnswer();
+    empty.conclusion.why = ' ';
+    empty.account.terms.push({ term: 'helper', meaning: '' });
+    empty.findings[0]!.explanation!.title = '';
+    const failures = failuresOf(empty);
+    assert.deepEqual(failures.conclusion, ['the conclusion says no why']);
+    assert.deepEqual(failures.account, ['the account\'s term "helper" has no meaning']);
+    assert.deepEqual(failures['finding RIPPLE-1'], ['RIPPLE-1 has no title']);
+  });
+});
+
+describe('the rules of a diagram GitHub draws (R19)', () => {
+  it('takes a flowchart whose every node label is quoted, a sequence diagram and a state diagram', () => {
+    assert.deepEqual(diagramFailures('flowchart TD\n  A["a"] --> B(("b")) --> C{{"c"}}\n  C -.-> D[/"d"/]\n  D ==>|"e"| E>"e"]\n  style A fill:#f9f\n  %% a comment; with a semicolon'), []);
+    assert.deepEqual(diagramFailures('\nsequenceDiagram\n  participant A as The caller\n  A->>B: an empty file\n  Note right of B: reads null\n  alt input is empty\n  B-->>A: null\n  end'), []);
+    assert.deepEqual(diagramFailures('stateDiagram-v2\n  [*] --> Open\n  Open --> Closed : logout()\n  note right of Closed\n    the token is gone\n  end note'), []);
+  });
+
+  it('refuses a diagram of another kind, or one that starts with anything but its kind', () => {
+    assert.deepEqual(diagramFailures('graph TD\n  A["a"] --> B["b"]'), ['it starts with "graph TD", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+    assert.deepEqual(diagramFailures('classDiagram\n  A <|-- B'), ['it starts with "classDiagram", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+    assert.deepEqual(diagramFailures('```mermaid\nflowchart LR\n  A["a"]\n```'), ['it starts with "```mermaid", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+    assert.deepEqual(diagramFailures('%%{init: {}}%%\nflowchart LR\n  A["a"]'), ['it starts with "%%{init: {}}%%", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+    assert.deepEqual(diagramFailures(''), ['it starts with nothing, not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+  });
+
+  it('refuses the unquoted label of a node of a flowchart, whatever its shape', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  A[parse] --> B("ok")'), ['the label of node A on line 2 is not quoted']);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A{guard?} --> B((done))\n  노드[읽기]'), ['the label of node A on line 2 is not quoted', 'the label of node B on line 2 is not quoted', 'the label of node 노드 on line 3 is not quoted']);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["open --> B'), ['line 2 opens a label it does not close']);
+  });
+
+  it('refuses an HTML entity and a semicolon in a label of a flowchart, in a message and in a note', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["a &lt; b"] --> B["x; y"]\n  B -->|"c &#59; d"| C["c"]'), [
+      'the label on line 2 holds the HTML entity &lt;',
+      'the label on line 2 holds a semicolon',
+      'the label on line 3 holds the HTML entity &#59;',
+    ]);
+    assert.deepEqual(diagramFailures('sequenceDiagram\n  A->>B: read; then parse\n  Note over A: a &amp; b'), [
+      'the text after the colon on line 2 holds a semicolon',
+      'the text after the colon on line 3 holds the HTML entity &amp;',
+    ]);
+    assert.deepEqual(diagramFailures('sequenceDiagram\n  loop each line; again\n  A->>B: read\n  end'), ['the label on line 2 holds a semicolon']);
+    assert.deepEqual(diagramFailures('stateDiagram-v2\n  Open --> Closed : on logout; always\n  note left of Open\n    a &quot;session&quot;\n  end note'), [
+      'the text after the colon on line 2 holds a semicolon',
+      'the note on line 4 holds the HTML entity &quot;',
+    ]);
+  });
+
+  it('takes a diagram that holds three backticks, which the fence of the form keeps inside', () => {
+    const diagram = 'flowchart LR\n  A["```js"] --> B["code"]';
+    assert.deepEqual(diagramFailures(diagram), []);
+    assert.equal(fenceFor(diagram), '````', 'a fence one backtick longer than any run the diagram holds');
+  });
+
+  it('names the part whose diagram fails', () => {
+    const answer = goodAnswer();
+    answer.account.problem.diagram = 'pie\n  "a" : 1';
+    assert.deepEqual(failuresOf(answer).account, ['the diagram of the problem before the change is no diagram GitHub draws: it starts with "pie", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+  });
+});
+
+describe('the merge of a first and a second answer (R19)', () => {
+  it('takes each part from the first answer that passed it, so a retry replaces only the parts that failed', () => {
+    const first = goodAnswer();
+    first.findings[0]!.explanation!.cases[0]!.lines.to = 99;
+    const second = goodAnswer();
+    second.conclusion.why = 'The second conclusion.';
+    second.account.problem.text = 'REFUTED';
+    const merged = mergeAnswers([check(first), check(second)], ['RIPPLE-1']);
+    assert.deepEqual(merged.dropped, []);
+    assert.equal(merged.answer.conclusion?.why, first.conclusion.why, 'the conclusion that passed the first time is kept');
+    assert.deepEqual(merged.answer.account, first.account, 'the account the second answer broke is the first one\'s');
+    assert.deepEqual(merged.answer.findings, [{ id: 'RIPPLE-1', unexplained: false, ...second.findings[0]!.explanation! }], 'the finding the first answer failed is the second one\'s');
+  });
+
+  it('drops a part that fails again, with the second answer\'s failures and any extra reason, and keeps every part that passed once', () => {
+    const first = goodAnswer();
+    first.account.change.text = '';
+    first.findings[0]!.explanation!.cases[0]!.lines.path = 'src/missing.ts';
+    const second = goodAnswer();
+    second.account.change.text = 'CONFIRMED';
+    second.findings[0]!.explanation!.cases[0]!.lines.from = 40;
+    second.findings[0]!.explanation!.cases[0]!.lines.to = 41;
+    const merged = mergeAnswers([check(first), check(second)], ['RIPPLE-1'], ['the run budget stopped the writer']);
+    assert.deepEqual(merged.dropped, [
+      { part: 'account', failures: ['the account holds the verdict CONFIRMED, which the engine writes beside the finding', 'the run budget stopped the writer'] },
+      { part: 'finding', finding: 'RIPPLE-1', failures: ['case 1 of RIPPLE-1 cites src/a.ts:40-41, which has 12 lines at the head', 'the run budget stopped the writer'] },
+    ]);
+    assert.deepEqual(merged.answer, { conclusion: first.conclusion, account: null, findings: [] });
+  });
+
+  it('drops every part, each with the reason, when no answer came', () => {
+    assert.deepEqual(mergeAnswers([], ['RIPPLE-1', 'SWEEP-1'], ['2 attempts did not complete']).dropped.map((part) => [part.part, part.part === 'finding' ? part.finding : null, part.failures]), [
+      ['conclusion', null, ['2 attempts did not complete']],
+      ['account', null, ['2 attempts did not complete']],
+      ['finding', 'RIPPLE-1', ['2 attempts did not complete']],
+      ['finding', 'SWEEP-1', ['2 attempts did not complete']],
+    ]);
+  });
+});
+
+describe('the lines of a path at a side, read with git (R19)', () => {
+  let directory = '';
+  before(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-lines-')));
+  });
+  after(() => rmSync(directory, { recursive: true, force: true }));
+
+  it('counts the lines of a file at the commit of its side, so a worktree that moved reads the same lines', () => {
+    const repo = createRepository(join(directory, 'repo'));
+    write(repo, 'src/a.ts', numbered(10));
+    write(repo, 'src/gone.ts', 'a\nb\nc');
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(12));
+    remove(repo, 'src/gone.ts');
+    const head = commitAll(repo, 'head');
+    write(repo, 'src/a.ts', 'moved on\n');
+    const lines = gitLineCounts(repo, { base, head });
+    assert.equal(lines('head', 'src/a.ts'), 12, 'the head\'s lines, not the working tree\'s');
+    assert.equal(lines('base', 'src/a.ts'), 10);
+    assert.equal(lines('base', 'src/gone.ts'), 3, 'a last line with no line feed counts');
+    assert.equal(lines('head', 'src/gone.ts'), null);
+    assert.equal(lines('head', 'src'), null, 'a directory is no file');
+    assert.equal(lineCountOf(Buffer.alloc(0)), 0);
+  });
+});
+
+/** A repository whose base and head the histories below are rewritten to: `src/a.ts` with 10 lines, then 12, and `src/gone.ts` removed. */
+interface Fixture {
+  readonly repo: string;
+  readonly base: string;
+  readonly head: string;
+  readonly evidence: EvidenceStore;
+}
+
+/** The history with its pull request's change at the repository's commits. */
+function atCommits(history: History, fixture: Fixture): History {
+  const result = new History();
+  for (const event of history.events) {
+    const scope = { ...pullRequestScope, base: fixture.base, head: fixture.head, request: { ...pullRequestScope.request, range: { from: fixture.base, to: 'HEAD', mergeBase: false } } };
+    result.add(event.kind, event.kind === 'scope.captured' ? scope : event.payload, event.version);
+  }
+  return result;
+}
+
+/** A read-only run of a pull request through its decision, RIPPLE-1 decided fix and SWEEP-1 as `sweep` says, at the fixture's commits. */
+const decided = (fixture: Fixture, sweep: unknown = decisions[1]): History =>
+  atCommits(withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked(), [decisions[0], sweep]), null)))), fixture);
+
+const receipt = (output: unknown, workerId = worker(62), change: Partial<WorkerReceipt> = {}): WorkerReceipt => {
+  const reference = { sha256: 'a'.repeat(64), bytes: 1 };
+  return {
+    workerId,
+    outcome: 'completed',
+    error: null,
+    cause: null,
+    finish: null,
+    process: { exitCode: 0, signal: null, termination: 'exited', startedAt: '2026-11-01T00:00:00.000Z', endedAt: '2026-11-01T00:00:01.000Z' },
+    runtime: { name: 'claude', version: '2.1.283', sessionIds: [], usage: null },
+    denials: [],
+    runs: [],
+    output,
+    evidence: { prompt: reference, schema: reference, stdout: reference, stderr: reference, finalMessage: null, output: reference },
+    ...change,
+  };
+};
+
+const writerUnit = { phase: 'explanation', key: 'explanation', role: 'writer' } as const;
+
+/** The events a writer's receipt becomes in `history`. */
+const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt, logged: string[] = []): NewEvent[] =>
+  contributionOf(writerUnit, answer, { state: history.fold(), worktree: fixture.repo, evidence: fixture.evidence, match: () => { throw new Error('the writer compares no file'); }, claims: null, survey: () => { throw new Error('the writer has no survey'); }, claimsLost: false, log: (line) => logged.push(line) });
+
+/** The explanation an event records, held to its schema. */
+const recorded = (event: NewEvent | undefined): ExplanationRecorded => {
+  assert.equal(event?.kind, 'explanation.recorded', JSON.stringify(event));
+  return explanationRecordedV1.parse(event.payload);
+};
+
+/** The history after a writer, `n`, answered `answer` and its attempt failed the checks. */
+const failedOnce = (history: History, fixture: Fixture, answer: WriterOutput, n = 61): History =>
+  history.worker(n, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(answer)) })
+    .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(n), reason: 'structural check: the answer fails the engine\'s checks', fault: 'unit' }, 9);
+
+const machine = (repo: string): MachineContext => ({ worktree: repo, checkpoint: join(repo, '.git', 'deep-review-checkpoint'), gitCommon: join(repo, '.git'), engine: '/opt/deep-review', scratch: [], environment: {}, rootEntries: ['home', 'opt', 'tmp'] });
+
+const counted = (usd: number): Live['spend'] => ({ usd, charged: 0, lost: 0 });
+const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
+
+describe('the explanation phase (R18, R19, TD8)', () => {
+  let directory = '';
+  let fixture: Fixture;
+  before(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-explanation-')));
+    const repo = createRepository(join(directory, 'repo'));
+    write(repo, 'src/a.ts', numbered(10));
+    write(repo, 'src/gone.ts', 'a\nb\nc\n');
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(12));
+    remove(repo, 'src/gone.ts');
+    const head = commitAll(repo, 'head');
+    fixture = { repo, base, head, evidence: new EvidenceStore(join(directory, 'evidence')) };
+  });
+  after(() => rmSync(directory, { recursive: true, force: true }));
+
+  it('explains each finding decided fix or ask, in rank order, and none left as is', () => {
+    assert.deepEqual(findingsToExplain(decided(fixture).review()), ['RIPPLE-1']);
+    assert.deepEqual(findingsToExplain(decided(fixture, askDecision('SWEEP-1', true)).review()), ['RIPPLE-1', 'SWEEP-1']);
+  });
+
+  it('plans one writer right after the decision in a run of a pull request, and none in a run configured at version 9', () => {
+    const history = decided(fixture);
+    assert.deepEqual(nextStep(history.review(), idle), { kind: 'start-phase', phase: 'explanation', attempt: 1 });
+    assert.deepEqual(nextStep(history.start('explanation').review(), idle), { kind: 'launch', units: [writerUnit] });
+    assert.equal(readOnlyReported().review().phases.explanation.status, 'skipped');
+  });
+
+  it('records an answer whose every part passes, frozen as the form reads it', () => {
+    const events = contribution(decided(fixture).start('explanation'), fixture, receipt(goodAnswer()));
+    assert.equal(events.length, 1);
+    const explanation = recorded(events[0]);
+    assert.equal(explanation.workerId, worker(62));
+    assert.deepEqual(explanation.dropped, []);
+    assert.deepEqual(explanation.unexplained, []);
+    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    assert.deepEqual(answer?.conclusion, goodAnswer().conclusion);
+    assert.deepEqual(answer?.findings.map((finding) => [finding.id, finding.unexplained]), [['RIPPLE-1', false]]);
+  });
+
+  it('records a finding the writer marked unexplained, which the review gives in the ledger\'s words with the mark', () => {
+    const answer = goodAnswer();
+    answer.findings[0] = { id: 'RIPPLE-1', explanation: null, unexplained: 'Its evidence names no line it reads.' };
+    const explanation = recorded(contribution(decided(fixture).start('explanation'), fixture, receipt(answer))[0]);
+    assert.deepEqual(explanation.unexplained, ['RIPPLE-1']);
+    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence)?.findings, [{ id: 'RIPPLE-1', unexplained: true, reason: 'Its evidence names no line it reads.' }]);
+  });
+
+  it('refuses an answer that fails a check on the unit\'s first attempt, naming each part, and gives the next writer the failures', () => {
+    const bad = goodAnswer();
+    bad.findings[0]!.explanation!.cases[0]!.lines.to = 30;
+    const logged: string[] = [];
+    bad.findings.push({ ...bad.findings[0]!, id: 'NOPE-9' });
+    const history = decided(fixture).start('explanation');
+    const [failure] = contribution(history, fixture, receipt(bad), logged);
+    assert.equal(failure?.kind, 'attempt.failed');
+    assert.equal(failure?.version, 9, 'the version that names the explanation');
+    assert.match((failure?.payload as { reason: string }).reason, /^structural check: the answer fails the engine's checks: finding RIPPLE-1: case 1 of RIPPLE-1 cites src\/a\.ts:4-30, which has 12 lines at the head$/);
+    assert.deepEqual(logged, ['the answer explains NOPE-9, which is no finding of the run that asks a person to act; not kept']);
+    const retried = failedOnce(history, fixture, bad);
+    assert.deepEqual(nextStep(retried.review(), idle), { kind: 'launch', units: [writerUnit] }, 'a failed check runs the writer again once');
+    const task = writerTask(retried.fold(), { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
+    assert.match(task, /### What failed in the earlier answer\n\n[^\n]*the engine keeps every other part of it[^\n]*\n\n- finding RIPPLE-1: case 1 of RIPPLE-1 cites src\/a\.ts:4-30, which has 12 lines at the head\n/);
+  });
+
+  it('records the second answer with each part that still fails dropped and named, keeping each part that passed the first time', () => {
+    const first = goodAnswer();
+    first.findings[0]!.explanation!.cases[0]!.lines = { side: 'head', path: 'src/gone.ts', from: 1, to: 1 };
+    const second = goodAnswer();
+    second.conclusion.why = 'PLAUSIBLE at best.';
+    second.findings[0]!.explanation!.cases[0]!.lines.path = 'src/also-missing.ts';
+    const history = failedOnce(decided(fixture).start('explanation'), fixture, first);
+    const explanation = recorded(contribution(history, fixture, receipt(second))[0]);
+    assert.equal(explanation.workerId, worker(62), 'the writer whose answer completed the unit');
+    assert.deepEqual(explanation.dropped, [{ part: 'finding', finding: 'RIPPLE-1', failures: ['case 1 of RIPPLE-1 cites src/also-missing.ts at the head, which holds no such file'] }]);
+    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    assert.equal(answer?.conclusion?.why, first.conclusion.why, 'the conclusion the first answer passed is kept over the second one\'s');
+    assert.deepEqual(answer?.findings, []);
+    // A case on removed code cites the merge base, which holds it.
+    const removed = goodAnswer();
+    removed.findings[0]!.explanation!.cases[0]!.lines = { side: 'base', path: 'src/gone.ts', from: 1, to: 3 };
+    assert.deepEqual(recorded(contribution(history, fixture, receipt(removed))[0]).dropped, []);
+  });
+
+  it('does not drop a part after a writer lost with its engine: the unit blocks, and the next command gives it fresh attempts', () => {
+    const bad = goodAnswer();
+    bad.conclusion.actions = [];
+    const lost = decided(fixture).start('explanation')
+      .add('worker.launched', launch(worker(61), 'writer explanation:explanation'))
+      .add('worker.lost', { workerId: worker(61), phase: 'explanation', key: 'explanation', reason: 'the engine exited while the worker ran' }, 7);
+    const [failure] = contribution(lost, fixture, receipt(bad));
+    assert.equal(failure?.kind, 'attempt.failed', 'an interruption is not the unit failing, so the answer is refused, not recorded with a part dropped');
+  });
+
+  it('degrades a writer that fails twice with no answer, keeping each part an earlier answer passed, and the run goes on to its report', () => {
+    const first = goodAnswer();
+    first.account.problem.text = '';
+    const history = failedOnce(decided(fixture).start('explanation'), fixture, first)
+      .worker(62, 'writer explanation:explanation', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, error: 'The worker ran past its timeout' })
+      .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(62), reason: 'timeout: The worker ran past its timeout', fault: 'unit' }, 9);
+    const step = nextStep(history.review(), idle);
+    assert.equal(step.kind, 'drop-explanation', JSON.stringify(step));
+    const reason = step.kind === 'drop-explanation' ? step.reason : '';
+    assert.match(reason, /^2 attempts did not complete: structural check: [^;]*; timeout: The worker ran past its timeout$/);
+    const event = droppedExplanation(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence }, reason);
+    const explanation = recorded(event);
+    assert.equal(explanation.workerId, null, 'the phase degraded without an answer that completed it');
+    assert.deepEqual(explanation.dropped, [{ part: 'account', failures: ['the account says no problem before the change', reason] }]);
+    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence)?.findings.map((finding) => finding.id), ['RIPPLE-1']);
+    const after = history.add('explanation.recorded', explanation);
+    assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null });
+    assert.deepEqual(nextStep(after.finish('explanation', 'degraded').review(), idle), { kind: 'start-phase', phase: 'report', attempt: 1 }, 'the run writes its report');
+  });
+
+  it('degrades at the run budget instead of blocking, dropping each part no answer passed, and records no answer when none passed any part', () => {
+    const history = decided(fixture).start('explanation');
+    const runBudgetUsd = history.review().limits.runBudgetUsd!;
+    const step = nextStep(history.review(), { ...idle, spend: counted(runBudgetUsd) });
+    assert.equal(step.kind, 'drop-explanation', JSON.stringify(step));
+    const reason = step.kind === 'drop-explanation' ? step.reason : '';
+    assert.match(reason, /^spent \d+\.\d\d USD of the \d+\.\d\d USD run budget$/);
+    const explanation = recorded(droppedExplanation(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence }, reason));
+    assert.equal(explanation.answer, null);
+    assert.deepEqual(explanation.dropped.map((part) => (part.part === 'finding' ? `finding ${part.finding}` : part.part)), ['conclusion', 'account', 'finding RIPPLE-1']);
+    for (const part of explanation.dropped) assert.deepEqual(part.failures, [reason]);
+    const after = history.add('explanation.recorded', explanation);
+    assert.deepEqual(nextStep(after.review(), { ...idle, spend: counted(runBudgetUsd) }), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null });
+    assert.deepEqual(after.review().fix, null, 'no fix state, so no unit is left not attempted for the budget');
+  });
+
+  it('blocks a writer lost with its engine and then failed, and gives it fresh attempts when the phase is entered again', () => {
+    const history = decided(fixture).start('explanation')
+      .add('worker.launched', launch(worker(61), 'writer explanation:explanation'))
+      .add('worker.lost', { workerId: worker(61), phase: 'explanation', key: 'explanation', reason: 'the engine exited while the worker ran' }, 7)
+      .worker(62, 'writer explanation:explanation', { outcome: 'failed', output: null, error: 'The answer does not match the output schema' })
+      .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(62), reason: 'failed: The answer does not match the output schema', fault: 'unit' }, 9);
+    const step = nextStep(history.review(), idle);
+    assert.ok(step.kind === 'finish-phase' && step.outcome === 'blocked' && step.blocker?.code === 'worker-failed', JSON.stringify(step));
+    const resumed = history.finish('explanation', 'blocked', 1, step.kind === 'finish-phase' ? step.blocker : null).start('explanation', 2);
+    assert.deepEqual(nextStep(resumed.review(), idle), { kind: 'launch', units: [writerUnit] });
+  });
+
+  it('gives the writer the brief, every ranked finding with its decision and evidence cleaned, which to explain and the language, and neither the title nor the body of the pull request', () => {
+    const history = new History();
+    for (const event of decided(fixture, askDecision('SWEEP-1', true)).start('explanation').events) {
+      const payload = event.kind === 'ranking.recorded'
+        ? { ...(event.payload as object), findings: (event.payload as { findings: { id: string; reason: string }[] }).findings.map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, reason: 'the notes at /home/me/notes.txt say so, @octocat' } : finding)) }
+        : event.payload;
+      history.add(event.kind, payload, event.version);
+    }
+    const task = writerTask(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
+    assert.match(task, /^Write every text of your answer in the language `en` \(English\)\.$/m);
+    assert.match(task, /^Explain these 2 findings, each by its id, [^\n]*: RIPPLE-1, SWEEP-1\./m);
+    assert.match(task, /^### The brief of the run\n\n[^\n]*\n\n```markdown\n# /m);
+    assert.match(task, /^#### 1\. RIPPLE-1: explain it\n\n {4}severity: major; verdict: CONFIRMED\n/m);
+    assert.match(task, /^ {4}reason: the notes at \\<local path> say so, `@octocat`$/m, 'a worker\'s words are cleaned and escaped as the review posts them');
+    assert.match(task, /^1\. \*\*Finding 2 asks you a question/m, 'the fenced brief is cleaned as code, and not escaped');
+    assert.match(task, /^ {4}decision: fix\n {8}grounds: [^\n]+\n {8}approach: guard the null once, before parse reads it\n/m);
+    assert.match(task, /^ {4}decision: ask the author\n[\s\S]*?^ {8}option 2: accept it and return an empty result; [^\n]*; recommended$/m);
+    assert.match(task, /^ {8}evidence: line 4 dereferences null$/m);
+    assert.doesNotMatch(task, /What failed in the earlier answer/);
+    assert.ok(!task.includes(pullRequestFacts.title), 'the title of the pull request (PD8)');
+    assert.ok(!task.includes(pullRequestFacts.body.sha256), 'the body of the pull request');
+    assert.ok(!task.includes('/home/me'), 'no local path');
+  });
+
+  it('writes in the language the run recorded', () => {
+    const history = new History();
+    for (const event of decided(fixture).start('explanation').events) {
+      const payload = event.kind === 'review.configured' ? { ...(event.payload as { settings: { values: object; layers: object } }), settings: { ...(event.payload as { settings: { values: object; layers: object } }).settings, values: { ...(event.payload as { settings: { values: object } }).settings.values, 'review.language': 'ko' }, layers: { ...(event.payload as { settings: { layers: object } }).settings.layers, 'review.language': 'repository' } } } : event.payload;
+      history.add(event.kind, payload, event.version);
+    }
+    assert.match(writerTask(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) }), /^Write every text of your answer in the language `ko` \(Korean\)\.$/m);
+  });
+
+  it('launches the writer read-only, without a shell on a runtime that can withhold one, and with the read-only shell of a verifier elsewhere', () => {
+    const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+    const context = (withholdShell: boolean | null): PhaseContext => ({
+      state: decided(fixture).start('explanation').fold(),
+      worktree: fixture.repo,
+      roles,
+      configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 1_800_000 })) },
+      scopeBlock: () => '## Scope',
+      survey: () => { throw new Error('no survey'); },
+      commitMessages: () => { throw new Error('no commit message'); },
+      evidence: fixture.evidence,
+      newScratch: () => { throw new Error('the writer has no scratch'); },
+      snapshotCommand: () => 'snapshot',
+      unelevatedEditors: false,
+      readerScratch: true,
+      claims: { directoryOf: () => '/claims', command: () => 'claim', live: () => null, caseInsensitive: () => false },
+      documentation: () => ({ patches: [], exclude: [] }),
+      ...(withholdShell === null ? {} : { writer: () => ({ machine: machine(fixture.repo), withholdShell }) }),
+    });
+    const claude = invocationFor(writerUnit, context(true));
+    assert.equal(claude.shell, false);
+    assert.equal(claude.access, 'read-only');
+    assert.equal(claude.scratch, undefined);
+    assert.equal(claude.label, 'writer explanation:explanation');
+    assert.equal(claude.timeoutMs, 1_800_000);
+    assert.deepEqual(claudeTools(claude.access, claude.shell), ['Read', 'Glob', 'Grep'], 'on Claude Code, the tools that read files and not Bash');
+    assert.match(claude.prompt, /^You are writer\.\n\n## Task\n\nRole: writer\nUnit: explanation\nPhase: explanation\n\nWrite every text of your answer in the language `en`/);
+    const codex = invocationFor(writerUnit, context(false));
+    assert.equal(codex.shell, true, 'a runtime that gives every worker a shell');
+    assert.equal(codex.access, 'read-only', 'the read-only sandbox of a verifier');
+    assert.throws(() => invocationFor(writerUnit, context(null)), /The writer is launched with the machine its task is cleaned of/);
+  });
+});
