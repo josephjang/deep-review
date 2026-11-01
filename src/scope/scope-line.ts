@@ -6,26 +6,34 @@
  * with the name the scope gives its base and its short commit, and where
  * it ends. A change that ends at the working tree says how many of its
  * files hold uncommitted changes, when that is known, and the paths
- * `scope.exclude` leaves out are counted apart. A person judges from it if
- * the run reviews what they asked for.
+ * `scope.exclude` leaves out are counted apart. A scope of a pull request
+ * names it, and its base by the base branch of the pull request (R6 of the
+ * review on the pull request). A person judges from it if the run reviews
+ * what they asked for.
  */
-import type { ScopeMode, ScopeRequest } from '../checkpoint/events.ts';
+import type { PullRequestFacts, ScopeMode, ScopeRequest } from '../checkpoint/events.ts';
 import { counted } from '../review/markdown.ts';
 import { isEmptyTree } from './git.ts';
 
-/** The mode of a scope as a person asks for it (`askedMode`): `branch` for `--branch` or a `scope.default` of `branch`, which the capture records as a range, and for the same range named by `--from`, else the mode the capture chose. */
-export type AskedMode = ScopeMode | 'branch';
+/** The mode of a scope as a person asks for it (`askedMode`): `pull-request` for `--pr`, `branch` for `--branch` or a `scope.default` of `branch`, which the capture records as a range, and for the same range named by `--from`, else the mode the capture chose. */
+export type AskedMode = ScopeMode | 'branch' | 'pull-request';
+
+/** A request as `askedMode` reads it: its range, and the pull request that named it, when one did. */
+type AskedRequest = Pick<ScopeRequest, 'range'> & { readonly pullRequest?: unknown };
 
 /**
  * The mode of a scope as the person asked for it (R12 of the questions in
  * the chat), one rule for `config show` before a run and `status` after:
+ * a request that a pull request named reads as `pull-request`, which the
+ * capture records as a range too (TD2 of the review on the pull request);
  * the capture records `--branch` as a range, so a range that starts at the
  * merge base with `reviewBase`, the `review.base` in force, and ends at
  * `HEAD` reads as `branch`, also when `--from <base> --to HEAD
  * --merge-base` named it, since it is the same change. Any other scope,
  * and one with no `review.base`, keeps the mode `captured`.
  */
-export function askedMode(captured: ScopeMode, request: Pick<ScopeRequest, 'range'>, reviewBase: unknown): AskedMode {
+export function askedMode(captured: ScopeMode, request: AskedRequest, reviewBase: unknown): AskedMode {
+  if (request.pullRequest !== undefined) return 'pull-request';
   const range = request.range;
   return range !== undefined && range.to === 'HEAD' && range.mergeBase && typeof reviewBase === 'string' && range.from === reviewBase ? 'branch' : captured;
 }
@@ -33,6 +41,8 @@ export function askedMode(captured: ScopeMode, request: Pick<ScopeRequest, 'rang
 /** The facts of the `Scope:` line. */
 export interface ShownScope {
   readonly mode: AskedMode;
+  /** The pull request of a scope that one named, by its number and where it lives, or null. */
+  readonly pullRequest: Pick<PullRequestFacts, 'number' | 'owner' | 'repository'> | null;
   /** The commit the change starts from, or the empty tree, the base of a root commit. */
   readonly base: string;
   /** The name the scope gives its base, such as `the merge base with origin/main` (`baseNameOf`). */
@@ -56,11 +66,15 @@ export const commitWords = (commit: string): string => (isEmptyTree(commit) ? 't
 
 /**
  * The name a scope gives its base, from the request and the mode the
- * person asked for: the merge base with the base ref of `branch` or of a
- * range that takes it, the start of any other range, the ref of `ref`,
- * `HEAD` for `worktree`, and the parent of `HEAD` for `last-commit`.
+ * person asked for: the merge base with the base branch of the pull
+ * request a scope has (R6 of the review on the pull request), whose range
+ * starts at that commit; the merge base with the base ref of `branch` or
+ * of a range that takes it, the start of any other range, the ref of
+ * `ref`, `HEAD` for `worktree`, and the parent of `HEAD` for
+ * `last-commit`.
  */
-export function baseNameOf(mode: AskedMode, request: Pick<ScopeRequest, 'ref' | 'range'>): string {
+export function baseNameOf(mode: AskedMode, request: Pick<ScopeRequest, 'ref' | 'range'>, pullRequest: Pick<PullRequestFacts, 'baseRef'> | null = null): string {
+  if (pullRequest !== null) return `the merge base with ${pullRequest.baseRef}`;
   if (request.range !== undefined) return request.range.mergeBase ? `the merge base with ${request.range.from}` : request.range.from;
   if (request.ref !== undefined) return request.ref;
   return mode === 'last-commit' ? 'the parent of HEAD' : 'HEAD';
@@ -84,8 +98,11 @@ function sizeWords(scope: ShownScope): string {
   return `${commits === null ? '' : `${commits} and `}${files}${excluded}`;
 }
 
+/** The scope as the person asked for it: its mode, and the pull request it names, such as `pull-request #42 of owner/repo`. */
+const askedWords = (scope: ShownScope): string => (scope.pullRequest === null ? scope.mode : `${scope.mode} #${String(scope.pullRequest.number)} of ${scope.pullRequest.owner}/${scope.pullRequest.repository}`);
+
 /** The `Scope:` line; a change with nothing to review gives its ends and why, and no count. */
 export function scopeLine(scope: ShownScope): string {
   const ends = `from ${baseWords(scope)} to ${endWords(scope)}`;
-  return scope.empty === null ? `Scope: ${scope.mode}, ${sizeWords(scope)}, ${ends}` : `Scope: ${scope.mode}, ${ends}; ${scope.empty}`;
+  return scope.empty === null ? `Scope: ${askedWords(scope)}, ${sizeWords(scope)}, ${ends}` : `Scope: ${askedWords(scope)}, ${ends}; ${scope.empty}`;
 }

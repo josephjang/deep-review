@@ -697,7 +697,7 @@ export function briefOf(state: RunState): Brief {
     status: findingStatusOf(context, entry.finding.id, decision),
     summary: firstSentence(entry.finding.summary),
   }));
-  const base = baseWords({ commit: state.scope.base, name: baseNameOf(state.scope.mode, state.scope.request) });
+  const base = baseWords({ commit: state.scope.base, name: baseNameOf(state.scope.mode, state.scope.request, state.scope.pullRequest) });
   const checks = context.checks.map((check) => {
     const row = meaningRowOf(check, review);
     return { ...check, meaning: row.meaning(check), rank: row.rank, comparedBy: row.comparedBy };

@@ -38,10 +38,12 @@ import { checkSettingNames, fileLayers, type FileLayer } from './config/settings
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
 import { answeredName, answerRun } from './review/answer.ts';
-import { findActiveRun, runReview, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
+import { findActiveRun, resolvePullRequestScope, runReview, type RequestedScope, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
 import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
-import { resolveExecutable } from './review/executable.ts';
+import { githubExecutableAdvice, resolveExecutable } from './review/executable.ts';
+import type { Gh } from './github/gh.ts';
+import type { PullRequestName } from './github/pull-request.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
@@ -73,7 +75,7 @@ import { askedMode, baseNameOf, type ShownScope } from './scope/scope-line.ts';
 export const usage = `usage:
   deep-review review  --runtime claude|codex [--executable <path>] [--executable-arg <arg>]...
                       [--strong-model <model>] [--fast-model <model>]
-                      [--last-commit | --worktree | --branch [--base <rev>] | --ref <ref> | --from <rev> --to <rev> [--merge-base]]
+                      [--last-commit | --worktree | --branch [--base <rev>] | --ref <ref> | --from <rev> --to <rev> [--merge-base] | --pr <number|URL>]
                       [--path <path>]... [--concurrency 1..${String(maxConcurrency)}] [--budget-usd <usd>] [--repo <dir>] [--roles <dir>]
                       [--set <setting>=<value>]... [--config <file>] [--no-repository-config]
                       [--fix [--fresh] [--check <kind>=<command>]... [--no-check <kind>]...]   (kind: ${checkKinds.join(', ')})
@@ -109,6 +111,7 @@ const options = {
   'merge-base': { type: 'boolean' },
   branch: { type: 'boolean' },
   base: { type: 'string' },
+  pr: { type: 'string' },
   set: { type: 'string', multiple: true },
   config: { type: 'string' },
   'no-repository-config': { type: 'boolean' },
@@ -169,7 +172,7 @@ const sourceEntry = fileURLToPath(new URL('./cli.ts', import.meta.url));
 
 /** The flags each command takes; any other given flag is refused by name. */
 const allowed: Record<string, readonly (keyof Values)[]> = {
-  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
+  review: ['runtime', 'executable', 'executable-arg', 'strong-model', 'fast-model', 'last-commit', 'worktree', 'branch', 'base', 'pr', 'ref', 'from', 'to', 'merge-base', 'path', 'concurrency', 'budget-usd', 'repo', 'roles', 'fix', 'fresh', 'check', 'no-check', 'codex-windows-sandbox', 'set', 'config', 'no-repository-config', 'help'],
   status: ['run', 'json', 'all', 'every', 'repo', 'help'],
   // The flags of each subcommand of config are in `configAllowed`, which `configCommand` checks.
   config: [],
@@ -194,9 +197,9 @@ function number(flag: string, text: string | undefined): number | undefined {
   return value;
 }
 
-/** Whether any scope flag is given, `--branch` and `--base` among them. */
+/** Whether any scope flag is given, `--branch`, `--base` and `--pr` among them. */
 export function hasScopeFlags(values: Values): boolean {
-  return values['last-commit'] === true || values.worktree === true || values.branch === true || values.base !== undefined || values.ref !== undefined || values.from !== undefined || values.to !== undefined || values['merge-base'] === true || (values.path?.length ?? 0) > 0;
+  return values['last-commit'] === true || values.worktree === true || values.branch === true || values.base !== undefined || values.pr !== undefined || values.ref !== undefined || values.from !== undefined || values.to !== undefined || values['merge-base'] === true || (values.path?.length ?? 0) > 0;
 }
 
 /**
@@ -218,7 +221,37 @@ export function scopeRequestOf(values: Values, worktree: string, scope: ScopeSet
 }
 
 /** How many scope modes the flags name. */
-const scopeModeFlagCount = (values: Values): number => [values['last-commit'] === true, values.worktree === true, values.branch === true, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
+const scopeModeFlagCount = (values: Values): number => [values['last-commit'] === true, values.worktree === true, values.branch === true, values.pr !== undefined, values.ref !== undefined, values.from !== undefined || values.to !== undefined].filter(Boolean).length;
+
+/** An owner or a repository in the URL of a pull request, as GitHub spells one. */
+const githubName = /^[A-Za-z0-9_.-]+$/;
+
+/**
+ * The pull request `--pr` names, read without GitHub (R1 of the review on
+ * the pull request): a whole number from 1, whose repository `gh` takes as
+ * the clone's, or the URL of a pull request,
+ * `https://<host>/<owner>/<repo>/pull/<number>`, with any path, query or
+ * fragment after the number left out, whose repository is
+ * `<host>/<owner>/<repo>`. Anything else is refused with the usage.
+ */
+export function pullRequestNameOf(text: string): PullRequestName {
+  const refused = (): UsageError => new UsageError(`--pr takes the number of a pull request, such as 42, or its URL, such as https://github.com/<owner>/<repo>/pull/42, not ${JSON.stringify(text)}`);
+  const number = (digits: string | undefined): number => {
+    const value = Number(digits);
+    if (digits === undefined || !/^[1-9][0-9]*$/.test(digits) || !Number.isSafeInteger(value)) throw refused();
+    return value;
+  };
+  if (/^[0-9]+$/.test(text)) return { number: number(text), repository: null };
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw refused();
+  }
+  const [owner, repository, pull, digits] = url.pathname.split('/').slice(1);
+  if (url.protocol !== 'https:' || url.host === '' || owner === undefined || repository === undefined || !githubName.test(owner) || !githubName.test(repository) || pull !== 'pull') throw refused();
+  return { number: number(digits), repository: `${url.host}/${owner}/${repository}` };
+}
 
 /** Whether the scope is `--branch`, given or named by `scope.default` with no mode among the flags: the range from `review.base` to HEAD from their merge base. */
 const branchNamed = (values: Values, scope: ScopeSettings): boolean => values.branch === true || (scopeModeFlagCount(values) === 0 && scope.scopeDefault.value === 'branch');
@@ -233,11 +266,12 @@ const branchNamed = (values: Values, scope: ScopeSettings): boolean => values.br
 export function namedScopeOf(values: Values, scope: ScopeSettings): NamedScope {
   const paths = values.path ?? [];
   const modes = scopeModeFlagCount(values);
-  if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, or --from <rev> --to <rev>');
+  if (modes > 1) throw new UsageError('choose one scope: --last-commit, --worktree, --branch, --ref <ref>, --from <rev> --to <rev>, or --pr <number|URL>');
   if (values['merge-base'] === true && values.from === undefined) throw new UsageError('--merge-base applies to --from and --to only');
   const chosen = modes === 1 ? null : scope.scopeDefault.value;
   const branch = branchNamed(values, scope);
   if (values.base !== undefined && !branch) throw new UsageError('--base applies to --branch only, or to a scope.default of branch');
+  if (values.pr !== undefined) return { mode: 'pull-request', request: { pullRequest: pullRequestNameOf(values.pr), paths } };
   if (values['last-commit'] === true || chosen === 'last-commit') return { mode: 'last-commit', request: { paths } };
   if (values.worktree === true || chosen === 'worktree') return { mode: 'worktree', request: { paths } };
   if (branch) return { mode: 'range', request: { range: { from: requireBase(scope.reviewBase), to: 'HEAD', mergeBase: true }, paths } };
@@ -247,6 +281,32 @@ export function namedScopeOf(values: Values, scope: ScopeSettings): NamedScope {
     return { mode: 'range', request: { range: { from: values.from, to: values.to, mergeBase: values['merge-base'] === true }, paths } };
   }
   return { mode: 'auto', request: { paths } };
+}
+
+/**
+ * How the engine runs `gh` for a command (R15 of the review on the pull
+ * request): the executable `github.executable` names, resolved once on
+ * PATH so a shim that a spawn without a shell cannot start is refused by
+ * name, with the arguments of `github.args`, both from pass 1, in the
+ * worktree, whose clone `gh` takes a pull request's number in, and with
+ * the command's own environment, its token for `gh` included.
+ */
+function githubOf(scope: ScopeSettings, io: CommandIo, worktree: string): Gh {
+  const executable = resolveExecutable(scope.githubExecutable.value, io.environment, process.platform, io.cwd, githubExecutableAdvice);
+  return { executable, args: scope.githubArgs.value, cwd: worktree, environment: io.environment };
+}
+
+/**
+ * The request the flags name, as a run captures it (`scopeRequestOf`): for
+ * a pull request, read from GitHub and checked against the worktree
+ * (`resolvePullRequestScope`), in the order of the design of the review
+ * on the pull request: pass 1, which gives `gh`, then GitHub; pass 2 then
+ * reads the repository's file at the merge base GitHub gave.
+ */
+export function requestedScopeOf(values: Values, worktree: string, scope: ScopeSettings, io: CommandIo): RequestedScope {
+  const named = scopeRequestOf(values, worktree, scope);
+  if (named.mode !== 'pull-request') return { request: named.request, pullRequest: null };
+  return resolvePullRequestScope(worktree, named.request, githubOf(scope, io, worktree));
 }
 
 /**
@@ -560,7 +620,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
       executableArgs: configuration.executableArgs,
       rolesRoot,
       flags,
-      scope: { named: false, choice: () => { throw new Error(`Run ${outcome.runId} has its scope`); }, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
+      scope: { named: false, pullRequest: false, choice: () => { throw new Error(`Run ${outcome.runId} has its scope`); }, request: () => { throw new Error(`Run ${outcome.runId} has its scope`); } },
       fix: noCheckSettings,
       engineEntry: io.engineEntry ?? sourceEntry,
       environment: io.environment,
@@ -687,12 +747,15 @@ async function configCommand(values: Values, rest: readonly string[], io: Comman
   // show: the two passes as review runs them, without the start lock and without a run (R14).
   const { runtime, source } = invocationOf(values, io, location.worktree, location.commonDir);
   const adapter = defaultRuntimes().get(runtime);
-  const chosen = scopeRequestOf(values, location.worktree, source.scopeSettings());
+  // Pass 1, then for a pull request GitHub, then pass 2 at the base of the change, as review takes them (R1 of the review on the pull request).
+  const chosen = requestedScopeOf(values, location.worktree, source.scopeSettings(), io);
   const { mode: captured, base, target } = scopeEnds(location.worktree, chosen.request);
   let resolved = source.resolve({ base, policy: readPolicy(values.roles ?? engineRolesRoot()), runtime, costInUsd: adapter.capabilities.costInUsd });
   // The mode as the person asked for it (R12 of the questions in the chat), by the rule status applies to the run, with the review.base the run would record.
-  const mode = askedMode(captured, chosen.request, resolvedValue(resolved, 'review.base'));
-  const ends = { mode, base, baseName: baseNameOf(mode, chosen.request), target };
+  const facts = chosen.pullRequest?.facts ?? null;
+  const mode = askedMode(captured, { ...chosen.request, ...(chosen.pullRequest === null ? {} : { pullRequest: chosen.pullRequest.name }) }, resolvedValue(resolved, 'review.base'));
+  const pullRequest = facts === null ? null : { number: facts.number, owner: facts.owner, repository: facts.repository };
+  const ends = { mode, pullRequest, base, baseName: baseNameOf(mode, chosen.request, facts), target };
   let shown: ShownScope & { readonly files: readonly string[]; readonly excluded: readonly string[] };
   try {
     const listed = resolveScopeRequest(location.worktree, chosen.request, resolvedValue(resolved, 'scope.exclude') ?? []);
@@ -793,8 +856,9 @@ async function review(values: Values, io: CommandIo, root: string, worktree: str
     // The controller resolves the scope for a run that has none yet, and to compare it with a finished run's before continuing that run: a resumed run keeps the scope it captured, so its flags are not even checked against the tree, which may have moved on. Pass 1 reads the operator's files then, and only then (R3 of the configuration).
     const scope: ScopeSource = {
       named: hasScopeFlags(values),
+      pullRequest: values.pr !== undefined,
       choice: () => namedScopeOf(values, source.scopeSettings()),
-      request: () => scopeRequestOf(values, worktree, source.scopeSettings()).request,
+      request: () => requestedScopeOf(values, worktree, source.scopeSettings(), io),
     };
     const outcome = await runReview({
       checkpoint,

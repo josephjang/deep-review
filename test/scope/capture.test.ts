@@ -548,7 +548,7 @@ describe('captureScope', () => {
 });
 
 describe('namesScope (R11, TD9 of resumable runs)', () => {
-  const recorded = (mode: ScopeState['mode'], request: Partial<ScopeState['request']> = {}): Pick<ScopeState, 'mode' | 'request'> => ({ mode, request: { paths: [], exclude: [], ...request } });
+  const recorded = (mode: ScopeState['mode'], request: Partial<ScopeState['request']> = {}): Pick<ScopeState, 'mode' | 'request' | 'pullRequest'> => ({ mode, request: { paths: [], exclude: [], ...request }, pullRequest: null });
 
   it('matches a last-commit or worktree run by its mode, and either with no mode named, without a look at the tree', () => {
     assert.equal(namesScope({ mode: 'last-commit', request: { paths: [] } }, recorded('last-commit')), true);

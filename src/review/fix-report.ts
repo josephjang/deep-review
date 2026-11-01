@@ -442,7 +442,7 @@ function baseNotes(review: ReviewState, fix: FixState, checks: readonly BriefChe
     const words = kinds.length === 0 ? null : notRunOnBase(reason, listed(kinds));
     return words === null ? [] : [`- ${title}: ${words}`];
   });
-  return [`- ${title}: the base of the change is ${baseWords({ commit: scope.base, name: baseNameOf(scope.mode, scope.request) })}.`, ...notRun];
+  return [`- ${title}: the base of the change is ${baseWords({ commit: scope.base, name: baseNameOf(scope.mode, scope.request, scope.pullRequest) })}.`, ...notRun];
 }
 
 /**

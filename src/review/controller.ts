@@ -30,7 +30,7 @@ import { changeReadingOf } from '../checkpoint/review-fold.ts';
 import { conventionsKnown, lastSurvey, type SurveyState } from '../checkpoint/survey-state.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
-import { withPathFirst } from '../runtime/environment.ts';
+import { withoutVariables, withPathFirst } from '../runtime/environment.ts';
 import { PreflightError, UnsupportedCapabilityError } from '../runtime/errors.ts';
 import { ioDirectoryName, runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
 import { killMarkWords } from '../runtime/kill-marks.ts';
@@ -39,10 +39,13 @@ import type { ProcessRunner } from '../runtime/process.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
-import { captureScope, namesScope, resolveScopeRequest, scopeBase, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
+import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
+import { ghTokenVariables, type Gh } from '../github/gh.ts';
+import { listPullRequestFiles, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequestName } from '../github/pull-request.ts';
+import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
-import { commitMessages, objectFormat } from '../scope/git.ts';
+import { commitMessages, hasCommit, head as gitHead, objectFormat, status as gitStatus } from '../scope/git.ts';
 import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckSettings } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
 import { checkSettingsInForce, checkSettingsOfResolved, configuredLines, executableOf, policyOverridesOf, recordedCheckSettings, refuseOldNode, unappliedLines, unconfiguredSource } from './configuration.ts';
@@ -81,6 +84,16 @@ import type { ExpectedMatch } from './tree.ts';
 import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditingPhase, isTreeCheckPhase, lostClaimWords, maxRecordedTextLength, pinnedRuntimeAction, unitName, wayOut, type CheckKind, type CheckPhase, type Phase, type PinnedUse, type TreeCheckPhase } from './vocabulary.ts';
 
 /**
+ * The request a run captures: the scope request, and the pull request
+ * whose change it is, with what GitHub gave for it, or null for a scope
+ * that names none (R2, R3 of the review on the pull request).
+ */
+export interface RequestedScope {
+  readonly request: ScopeRequest;
+  readonly pullRequest: CapturedPullRequest | null;
+}
+
+/**
  * The scope a command asks for. It is resolved when the run it acts on
  * has none captured (a new run, or one whose capture failed), and when a
  * `--fix` compares it with a finished run's before continuing that run; an
@@ -90,6 +103,8 @@ import { blockerActions, checkKinds, decisionCounts, decisionCountWords, isEditi
 export interface ScopeSource {
   /** Whether the command named a scope, so a resumed run that ignores it can say so. */
   readonly named: boolean;
+  /** Whether the command names a pull request, whose request reads GitHub, which the command does before it takes the start lock when it may need it (the capture of a pull request in the design of the review on the pull request). */
+  readonly pullRequest: boolean;
   /**
    * The scope the command names, as its flags or `scope.default` give it,
    * before any look at the tree: what a `review --fix` compares with a fix
@@ -98,8 +113,79 @@ export interface ScopeSource {
    * flags that name no scope.
    */
   readonly choice: () => NamedScope;
-  /** The request to capture; throws, creating nothing, when the command names none or one the tree refutes. */
-  readonly request: () => ScopeRequest;
+  /** The request to capture; throws, creating nothing, when the command names none, one the tree refutes, or a pull request GitHub or the tree refutes. */
+  readonly request: () => RequestedScope;
+}
+
+/** What a pull request is called in a refusal: its number and where it lives. */
+const pullRequestWords = (facts: { readonly number: number; readonly owner: string; readonly repository: string }): string => `pull request #${String(facts.number)} of ${facts.owner}/${facts.repository}`;
+
+/** The paths on one side of a difference, up to the ones it names, and how many more. */
+const differingPaths = (paths: readonly string[], count: number): string => `${paths.join(', ')}${count > paths.length ? `, and ${String(count - paths.length)} more` : ''}`;
+
+/** Why the change from the merge base is not the pull request's, by the paths of each side that differ (R2 of the review on the pull request). */
+function pathDifferenceWords(difference: PathDifference): string {
+  return [
+    ...(difference.onGitHubCount === 0 ? [] : [`GitHub lists ${String(difference.onGitHubCount)} changed path${difference.onGitHubCount === 1 ? '' : 's'} that the clone's change does not hold (${differingPaths(difference.onGitHub, difference.onGitHubCount)})`]),
+    ...(difference.inChangeCount === 0 ? [] : [`the clone's change holds ${String(difference.inChangeCount)} changed path${difference.inChangeCount === 1 ? '' : 's'} that GitHub does not list (${differingPaths(difference.inChange, difference.inChangeCount)})`]),
+  ].join('; ');
+}
+
+/**
+ * The result of `read`, calls of GitHub, with each call that GitHub or
+ * `gh` refused, `gh` missing or with no account for the host included, and
+ * each pull request the engine cannot review as GitHub gave it, turned
+ * into a refusal that names it and its action. A timeout stays an error,
+ * and so does an answer the engine cannot read, unless `unreadable` names
+ * the action that answers it: a refusal then names it.
+ */
+function refusingGitHub<T>(read: () => T, unreadable: string | null = null): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(error.message);
+    if (!(error instanceof GitHubCallError)) throw error;
+    const { failure } = error;
+    if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(error.message);
+    if (failure.kind === 'unreadable' && unreadable !== null) throw new ReviewRefusedError(`${error.message}; ${unreadable}`);
+    throw error;
+  }
+}
+
+/** What answers a pull request named by its number that `gh` cannot read, as when it cannot tell the repository of the clone, or null for one named by its URL. */
+const urlAction = (name: PullRequestName): string | null => (name.repository === null ? `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${String(name.number)}, when gh cannot tell the repository of this clone` : null);
+
+/**
+ * Read the pull request a command names from GitHub through `gh`, and
+ * hold the worktree to it (R1, R2, TD3 of the review on the pull
+ * request), in this order, each refusal naming its action and creating
+ * nothing: a pull request that is closed or merged is refused (PD9); a
+ * `HEAD` that is not its head, naming `gh pr checkout`; a tree that `git
+ * status` does not show clean, as `--last-commit` refuses one; a merge
+ * base, from GitHub's comparison of the head of its base branch now with
+ * its head, that the clone does not hold, naming a fetch of the history;
+ * and a change from that merge base, with no path and no pattern, whose
+ * changed paths are not the ones GitHub lists, naming up to ten of each
+ * side. The request is then the range from the merge base to `HEAD`,
+ * taken as it is, with the paths the command named.
+ */
+export function resolvePullRequestScope(worktree: string, named: Extract<NamedScope, { readonly mode: 'pull-request' }>['request'], gh: Gh): RequestedScope {
+  const name = named.pullRequest;
+  const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
+  return refusingGitHub(() => {
+    const words = pullRequestWords(facts);
+    if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
+    const head = gitHead(worktree);
+    if (head !== facts.head) throw new ReviewRefusedError(`HEAD is ${head}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
+    if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${words} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+    const mergeBase = readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
+    if (!hasCommit(worktree, mergeBase)) {
+      throw new ReviewRefusedError(`the clone does not hold ${mergeBase}, the merge base GitHub gives for ${words} with its base branch ${facts.baseRef}; fetch the history down to it, such as \`git fetch --unshallow\` in a shallow clone, and run the command again`);
+    }
+    const difference = pullRequestPathDifference(worktree, mergeBase, listPullRequestFiles(gh, facts));
+    if (difference !== null) throw new ReviewRefusedError(`the change from the merge base ${mergeBase} to HEAD is not the change of ${words}: ${pathDifferenceWords(difference)}`);
+    return { request: { range: { from: mergeBase, to: 'HEAD', mergeBase: false }, paths: [...named.paths] }, pullRequest: { name, facts } };
+  });
 }
 
 export interface ReviewOptions {
@@ -418,7 +504,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   const log = options.log ?? ((line: string): void => {
     process.stderr.write(`${line}\n`);
   });
-  const environment = options.environment ?? process.env;
+  const commandEnvironment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
   const adapter = options.runtimes.get(options.runtime);
   const roles = assembleRoles(options.rolesRoot);
@@ -428,10 +514,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   // Every comparison with what the run expects, and every patch, sees a file as git would store it (R22 of the fix pass).
   const content = gitContent(options.worktree, (reference) => checkpoint.evidence.read(reference));
   const source = options.configuration ?? unconfiguredSource(options);
-  const opened = await openRun({ ...options, log, environment, platform, adapter, roles, match: content.match, source });
+  const opened = await openRun({ ...options, log, environment: commandEnvironment, platform, adapter, roles, match: content.match, source });
   let state = opened.state;
   const runId = state.id;
   const { release, capture, configure, continuation } = opened;
+  // A run of a pull request launches its workers and its checks without the variables that hold a token for gh, since they run the code of the change; only the engine's own calls of gh need them, and those are made before here (R15 of the review on the pull request).
+  const ofPullRequest = (capture === null ? state.scope?.pullRequest ?? null : capture.pullRequest) !== null;
+  const environment = ofPullRequest ? withoutVariables(commandEnvironment, ghTokenVariables, platform) : commandEnvironment;
   const inFlight = new Map<string, InFlight>();
   /**
    * The check settings the planner and the survey read, once the run is
@@ -580,9 +669,10 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     if (capture !== null) {
       // At the base the configuration was read at, which the capture holds it to (R4 of the configuration).
       // A tree emptied since the run was opened is refused as the listing refused it, exit 2; the run, with no scope, resumes on the next command.
-      state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base }));
+      state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base, ...(capture.pullRequest === null ? {} : { pullRequest: capture.pullRequest }) }));
       const excluded = state.scope!.excluded.count;
-      log(`run ${runId}: scope captured, ${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
+      const reviewed = state.scope!.pullRequest === null ? '' : `${pullRequestWords(state.scope!.pullRequest)}, `;
+      log(`run ${runId}: scope captured, ${reviewed}${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
       // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration). Version 9 says the run has the documentation step (TD4 of the documentation step), the checks on the base (TD8 of the facts before a merge) and runs on the record (TD6 of runs on the record).
@@ -1077,8 +1167,8 @@ export async function requirePinned(run: RunState, options: PinnedOptions): Prom
 interface OpenedRun {
   readonly state: RunState;
   readonly release: ReleaseLock;
-  /** The scope to capture, for a run that has none yet, with the patterns `scope.exclude` leaves out and the base its configuration was read at; null for one that captured it. */
-  readonly capture: { readonly request: ScopeRequest; readonly exclude: readonly string[]; readonly base: string } | null;
+  /** The scope to capture, for a run that has none yet, with the patterns `scope.exclude` leaves out, the base its configuration was read at and the pull request whose change it is, if any; null for one that captured it. */
+  readonly capture: { readonly request: ScopeRequest; readonly exclude: readonly string[]; readonly base: string; readonly pullRequest: CapturedPullRequest | null } | null;
   /** The configuration to pin, for a run not yet configured, with the settings it was resolved from; null for one whose configuration is pinned. */
   readonly configure: { readonly payload: ReviewConfigurationV6; readonly resolved: ResolvedSettings } | null;
   /** The continuation to pin, for a finished read-only run this command continues into the fix pass, with where its read-only report is; null otherwise (R1 of fix pass continuation). */
@@ -1161,9 +1251,21 @@ function nothingToFix(run: RunState): string | null {
  * and read again, as a found run is. One that another engine continued
  * meanwhile is resumable now and is resumed; one that no longer qualifies
  * for another reason is let go, and a run is created.
+ *
+ * A command that names a pull request reads GitHub before it takes the
+ * start lock, which refuses every other command of the repository while
+ * it is held, unless a look without the lock finds a run to resume or a
+ * fix run to reopen, neither of which needs GitHub (the capture of a pull
+ * request in the design of the review on the pull request). Under the
+ * lock the runs are found again as for any command, and a new run is
+ * created only while `HEAD` is still the head GitHub gave. An active run
+ * that has no scope yet reads GitHub under the lock, the one case that
+ * does.
  */
 async function openRun(context: OpenContext): Promise<OpenedRun> {
   const { checkpoint, log } = context;
+  const scopeRequestOf = once(() => context.scope.request());
+  if (context.scope.pullRequest && readsGitHubFirst(checkpoint, context)) scopeRequestOf();
   const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
   let release: ReleaseLock | null = null;
   try {
@@ -1193,7 +1295,6 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     }
     // An active run is resumed first, --fresh or not (R2 of fix pass continuation).
     if (found !== null && context.fresh === true) log(`run ${found.id} is active and resumes; --fresh is ignored`);
-    const scopeRequestOf = once(() => context.scope.request());
     if (found === null && fixing) {
       // A fix run the run budget stopped comes before a read-only run to continue (R11 of resumable runs).
       const reopened = await reopenRun(runs, context);
@@ -1205,7 +1306,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       }
     }
     if (found === null && fixing) {
-      const chosen = chooseContinuation(runs, context, scopeRequestOf);
+      const chosen = chooseContinuation(runs, context, () => scopeRequestOf().request);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
         const refolded = refoldUnderLock(checkpoint, chosen.id, log);
@@ -1229,7 +1330,14 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       log(`run ${found.id}: resuming${found.scope === null ? '; it has no scope yet and captures the one this command names' : ''}`);
       if (found.scope !== null && context.scope.named) log(`run ${found.id} is active; its scope flags are ignored and the run continues`);
     }
-    const scopeRequest = found === null || found.scope === null ? scopeRequestOf() : null;
+    const requested = found === null || found.scope === null ? scopeRequestOf() : null;
+    const scopeRequest = requested?.request ?? null;
+    // GitHub was read before the lock, so a HEAD that moved since is refused before a run is created (R2 of the review on the pull request).
+    const pullRequest = requested?.pullRequest ?? null;
+    if (pullRequest !== null) {
+      const head = gitHead(context.worktree);
+      if (head !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head} since ${pullRequestWords(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
+    }
     let configure: OpenedRun['configure'] = null;
     let capture: OpenedRun['capture'] = null;
     if (found !== null && pinned !== null) {
@@ -1247,7 +1355,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
         // The change is listed with its exclusions before the run exists, so one with no path left to review creates nothing (R10 of the configuration).
         const listed = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
         resolved = withChangedPaths(resolved, [...listed.changes.map((change) => change.path), ...listed.excluded]);
-        capture = { request: scopeRequest, exclude, base };
+        capture = { request: scopeRequest, exclude, base, pullRequest };
       } else if (found?.scope !== null && found?.scope !== undefined) {
         // A run stopped between its capture and its configuration records the patterns its scope was cut with, whose layer the capture did not record, so other patterns are refused rather than recorded beside it.
         const captured = found.scope.request.exclude;
@@ -1377,12 +1485,8 @@ const budgetStopped = (run: RunState, worktree: string): boolean => budgetStoppe
  */
 async function reopenRun(runs: readonly RunState[], context: OpenContext): Promise<{ readonly kind: 'reopened' | 'active'; readonly state: RunState; readonly release: ReleaseLock } | null> {
   const { checkpoint, log } = context;
-  if (context.fresh === true || !context.adapter.capabilities.costInUsd) return null;
-  const candidates = runs.filter((run) => budgetStopped(run, context.worktree)).reverse();
-  if (candidates.length === 0) return null;
-  const named = context.scope.choice();
-  const chosen = candidates.find((run) => namesScope(named, run.scope!));
-  if (chosen === undefined) return null;
+  const chosen = reopenCandidate(runs, context);
+  if (chosen === null) return null;
   const release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
   try {
     const run = refoldUnderLock(checkpoint, chosen.id, log);
@@ -1425,6 +1529,34 @@ async function reopenRun(runs: readonly RunState[], context: OpenContext): Promi
     release();
     throw error;
   }
+}
+
+/**
+ * The fix run `reopenRun` takes, before its lock: with neither `--fresh`
+ * nor a runtime that reports no cost, the newest fix run of this worktree
+ * that the run budget stopped whose scope the command names (`namesScope`),
+ * or null.
+ */
+function reopenCandidate(runs: readonly RunState[], context: OpenContext): RunState | null {
+  if (context.fresh === true || !context.adapter.capabilities.costInUsd) return null;
+  const candidates = runs.filter((run) => budgetStopped(run, context.worktree)).reverse();
+  if (candidates.length === 0) return null;
+  const named = context.scope.choice();
+  return candidates.find((run) => namesScope(named, run.scope!)) ?? null;
+}
+
+/**
+ * Whether a command that names a pull request reads GitHub before the
+ * start lock: when a look at the runs without the lock finds none active,
+ * and, with `--fix`, no fix run to reopen. The look logs nothing, since
+ * the command finds the runs again under the lock and says there what it
+ * passed over; a run another engine leaves meanwhile is still found there,
+ * and resumes or reopens with GitHub read for nothing.
+ */
+function readsGitHubFirst(checkpoint: Checkpoint, context: OpenContext): boolean {
+  const runs = readableRuns(checkpoint, () => {});
+  if (runs.some(isResumable)) return false;
+  return (context.fix ?? null) === null || reopenCandidate(runs, context) === null;
 }
 
 /** Name each continuable run of this worktree a new run passes over whose person's answers stay with it, since the new run does not carry them (R4 of answers). */

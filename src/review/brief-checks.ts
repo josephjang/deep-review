@@ -183,10 +183,10 @@ function baseOf(fix: FixState, kind: CheckKind, base: Pick<BriefBase, 'commit' |
  * fixes recorded it, so an answer pass that makes those runs old does not
  * take the comparison away (R2, TD13).
  */
-export function briefChecksOf(review: Pick<ReviewState, 'answerPasses' | 'baseChecksStep'> & { readonly fix: FixState }, scope: Pick<ScopeState, 'base' | 'mode' | 'request'>): BriefCheck[] {
+export function briefChecksOf(review: Pick<ReviewState, 'answerPasses' | 'baseChecksStep'> & { readonly fix: FixState }, scope: Pick<ScopeState, 'base' | 'mode' | 'request' | 'pullRequest'>): BriefCheck[] {
   const { fix } = review;
   const taken = kindsTakenToBase(review, 'recorded');
-  const base = { commit: scope.base, name: baseNameOf(scope.mode, scope.request) };
+  const base = { commit: scope.base, name: baseNameOf(scope.mode, scope.request, scope.pullRequest) };
   return (fix.checks.planned?.checks ?? []).filter((check) => check.command !== null).map((check) => {
     const last = lastRunOf(review, check.kind);
     const facts = {

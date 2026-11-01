@@ -410,7 +410,8 @@ function numbersLine(findings: readonly ReportFinding[]): string[] {
 
 /**
  * The last part, "About this run" (R8 of the report for the person; R12,
- * R15 of the brief of a run): its repository, its commits, its engine, its
+ * R15 of the brief of a run): its repository, its commits, the URL of the
+ * pull request it reviewed (R6 of the review on the pull request), its engine, its
  * runtime, its models and its settings, the earlier reports by their names
  * in the store, the counts, the totals, the error for a worktree of the base
  * that could not be made (R5 of the facts before a merge), where the
@@ -435,6 +436,8 @@ function aboutSection(state: RunState, scope: ScopeState, review: ReviewState, i
     `Base: ${scope.base}`,
     `Head: ${scope.head}`,
     `Mode: ${scope.mode}`,
+    // The pull request the run reviewed, read from GitHub at the capture (R6 of the review on the pull request).
+    ...(scope.pullRequest === null ? [] : [`Pull request: ${scope.pullRequest.url}`]),
     `Run: ${state.id}`,
     `Engine: ${input.engine}${state.engine === input.engine ? '' : ` (run created by ${state.engine})`}`,
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,

@@ -116,6 +116,16 @@ export function mergeBase(repo: string, a: string, b: string): string {
   return gitText(repo, ['merge-base', a, b]).trim();
 }
 
+/** Whether the clone holds the commit `id`, as a shallow clone may not hold one past its history. */
+export function hasCommit(repo: string, id: string): boolean {
+  try {
+    git(repo, ['cat-file', '-e', `${id}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** SHA-256 of the index listing: changes when anything is staged, unstaged or its mode flips. */
 export function indexDigest(repo: string): string {
   return createHash('sha256').update(git(repo, ['ls-files', '--stage', '-z'])).digest('hex');
