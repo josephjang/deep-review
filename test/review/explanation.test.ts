@@ -283,6 +283,9 @@ describe('the lines of a path at a side, read with git (R19)', () => {
     assert.equal(lines('head', 'src/gone.ts'), null);
     assert.equal(lines('head', 'src'), null, 'a directory is no file');
     assert.equal(lineCountOf(Buffer.alloc(0)), 0);
+    const nul = goodAnswer();
+    nul.findings[0]!.explanation!.cases[0]!.lines.path = 'src/a\0.ts';
+    assert.deepEqual(checkAnswer(nul, { ids: ['RIPPLE-1'], lineCount: lines }).findings.get('RIPPLE-1')!.failures, ['case 1 of RIPPLE-1 cites "src/a\\u0000.ts", which is not a path from the root of the repository'], 'a NUL, which no argument of git can hold, is a failed check');
   });
 });
 
