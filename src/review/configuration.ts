@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import type { ReviewConfiguration } from '../checkpoint/events.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { dedicatedFlagValues } from '../config/flags.ts';
-import { fixSideNames, recordedNames, settingOf } from '../config/record.ts';
+import { fixSideNames, recordedNames, settingOf, settingsRecordVersion } from '../config/record.ts';
 import { resolvedValue, type FlagLayer, type ResolvedSettings } from '../config/resolve.ts';
 import { checkSettingName, checkSettingNames, checkTimeoutMs, fileWords, isConfiguredRuntime, layerWords, runtimeSettingNames, valueWords, type FileLayer, type Layer, type SettingName } from '../config/settings.ts';
 import { configurationSource, type ConfigurationSource } from '../config/source.ts';
@@ -211,6 +211,9 @@ function missingWords(layer: FileLayer, now: ResolvedSettings): string {
   return 'is gone since the run recorded it';
 }
 
+/** The settings a run records but does not keep: each command that calls gh resolves them again (R15 of the review on the pull request). */
+const perCommand: readonly SettingName[] = ['github.executable', 'github.args'];
+
 /** A setting's value as a run pins it: the check timeout in whole milliseconds, so a value the pin rounded reads as unchanged. */
 const comparable = (name: SettingName, value: unknown): unknown => (name === 'checks.timeout_minutes' && typeof value === 'number' ? checkTimeoutMs(value) : value);
 
@@ -239,12 +242,14 @@ export function unappliedLines(runId: string, configuration: ReviewConfiguration
   });
   const newFiles = now.files.filter((file) => !recordedFiles.some((recorded) => recorded.layer === file.layer && recorded.path === file.path)).map((file) => `run ${runId}: ${layerWords[file.layer]} ${file.path} is new since the run recorded its settings; it does not apply`);
   // A run configured before the settings recorded only its fix side, if a continuation recorded one.
-  const names = [...new Set<SettingName>([...(configuration.settings === null ? [] : recordedNames(configuration)), ...(configuration.fixSettings === null ? [] : fixSideNames)])];
+  const names = [...new Set<SettingName>([...(configuration.settings === null ? [] : recordedNames(configuration, settingsRecordVersion(configuration))), ...(configuration.fixSettings === null ? [] : fixSideNames)])];
   const runtime = isConfiguredRuntime(configuration.runtime) ? runtimeSettingNames(configuration.runtime) : null;
   const executable = runtime?.executable ?? null;
   // The settings a flag gives that the resume names or applies on its own, whichever flag gave them.
   const ownLine: readonly SettingName[] = [...(runtime === null ? [] : [runtime.strong, runtime.fast]), 'runtimes.codex.windows_sandbox', 'run.concurrency', 'budget.usd', ...checkSettingNames];
   const settingLines = names.flatMap((name) => {
+    // Each command that calls gh resolves its executable and arguments anew (R15 of the review on the pull request), so the run keeps no value of them to compare.
+    if (perCommand.includes(name)) return [];
     const current = now.values[name];
     const flag = flags.get(name);
     if (flag !== undefined && ownLine.includes(name)) return [];

@@ -178,7 +178,28 @@ export function defaultOutput(role: string, prompt: string): unknown {
   if (role === 'fixer') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({})));
   // The documentation worker finds every document already in line, so it edits nothing unless a script says it does.
   if (role === 'documentation') return fixerAnswer(Array.from({ length: numberedCount(prompt) }, () => ({ status: 'already-applied' as const })));
+  if (role === 'writer') return writerAnswer(findingsToExplainOf(prompt));
   return { answer: 'ok' };
+}
+
+/** The ids of the findings the writer's task asks it to explain, none when it asks for none. */
+export function findingsToExplainOf(prompt: string): string[] {
+  return /^Explain these \d+ findings?, each by its id, .*?: (.+?)\. Every other finding/m.exec(prompt)?.[1]?.split(', ') ?? [];
+}
+
+/**
+ * A writer's answer that passes the engine's checks: a conclusion with an
+ * action for each finding of `ids`, an account, and each finding marked
+ * unexplained with its reason, which cites no line, so the answer passes
+ * whatever the tree holds; `explained` gives an explanation instead for a
+ * finding it names.
+ */
+export function writerAnswer(ids: readonly string[], explained: Readonly<Record<string, unknown>> = {}): unknown {
+  return {
+    conclusion: { why: 'fake: the pull request needs what its findings ask before a merge.', actions: ids.map((id) => ({ id, sentence: `fake: act on ${id} as decided.` })), diagram: null },
+    account: { terms: [], problem: { text: 'fake: the problem before the change.', diagram: null }, change: { text: 'fake: what the change does.', diagram: null } },
+    findings: ids.map((id) => (Object.hasOwn(explained, id) ? { id, explanation: explained[id], unexplained: null } : { id, explanation: null, unexplained: `fake: the evidence of ${id} names no line to cite.` })),
+  };
 }
 
 /**

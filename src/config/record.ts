@@ -5,10 +5,10 @@
  * recorded setting, which the report, `status` and the controller use
  * whichever version recorded the run.
  */
-import { recordedSettingsV1, type FixSettingsRecorded, type ReviewConfiguration, type ReviewConfigurationV5, type SettingsRecorded } from '../checkpoint/events.ts';
+import { recordedSettingsV1, recordedSettingsV2, type FixSettingsRecorded, type ReviewConfiguration, type ReviewConfigurationV5, type SettingsRecorded, type SettingsRecordedV2 } from '../checkpoint/events.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { resolvedValue, type ResolvedSettings } from './resolve.ts';
-import { checkSettingNames, checkTimeoutMinutes, defaultScope, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
+import { checkSettingNames, checkTimeoutMinutes, defaultGithubExecutable, defaultLanguage, defaultScope, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
 /** A value as the record holds one: what a file or a flag gives is JSON-like. */
 type JsonValue = SettingsRecorded['notFollowed'][number]['value'];
@@ -16,8 +16,20 @@ type JsonValue = SettingsRecorded['notFollowed'][number]['value'];
 /** A setting version 1 of the record names. */
 type RecordedNameV1 = SettingsRecorded['notFollowed'][number]['name'];
 
+/** A setting version 2 of the record names. */
+type RecordedNameV2 = SettingsRecordedV2['notFollowed'][number]['name'];
+
 /** Whether version 1 of the record names a setting, as it names every setting these records hold. */
 const namedByRecordV1 = (name: SettingName): name is RecordedNameV1 => (recordedSettingsV1.names as readonly string[]).includes(name);
+
+/** Whether version 2 of the record names a setting. */
+const namedByRecordV2 = (name: SettingName): name is RecordedNameV2 => (recordedSettingsV2.names as readonly string[]).includes(name);
+
+/** The settings version 2 of the record adds, which only a read-only run of a pull request records (R15, R20 of the review on the pull request). */
+const recordV2Names: readonly SettingName[] = ['review.language', 'github.executable', 'github.args'];
+
+/** The version of the record of the settings a configuration holds: 2 at `review.configured@10`, which records the language of the review, else 1. */
+export const settingsRecordVersion = (configuration: Pick<ReviewConfiguration, 'settings'>): 1 | 2 => (configuration.settings !== null && 'review.language' in configuration.settings.values ? 2 : 1);
 
 /** A setting as a run recorded it: its value, and its layer, or null for a run configured before the settings existed, whose values came from the defaults or its flags, which the ledger does not tell apart. */
 export interface RecordedSetting<V = unknown> {
@@ -32,16 +44,19 @@ export const fixSideNames: readonly SettingName[] = [...checkSettingNames, 'chec
  * The settings a run records, by what it is (R6): the ones that choose,
  * shape and run every review; the check settings only in a run that
  * fixes; the run budget always, null on a runtime that reports no cost;
- * the runtime's own models, executable and arguments; and the Codex
- * Windows sandbox only where the run pins one.
+ * the runtime's own models, executable and arguments; the Codex Windows
+ * sandbox only where the run pins one; and, in version 2 of the record,
+ * the language of the review and the executable of `gh` and its
+ * arguments (R15, R20 of the review on the pull request).
  */
-export function recordedNames(configuration: Pick<ReviewConfigurationV5, 'runtime' | 'fix' | 'codex'>): SettingName[] {
+export function recordedNames(configuration: Pick<ReviewConfigurationV5, 'runtime' | 'fix' | 'codex'>, record: 1 | 2 = 1): SettingName[] {
   const runtime = isConfiguredRuntime(configuration.runtime) ? Object.values(runtimeSettingNames(configuration.runtime)) : [];
   return [
     'review.base', 'scope.default', 'scope.exclude', 'tools.path', 'conventions.user_rules', 'budget.usd', 'run.concurrency',
     ...(configuration.fix ? [...checkSettingNames, 'checks.timeout_minutes' as const] : []),
     ...runtime,
     ...(configuration.codex === null ? [] : ['runtimes.codex.windows_sandbox' as const]),
+    ...(record === 2 ? recordV2Names : []),
   ];
 }
 
@@ -66,9 +81,14 @@ function sourcesRecordOf(resolved: ResolvedSettings, names: readonly SettingName
   return {
     files: resolved.files.map((file) => ({ ...file })),
     repository: { ...resolved.repository },
-    notFollowed: resolved.notFollowed.flatMap(({ name, repository, value, layer }) => (names.includes(name) && namedByRecordV1(name) ? [{ name, repository: repository as JsonValue, value: value as JsonValue, layer }] : [])),
+    notFollowed: notFollowedOf(resolved, names, namedByRecordV1),
     ignored: ignoredRecordOf(resolved.ignored),
   };
+}
+
+/** The repository values a higher layer replaced, among the settings `names` gives that the record's version names. */
+function notFollowedOf<N extends SettingName>(resolved: ResolvedSettings, names: readonly SettingName[], named: (name: SettingName) => name is N): { name: N; repository: JsonValue; value: JsonValue; layer: Layer }[] {
+  return resolved.notFollowed.flatMap(({ name, repository, value, layer }) => (names.includes(name) && named(name) ? [{ name, repository: repository as JsonValue, value: value as JsonValue, layer }] : []));
 }
 
 /**
@@ -93,6 +113,30 @@ export function settingsRecordOf(resolved: ResolvedSettings, configuration: Pick
       ...checks,
     },
     layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
+  };
+}
+
+/**
+ * Version 2 of the block, which `review.configured@10` records for a
+ * read-only run of a pull request (R15, R20, TD8 of the review on the pull
+ * request): version 1's, with the language of the review, which a resume
+ * writes in and `publish` posts in whatever the files say by then, and
+ * the executable of `gh` and its arguments as the settings gave them,
+ * with their layers among the others'.
+ */
+export function settingsRecordV2Of(resolved: ResolvedSettings, configuration: Pick<ReviewConfigurationV5, 'runtime' | 'fix' | 'codex'>): SettingsRecordedV2 {
+  const names = recordedNames(configuration, 2);
+  const recorded = settingsRecordOf(resolved, configuration);
+  return {
+    ...recorded,
+    values: {
+      ...recorded.values,
+      'review.language': resolvedValue(resolved, 'review.language') ?? defaultLanguage,
+      'github.executable': resolvedValue(resolved, 'github.executable') ?? defaultGithubExecutable,
+      'github.args': [...(resolvedValue(resolved, 'github.args') ?? [])],
+    },
+    layers: Object.fromEntries(names.map((name) => [name, resolved.values[name].layer])),
+    notFollowed: notFollowedOf(resolved, names, namedByRecordV2),
   };
 }
 
