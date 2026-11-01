@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { fixSettingsRecordedV1, recordedSettingsV1, reviewConfiguredV6, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
+import { z } from 'zod';
+import { fixSettingsRecordedV1, languageTagSchemaV1, recordedSettingsV1, recordedSettingsV2, reviewConfiguredV6, reviewConfiguredV9, settingsRecordedV1, type ReviewConfiguration } from '../../src/checkpoint/events.ts';
 import { recordedSetting } from '../../src/checkpoint/settings-state.ts';
 import { repositoryConfigPath, type ConfigFile } from '../../src/config/files.ts';
 import { fixSettingsRecordOf, recordedNames, settingOf, settingsRecordOf } from '../../src/config/record.ts';
 import { flagLayerOf, noFlags, resolveSettings, type FlagLayer } from '../../src/config/resolve.ts';
-import { checkSettingNames, layers, fileLayers, scopeDefaults, settingNames, type SettingName } from '../../src/config/settings.ts';
+import { checkSettingNames, languageTagSchema, layers, fileLayers, scopeDefaults, settingNames, type SettingName } from '../../src/config/settings.ts';
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { configuration, pin, readOnlyReported, settingsBlock, settingsConfigured } from '../helpers/review-history.ts';
@@ -46,11 +47,13 @@ const v5 = (fix: boolean, runtime = 'claude') => ({
 
 describe('the record of the settings', () => {
   it('freezes in the events the registry\'s names, layers and values of scope.default', () => {
-    assert.deepEqual([...recordedSettingsV1.names], settingNames);
+    assert.deepEqual([...recordedSettingsV2.names], settingNames);
+    assert.deepEqual([...recordedSettingsV1.names], settingNames.filter((name) => !['review.language', 'github.executable', 'github.args'].includes(name)), 'version 2 of the record added the language and the executable of gh with its arguments, and nothing else');
     assert.deepEqual([...recordedSettingsV1.layers], [...layers]);
     assert.deepEqual([...recordedSettingsV1.fileLayers], [...fileLayers]);
     assert.deepEqual([...recordedSettingsV1.scopeDefaults], [...scopeDefaults]);
     assert.deepEqual([...recordedSettingsV1.checkNames], checkSettingNames);
+    assert.deepEqual(z.toJSONSchema(languageTagSchemaV1), z.toJSONSchema(languageTagSchema), 'the record takes the language tags the setting takes');
   });
 
   it('records the settings that shape every run, the checks only in a fix run, and only the run\'s runtime\'s', () => {
@@ -78,6 +81,25 @@ describe('the record of the settings', () => {
       assert.deepEqual(block.ignored.map((entry) => entry.name), ['report.formats']);
     }
     assert.equal(settingsRecordOf(settings, v5(true)).values['checks.test'], 'npm run test:fast');
+  });
+
+  it('records version 1 of the record for every run the engine configures, whatever the files say of the language and of gh (R5 of the review on the pull request)', () => {
+    const settings = resolved([
+      file('repository', { 'review.language': 'ko' }),
+      file('operator', { 'github.executable': '/opt/gh/bin/gh', 'github.args': ['--hostname', 'ghe.example.com'] }),
+      file('clone', { 'review.language': 'en' }),
+    ]);
+    assert.deepEqual(settings.notFollowed.map((entry) => entry.name), ['review.language'], 'the resolution sees the language the run does not follow');
+    for (const configuration of [v5(false), v5(true), v5(false, 'codex')]) {
+      const block = settingsRecordOf(settings, configuration);
+      assert.ok(settingsRecordedV1.safeParse(block).success, 'the block is version 1 of the record');
+      assert.ok(reviewConfiguredV9.safeParse({ ...configuration, settings: block }).success, 'and version 9 of the configuration holds it');
+      assert.deepEqual(Object.keys(block.layers).filter((name) => !(recordedSettingsV1.names as readonly string[]).includes(name)), []);
+      assert.deepEqual(block.notFollowed, [], 'the language the run does not record is no value it did not follow');
+    }
+    const side = fixSettingsRecordOf(settings);
+    assert.ok(fixSettingsRecordedV1.safeParse(side).success, 'the fix side keeps version 1');
+    assert.deepEqual(side.notFollowed, []);
   });
 
   it('builds the fix side a version 2 pin records', () => {

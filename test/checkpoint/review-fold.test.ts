@@ -10,12 +10,12 @@ describe('the review fold', () => {
     const before = new History().add('run.created', { worktree: '/w' }).add('scope.captured', scope).fold();
     assert.equal(before.review, null);
     const review = configured().review();
-    // Version 1 of the configuration reads as a run without the fix pass, whose six phases are skipped, without the survey and the decision step, which did not exist yet, and, as every run, with the answer pass's two phases skipped.
+    // Version 1 of the configuration reads as a run without the fix pass, whose six phases are skipped, without the survey, the decision step and the explanation, which did not exist yet, and, as every run, with the answer pass's two phases skipped.
     assert.deepEqual(review.configuration, configuration);
     assert.equal(review.configuration.fix, false);
     assert.equal(review.fix, null);
     assert.deepEqual(review.limits, { concurrency: 4, runBudgetUsd: 30 }, 'the limits in force start as the pinned ones');
-    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: [...fixPhases, ...answerPhases].includes(phase as never) || phase === 'survey' || phase === 'decision' ? 'skipped' : 'pending', attempt: 0 }])));
+    assert.deepEqual(review.phases, Object.fromEntries(phases.map((phase) => [phase, { status: [...fixPhases, ...answerPhases].includes(phase as never) || phase === 'survey' || phase === 'decision' || phase === 'explanation' ? 'skipped' : 'pending', attempt: 0 }])));
     assert.deepEqual(review.answers, [], 'nobody has answered');
     assert.deepEqual(review.answerPasses, []);
     assert.equal(review.decisions, null);
@@ -202,7 +202,7 @@ describe('the review fold', () => {
     const review = reported().review();
     assert.deepEqual(review.ranking, ranking);
     assert.deepEqual(review.report, { report: reference('e', 2048), statistics, patches: [] }, 'version 1 of the report reads as one with no patch');
-    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    assert.deepEqual(Object.values(review.phases).map((phase) => phase.status), ['skipped', 'completed', 'degraded', 'completed', 'completed', 'completed', 'completed', 'degraded', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
   });
 
   it('skips the answer pass\'s two phases at every version of the configuration, fix run or not, which only an answer pass opens (R9 of answers)', () => {

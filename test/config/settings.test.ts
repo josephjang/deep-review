@@ -12,9 +12,10 @@ import { InvalidScopeRequestError } from '../../src/scope/errors.ts';
 
 const policy = readPolicy(repositoryRolesRoot());
 
-/** The table of R12, one row per setting name the registry declares, with its owner and dedicated flag. */
+/** The table of R12, and the settings of R15 and R20 of the review on the pull request, one row per setting name the registry declares, with its owner and dedicated flag. */
 const expected: Readonly<Record<string, { owner: Owner; flag: string | null }>> = {
   'review.base': { owner: 'operator-only', flag: '--base' },
+  'review.language': { owner: 'repository-first', flag: null },
   'scope.default': { owner: 'operator-only', flag: null },
   'scope.exclude': { owner: 'repository-first', flag: null },
   'checks.build': { owner: 'repository-first', flag: '--check, --no-check' },
@@ -35,6 +36,8 @@ const expected: Readonly<Record<string, { owner: Owner; flag: string | null }>> 
   'runtimes.codex.executable': { owner: 'operator-only', flag: '--executable' },
   'runtimes.codex.args': { owner: 'operator-only', flag: '--executable-arg' },
   'runtimes.codex.windows_sandbox': { owner: 'operator-only', flag: '--codex-windows-sandbox' },
+  'github.executable': { owner: 'operator-only', flag: null },
+  'github.args': { owner: 'operator-only', flag: null },
 };
 
 describe('the settings registry', () => {
@@ -61,7 +64,7 @@ describe('the settings registry', () => {
 
   it('gives the repository\'s layer every setting but the operator-only ones, and every other layer all of them', () => {
     const operatorOnly = settingNames.filter((name) => settings[name].owner === 'operator-only');
-    assert.deepEqual(operatorOnly, ['review.base', 'scope.default', 'tools.path', 'run.concurrency', 'runtimes.claude.executable', 'runtimes.claude.args', 'runtimes.codex.executable', 'runtimes.codex.args', 'runtimes.codex.windows_sandbox']);
+    assert.deepEqual(operatorOnly, ['review.base', 'scope.default', 'tools.path', 'run.concurrency', 'runtimes.claude.executable', 'runtimes.claude.args', 'runtimes.codex.executable', 'runtimes.codex.args', 'runtimes.codex.windows_sandbox', 'github.executable', 'github.args']);
     assert.deepEqual(layerSettings('repository'), settingNames.filter((name) => !operatorOnly.includes(name)));
     for (const name of operatorOnly) assert.equal(settableBy(name, 'repository'), false, name);
     for (const layer of layers.filter((candidate) => candidate !== 'repository')) assert.deepEqual(layerSettings(layer), settingNames, layer);
@@ -86,6 +89,15 @@ describe('the settings registry', () => {
     assert.deepEqual(defaultOf('scope.exclude', 'claude'), []);
     assert.deepEqual(defaultOf('tools.path', 'claude'), []);
     for (const name of ['review.base', 'checks.build', 'checks.typecheck', 'checks.lint', 'checks.test'] as const) assert.equal(defaultOf(name, 'claude'), null, name);
+    assert.equal(defaultOf('review.language', 'claude'), 'en', 'a review is in English unless a layer says otherwise (R20 of the review on the pull request)');
+    assert.equal(defaultOf('github.executable', 'codex'), 'gh', 'found on PATH by its name (R15 of the review on the pull request)');
+    assert.deepEqual(defaultOf('github.args', 'claude'), []);
+  });
+
+  it('takes a language tag as review.language, and nothing else (R20 of the review on the pull request)', () => {
+    const language = settings['review.language'].value;
+    for (const tag of ['en', 'ko', 'pt-BR', 'zh-Hant-TW', 'es-419']) assert.ok(language.safeParse(tag).success, tag);
+    for (const value of ['', 'e', 'english language', 'en_US', '-en', 'en-', 'ko\0', 'x'.repeat(36), 1]) assert.ok(!language.safeParse(value).success, JSON.stringify(value));
   });
 
   it('gives each setting an example its own schema accepts, which config init writes', () => {

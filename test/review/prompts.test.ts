@@ -29,6 +29,7 @@ describe('the scope block', () => {
     mode: 'range',
     request: { range: { from: 'main', to: 'HEAD', mergeBase: true }, paths: [], exclude: [] },
     excluded: { paths: [], count: 0 },
+    pullRequest: null,
     base: '1'.repeat(40),
     head: '2'.repeat(40),
     files: [

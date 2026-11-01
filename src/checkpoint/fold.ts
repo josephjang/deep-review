@@ -3,6 +3,7 @@ import { InvalidHistoryError, UnknownEventError, type UnknownEvent } from './err
 import {
   eventRegistry,
   type EventRegistry,
+  type ExplanationRecorded,
   type ScopeState,
   type WorkerFinish,
   type WorkerLaunch,
@@ -10,13 +11,15 @@ import {
   type runCreatedV1,
   type scopeCapturedV1,
   type scopeCapturedV2,
+  type scopeCapturedV3,
   type workerFinishedV1,
   type workerLaunchedV1,
-  type workerLostV6,
+  type workerLostV7,
 } from './events.ts';
 import { lookupEvent, registryKeys, type EventDefinition, type Registry, type RegistryKey } from './registry.ts';
 import { answerReducers } from './answer-fold.ts';
 import { fixReducers } from './fix-fold.ts';
+import { publishReducers, type Publication } from './publish-fold.ts';
 import { reviewReducers, unitOfLostWorker, withFailure, type ReviewState } from './review-fold.ts';
 import { surveyReducers } from './survey-fold.ts';
 import { unitName } from '../review/vocabulary.ts';
@@ -58,6 +61,10 @@ export interface RunState {
   readonly workers: Readonly<Record<string, WorkerState>>;
   /** The read-only review's state, or null until `review.configured` is folded, including every run recorded before reviews existed. */
   readonly review: ReviewState | null;
+  /** The writer's explanation of a read-only run of a pull request (R18 of the review on the pull request), or null until `explanation.recorded` is folded, for good in every other run. */
+  readonly explanation: ExplanationRecorded | null;
+  /** Every publication of the run, in ledger order (R13 of the review on the pull request): none for a run never published, including every run recorded before publications existed. */
+  readonly publications: readonly Publication[];
   /** Sequence of the last event folded; what a writer hands back to `append`. */
   readonly lastSequence: number;
 }
@@ -119,19 +126,44 @@ const created: Reducer<z.infer<typeof runCreatedV1>> = (state, payload, event) =
     scope: null,
     workers: {},
     review: null,
+    explanation: null,
+    publications: [],
     lastSequence: event.sequence,
   };
 };
 
-const scopeCaptured: Reducer<z.infer<typeof scopeCapturedV2>> = (state, payload, event) => {
+const scopeCaptured: Reducer<ScopeState> = (state, payload, event) => {
   const current = requireState(state, event);
   if (current.scope !== null) throw new InvalidHistoryError(`Run ${event.runId} captures its scope twice, at sequence ${String(event.sequence)}`);
   return { ...current, scope: payload, lastSequence: event.sequence };
 };
 
-/** A version 1 capture, recorded before `scope.exclude` existed: a request with no pattern, which left no path out (R10 of the configuration). */
+/**
+ * A version 3 capture, of a pull request (R3, TD2 of the review on the
+ * pull request): its request names the pull request, by its number and
+ * the repository of the URL that named it, if any, which are the ones its
+ * facts give; and its change is a range from its base to `HEAD`, the merge
+ * base GitHub gave, taken as it is.
+ */
+const scopeCapturedV3Reducer: Reducer<z.infer<typeof scopeCapturedV3>> = (state, payload, event, drafts) => {
+  const refuse = (what: string): InvalidHistoryError => new InvalidHistoryError(`Run ${event.runId} captures a pull request ${what}, at sequence ${String(event.sequence)} (${event.kind}@${String(event.version)})`);
+  const named = payload.request.pullRequest;
+  if (named === undefined) throw refuse('with a request that names none');
+  if (payload.mode !== 'range') throw refuse(`in mode ${payload.mode}, not range`);
+  const range = payload.request.range;
+  if (range === undefined || range.from !== payload.base || range.to !== 'HEAD' || range.mergeBase) throw refuse(`with a request that is not the range from its base ${payload.base} to HEAD, taken as it is`);
+  const { host, owner, repository, number } = payload.pullRequest;
+  if (named.number !== number) throw refuse(`named #${String(named.number)} whose facts are of #${String(number)}`);
+  if (named.repository !== null && named.repository.toLowerCase() !== `${host}/${owner}/${repository}`.toLowerCase()) throw refuse(`named in ${named.repository} whose facts are of ${host}/${owner}/${repository}`);
+  return scopeCaptured(state, payload, event, drafts);
+};
+
+/** A version 2 capture, recorded for every scope but a pull request: one with no pull request. */
+const scopeCapturedV2Reducer: Reducer<z.infer<typeof scopeCapturedV2>> = (state, payload, event, drafts) => scopeCaptured(state, { ...payload, pullRequest: null }, event, drafts);
+
+/** A version 1 capture, recorded before `scope.exclude` existed: a request with no pattern, which left no path out (R10 of the configuration), and with no pull request. */
 const scopeCapturedV1Reducer: Reducer<z.infer<typeof scopeCapturedV1>> = (state, payload, event, drafts) =>
-  scopeCaptured(state, { ...payload, request: { ...payload.request, exclude: [] }, excluded: { paths: [], count: 0 } }, event, drafts);
+  scopeCaptured(state, { ...payload, request: { ...payload.request, exclude: [] }, excluded: { paths: [], count: 0 }, pullRequest: null }, event, drafts);
 
 const workerLaunched: Reducer<z.infer<typeof workerLaunchedV1>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
@@ -160,7 +192,7 @@ const workerFinished: Reducer<z.infer<typeof workerFinishedV1>> = (state, payloa
  * attempt, marked lost, so that a unit out of attempts with a loss among
  * them blocks its phase instead of degrading (TD5 of the read-only review).
  */
-const workerLost: Reducer<z.infer<typeof workerLostV6>> = (state, payload, event, drafts) => {
+const workerLost: Reducer<z.infer<typeof workerLostV7>> = (state, payload, event, drafts) => {
   const current = requireState(state, event);
   const worker = Object.hasOwn(current.workers, payload.workerId) ? current.workers[payload.workerId] : undefined;
   if (worker === undefined) throw new InvalidHistoryError(`Run ${event.runId} loses worker ${payload.workerId} at sequence ${String(event.sequence)} without launching it`);
@@ -183,7 +215,8 @@ export const reducers = {
   'run.created@1': created,
   'run.abandoned@1': abandoned,
   'scope.captured@1': scopeCapturedV1Reducer,
-  'scope.captured@2': scopeCaptured,
+  'scope.captured@2': scopeCapturedV2Reducer,
+  'scope.captured@3': scopeCapturedV3Reducer,
   'worker.launched@1': workerLaunched,
   'worker.finished@1': workerFinished,
   'worker.lost@1': workerLost,
@@ -192,10 +225,12 @@ export const reducers = {
   'worker.lost@4': workerLost,
   'worker.lost@5': workerLost,
   'worker.lost@6': workerLost,
+  'worker.lost@7': workerLost,
   ...reviewReducers,
   ...fixReducers,
   ...surveyReducers,
   ...answerReducers,
+  ...publishReducers,
 } satisfies Record<RegistryKey<EventRegistry>, Reducer<never>>;
 
 /** The engine's own model: its registry with its reducers. */

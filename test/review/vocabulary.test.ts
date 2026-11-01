@@ -76,10 +76,17 @@ describe('lostClaimWords', () => {
 });
 
 describe('the phases', () => {
-  it('are the survey, the read-only phases, the decision, the seven of the fix pass, the two of the answer pass, then the report', () => {
-    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
-    assert.deepEqual(fixPhases, phases.slice(10, 17));
-    assert.deepEqual(answerPhases, phases.slice(17, 19));
+  it('are the survey, the read-only phases, the decision, the explanation, the seven of the fix pass, the two of the answer pass, then the report', () => {
+    assert.deepEqual(phases, ['survey', 'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank', 'decision', 'explanation', 'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks', 'answer', 'answer-checks', 'report']);
+    assert.deepEqual(fixPhases, phases.slice(11, 18));
+    assert.deepEqual(answerPhases, phases.slice(18, 20));
+  });
+
+  it('put the explanation right after the decision and before the fix pass, in no group of phases, so in a run that does not fix it is the last before the report (TD8 of the review on the pull request)', () => {
+    assert.equal(phases.indexOf('explanation'), phases.indexOf('decision') + 1);
+    assert.equal(phases.indexOf('explanation'), phases.indexOf('baseline-checks') - 1);
+    assert.deepEqual(phases.filter((phase) => phase !== 'survey' && !(fixPhases as readonly string[]).includes(phase) && !(answerPhases as readonly string[]).includes(phase)).slice(-2), ['explanation', 'report']);
+    for (const group of [fixPhases, answerPhases, checkPhases, editingPhases, candidatePhases, deduplicationPhases, verificationPhases]) assert.ok(!(group as readonly string[]).includes('explanation'), group.join(', '));
   });
 
   it('put the checks on the base after the checks after the fixes and before the repair, which reads them (R1, TD1 of the facts before a merge)', () => {
@@ -96,7 +103,7 @@ describe('the phases', () => {
 
   it('put the decision after merge and rank and before the fix pass, in no group of phases: it runs no check, edits nothing, and records no candidate, deduplication or verdict', () => {
     assert.equal(phases.indexOf('decision'), phases.indexOf('merge-rank') + 1);
-    assert.equal(phases.indexOf('decision'), phases.indexOf('baseline-checks') - 1);
+    assert.equal(phases.indexOf('decision'), phases.indexOf('explanation') - 1);
     for (const group of [fixPhases, checkPhases, editingPhases, candidatePhases, deduplicationPhases, verificationPhases]) assert.ok(!(group as readonly string[]).includes('decision'), group.join(', '));
   });
 

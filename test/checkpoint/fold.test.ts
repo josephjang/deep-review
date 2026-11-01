@@ -31,14 +31,17 @@ describe('registry', () => {
    * run, the write back, version 6 of the worktree check and 7 of a failed
    * attempt, the reopened fix pass, and the prepared and dropped series;
    * and the documentation step's plan and the versions of the ten kinds
-   * that name its phase or its unit.
+   * that name its phase or its unit; and the review on the pull request's
+   * version 3 of the scope, version 10 of the configuration, the versions
+   * of the six kinds that name the explanation, the explanation, and the
+   * three kinds of a publication.
    */
   const declaredKinds = [
-    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'attempt.failed@7', 'attempt.failed@8', 'candidates.recorded@1', 'candidates.recorded@2', 'check.ran@1', 'check.ran@2', 'check.ran@3', 'check.ran@4', 'check.started@1', 'check.started@2', 'checks.planned@1', 'checks.planned@2', 'checks.planned@3', 'claims.lost@1', 'commits.created@1', 'commits.dropped@1', 'commits.prepared@1',
-    'decisions.recorded@1', 'deduplication.recorded@1', 'documentation.planned@1', 'files.claimed@1', 'fix.pinned@1', 'fix.pinned@2', 'fix.recorded@1', 'fix.recorded@2', 'fix.recorded@3', 'fix.recorded@4', 'fix.recorded@5', 'fix.reopened@1', 'fix.reopened@2', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
-    'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.finished@5', 'phase.finished@6', 'phase.finished@7', 'phase.finished@8', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'phase.started@5', 'phase.started@6', 'phase.started@7', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4', 'report.written@5', 'report.written@6', 'report.written@7',
-    'review.configured@1', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'review.configured@6', 'review.configured@7', 'review.configured@8', 'review.configured@9', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'scope.captured@2', 'survey.failed@1', 'survey.recorded@1', 'tree.restored@1', 'tree.revised@1', 'tree.revised@2', 'tree.revised@3', 'unit.unattempted@1', 'unit.unattempted@2', 'verdicts.recorded@1', 'verdicts.recorded@2', 'verification.planned@1',
-    'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worker.lost@5', 'worker.lost@6', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4', 'worktree.checked@5', 'worktree.checked@6', 'worktree.checked@7', 'worktree.checked@8',
+    'angle.failed@1', 'answer.pass@1', 'answer.recorded@1', 'attempt.failed@1', 'attempt.failed@2', 'attempt.failed@3', 'attempt.failed@4', 'attempt.failed@5', 'attempt.failed@6', 'attempt.failed@7', 'attempt.failed@8', 'attempt.failed@9', 'candidates.recorded@1', 'candidates.recorded@2', 'check.ran@1', 'check.ran@2', 'check.ran@3', 'check.ran@4', 'check.started@1', 'check.started@2', 'checks.planned@1', 'checks.planned@2', 'checks.planned@3', 'claims.lost@1', 'commits.created@1', 'commits.dropped@1', 'commits.prepared@1',
+    'decisions.recorded@1', 'deduplication.recorded@1', 'documentation.planned@1', 'explanation.recorded@1', 'files.claimed@1', 'fix.pinned@1', 'fix.pinned@2', 'fix.recorded@1', 'fix.recorded@2', 'fix.recorded@3', 'fix.recorded@4', 'fix.recorded@5', 'fix.reopened@1', 'fix.reopened@2', 'fixes.planned@1', 'fixes.replanned@1', 'group.unverified@1', 'limits.changed@1',
+    'phase.finished@1', 'phase.finished@2', 'phase.finished@3', 'phase.finished@4', 'phase.finished@5', 'phase.finished@6', 'phase.finished@7', 'phase.finished@8', 'phase.finished@9', 'phase.started@1', 'phase.started@2', 'phase.started@3', 'phase.started@4', 'phase.started@5', 'phase.started@6', 'phase.started@7', 'phase.started@8', 'publish.dropped@1', 'publish.posted@1', 'publish.prepared@1', 'ranking.recorded@1', 'report.written@1', 'report.written@2', 'report.written@3', 'report.written@4', 'report.written@5', 'report.written@6', 'report.written@7', 'report.written@8',
+    'review.configured@1', 'review.configured@10', 'review.configured@2', 'review.configured@3', 'review.configured@4', 'review.configured@5', 'review.configured@6', 'review.configured@7', 'review.configured@8', 'review.configured@9', 'run.abandoned@1', 'run.created@1', 'scope.captured@1', 'scope.captured@2', 'scope.captured@3', 'survey.failed@1', 'survey.recorded@1', 'tree.restored@1', 'tree.revised@1', 'tree.revised@2', 'tree.revised@3', 'unit.unattempted@1', 'unit.unattempted@2', 'verdicts.recorded@1', 'verdicts.recorded@2', 'verification.planned@1',
+    'worker.finished@1', 'worker.launched@1', 'worker.lost@1', 'worker.lost@2', 'worker.lost@3', 'worker.lost@4', 'worker.lost@5', 'worker.lost@6', 'worker.lost@7', 'worktree.checked@1', 'worktree.checked@2', 'worktree.checked@3', 'worktree.checked@4', 'worktree.checked@5', 'worktree.checked@6', 'worktree.checked@7', 'worktree.checked@8', 'worktree.checked@9',
   ];
 
   it('lists every kind and version, sorted, and hashes that list', () => {
@@ -82,6 +85,8 @@ describe('foldRun', () => {
       scope: null,
       workers: {},
       review: null,
+      explanation: null,
+      publications: [],
       lastSequence: 1,
     });
   });
@@ -131,13 +136,13 @@ describe('the scope', () => {
   const v1 = { mode: 'worktree', request: { paths: ['src'] }, base: '1'.repeat(40), head: '2'.repeat(40), files: [], patch: { sha256: 'a'.repeat(64), bytes: 1 } };
   const v2 = { ...v1, request: { paths: [], exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 } };
 
-  it('reads a version 1 capture as one with no pattern, which left nothing out', () => {
+  it('reads a version 1 capture as one with no pattern, which left nothing out, and of no pull request', () => {
     const state = foldRun([created(), event(2, 'scope.captured', v1)]);
-    assert.deepEqual(state.scope, { ...v1, request: { paths: ['src'], exclude: [] }, excluded: { paths: [], count: 0 } });
+    assert.deepEqual(state.scope, { ...v1, request: { paths: ['src'], exclude: [] }, excluded: { paths: [], count: 0 }, pullRequest: null });
   });
 
-  it('folds a version 2 capture as it was recorded, with its patterns and the paths they left out', () => {
-    assert.deepEqual(foldRun([created(), event(2, 'scope.captured', v2, 2)]).scope, v2);
+  it('folds a version 2 capture as it was recorded, with its patterns and the paths they left out, and of no pull request', () => {
+    assert.deepEqual(foldRun([created(), event(2, 'scope.captured', v2, 2)]).scope, { ...v2, pullRequest: null });
     const many = { ...v2, excluded: { paths: Array.from({ length: 2000 }, (_, index) => `dist/${String(index)}.js`), count: 2500 } };
     assert.equal(foldRun([created(), event(2, 'scope.captured', many, 2)]).scope?.excluded.count, 2500, 'more paths than the record names are counted');
   });

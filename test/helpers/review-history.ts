@@ -111,7 +111,7 @@ export const changeReading = {
 const phaseVersion = (phase: string): 1 | 2 | 3 | 4 | 5 => ((answerPhases as readonly string[]).includes(phase) ? 5 : phase === 'decision' ? 4 : phase === 'survey' ? 3 : (fixPhases as readonly string[]).includes(phase) ? 2 : 1);
 
 /** The lowest version of `phase.finished` that can name a phase: 8 for the checks on the base, 7 for the documentation step's, 6 for the answer pass's, where it is a version past the start's, and the start's for the rest. */
-const finishVersion = (phase: string): number => (phase === 'base-checks' ? 8 : phase === 'documentation' ? 7 : (answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
+const finishVersion = (phase: string): number => (phase === 'explanation' ? 9 : phase === 'base-checks' ? 8 : phase === 'documentation' ? 7 : (answerPhases as readonly string[]).includes(phase) ? 6 : phaseVersion(phase));
 
 /** A history builder that numbers events as it goes, so a scenario reads as its event list. */
 export class History {
@@ -130,7 +130,8 @@ export class History {
    * check lists that nobody accounts for, which version 1 never records.
    */
   start(phase: string, attempt = 1, strays: readonly string[] = []): this {
-    // The documentation phase and the checks on the base are the phases whose start and check need versions apart, the only ones that name each.
+    // The documentation phase, the checks on the base and the explanation are the phases whose start and check need versions apart, the only ones that name each.
+    if (phase === 'explanation') return this.add('phase.started', { phase, attempt }, 8).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 9);
     if (phase === 'documentation') return this.add('phase.started', { phase, attempt }, 6).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 7);
     if (phase === 'base-checks') return this.add('phase.started', { phase, attempt }, 7).add('worktree.checked', { phase, attempt, moment: 'start', drifted: false, head: null, files: [], strays }, 8);
     const version = phaseVersion(phase);
@@ -846,3 +847,76 @@ export function documentedFixRun(drift: readonly { readonly file: string; readon
   const patches = history.review().fix!.revisions.length;
   return history.start('report').add('report.written', { report: reference('9', 4096), statistics, patches: Array.from({ length: patches }, (_, index) => reference(String(index + 1))) }, 4).finish('report');
 }
+
+/** The pull request the histories here review, as GitHub gave it at the capture (R3 of the review on the pull request). */
+export const pullRequestFacts = { host: 'github.com', owner: 'octo', repository: 'parse', number: 42, url: 'https://github.com/octo/parse/pull/42', baseRef: 'main', title: 'Accept an empty input in parse', body: reference('9', 40) };
+
+/** The scope of a run of that pull request as `scope.captured@3` records it: the range from GitHub's merge base to HEAD, with the pull request named by its number. */
+export const pullRequestScope = {
+  ...scope,
+  mode: 'range',
+  request: { range: { from: scope.base, to: 'HEAD', mergeBase: false }, paths: [], exclude: [], pullRequest: { number: 42, repository: null } },
+  excluded: { paths: [], count: 0 },
+  pullRequest: pullRequestFacts,
+};
+
+/** What a `review.configured@10` records of a read-only run with no file and no setting flag: version 2 of the record, every setting at its default, the language and gh among them. */
+export const settingsBlockV2 = (change: Record<string, unknown> = {}): Record<string, unknown> => {
+  const block = settingsBlock(false) as { values: Record<string, unknown>; layers: Record<string, unknown> };
+  return settingsBlock(false, {
+    values: { ...block.values, 'review.language': 'en', 'github.executable': 'gh', 'github.args': [] },
+    layers: { ...block.layers, 'review.language': 'default', 'github.executable': 'default', 'github.args': 'default' },
+    ...change,
+  });
+};
+
+/**
+ * The same history as a read-only run of a pull request (TD2, TD8 of the
+ * review on the pull request): its scope captured at version 3 as
+ * `pullRequestScope`, its configuration, recorded at version 9
+ * (`withCitedRuns`), recorded at version 10 with `settingsBlockV2`, and,
+ * when `explain` is given, the phase `explanation` after the decision
+ * with what `explain` records between its start and its finish.
+ */
+export function withPullRequest(history: History, explain: ((history: History) => History) | null = null): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'scope.captured') {
+      result.add(event.kind, pullRequestScope, 3);
+      continue;
+    }
+    if (event.kind === 'review.configured') {
+      assert.equal(event.version, 9, 'a run of a pull request cites its runs');
+      result.add(event.kind, { ...(event.payload as object), settings: settingsBlockV2() }, 10);
+      continue;
+    }
+    result.add(event.kind, event.payload, event.version);
+    const finished = event.payload as { phase?: string; outcome?: string };
+    if (explain !== null && event.kind === 'phase.finished' && finished.phase === 'decision' && finished.outcome !== 'blocked') explain(result.start('explanation')).finish('explanation');
+  }
+  return result;
+}
+
+/** The writer's explanation as `explanation.recorded@1` records it, the worker's answer frozen, with `change` over it. */
+export const explanation = (workerId: string | null, change: Record<string, unknown> = {}): Record<string, unknown> => ({ workerId, answer: reference('8', 300), dropped: [], unexplained: [], ...change });
+
+/** The explanation phase as a writer that answers at once records it. */
+export const writerAnswers = (history: History): History => history.worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60)));
+
+/** A read-only run of a pull request through its decision, at version 10, before its explanation. */
+export const pullRequestDecided = (): History => withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked()), null))));
+
+/** A read-only run of a pull request as this engine's ledger records one: decided, at version 10, explained as `explain` records it, and its report written. */
+export const pullRequestReported = (explain: (history: History) => History = writerAnswers): History =>
+  withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(readOnlyReported(), null))), explain);
+
+/** A publication of the run `run-1` that the histories here hold, as `publish.prepared@1` records it, with `change` over it. */
+export const publication = (serial: number, change: Record<string, unknown> = {}): Record<string, unknown> => ({
+  marker: `deep-review publication run-1 ${String(serial)}`,
+  target: { host: pullRequestFacts.host, owner: pullRequestFacts.owner, repository: pullRequestFacts.repository, number: pullRequestFacts.number },
+  commit: scope.head,
+  payload: reference('7', 900),
+  places: [{ finding: 'RIPPLE-1', place: 'line', reason: 'on-the-diff' }, { finding: 'SWEEP-1', place: 'body', reason: 'left' }],
+  secrets: 0,
+  ...change,
+});

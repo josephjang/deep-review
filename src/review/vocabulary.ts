@@ -64,22 +64,26 @@ export const isFinderRole = (role: ReviewRole): role is FinderRole => role.start
  * The phases of a review, in the order they run (R2 of the read-only
  * review, R1 of the fix pass, R1 of the repository survey, R1 of the
  * decision step, R9 of answers, R1 of the documentation step, R1 of the
- * facts before a merge): the survey, which a run configured before it
- * existed records as skipped, the read-only phases, the decision, which a
- * run configured before it existed records as skipped and every later run
- * runs, `--fix` or not, then the seven of the fix pass, which a run
- * without `--fix` records as skipped, with the documentation step after
- * the fixes and the checks on the base after their checks, which a run
- * configured before each existed records as skipped too, then the two of
- * the answer pass, which every run records as skipped and only an
- * `answer.pass` opens, then `report`, a phase with no worker that is
- * started so the worktree check before the report has a phase to block,
- * and finished when the report is written.
+ * facts before a merge, R18 of the review on the pull request): the
+ * survey, which a run configured before it existed records as skipped,
+ * the read-only phases, the decision, which a run configured before it
+ * existed records as skipped and every later run runs, `--fix` or not,
+ * then the explanation, which only a read-only run of a pull request runs
+ * and every other run records as skipped (TD8 of the review on the pull
+ * request), then the seven of the fix pass, which a run without `--fix`
+ * records as skipped, with the documentation step after the fixes and the
+ * checks on the base after their checks, which a run configured before
+ * each existed records as skipped too, then the two of the answer pass,
+ * which every run records as skipped and only an `answer.pass` opens,
+ * then `report`, a phase with no worker that is started so the worktree
+ * check before the report has a phase to block, and finished when the
+ * report is written.
  */
 export const phases = [
   'survey',
   'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
   'decision',
+  'explanation',
   'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks',
   'answer', 'answer-checks',
   'report',
@@ -430,6 +434,40 @@ export const verdictBasisWords: Readonly<Record<VerdictBasis, string>> = {
   traced: 'it traced the lines',
   read: 'the lines alone settle it',
 };
+
+/**
+ * The parts of the writer's answer that the engine can drop when no
+ * answer passes its checks (R18, R19 of the review on the pull request):
+ * the conclusion, the account of the pull request, or the explanation of
+ * one finding. A dropped part takes the ledger's own words.
+ */
+export const explanationParts = ['conclusion', 'account', 'finding'] as const;
+export type ExplanationPart = (typeof explanationParts)[number];
+
+/**
+ * Where a posted review puts a finding (R10, TD4 of the review on the
+ * pull request): in a comment on its line, or in the body of the review.
+ */
+export const findingPlaces = ['line', 'body'] as const;
+export type FindingPlace = (typeof findingPlaces)[number];
+
+/**
+ * Why a finding has its place: its line is on the new side of a hunk of
+ * GitHub's patch, which alone puts it on its line; it is left as is; its
+ * line is outside the diff, or its file is not among the files of the
+ * pull request; its file has no patch; or it has no place in the
+ * repository.
+ */
+export const placeReasons = ['on-the-diff', 'left', 'outside-the-diff', 'no-patch', 'no-place'] as const;
+export type PlaceReason = (typeof placeReasons)[number];
+
+/**
+ * Why a publication was not posted (R13 of the review on the pull
+ * request): GitHub refused the post, or the settle of a publication that
+ * a stop left open found no review that carries its marker.
+ */
+export const publicationDropReasons = ['refused', 'not-found'] as const;
+export type PublicationDropReason = (typeof publicationDropReasons)[number];
 
 /**
  * What the decision step makes of a ranked finding (R3 of the decision

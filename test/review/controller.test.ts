@@ -111,8 +111,8 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     const text = reportText(outcome);
     const state = box.run();
     assert.equal(state.review?.report !== null, true);
-    // A run without --fix surveys first, decides its findings, skips the six phases of the fix pass, and has no fix state.
-    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
+    // A run without --fix surveys first, decides its findings, skips the explanation of a run of a pull request and the seven phases of the fix pass, and has no fix state.
+    assert.deepEqual(Object.values(state.review!.phases).map((phase) => phase.status), ['completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'completed', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'skipped', 'completed']);
     assert.equal(state.review!.fix, null);
     assert.equal(state.review!.configuration.fix, false);
     // Workers: survey 1, triage 1, finders 9 + 1 retry, deduplication 1, verification 2 groups, sweep 1, no sweep deduplication (one candidate), sweep verification 1, merge-rank 1, decider 1.
@@ -124,7 +124,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     // Every phase started after the previous one finished, and every phase's check came first.
     const events = box.events(state.id);
     const kinds = events.map(([kind]) => kind);
-    const run = phases.filter((phase) => ![...fixPhases, ...answerPhases].includes(phase as never));
+    const run = phases.filter((phase) => ![...fixPhases, ...answerPhases, 'explanation'].includes(phase as never));
     const order = run.map((phase) => events.findIndex(([kind, payload]) => kind === 'phase.started' && payload.phase === phase));
     assert.ok(order.every((position) => position >= 0), 'every phase it runs started');
     assert.deepEqual([...order].sort((a, b) => a - b), order, 'phases start in order');

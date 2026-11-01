@@ -35,6 +35,7 @@ const floors: Readonly<Record<VersionedKind, number>> = {
 const phaseVersions: Readonly<Partial<Record<Phase, Readonly<Partial<Record<VersionedKind, number>>>>>> = {
   documentation: { 'phase.started': 6, 'phase.finished': 7, 'worktree.checked': 7, 'attempt.failed': 8, 'worker.lost': 6, 'report.written': 6, 'tree.revised': 3, 'fix.recorded': 3, 'unit.unattempted': 2, 'fix.reopened': 2 },
   'base-checks': { 'phase.started': 7, 'phase.finished': 8, 'worktree.checked': 8, 'report.written': 7, 'check.started': 2, 'check.ran': 4 },
+  explanation: { 'phase.started': 8, 'phase.finished': 9, 'worktree.checked': 9, 'attempt.failed': 9, 'worker.lost': 7, 'report.written': 8 },
 };
 
 /** What an event of a kind carries beside its phases that a later version records. */

@@ -14,6 +14,7 @@ import {
   attemptFailedV6,
   attemptFailedV7,
   attemptFailedV8,
+  attemptFailedV9,
   blockerSchema,
   blockerSchemaV3,
   blockerSchemaV5,
@@ -32,6 +33,7 @@ import {
   commitsPreparedV1,
   decisionsRecordedV1,
   documentationPlannedV1,
+  explanationRecordedV1,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
@@ -50,6 +52,7 @@ import {
   phaseFinishedV6,
   phaseFinishedV7,
   phaseFinishedV8,
+  phaseFinishedV9,
   phaseStartedV1,
   phaseStartedV2,
   phaseStartedV3,
@@ -57,6 +60,10 @@ import {
   phaseStartedV5,
   phaseStartedV6,
   phaseStartedV7,
+  phaseStartedV8,
+  publishDroppedV1,
+  publishPostedV1,
+  publishPreparedV1,
   recordedDecisionSchema,
   recordedTextLengthV1,
   reportWrittenV2,
@@ -65,12 +72,14 @@ import {
   reportWrittenV5,
   reportWrittenV6,
   reportWrittenV7,
+  reportWrittenV8,
   reviewConfiguredV4,
   reviewConfiguredV5,
   reviewConfiguredV6,
   reviewConfiguredV7,
   reviewConfiguredV8,
   reviewConfiguredV9,
+  reviewConfiguredV10,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -83,6 +92,9 @@ import {
   reviewVocabularyV8,
   reviewVocabularyV9,
   reviewVocabularyV10,
+  reviewVocabularyV11,
+  scopeCapturedV2,
+  scopeCapturedV3,
   surveyFailedV1,
   treeRestoredV1,
   treeRevisedV1,
@@ -98,6 +110,7 @@ import {
   workerLostV4,
   workerLostV5,
   workerLostV6,
+  workerLostV7,
   worktreeCheckedV2,
   worktreeCheckedV3,
   worktreeCheckedV4,
@@ -105,6 +118,7 @@ import {
   worktreeCheckedV6,
   worktreeCheckedV7,
   worktreeCheckedV8,
+  worktreeCheckedV9,
 } from '../../src/checkpoint/events.ts';
 import { hintRules } from '../../src/review/checks/discover.ts';
 import { normalizeClaimPath } from '../../src/review/claims.ts';
@@ -127,7 +141,9 @@ import {
   decisionKinds,
   deduplicationPhases,
   editingPhases,
+  explanationParts,
   finderAngles,
+  findingPlaces,
   fixPhases,
   fixStatuses,
   groupIdSchema,
@@ -136,6 +152,8 @@ import {
   maxRecordedTextLength,
   phaseOutcomes,
   phases,
+  placeReasons,
+  publicationDropReasons,
   recordedBlockerCodes,
   repairUnitKey,
   severities,
@@ -154,8 +172,10 @@ import {
 // as they are, declare a new version of every event that carries the
 // changed words, and point the test at that version's lists.
 
-/** Today's phases less the checks on the base, which version 9 added and every earlier version lacks. */
-const phasesBeforeBase = phases.filter((phase) => phase !== 'base-checks');
+/** Today's phases less the explanation, which version 11 added and every earlier version lacks. */
+const phasesBeforeExplanation = phases.filter((phase) => phase !== 'explanation');
+/** Today's phases less the explanation and the checks on the base, which version 9 added and every earlier version lacks. */
+const phasesBeforeBase = phasesBeforeExplanation.filter((phase) => phase !== 'base-checks');
 /** Today's check phases less the checks on the base. */
 const checkPhasesBeforeBase = checkPhases.filter((phase) => phase !== 'base-checks');
 /** Today's phases less the checks on the base and the documentation step's, which version 8 added and every earlier version lacks. */
@@ -183,7 +203,7 @@ describe('the review vocabulary frozen by the v1 events', () => {
   it('is today\'s vocabulary in every word the fix pass and the survey did not widen', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV1;
     assert.deepEqual(rest, { angles, finderAngles, candidatePhases, deduplicationPhases, verificationPhases, phaseOutcomes, verdicts, severities });
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey' && phase !== 'decision'), 'the fix pass added its five phases, the survey, the decision step, the documentation step and the checks on the base one each, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => !(fixPhases as readonly string[]).includes(phase) && phase !== 'survey' && phase !== 'decision'), 'the fix pass added its five phases, the survey, the decision step, the documentation step, the checks on the base and the explanation one each, the answers two, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'), 'the survey and the claims added a blocker code each and nothing else');
   });
 
@@ -242,11 +262,11 @@ describe('the review vocabulary frozen by the v2 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the survey, the answers, the documentation step and the checks on the base did not change, and its rules are the hints\' rules', () => {
+  it('is today\'s vocabulary in every word the survey, the answers, the documentation step, the checks on the base and the explanation did not change, and its rules are the hints\' rules', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, checkOrigins: frozenOrigins, checkPhases: frozenCheckPhases, editingPhases: frozenEditingPhases, checkOutcomes: frozenOutcomes, ...rest } = reviewVocabularyV2;
     assert.deepEqual(rest, { phaseOutcomes, checkKinds, fixStatuses, validationMethods, suiteResults });
     assert.deepEqual(frozenOutcomes, checkOutcomes.filter((outcome) => outcome !== 'cut'), 'resumable runs added the outcome cut and nothing else');
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey, the decision step, the documentation step and the checks on the base added a phase each, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'survey' && phase !== 'decision'), 'the survey, the decision step, the documentation step, the checks on the base and the explanation added a phase each, the answers two, and nothing else');
     assert.deepEqual(frozenCheckPhases, checkPhasesBeforeBase.filter((phase) => phase !== 'answer-checks'), 'the answers and the checks on the base added a check phase each, and nothing else');
     assert.deepEqual(frozenEditingPhases, editingBeforeDocumentation.filter((phase) => phase !== 'answer'), 'the documentation step and the answers added an editing phase each, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'check-unavailable' && code !== 'claims-lost'));
@@ -301,10 +321,10 @@ describe('the review vocabulary frozen by the v3 events', () => {
     });
   });
 
-  it('is today\'s vocabulary in every word the decision step, the claims, the documentation step and the checks on the base did not widen', () => {
+  it('is today\'s vocabulary in every word the decision step, the claims, the documentation step, the checks on the base and the explanation did not widen', () => {
     const { phases: frozenPhases, recordedBlockerCodes: frozenCodes, ...rest } = reviewVocabularyV3;
     assert.deepEqual(rest, { phaseOutcomes, checkKinds, checkOrigins, checkBases, conventionLevels, userRulesSettings });
-    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'decision'), 'the decision step, the documentation step and the checks on the base added a phase each, the answers two, and nothing else');
+    assert.deepEqual(frozenPhases, phasesBeforeAnswers.filter((phase) => phase !== 'decision'), 'the decision step, the documentation step, the checks on the base and the explanation added a phase each, the answers two, and nothing else');
     assert.deepEqual(frozenCodes, recordedBlockerCodes.filter((code) => code !== 'claims-lost'), 'the claims added their blocker code and nothing else');
   });
 
@@ -353,7 +373,7 @@ describe('the review vocabulary frozen by the v3 events', () => {
 describe('the review vocabulary frozen by the v4 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
-  it('is today\'s vocabulary in every word the answers, the documentation step and the checks on the base did not widen', () => {
+  it('is today\'s vocabulary in every word the answers, the documentation step, the checks on the base and the explanation did not widen', () => {
     assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons });
   });
 
@@ -489,7 +509,7 @@ describe('the review vocabulary frozen by the v5 events', () => {
 describe('the review vocabulary frozen by the v6 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
-  it('is today\'s vocabulary in every word the documentation step and the checks on the base did not widen', () => {
+  it('is today\'s vocabulary in every word the documentation step, the checks on the base and the explanation did not widen', () => {
     assert.deepEqual(reviewVocabularyV6, { phases: phasesBeforeDocumentation, editingPhases: editingBeforeDocumentation, checkPhases: checkPhasesBeforeBase, answerKinds });
   });
 
@@ -734,7 +754,7 @@ describe('the review vocabulary frozen by the v8 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
   const blob = (fill: string): { blob: { sha256: string; bytes: number } } => ({ blob: { sha256: fill.repeat(64), bytes: 1 } });
 
-  it('is today\'s vocabulary in every word the checks on the base did not widen', () => {
+  it('is today\'s vocabulary in every word the checks on the base and the explanation did not widen', () => {
     assert.deepEqual(reviewVocabularyV8, { phases: phasesBeforeBase, editingPhases });
   });
 
@@ -789,8 +809,8 @@ describe('the review vocabulary frozen by the v9 events', () => {
   const repaired = { phase: 'repair', key: 'repair', workerId, findings: [], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [] };
   const comparison = { kind: 'typecheck', reading: 'same', words: 'the same seven errors in src/core.py' };
 
-  it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV9, { phases, checkPhases, baseReadings, baseSkipReasons: baseSkipReasonKeys });
+  it('is today\'s vocabulary in every word the explanation did not widen', () => {
+    assert.deepEqual(reviewVocabularyV9, { phases: phasesBeforeExplanation, checkPhases, baseReadings, baseSkipReasons: baseSkipReasonKeys });
   });
 
   it('refuses the checks on the base in the last version of each of the six kinds that name them, and accepts them in the new one', () => {
@@ -913,6 +933,148 @@ describe('the review vocabulary frozen by the v10 events', () => {
 
   it('records a review.configured@9 exactly as version 8 records it: the version alone says the run cites its runs (TD6 of runs on the record)', () => {
     assert.equal(reviewConfiguredV9, reviewConfiguredV8);
+  });
+});
+
+// Version 11 of the review events records the vocabulary the review on the
+// pull request widened; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v11 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = { sha256: 'a'.repeat(64), bytes: 120 };
+  const marker = 'deep-review publication 00000000-0000-4000-8000-000000000009 1';
+  const spend = { workers: 1, seconds: 30, costUsd: 0.5, costUnreported: 0, inputTokens: 1000, cachedInputTokens: 200, outputTokens: 100 };
+  const prepared = (change: Record<string, unknown> = {}): Record<string, unknown> => ({
+    marker,
+    target: { host: 'github.com', owner: 'octo', repository: 'parse', number: 42 },
+    commit: '2'.repeat(40),
+    payload: blob,
+    places: [{ finding: 'RIPPLE-1', place: 'line', reason: 'on-the-diff' }, { finding: 'SWEEP-1', place: 'body', reason: 'no-patch' }],
+    secrets: 0,
+    ...change,
+  });
+  const item = (id: number): Record<string, unknown> => ({ id, url: `https://github.com/octo/parse/pull/42#discussion_r${String(id)}` });
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV11, { phases, explanationParts, findingPlaces, placeReasons, publicationDropReasons });
+  });
+
+  it('refuses the explanation in the last version of each of the six kinds that name it, and accepts it in the new one', () => {
+    const cases: [string, z.ZodType, z.ZodType, unknown][] = [
+      ['phase.started', phaseStartedV7, phaseStartedV8, { phase: 'explanation', attempt: 1 }],
+      ['phase.finished', phaseFinishedV8, phaseFinishedV9, { phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }],
+      ['worktree.checked', worktreeCheckedV8, worktreeCheckedV9, { phase: 'explanation', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }],
+      ['attempt.failed', attemptFailedV8, attemptFailedV9, { phase: 'explanation', key: 'explanation', workerId, reason: 'r', fault: 'unit' }],
+      ['worker.lost', workerLostV6, workerLostV7, { workerId, phase: 'explanation', key: 'explanation', reason: 'r' }],
+      ['report.written', reportWrittenV7, reportWrittenV8, { report: blob, statistics: { phases: [{ phase: 'explanation', ...spend }], total: spend, budgetApplied: false }, patches: [] }],
+    ];
+    for (const [kind, older, newer, payload] of cases) {
+      assert.equal(older.safeParse(payload).success, false, `${kind}'s last version refuses the explanation`);
+      assert.equal(newer.safeParse(payload).success, true, `${kind}'s new version accepts it`);
+    }
+  });
+
+  it('gives no new version to a kind the explanation never writes: a revision, an answer of an editing unit, a unit settled without one, a check (TD8)', () => {
+    assert.equal(treeRevisedV3.safeParse({ phase: 'explanation', source: { kind: 'fix', key: 'explanation', workerId }, change: { findings: ['RIPPLE-1'], message: { subject: 's', body: '' } }, files: [] }).success, false);
+    assert.equal(fixRecordedV5.safeParse({ phase: 'explanation', key: 'explanation', workerId, findings: [], drift: [], tests: [], suite: { result: 'not-run', command: '', failures: '' }, violations: [], comparisons: [] }).success, false);
+    assert.equal(unitUnattemptedV2.safeParse({ phase: 'explanation', key: 'explanation', cause: 'budget', reason: 'spent' }).success, false);
+    assert.equal(checkStartedV2.safeParse({ phase: 'explanation', attempt: 1, kind: 'test', command: 'npm test' }).success, false);
+  });
+
+  it('holds the new versions to the rules of the old: a blocker exactly when blocked, a lost worker\'s phase with its key, a fault named', () => {
+    assert.equal(phaseFinishedV9.safeParse({ phase: 'explanation', attempt: 1, outcome: 'completed', blocker: { code: 'budget', detail: 'd', action: 'a' } }).success, false);
+    assert.equal(workerLostV7.safeParse({ workerId, phase: 'explanation', key: null, reason: 'r' }).success, false);
+    assert.equal(workerLostV7.safeParse({ workerId, phase: null, key: null, reason: 'r' }).success, true);
+    assert.equal(attemptFailedV9.safeParse({ phase: 'explanation', key: 'explanation', workerId, reason: 'r' }).success, false);
+    assert.equal(worktreeCheckedV9.safeParse({ phase: 'explanation', attempt: 1, moment: 'start', drifted: true, head: null, files: [], strays: [] }).success, false);
+  });
+
+  it('records the pull request of a scope only from version 3 of scope.captured', () => {
+    const range = { mode: 'range', base: '1'.repeat(40), head: '2'.repeat(40), files: [], patch: blob, excluded: { paths: [], count: 0 } };
+    const facts = { host: 'github.com', owner: 'octo', repository: 'parse', number: 42, url: 'https://github.com/octo/parse/pull/42', baseRef: 'main', title: 'Accept an empty input', body: blob };
+    const request = { range: { from: '1'.repeat(40), to: 'HEAD', mergeBase: false }, paths: [], exclude: [] };
+    const named = { ...request, pullRequest: { number: 42, repository: 'github.com/octo/parse' } };
+    assert.equal(scopeCapturedV3.safeParse({ ...range, request: named, pullRequest: facts }).success, true);
+    assert.equal(scopeCapturedV3.safeParse({ ...range, request: named, pullRequest: { ...facts, host: 'ghe.example.com:8443', body: null } }).success, true, 'a host with a port, and an empty body');
+    assert.equal(scopeCapturedV3.safeParse({ ...range, request: named }).success, false, 'version 3 holds the facts');
+    assert.equal(scopeCapturedV2.safeParse({ ...range, request: named }).success, false, 'version 2 has no pull request in its request');
+    assert.equal(scopeCapturedV2.safeParse({ ...range, request, pullRequest: facts }).success, false, 'nor beside the change');
+    for (const [field, value] of [['number', 0], ['owner', 'octo/parse'], ['repository', '..'], ['url', 'not a url'], ['url', 'ftp://github.com/octo/parse/pull/42'], ['title', ''], ['baseRef', '']] as const) {
+      assert.equal(scopeCapturedV3.safeParse({ ...range, request: named, pullRequest: { ...facts, [field]: value } }).success, false, `${field} ${JSON.stringify(value)}`);
+    }
+    assert.equal(scopeCapturedV3.safeParse({ ...range, request: { ...request, pullRequest: { number: 42, repository: 'octo/parse' } }, pullRequest: facts }).success, false, 'a repository named by a URL is <host>/<owner>/<repo>');
+    assert.equal(scopeCapturedV3.safeParse({ ...range, request: named, pullRequest: facts, excluded: { paths: ['dist/a.js'], count: 1 } }).success, false, 'the rules of version 2 hold: only a request with patterns leaves a path out');
+  });
+
+  it('records a review.configured@10 as version 9 records it, with its settings at version 2 of the record, and holds it to the rules of version 6', () => {
+    const settings = {
+      files: [],
+      repository: { state: 'absent', commit: '1'.repeat(40), edited: false },
+      values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'review.language': 'ko', 'github.executable': 'gh', 'github.args': [] },
+      layers: { 'review.language': 'repository', 'github.executable': 'operator', 'runtimes.claude.strong': 'default' },
+      notFollowed: [{ name: 'review.language', repository: 'ko', value: 'en', layer: 'clone' }],
+      ignored: [],
+    };
+    const configuration = { runtime: 'claude', executable: '/bin/claude', executableArgs: [], version: '2.1.330', models: { strong: 'opus', fast: 'sonnet' }, roles: [{ role: 'writer', model: 'opus', effort: 'high', budgetUsd: 8, timeoutMs: 1_800_000 }], rolesDigest: 'd'.repeat(64), concurrency: 4, runBudgetUsd: 60, fix: false, checks: null, fixes: null, survey: { userRules: 'judge' }, codex: null };
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings }).success, true);
+    assert.equal(reviewConfiguredV9.safeParse({ ...configuration, settings }).success, false, 'version 1 of the record has none of the three');
+    const valuesV1 = Object.fromEntries(Object.entries(settings.values).filter(([name]) => name !== 'review.language'));
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings: { ...settings, values: valuesV1 } }).success, false, 'version 2 of the record holds the language');
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings: { ...settings, values: { ...settings.values, 'review.language': 'en_US' } } }).success, false, 'a language tag');
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings: { ...settings, values: { ...settings.values, 'github.args': ['--hostname', ''] } } }).success, true, 'an argument may be empty');
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, checks: { timeoutMs: 1000 }, settings }).success, false, 'the checks are pinned exactly when the run fixes');
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings: { ...settings, layers: { ...settings.layers, 'runtimes.codex.strong': 'default' } } }).success, false, 'only the run\'s runtime\'s settings');
+    assert.equal(reviewConfiguredV10.safeParse({ ...configuration, settings: { ...settings, layers: { ...settings.layers, 'review.languages': 'default' } } }).success, false, 'a name the record knows');
+  });
+
+  it('records the writer\'s explanation: its answer frozen, each dropped part once with its failures, each unexplained finding once, and none both', () => {
+    const conclusion = { part: 'conclusion', failures: ['the conclusion has no sentence for RIPPLE-1'] };
+    const account = { part: 'account', failures: ['the diagram of the change is a pie'] };
+    const ripple = { part: 'finding', finding: 'RIPPLE-1', failures: ['a case cites src/a.ts:90, which has 12 lines at the head'] };
+    const accepts = (change: Record<string, unknown>): boolean => explanationRecordedV1.safeParse({ workerId, answer: blob, dropped: [], unexplained: [], ...change }).success;
+    assert.equal(accepts({}), true);
+    assert.equal(accepts({ dropped: [conclusion, account, ripple], unexplained: ['SWEEP-1'] }), true);
+    assert.equal(accepts({ workerId: null, answer: null, dropped: [conclusion, account, ripple] }), true, 'a phase that degraded with no answer that passed');
+    assert.equal(accepts({ workerId: null, answer: blob, dropped: [ripple] }), true, 'a phase that degraded keeps the parts its first answer passed');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: [conclusion] }), false, 'with no answer, the account is dropped too');
+    assert.equal(accepts({ answer: null, dropped: [conclusion, account] }), false, 'a writer that completed the unit has its answer frozen');
+    assert.equal(accepts({ dropped: [conclusion, conclusion] }), false, 'each part once');
+    assert.equal(accepts({ dropped: [ripple, { ...ripple, failures: ['f'] }] }), false, 'each finding\'s part once');
+    assert.equal(accepts({ unexplained: ['SWEEP-1', 'SWEEP-1'] }), false, 'each finding marked once');
+    assert.equal(accepts({ dropped: [ripple], unexplained: ['RIPPLE-1'] }), false, 'dropped or unexplained, not both');
+    assert.equal(accepts({ dropped: [{ part: 'finding', failures: ['f'] }] }), false, 'a finding\'s part names it');
+    assert.equal(accepts({ dropped: [{ part: 'conclusion', finding: 'RIPPLE-1', failures: ['f'] }] }), false, 'only a finding\'s part names one');
+    assert.equal(accepts({ dropped: [{ part: 'title', failures: ['f'] }] }), false, 'a part of the three');
+    assert.equal(accepts({ dropped: [{ ...conclusion, failures: [] }] }), false, 'a dropped part has its failures');
+    assert.equal(accepts({ dropped: [{ ...conclusion, failures: ['x'.repeat(recordedTextLengthV1 + 1)] }] }), false, 'each within the recorded length');
+    assert.equal(accepts({ unexplained: ['ripple-1'] }), false, 'a candidate id');
+    assert.equal(accepts({ answer: undefined }), false, 'the answer, or null');
+  });
+
+  it('records a publication before its post: its marker, target, commit, frozen payload, the place of each finding with its reason, and the count of secrets', () => {
+    assert.equal(publishPreparedV1.safeParse(prepared()).success, true);
+    for (const place of findingPlaces) {
+      for (const reason of placeReasons) assert.equal(publishPreparedV1.safeParse(prepared({ places: [{ finding: 'RIPPLE-1', place, reason }] })).success, (place === 'line') === (reason === 'on-the-diff'), `${place} ${reason}`);
+    }
+    assert.equal(publishPreparedV1.safeParse(prepared({ places: [{ finding: 'RIPPLE-1', place: 'line', reason: 'on-the-diff' }, { finding: 'RIPPLE-1', place: 'body', reason: 'left' }] })).success, false, 'each finding has one place');
+    assert.equal(publishPreparedV1.safeParse(prepared({ places: [] })).success, true, 'a run with no finding');
+    for (const wrong of ['deep-review publication run-1 0', 'deep-review publication run-1', 'deep-review publication  1', 'publication run-1 1', `${marker}\n`]) assert.equal(publishPreparedV1.safeParse(prepared({ marker: wrong })).success, false, JSON.stringify(wrong));
+    assert.equal(publishPreparedV1.safeParse(prepared({ secrets: -1 })).success, false);
+    assert.equal(publishPreparedV1.safeParse(prepared({ commit: 'HEAD' })).success, false);
+    assert.equal(publishPreparedV1.safeParse(prepared({ target: { host: 'github.com', owner: 'octo', repository: 'parse', number: 42, url: 'https://github.com/octo/parse/pull/42' } })).success, false, 'a target is where the pull request lives');
+  });
+
+  it('records a posted publication with its review and each comment once, and a dropped one refused with a 4xx status and its message, or not found', () => {
+    const posted = (comments: unknown[]): boolean => publishPostedV1.safeParse({ marker, review: item(2_400_000_001), comments }).success;
+    assert.equal(posted([]), true);
+    assert.equal(posted([{ finding: 'RIPPLE-1', comment: item(1_900_000_001) }, { finding: 'SWEEP-1', comment: item(1_900_000_002) }]), true);
+    assert.equal(posted([{ finding: 'RIPPLE-1', comment: item(1) }, { finding: 'RIPPLE-1', comment: item(2) }]), false, 'each finding has one comment');
+    assert.equal(posted([{ finding: 'RIPPLE-1', comment: { id: 0, url: 'https://github.com/x' } }]), false, 'an id from 1');
+    assert.equal(publishPostedV1.safeParse({ marker, review: { id: 1, url: 'about:blank' }, comments: [] }).success, false, 'a URL of GitHub\'s');
+    for (const reason of publicationDropReasons) assert.ok(publishDroppedV1.safeParse(reason === 'refused' ? { marker, reason, status: 422, message: 'line must be part of the diff' } : { marker, reason }).success, reason);
+    assert.equal(publishDroppedV1.safeParse({ marker, reason: 'refused', status: 502, message: 'Bad Gateway' }).success, false, 'a 5xx leaves the publication open');
+    assert.equal(publishDroppedV1.safeParse({ marker, reason: 'refused', status: 403 }).success, false, 'a refusal has its message');
+    assert.equal(publishDroppedV1.safeParse({ marker, reason: 'not-found', status: 404, message: 'Not Found' }).success, false, 'not found has no status');
+    assert.equal(publishDroppedV1.safeParse({ marker, reason: 'timeout' }).success, false, 'a reason of the two');
   });
 });
 

@@ -191,6 +191,19 @@ const executableSetting = (runtime: ConfiguredRuntime): SettingDeclaration<typeo
 /** One argument of a runtime's executable: empty is one, as --executable-arg took one before the settings. */
 const argumentSchema = z.string().max(1000).refine((argument) => !argument.includes('\0'), 'must not hold a NUL');
 
+/**
+ * A language tag, as `review.language` takes one (R20 of the review on the
+ * pull request): a language, then any subtags, such as `en`, `ko` or
+ * `pt-BR`.
+ */
+export const languageTagSchema = z.string().max(35).regex(/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/, 'must be a language tag, such as en, ko or pt-BR');
+
+/** The language of a review that no layer sets a language for. */
+export const defaultLanguage = 'en';
+
+/** The executable that runs GitHub's command line when no layer names one: `gh`, looked up on PATH. */
+export const defaultGithubExecutable = 'gh';
+
 /** The arguments of one runtime's executable. */
 const argsSetting = (runtime: ConfiguredRuntime): SettingDeclaration<z.ZodArray<typeof argumentSchema>> =>
   declare({
@@ -214,6 +227,15 @@ export const settings = {
     example: 'origin/main',
     flag: '--base',
     describe: 'The branch that a change starts from: --branch reviews the change from its merge base with HEAD.',
+  }),
+  'review.language': declare({
+    owner: 'repository-first',
+    value: languageTagSchema,
+    defaultOf: () => defaultLanguage,
+    defaultWords: defaultLanguage,
+    example: 'ko',
+    flag: null,
+    describe: 'The language of the review that deep-review publish posts on a pull request, as a language tag such as en or ko; the words deep-review writes itself stay in English for a language it has no table of.',
   }),
   'scope.default': declare({
     owner: 'operator-only',
@@ -300,6 +322,24 @@ export const settings = {
     example: 'none',
     flag: '--codex-windows-sandbox',
     describe: 'How the workers of a Codex run on Windows are confined: unelevated, elevated, or none.',
+  }),
+  'github.executable': declare({
+    owner: 'operator-only',
+    value: textSchema,
+    defaultOf: () => defaultGithubExecutable,
+    defaultWords: `${defaultGithubExecutable} as found on PATH`,
+    example: defaultGithubExecutable,
+    flag: null,
+    describe: "The executable of GitHub's command line, which reads a pull request and posts its review: a path, or a name looked up on PATH.",
+  }),
+  'github.args': declare({
+    owner: 'operator-only',
+    value: z.array(argumentSchema).max(64),
+    defaultOf: () => [],
+    defaultWords: 'no arguments',
+    example: [],
+    flag: null,
+    describe: "The arguments that go before each call's own when the executable of GitHub's command line runs.",
   }),
 } as const;
 

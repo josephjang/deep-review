@@ -1,12 +1,14 @@
 /**
  * The resolution of the settings (R3, R8, R9, R13 of the configuration):
  * the flag layer an invocation gives, and the two passes that put the
- * layers in the order of each setting's owner. Pass 1 resolves the two
- * operator-only settings that choose the change, `scope.default` and
- * `review.base`, from every layer but the repository's file, since the
- * engine reads that file at the base those two settings choose (R4).
- * Pass 2 reads the repository's file at that base and resolves every
- * setting, with the layer each value came from.
+ * layers in the order of each setting's owner. Pass 1 resolves the
+ * operator-only settings that the engine needs before it reads the
+ * repository's file, from every layer but that file: `scope.default` and
+ * `review.base`, which choose the change, since the engine reads that file
+ * at the base they choose (R4), and `github.executable` and `github.args`,
+ * since a run of a pull request asks GitHub for that base (R15 of the
+ * review on the pull request). Pass 2 reads the repository's file at that
+ * base and resolves every setting, with the layer each value came from.
  */
 import { parse } from 'smol-toml';
 import { ReviewRefusedError } from '../review/errors.ts';
@@ -14,7 +16,7 @@ import type { PolicyFile } from '../review/policy.ts';
 import { git } from '../scope/git.ts';
 import { SettingFlagError } from './errors.ts';
 import { readConfigFile, refuseProblems, repositoryConfigPath, valueText, type ConfigFile } from './files.ts';
-import { defaultScope, isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingDeclaration, type SettingName, type SettingValue } from './settings.ts';
+import { defaultGithubExecutable, defaultScope, isSettingName, layerOrder, layerWords, settingNames, settings, type FileLayer, type Layer, type ScopeDefault, type SettingDeclaration, type SettingName, type SettingValue } from './settings.ts';
 
 /** One flag's value for one setting, with the flag as the command line spelled it, which a refusal names. */
 export interface FlagValue {
@@ -154,27 +156,36 @@ export function originHeadBranch(repo: string): string | null {
 /** The default of `review.base`, which the registry declares null: the branch `origin/HEAD` names, asked only when no layer gives a base. */
 const defaultBase = (originHead: () => string | null): ResolvedSetting<string | null> => ({ value: originHead(), layer: 'default' });
 
-/** What pass 1 resolves: the two settings that choose the change. */
+/** What pass 1 resolves: the two settings that choose the change, and the executable of GitHub's command line with its arguments. */
 export interface ScopeSettings {
   readonly scopeDefault: ResolvedSetting<ScopeDefault>;
   /** The base branch: the value a layer gives, else the branch `origin/HEAD` names, else null. */
   readonly reviewBase: ResolvedSetting<string | null>;
+  /** The executable of `gh`, which a run of a pull request runs to learn the base of its change (R15 of the review on the pull request). */
+  readonly githubExecutable: ResolvedSetting<string>;
+  readonly githubArgs: ResolvedSetting<readonly string[]>;
 }
 
 /**
- * Pass 1 (R3, R8, R9): `scope.default` and `review.base` from the
- * operator's, the clone's and the invocation file and the flags, which
- * are the layers of an operator-only setting, so the repository's file
- * never chooses the change it is read at the base of. `originHead` is
- * asked only when no layer gives a base.
+ * Pass 1 (R3, R8, R9; R15 of the review on the pull request):
+ * `scope.default`, `review.base`, `github.executable` and `github.args`
+ * from the operator's, the clone's and the invocation file and the
+ * flags, which are the layers of an operator-only setting, so the
+ * repository's file never chooses the change it is read at the base of,
+ * nor the program that finds that base. `originHead` is asked only when
+ * no layer gives a base.
  */
 export function resolveScopeSettings(files: readonly ConfigFile[], flags: FlagLayer, originHead: () => string | null): ScopeSettings {
   const sources: Sources = { files: files.filter((file) => file.layer !== 'repository'), flags };
   const scopeDefault = winner('scope.default', sources) as ResolvedSetting<ScopeDefault> | null;
   const reviewBase = winner('review.base', sources) as ResolvedSetting<string> | null;
+  const githubExecutable = winner('github.executable', sources) as ResolvedSetting<string> | null;
+  const githubArgs = winner('github.args', sources) as ResolvedSetting<readonly string[]> | null;
   return {
     scopeDefault: scopeDefault ?? { value: defaultScope, layer: 'default' },
     reviewBase: reviewBase ?? defaultBase(originHead),
+    githubExecutable: githubExecutable ?? { value: defaultGithubExecutable, layer: 'default' },
+    githubArgs: githubArgs ?? { value: [], layer: 'default' },
   };
 }
 

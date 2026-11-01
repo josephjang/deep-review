@@ -8,7 +8,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Checkpoint, type NewEvent } from '../src/checkpoint/checkpoint.ts';
-import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, reviewVocabularyV6, reviewVocabularyV8, reviewVocabularyV9, type RecordedCandidate, type ReviewConfigurationV1, type ScopeStateV1, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
+import { reviewVocabularyV1, reviewVocabularyV2, reviewVocabularyV3, reviewVocabularyV4, reviewVocabularyV6, reviewVocabularyV8, reviewVocabularyV9, reviewVocabularyV11, type RecordedCandidate, type ReviewConfigurationV1, type ScopeStateV1, type WorkerFinish, type WorkerLaunch } from '../src/checkpoint/events.ts';
 import { checkpointIdentity } from '../src/checkpoint/identity.ts';
 import { ledgerFileName } from '../src/checkpoint/ledger.ts';
 import { finderAngles, type Angle, type Phase } from '../src/review/vocabulary.ts';
@@ -2255,6 +2255,172 @@ try {
     ] }, 2);
     cited.add('fixes.replanned', { blocked: [], clusters: [], batches: [] });
   }, 'completed', { end: true });
+  // An eighteenth run, a read-only run of a pull request (TD2, TD8 of the
+  // review on the pull request): its scope is captured at version 3, the
+  // range from GitHub's merge base to HEAD with the pull request beside
+  // it, its body frozen; it is configured at version 10, with the language
+  // of the review from the repository's file. It ranks three findings and
+  // decides them, then explains its review: the writer's first answer
+  // fails its checks, the second writer is lost with its engine, and the
+  // next engine re-enters the phase, whose writer answers; the
+  // explanation drops one finding's part and marks another unexplained.
+  // The report has the row of the explanation. A first publication is
+  // refused by GitHub and dropped; a second one is posted, with the
+  // comment of the finding it put on its line.
+  const pullRequestRun = checkpoint.createRun({ worktree: '/fixture/pull-request' });
+  const pullRequestScope = {
+    mode: 'range',
+    request: { range: { from: fixScope.base, to: 'HEAD', mergeBase: false }, paths: [], exclude: [], pullRequest: { number: 42, repository: null } },
+    base: fixScope.base,
+    head: fixScope.head,
+    files: fixScope.files,
+    patch: fixScope.patch,
+    excluded: { paths: [], count: 0 },
+    pullRequest: {
+      host: 'github.com', owner: 'fixture', repository: 'changed', number: 42,
+      url: 'https://github.com/fixture/changed/pull/42', baseRef: 'main', title: 'Accept an empty input in changed()',
+      body: checkpoint.evidence.put('An empty input crashed changed(); this guards it.\n'),
+    },
+  };
+  const pulled = new ReviewHistory(checkpoint, pullRequestRun.id, checkpoint.append(pullRequestRun.id, pullRequestRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: pullRequestScope }]).lastSequence);
+  pulled.add('review.configured', {
+    ...documentedConfiguration,
+    roles: [...documentedConfiguration.roles, { role: 'writer', model: 'opus', effort: 'high', budgetUsd: 8, timeoutMs: 1_800_000 }],
+    fix: false,
+    checks: null,
+    fixes: null,
+    settings: {
+      files: [{ layer: 'repository', path: '.deep-review/config.toml', sha256: '7'.repeat(64), commit: fixScope.base }],
+      repository: { state: 'read', commit: fixScope.base, edited: false },
+      values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'review.language': 'ko', 'github.executable': 'gh', 'github.args': [] },
+      layers: {
+        'review.base': 'default', 'review.language': 'repository', 'scope.default': 'default', 'scope.exclude': 'default', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'default', 'run.concurrency': 'default',
+        'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'default', 'runtimes.claude.args': 'default',
+        'github.executable': 'default', 'github.args': 'default',
+      },
+      notFollowed: [],
+      ignored: [],
+    },
+  }, 10);
+  pulled.phaseV6('survey', () => {
+    pulled.launch('e01', 'surveyor survey:survey');
+    pulled.finishWorker('e01');
+    pulled.add('survey.recorded', { workerId: pulled.id('e01'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  pulled.phaseV6('triage', () => {
+    pulled.launch('e02', 'triage triage:SCAN');
+    pulled.finishWorker('e02');
+    pulled.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: pulled.id('e02'), candidates: [pulled.candidate('SCAN-1', 'SCAN', 1), pulled.candidate('SCAN-2', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+  });
+  pulled.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `e${String(10 + finderAngles.indexOf(angle))}`;
+      pulled.launch(tag, `finder-${angle} finders:${angle}`);
+      pulled.finishWorker(tag);
+      pulled.add('candidates.recorded', { phase: 'finders', key: angle, workerId: pulled.id(tag), candidates: angle === 'DESIGN' ? [pulled.candidate('DESIGN-1', 'DESIGN', 1)] : [], leads: null, change: null }, 2);
+    }
+  });
+  pulled.phaseV6('deduplication', () => {
+    pulled.launch('e20', 'deduplication deduplication:deduplication');
+    pulled.finishWorker('e20');
+    pulled.add('deduplication.recorded', { phase: 'deduplication', workerId: pulled.id('e20'), groups: [] });
+  });
+  pulled.phaseV6('verification', () => {
+    pulled.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'SCAN-1', 'SCAN-2'] }] });
+    pulled.launch('e21', 'verifier verification:g1');
+    pulled.finishWorker('e21');
+    pulled.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: pulled.id('e21'), verdicts: [
+      { id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'Not CONFIRMED: whether callers may see the helper is the author\'s.', basis: 'read', runs: [] },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [] },
+      { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 1 never checks the guard', basis: 'traced', runs: [] },
+    ] }, 2);
+  });
+  pulled.phaseV6('sweep', () => {
+    pulled.launch('e30', 'sweep sweep:sweep');
+    pulled.finishWorker('e30');
+    pulled.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: pulled.id('e30'), candidates: [], leads: null, change: null }, 2);
+  });
+  pulled.phaseV6('sweep-deduplication', () => {});
+  pulled.phaseV6('sweep-verification', () => pulled.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  pulled.phaseV6('merge-rank', () => {
+    pulled.launch('e31', 'merge-rank merge-rank:merge-rank');
+    pulled.finishWorker('e31');
+    pulled.add('ranking.recorded', { workerId: pulled.id('e31'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() never checks its guard', reason: 'the guard is part of the fix' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+    ] });
+  });
+  pulled.phaseV6('decision', () => {
+    pulled.launch('e32', 'decider decision:decision');
+    pulled.finishWorker('e32');
+    pulled.add('decisions.recorded', { workerId: pulled.id('e32'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null },
+      { id: 'SCAN-2', decision: 'leave', grounds: 'the guard SCAN-1 adds is the check SCAN-2 asks for', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-1' }, ask: null, departure: null },
+      {
+        id: 'DESIGN-1', decision: 'ask', grounds: 'nothing in the repository says whether the helper is public', fix: null, leave: null, departure: null,
+        ask: {
+          question: 'Should the extracted helper be exported?',
+          options: [
+            { option: 'keep the code as it is', cost: 'the two copies stay', rule: 'helpers stay inline until a third caller needs one', edits: false },
+            { option: 'extract a private helper', cost: 'one more function to read', rule: 'shared code moves to a private helper', edits: true },
+          ],
+          recommended: 1,
+          applied: 0,
+          searched: ['CONTRIBUTING.md'],
+        },
+      },
+    ] });
+  });
+  // The explanation at versions 8 and 9 of the kinds that name it, 7 of a lost worker.
+  const explaining = (attempt: number): void => {
+    pulled.add('phase.started', { phase: 'explanation', attempt }, 8);
+    pulled.add('worktree.checked', { phase: 'explanation', attempt, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 9);
+  };
+  explaining(1);
+  pulled.launch('e40', 'writer explanation:explanation');
+  pulled.finishWorker('e40');
+  pulled.add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: pulled.id('e40'), reason: 'the conclusion cites src/missing.ts, which the head does not hold', fault: 'unit' }, 9);
+  pulled.launch('e41', 'writer explanation:explanation');
+  pulled.add('worker.lost', { workerId: pulled.id('e41'), phase: 'explanation', key: 'explanation', reason: 'the engine exited while the worker ran' }, 7);
+  explaining(2);
+  pulled.launch('e42', 'writer explanation:explanation');
+  pulled.finishWorker('e42');
+  pulled.add('explanation.recorded', {
+    workerId: pulled.id('e42'),
+    answer: checkpoint.evidence.put('{"conclusion":{"why":"An empty input crashes changed().","actions":[],"diagram":null}}\n'),
+    dropped: [{ part: 'finding', finding: 'SCAN-1', failures: ['a case cites src/changed.ts:9, which has 1 line at the head'] }],
+    unexplained: ['DESIGN-1'],
+  });
+  pulled.add('phase.finished', { phase: 'explanation', attempt: 2, outcome: 'completed', blocker: null }, 9);
+  const pulledWorkers: Partial<Record<Phase, number>> = { survey: 1, triage: 1, finders: 9, deduplication: 1, verification: 1, sweep: 1, 'merge-rank': 1, decision: 1, explanation: 3 };
+  pulled.phaseV6('report', () => {
+    pulled.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a read-only run of a pull request\n'),
+      statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(19), budgetApplied: true },
+      patches: [],
+    }, 8);
+  });
+  const publication = (serial: number) => ({
+    marker: `deep-review publication ${pullRequestRun.id} ${String(serial)}`,
+    target: { host: 'github.com', owner: 'fixture', repository: 'changed', number: 42 },
+    commit: fixScope.head,
+    payload: checkpoint.evidence.put(`{"commit_id":"${fixScope.head}","event":"COMMENT","body":"serial ${String(serial)}","comments":[]}\n`),
+    places: [
+      { finding: 'SCAN-1', place: 'line', reason: 'on-the-diff' },
+      { finding: 'SCAN-2', place: 'body', reason: 'left' },
+      { finding: 'DESIGN-1', place: 'body', reason: 'outside-the-diff' },
+    ],
+    secrets: serial === 1 ? 1 : 0,
+  });
+  pulled.add('publish.prepared', publication(1));
+  pulled.add('publish.dropped', { marker: publication(1).marker, reason: 'refused', status: 422, message: 'Unprocessable Entity: pull request review thread line must be part of the diff' });
+  pulled.add('publish.prepared', publication(2));
+  pulled.add('publish.posted', {
+    marker: publication(2).marker,
+    review: { id: 2_400_000_001, url: 'https://github.com/fixture/changed/pull/42#pullrequestreview-2400000001' },
+    comments: [{ finding: 'SCAN-1', comment: { id: 1_900_000_001, url: 'https://github.com/fixture/changed/pull/42#discussion_r1900000001' } }],
+  });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

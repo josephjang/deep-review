@@ -4,7 +4,7 @@ import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { RunClosedError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
-import type { CapturedScopeRequest, FrozenFile, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
+import type { CapturedScopeRequest, FrozenFile, ScopeCapturedV2, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
 import { sha256Hex, type EvidenceStore } from '../evidence/store.ts';
 import { readLinkText } from '../paths.ts';
 import { CaptureRacedError, EmptyChangeError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from './errors.ts';
@@ -186,7 +186,7 @@ export function captureScope(checkpoint: Checkpoint, runId: string, input: Scope
     if (!sameEntry(observation.after, now)) throw new CaptureRacedError(`${observation.path} changed while the scope was being captured`);
   }
 
-  const payload: ScopeState = { mode, request, base, head: guardBefore.head, files, patch, excluded: { paths: excluded.slice(0, maxExcludedNamed), count: excluded.length } };
+  const payload: ScopeCapturedV2 = { mode, request, base, head: guardBefore.head, files, patch, excluded: { paths: excluded.slice(0, maxExcludedNamed), count: excluded.length } };
   return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 2, payload }]);
 }
 
