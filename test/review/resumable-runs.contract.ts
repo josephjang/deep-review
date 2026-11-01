@@ -13,10 +13,14 @@
 // base before and after git makes it and removes it, a check there at its
 // end and while it runs, the step before the phase ends, and the repair
 // that compares the failures while it runs and at its end (R11 of the
-// facts before a merge). `npm run resume-test` runs every point of both.
+// facts before a merge). The fixed set of a pull request holds the
+// writer of a read-only run of `review --pr` while it runs, after it
+// answered and before its answer is recorded, and after the record (R18,
+// "A stop" of the design of the review on the pull request).
+// `npm run resume-test` runs every point of the three.
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
-import { baseScenario, brokenParts, fixScenario, hasPoint, pointOf, reference, stopAndResume, waysAt, type Reference, type Scenario } from '../helpers/resume-contract.ts';
+import { baseScenario, brokenParts, fixScenario, hasPoint, pointOf, pullRequestScenario, reference, stopAndResume, waysAt, type Reference, type Scenario } from '../helpers/resume-contract.ts';
 import { marksOf, unexpected } from '../helpers/resume-marks.ts';
 import { sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -69,6 +73,15 @@ const basePoints = [
   'worker.finished fixer repair:repair',
 ] as const;
 
+/** The points the suite stops the engine at in the explanation of a read-only run of a pull request, by name (R18 of the review on the pull request). */
+const pullRequestPoints = [
+  // The writer while it runs, before it answers.
+  'child writer explanation:explanation#1',
+  // The writer's end, after it answered and before its finish and its explanation are recorded, in one append, and after that append.
+  'before worker.finished writer explanation:explanation',
+  'worker.finished writer explanation:explanation',
+] as const;
+
 /** Stop the run of `scenario` at each of `points` in each way that applies there, against its run with no stop, which it gives. */
 function contractOf(scenario: Scenario, points: readonly string[]): () => Reference {
   let expected: Reference | null = null;
@@ -116,5 +129,15 @@ describe('the contract of resumable runs, with the checks on the base', { timeou
     assert.deepEqual(outcome.checks.filter((check) => check.startsWith('base-checks ')), ['base-checks build passed', 'base-checks typecheck failed']);
     assert.deepEqual(outcome.comparisons, ['typecheck same']);
     assert.deepEqual(outcome.baseTrees, []);
+  });
+});
+
+describe('the contract of resumable runs, in the explanation of a pull request', { timeout: 1_800_000, concurrency: sandboxConcurrency }, () => {
+  const expected = contractOf(pullRequestScenario, pullRequestPoints);
+
+  it('records the writer\'s explanation of the two findings decided fix in the run with no stop, from its answer, with nothing dropped', () => {
+    const { outcome } = expected();
+    assert.equal(outcome.state.review!.explanationStep, true, 'the run explains its review');
+    assert.deepEqual(outcome.explanation, ['recorded from the writer', 'unexplained SCAN-1', 'unexplained SCAN-2']);
   });
 });
