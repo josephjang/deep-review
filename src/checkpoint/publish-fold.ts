@@ -24,6 +24,12 @@ export type Publication =
 /** The marker of the run's publication with the serial `serial`, as the body of its review carries it. */
 export const publicationMarker = (runId: string, serial: number): string => `deep-review publication ${runId} ${String(serial)}`;
 
+/** The URL of the review of the run's posted publication, or null while none is posted; a run is posted at most once. */
+export function postedReviewUrl(run: Pick<RunState, 'publications'>): string | null {
+  for (const publication of run.publications) if (publication.status === 'posted') return publication.posted.review.url;
+  return null;
+}
+
 /** The run, which must exist. */
 function requireRun(state: RunState | undefined, event: DecodedEvent): RunState {
   if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);

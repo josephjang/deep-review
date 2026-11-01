@@ -19,6 +19,7 @@ import { answerWords, standingAnswers } from '../checkpoint/answer-state.ts';
 import { allBatches, allClusters, earlierTreeEdit, isNotAttempted, lastRecordedRun } from '../checkpoint/fix-state.ts';
 import type { ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { postedReviewUrl } from '../checkpoint/publish-fold.ts';
 import { isAnswered, type ReviewState } from '../checkpoint/review-fold.ts';
 import { sameDirectory } from '../paths.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -28,7 +29,7 @@ import { cutAtWord, shortLineLimit } from './brief.ts';
 import { continueCommand, rolesPlaceholder } from './continue-command.ts';
 import { stopLimitations } from './fix-report.ts';
 import { counted, inlineText } from './markdown.ts';
-import { cutWorkerLines, limitBlockLines, lostWorkerLines } from './report.ts';
+import { cutWorkerLines, limitBlockLines, lostWorkerLines, reviewLine } from './report.ts';
 import { shortRunId } from './runs.ts';
 import { settingsHeaderLine, settingsLimitations } from './settings-report.ts';
 import { budgetSpendNote, budgetSpendOf, statisticsOf } from './spend.ts';
@@ -138,6 +139,8 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(review?.blocker === null || review?.blocker === undefined ? [] : [`Blocker: ${review.blocker.code}: ${review.blocker.detail}`, `Action: ${review.blocker.action}`]),
     ...(continuedFrom === null ? [] : [`Continued from: ${continuedFrom.report}, into the fix pass on ${continuedFrom.at}`]),
     ...(reportPath === null ? [] : [copy === null ? `Report: ${reportPath}` : `Report: ${copy}, a copy of the record ${reportPath}`]),
+    // The review `publish` posted on the pull request, in a line of its own (R6 of the review on the pull request).
+    ...reviewLine(state),
     ...(continuing === null ? [] : [continuing.line]),
     ...stops,
     ...(decisions === null ? [] : [`Decisions: ${decisionCountWords(decisions)}`]),
@@ -147,7 +150,7 @@ export function describeRun(state: RunState, adapter: Pick<RuntimeAdapter, 'summ
     ...(review?.fix?.commits ?? []).map((series) => `Commits: ${String(series.commits.length)} created, ${series.from} to ${series.to}`),
   ];
   const scopeJson = shown === null || state.scope === null ? null : { ...shown, files: state.scope.files.map((file) => file.path), excluded: [...state.scope.excluded.paths] };
-  const json = { runId: state.id, status, worktree: state.worktree, scope: scopeJson, phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, reportCopy: copy, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review };
+  const json = { runId: state.id, status, worktree: state.worktree, scope: scopeJson, postedReview: postedReviewUrl(state), phase, workers: counts, statistics, budgetCheck: budgetSpend, blocker: review?.blocker ?? null, report: reportPath, reportCopy: copy, continuedFrom, decisions, answers: review?.answers ?? [], answerPasses: review?.answerPasses.map(({ reportBefore, ...pass }) => ({ ...pass, reportBefore: evidencePath(reportBefore.report) })) ?? [], fix: fix?.json ?? null, patches, commits: review?.fix?.commits ?? [], continueCommand: continuing?.command ?? null, review };
   return { lines, json };
 }
 

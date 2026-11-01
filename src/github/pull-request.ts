@@ -251,19 +251,27 @@ export function listReviewComments(gh: Gh, target: PullRequestTarget, review: nu
 }
 
 /**
- * Post `review` to the pull request as one review whose event is
- * `COMMENT`, each comment on its line of the new side. Gives the review's
- * id and URL; throws `GitHubCallError` with what the call gave otherwise,
- * whose `failure` tells a refusal of GitHub from a post whose outcome is
- * unknown.
+ * The JSON body of the post of `review`: one review whose event is
+ * `COMMENT`, each comment on its line of the new side. `publish` freezes
+ * it before it posts it, so the record holds what was sent.
  */
-export function postReview(gh: Gh, target: PullRequestTarget, review: NewReview): { readonly id: number; readonly url: string } {
-  const input = {
+export function reviewInput(review: NewReview): unknown {
+  return {
     commit_id: review.commit,
     body: review.body,
     event: 'COMMENT',
     comments: review.comments.map((comment) => ({ path: comment.path, line: comment.line, side: 'RIGHT', body: comment.body })),
   };
+}
+
+/**
+ * Post `review` to the pull request as one review whose event is
+ * `COMMENT` (`reviewInput`). Gives the review's id and URL; throws
+ * `GitHubCallError` with what the call gave otherwise, whose `failure`
+ * tells a refusal of GitHub from a post whose outcome is unknown.
+ */
+export function postReview(gh: Gh, target: PullRequestTarget, review: NewReview): { readonly id: number; readonly url: string } {
+  const input = reviewInput(review);
   const posted = readOne(gh, `posting the review of pull request #${String(target.number)}`, { endpoint: `${pullPath(target)}/reviews`, method: 'POST', hostname: target.host, input }, postedTextSchema);
   return { id: posted.id, url: posted.html_url };
 }

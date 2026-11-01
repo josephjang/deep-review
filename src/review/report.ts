@@ -17,6 +17,7 @@ import type { RecordedDecision, ReviewConfiguration, ScopeState, Spend, TreeRevi
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import { budgetStoppedUnits, lastRestorationAt } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
+import { postedReviewUrl } from '../checkpoint/publish-fold.ts';
 import { rawLocation, repositoryLocation, unverifiedGroupsOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference } from '../evidence/store.ts';
 import { angleRan, briefMarkdown, briefOf, firstSentence, passNames, type Brief, type BriefFinding, type FindingStatus } from './brief.ts';
@@ -408,10 +409,17 @@ function numbersLine(findings: readonly ReportFinding[]): string[] {
   return [`Findings by number: ${findings.map((entry, index) => `${String(index + 1)} ${entry.finding.id}${entry.members.length === 0 ? '' : ` (also ${entry.members.map((member) => member.id).join(', ')})`}`).join('; ')}`];
 }
 
+/** The line that names the review `publish` posted on the run's pull request, which "About this run" and `status` give once it is posted (R6 of the review on the pull request). */
+export function reviewLine(state: RunState): string[] {
+  const url = postedReviewUrl(state);
+  return url === null ? [] : [`Review: ${url}`];
+}
+
 /**
  * The last part, "About this run" (R8 of the report for the person; R12,
  * R15 of the brief of a run): its repository, its commits, the URL of the
- * pull request it reviewed (R6 of the review on the pull request), its engine, its
+ * pull request it reviewed and of the review posted there (R6 of the
+ * review on the pull request), its engine, its
  * runtime, its models and its settings, the earlier reports by their names
  * in the store, the counts, the totals, the error for a worktree of the base
  * that could not be made (R5 of the facts before a merge), where the
@@ -438,6 +446,8 @@ function aboutSection(state: RunState, scope: ScopeState, review: ReviewState, i
     `Mode: ${scope.mode}`,
     // The pull request the run reviewed, read from GitHub at the capture (R6 of the review on the pull request).
     ...(scope.pullRequest === null ? [] : [`Pull request: ${scope.pullRequest.url}`]),
+    // The review `publish` posted there, once it is posted; the copy is written again as it posts (R6 of the review on the pull request).
+    ...reviewLine(state),
     `Run: ${state.id}`,
     `Engine: ${input.engine}${state.engine === input.engine ? '' : ` (run created by ${state.engine})`}`,
     `Runtime: ${configuration.runtime} ${inlineText(configuration.version)} at ${inlineText(configuration.executable)}`,

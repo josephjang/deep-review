@@ -8,8 +8,10 @@
  * answers), `snapshot` is what
  * a fix worker runs after each finding (R6), and `claim` what it runs
  * before its first edit of a file outside its cluster (R1, R2 of commit
- * series integrity), and `config` shows, explains, checks and starts the
- * configuration without a run (R14 of the configuration), and `hook
+ * series integrity), `publish` posts a finished run of a pull request
+ * as one review of it (R7 of the review on the pull request), `config`
+ * shows, explains, checks and starts the configuration without a run
+ * (R14 of the configuration), and `hook
  * session-start` is what the Claude Code plugin runs when a session starts
  * (R12 of the skill surface corrections). `src/cli.ts` is the entry point
  * of the bundle and of `npm run review` during development, and runs
@@ -53,6 +55,7 @@ import { removeBaseTrees } from './review/checks/base.ts';
 import { flagCheckSettings, noCheckSettings, type CheckSettings } from './review/checks/discover.ts';
 import { claimFile, readHeld } from './review/claims.ts';
 import { commitRun } from './review/commit.ts';
+import { publishRun } from './review/publish.ts';
 import { readManifest, takeSnapshot } from './review/snapshot.ts';
 import { briefMarkdown, briefOf, briefChatForm } from './review/brief.ts';
 import { findingBlockOf } from './review/report.ts';
@@ -89,13 +92,14 @@ export const usage = `usage:
   deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <number>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
+  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]   (posts a finished run of --pr without --fix as one review of its pull request, a comment; --dry-run prints it and records nothing)
   deep-review answer  --finding <number> (--option <n> | --accept | --reject) [--note <text>]
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <index> --into <dir> [--repo <dir>]   (run by a fix worker after each finding, by its index in its batch from 0)
   deep-review claim   --path <path> --unit <key> --in <dir>   (run by a fix worker from the repository root before its first edit of a file outside its cluster)
   deep-review hook    session-start   (run by the Claude Code plugin when a session starts; prints a warning for the user, or nothing, and exits 0)
 
-exit codes: 0 a report (the short form of its brief, then the path of its copy, the last line of stdout), a status, a brief, the commits made, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error.`;
+exit codes: 0 a report (the short form of its brief, then the path of its copy, the last line of stdout), a status, a brief, the commits made, a review posted or posted before (its URL the last line of stdout) or what a dry run would post, an answer recorded, a snapshot taken, a file claimed, a configuration shown, explained, valid or written, a session-start hook run; 2 a blocked run or a refusal, a review GitHub refused to take included, a configuration file with a problem or one config init would write over, an answer refused or its pass refused with the answer recorded included, a claim another cluster holds included, with the blocker and the operator's action or the holder on stderr; 1 any other error, a post whose outcome is unknown included, which the next publish settles.`;
 
 const options = {
   runtime: { type: 'string' },
@@ -137,6 +141,7 @@ const options = {
   reject: { type: 'boolean' },
   note: { type: 'string' },
   'record-only': { type: 'boolean' },
+  'dry-run': { type: 'boolean' },
   fixes: { type: 'boolean' },
   stats: { type: 'boolean' },
   brief: { type: 'boolean' },
@@ -178,6 +183,7 @@ const allowed: Record<string, readonly (keyof Values)[]> = {
   config: [],
   abandon: ['reason', 'run', 'repo', 'help'],
   commit: ['run', 'change-message', 'repo', 'help'],
+  publish: ['run', 'dry-run', 'repo', 'help'],
   answer: ['finding', 'option', 'accept', 'reject', 'note', 'record-only', 'run', 'budget-usd', 'roles', 'repo', 'help'],
   report: ['run', 'json', 'brief', 'fixes', 'stats', 'finding', 'repo', 'help'],
   snapshot: ['finding', 'into', 'repo', 'help'],
@@ -429,6 +435,8 @@ async function run(argv: readonly string[], io: CommandIo): Promise<number> {
       return status(values, io, location.root, location.worktree);
     case 'commit':
       return commit(values, io, location.root, location.worktree);
+    case 'publish':
+      return publish(values, io, location.root, location.worktree, location.commonDir);
     case 'answer':
       return answer(values, io, location.root, location.worktree);
     case 'report':
@@ -483,6 +491,68 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
     for (const made of outcome.commits) io.stdout(`${made.sha.slice(0, 12)} ${made.subject}\n`);
     io.stderr(`run ${outcome.runId}: ${String(outcome.commits.length)} commit${outcome.commits.length === 1 ? '' : 's'} created; no commit hook ran, since they were built from the run's frozen bytes, not by git commit\n`);
     if (outcome.unstaged.length > 0) io.stderr(`staged paths no commit holds were unstaged and are unchanged in the tree: ${outcome.unstaged.join(', ')}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof UnknownRunError) throw new UsageError(error.message);
+    throw error;
+  } finally {
+    checkpoint.close();
+  }
+}
+
+/**
+ * How `publish` runs `gh` for a run (R15 of the review on the pull
+ * request): the executable and the arguments the run recorded with its
+ * settings, which a `--set` of its review may have given and `publish`
+ * takes no flag for, else those pass 1 gives from the operator's and the
+ * clone's file; resolved on PATH now, as `review --pr` resolves its own,
+ * in the worktree, with the command's own environment.
+ */
+function publishGhOf(run: RunState, io: CommandIo, worktree: string, commonDir: string): Gh {
+  const values = run.review?.configuration.settings?.values;
+  let named: { readonly executable: string; readonly args: readonly string[] };
+  if (values !== undefined && 'github.executable' in values) named = { executable: values['github.executable'], args: values['github.args'] };
+  else {
+    const scope = configurationSource({ worktree, locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: null }, repositoryConfig: false, flags: flagLayerOf([]) }).scopeSettings();
+    named = { executable: scope.githubExecutable.value, args: scope.githubArgs.value };
+  }
+  return { executable: resolveExecutable(named.executable, io.environment, process.platform, io.cwd, githubExecutableAdvice), args: named.args, cwd: worktree, environment: io.environment };
+}
+
+/**
+ * Post a finished read-only run of a pull request as one review of it
+ * (R7, R8, R13, R14 of the review on the pull request): print the URL of
+ * the review as the last line of stdout, also for a run posted before,
+ * or with `--dry-run` what would be posted, recording nothing.
+ */
+function publish(values: Values, io: CommandIo, root: string, worktree: string, commonDir: string): number {
+  const checkpoint = openCheckpoint(root, false);
+  if (checkpoint === null) throw new ReviewRefusedError('this repository has no checkpoint, so no run has a review to post');
+  try {
+    const log = (line: string): void => io.stderr(`${line}\n`);
+    const outcome = publishRun({
+      checkpoint,
+      worktree,
+      gitCommon: commonDir,
+      ...(values.run === undefined ? {} : { runId: values.run }),
+      dryRun: values['dry-run'] === true,
+      gh: (run) => publishGhOf(run, io, worktree, commonDir),
+      engineEntry: io.engineEntry ?? sourceEntry,
+      environment: io.environment,
+      log,
+      // "About this run" names the review once it is posted (R6 of the review on the pull request).
+      refreshCopy: (run) => {
+        refreshReportCopy(checkpoint, run, copyContextOf(io, run), log);
+      },
+    });
+    if (outcome.kind === 'dry-run') {
+      io.stdout(`${outcome.lines.join('\n')}\n`);
+      return 0;
+    }
+    const comments = `with ${String(outcome.comments)} comment${outcome.comments === 1 ? '' : 's'} on lines`;
+    if (outcome.how === 'posted') log(`run ${outcome.runId}: posted its review, ${comments}`);
+    if (outcome.how === 'earlier') log(`run ${outcome.runId} is posted already, so nothing was posted again`);
+    io.stdout(`${outcome.url}\n`);
     return 0;
   } catch (error) {
     if (error instanceof UnknownRunError) throw new UsageError(error.message);

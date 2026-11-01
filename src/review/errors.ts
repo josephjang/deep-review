@@ -26,3 +26,14 @@ export class ReviewRefusedError extends EngineError {
     this.code = code;
   }
 }
+
+/**
+ * A publication the command leaves open (R13 of the review on the pull
+ * request): a post whose outcome is unknown, after a timeout, an answer of
+ * 5xx or one the engine cannot read, or a settle whose read of GitHub
+ * failed. Nothing more is recorded, and the next `publish` looks for the
+ * review by its marker before it posts. The command exits 1 with it.
+ */
+export class PublicationOpenError extends EngineError {
+  override readonly name = 'PublicationOpenError';
+}
