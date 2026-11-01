@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { eventRegistry } from '../../src/checkpoint/events.ts';
 import { lookupEvent } from '../../src/checkpoint/registry.ts';
 import { checkRanEvent, writtenVersion } from '../../src/review/event-versions.ts';
-import { attemptFaults, budgetDegradingPhases, checkPhases, editingPhases, phases, worktreeMoments, type Phase } from '../../src/review/vocabulary.ts';
+import { attemptFaults, budgetDegradingPhases, checkPhases, editingPhases, isCheckPhase, phases, worktreeMoments, type Phase } from '../../src/review/vocabulary.ts';
 
 // The expressions each writer chose its version with before the table, as they were written at each site.
 const before = {
@@ -21,8 +21,8 @@ const before = {
   checkRan: (): number => 3,
 };
 
-/** The phases the engine wrote before the checks on the base, which the expressions above covered. */
-const earlierPhases = phases.filter((phase) => phase !== 'base-checks');
+/** The phases the engine wrote before the checks on the base and the explanation, which the expressions above covered. */
+const earlierPhases = phases.filter((phase) => phase !== 'base-checks' && phase !== 'explanation');
 
 /** Every list of the phases in `of`, the empty one among them. */
 const subsets = (of: readonly Phase[]): Phase[][] => of.reduce<Phase[][]>((lists, phase) => [...lists, ...lists.map((list) => [...list, phase])], [[]]);
@@ -58,7 +58,7 @@ describe('the version each event that names a phase is written at', () => {
     assert.equal(writtenVersion('check.started', ['base-checks']), 2);
     assert.equal(writtenVersion('check.ran', ['base-checks']), 4);
     assert.equal(writtenVersion('report.written', ['base-checks']), 7);
-    assert.equal(writtenVersion('report.written', phases), 7, 'a report with a row for every phase, documentation among them');
+    assert.equal(writtenVersion('report.written', phases.filter((phase) => phase !== 'explanation')), 7, 'a report with a row for every phase but the explanation, documentation among them');
     assert.equal(writtenVersion('tree.revised', ['base-checks']), 2, 'no run on the base revises the tree, so no version names it');
     assert.equal(writtenVersion('worker.lost', ['base-checks']), 5, 'the phase has no worker');
     assert.equal(writtenVersion('fix.recorded', ['repair'], { comparisons: true, cites: false }), 4);
@@ -66,6 +66,25 @@ describe('the version each event that names a phase is written at', () => {
     assert.equal(writtenVersion('fix.recorded', ['documentation'], { comparisons: false, cites: false }), 3);
     assert.equal(writtenVersion('phase.started', ['checks']), 5, 'the other check phases keep their versions');
     assert.equal(writtenVersion('check.ran', ['checks']), 3);
+  });
+
+  // The versions the design of the review on the pull request names: each of the six kinds that name the explanation, and nothing else (TD8).
+  it('names the explanation only at the versions that first hold it, and leaves every other run\'s events at their versions', () => {
+    assert.equal(writtenVersion('phase.started', ['explanation']), 8);
+    assert.equal(writtenVersion('phase.finished', ['explanation']), 9);
+    for (const moment of worktreeMoments) assert.equal(writtenVersion('worktree.checked', ['explanation'], { moment }), 9, moment);
+    for (const fault of attemptFaults) assert.equal(writtenVersion('attempt.failed', ['explanation'], { fault }), 9, fault);
+    assert.equal(writtenVersion('worker.lost', ['explanation']), 7);
+    assert.equal(writtenVersion('report.written', ['explanation']), 8);
+    assert.equal(writtenVersion('report.written', phases), 8, 'a report with a row for every phase, the explanation among them');
+    assert.equal(writtenVersion('tree.revised', ['explanation']), 2, 'the writer edits nothing, so no version names it');
+    assert.equal(writtenVersion('check.started', ['explanation']), 1, 'the phase runs no check');
+    for (const phase of phases.filter((candidate) => candidate !== 'explanation')) {
+      assert.ok(writtenVersion('phase.started', [phase]) < 8, `phase.started ${phase}`);
+      assert.ok(writtenVersion('phase.finished', [phase]) < 9, `phase.finished ${phase}`);
+      assert.ok(writtenVersion('worker.lost', [phase]) < 7, `worker.lost ${phase}`);
+      for (const fault of attemptFaults) assert.ok(writtenVersion('attempt.failed', [phase], { fault }) < 9, `attempt.failed ${phase} ${fault}`);
+    }
   });
 
   // The version TD7 of runs on the record names: an answer whose validation cites a run, in any editing phase, the repair's with comparisons among them.
@@ -79,6 +98,11 @@ describe('the version each event that names a phase is written at', () => {
 
   it('is a version whose schema holds the phase, for each kind a writer gives every phase', () => {
     const accepts = (kind: string, version: number, payload: unknown): boolean => lookupEvent(eventRegistry, kind, version)?.schema.safeParse(payload).success ?? false;
+    // The phases whose units are workers, the only ones whose attempt fails or whose worker is lost.
+    for (const phase of phases.filter((candidate) => !isCheckPhase(candidate) && candidate !== 'report')) {
+      assert.ok(accepts('attempt.failed', writtenVersion('attempt.failed', [phase], { fault: 'unit' }), { phase, key: 'k', workerId: '00000000-0000-4000-8000-000000000001', reason: 'r', fault: 'unit' }), `attempt.failed ${phase}`);
+      assert.ok(accepts('worker.lost', writtenVersion('worker.lost', [phase]), { workerId: '00000000-0000-4000-8000-000000000001', phase, key: 'k', reason: 'r' }), `worker.lost ${phase}`);
+    }
     for (const phase of phases) {
       assert.ok(accepts('phase.started', writtenVersion('phase.started', [phase]), { phase, attempt: 1 }), `phase.started ${phase}`);
       assert.ok(accepts('phase.finished', writtenVersion('phase.finished', [phase]), { phase, attempt: 1, outcome: 'completed', blocker: null }), `phase.finished ${phase}`);

@@ -1252,11 +1252,12 @@ export const reviewConfiguredV5 = reviewConfiguredV4;
 export type ReviewConfigurationV5 = z.infer<typeof reviewConfiguredV5>;
 /**
  * The configuration as the fold holds it, with what a version 6 recorded
- * of the settings, or null for a run configured before them, and what a
- * `fix.pinned@2` recorded of the fix side, or null for a run not
- * continued at that version (R6, R17 of the configuration).
+ * of the settings, at version 2 of the record for a version 10, or null
+ * for a run configured before them, and what a `fix.pinned@2` recorded
+ * of the fix side, or null for a run not continued at that version (R6,
+ * R17 of the configuration).
  */
-export type ReviewConfiguration = ReviewConfigurationV5 & { readonly settings: SettingsRecorded | null; readonly fixSettings: FixSettingsRecorded | null };
+export type ReviewConfiguration = ReviewConfigurationV5 & { readonly settings: SettingsRecorded | SettingsRecordedV2 | null; readonly fixSettings: FixSettingsRecorded | null };
 
 /** `phase.started` over the sixteen phases. */
 export const phaseStartedV4 = z.strictObject({
@@ -1736,6 +1737,34 @@ export const settingsRecordedV1 = z.strictObject({
 }).superRefine(refineSources);
 export type SettingsRecorded = z.infer<typeof settingsRecordedV1>;
 
+/** What a configuration that records its settings holds of them and of version 4's fields, whichever version of the record it holds. */
+interface RecordedConfiguration {
+  readonly fix: boolean;
+  readonly checks: unknown;
+  readonly fixes: unknown;
+  readonly runtime: string;
+  readonly codex: unknown;
+  readonly settings: { readonly values: Readonly<Partial<Record<string, unknown>>>; readonly layers: Readonly<Partial<Record<string, unknown>>> };
+}
+
+/**
+ * Hold a configuration that records its settings to its fields (R6 of the
+ * configuration), as `review.configured@6` and every later version do: the
+ * checks and the batch size pinned and the check settings recorded
+ * exactly when the run fixes, a Codex Windows sandbox only on a Codex
+ * run, and a runtime's settings only for the run's runtime.
+ */
+function refineRecordedConfiguration(configuration: RecordedConfiguration, context: z.RefinementCtx): void {
+  const problems: [boolean, string, (string | number)[]][] = [
+    [configuration.fix === (configuration.checks !== null), 'the checks are pinned exactly when the run fixes', ['checks']],
+    [configuration.fix === (configuration.fixes !== null), 'the batch size is pinned exactly when the run fixes', ['fixes']],
+    [configuration.runtime === 'codex' || configuration.codex === null, 'only a Codex run pins a Codex Windows sandbox', ['codex']],
+    [recordedSettingsV1.checkNames.every((name) => (configuration.settings.values[name] !== undefined) === configuration.fix), 'the check settings are recorded exactly when the run fixes', ['settings', 'values']],
+    [runtimeLayersMatch(configuration.runtime, configuration.settings.layers), 'a runtime\'s settings are recorded only for the run\'s runtime', ['settings', 'layers']],
+  ];
+  for (const [holds, message, path] of problems) if (!holds) context.addIssue({ code: 'custom', message, path });
+}
+
 /**
  * `review.configured` with the settings (R6, R17, TD4 of the
  * configuration): version 5's payload and `settings`, the record of where
@@ -1748,22 +1777,7 @@ export type SettingsRecorded = z.infer<typeof settingsRecordedV1>;
 export const reviewConfiguredV6 = z.strictObject({
   ...reviewConfiguredV4.shape,
   settings: settingsRecordedV1,
-}).refine((configuration) => configuration.fix === (configuration.checks !== null), {
-  message: 'the checks are pinned exactly when the run fixes',
-  path: ['checks'],
-}).refine((configuration) => configuration.fix === (configuration.fixes !== null), {
-  message: 'the batch size is pinned exactly when the run fixes',
-  path: ['fixes'],
-}).refine((configuration) => configuration.runtime === 'codex' || configuration.codex === null, {
-  message: 'only a Codex run pins a Codex Windows sandbox',
-  path: ['codex'],
-}).refine((configuration) => recordedSettingsV1.checkNames.every((name) => (configuration.settings.values[name] !== undefined) === configuration.fix), {
-  message: 'the check settings are recorded exactly when the run fixes',
-  path: ['settings', 'values'],
-}).refine((configuration) => runtimeLayersMatch(configuration.runtime, configuration.settings.layers), {
-  message: 'a runtime\'s settings are recorded only for the run\'s runtime',
-  path: ['settings', 'layers'],
-});
+}).superRefine(refineRecordedConfiguration);
 export type ReviewConfigurationV6 = z.infer<typeof reviewConfiguredV6>;
 
 /** A scope request with the patterns `scope.exclude` left out of it (R10 of the configuration). */
@@ -1790,8 +1804,8 @@ export const scopeCapturedV2 = z.strictObject({
   message: 'only a request with patterns leaves a path out',
   path: ['excluded'],
 });
-/** The captured change as the fold holds it: a version 1 capture reads as one with no pattern and nothing left out. */
-export type ScopeState = z.infer<typeof scopeCapturedV2>;
+/** A capture at version 2, which every capture of a scope other than a pull request records. */
+export type ScopeCapturedV2 = z.infer<typeof scopeCapturedV2>;
 export type ScopeStateV1 = z.infer<typeof scopeCapturedV1>;
 
 /**
@@ -2060,7 +2074,6 @@ export const attemptFailedV8 = z.strictObject({
   ...attemptFailedV7.shape,
   phase: phaseSchemaV8,
 });
-export type AttemptFailed = z.infer<typeof attemptFailedV8>;
 
 /** `worker.lost` over the nineteen phases. */
 export const workerLostV6 = z.strictObject({
@@ -2072,7 +2085,6 @@ export const workerLostV6 = z.strictObject({
   message: 'a lost worker names both its phase and its unit key, or neither',
   path: ['key'],
 });
-export type WorkerLost = z.infer<typeof workerLostV6>;
 
 /** `report.written` over the nineteen phases: the statistics gain the documentation step's row. */
 export const reportWrittenV6 = z.strictObject({
@@ -2219,7 +2231,6 @@ export const phaseStartedV7 = z.strictObject({
   phase: phaseSchemaV9,
   attempt: z.number().int().min(1),
 });
-export type PhaseStarted = z.infer<typeof phaseStartedV7>;
 
 /** `phase.finished` over the twenty phases, with the blocker codes of version 5. */
 export const phaseFinishedV8 = z.strictObject({
@@ -2231,7 +2242,6 @@ export const phaseFinishedV8 = z.strictObject({
   message: 'a blocker is present exactly when the outcome is blocked',
   path: ['blocker'],
 });
-export type PhaseFinished = z.infer<typeof phaseFinishedV8>;
 
 /** `worktree.checked` over the twenty phases, with the moments of version 6. */
 export const worktreeCheckedV8 = z.strictObject({
@@ -2241,8 +2251,6 @@ export const worktreeCheckedV8 = z.strictObject({
   message: 'drifted exactly when some file differs or HEAD moved',
   path: ['drifted'],
 });
-/** A worktree check as the fold holds it, whichever version recorded it. */
-export type WorktreeCheckV8 = z.infer<typeof worktreeCheckedV8>;
 
 /** `check.started` over the five check phases, so a run on the base has its start (R11 of the facts before a merge). */
 export const checkStartedV2 = z.strictObject({
@@ -2308,8 +2316,6 @@ export const reportWrittenV7 = z.strictObject({
   }),
   patches: z.array(artifactReferenceSchema).max(2000),
 });
-/** The report as the fold holds it: version 1 reads as a report with no patch. */
-export type ReportWritten = z.infer<typeof reportWrittenV7>;
 
 /**
  * The vocabulary version 10 of the review events records (R2 of runs on
@@ -2409,28 +2415,359 @@ export const fixRecordedV5 = z.strictObject({
 /** An answer of an editing unit as the fold holds it: one recorded before version 4 reads as one with no comparison, and before version 5 as one whose entries cite no run. */
 export type FixRecordedV5 = z.infer<typeof fixRecordedV5>;
 
+/**
+ * The vocabulary version 11 of the review events records (R10, R13, R18,
+ * R19 of the review on the pull request): the twenty-one phases, with
+ * `explanation` right after the decision; the parts of the writer's
+ * answer the engine can drop; where a posted review puts a finding and
+ * why; and why a publication was not posted. Frozen here for the reason
+ * `reviewVocabularyV1` is: a test holds it equal to today's vocabulary.
+ * The engine writes a version over these phases only for an event that
+ * names the explanation (TD8), so a run that does not explain its review
+ * holds none of them.
+ */
+export const reviewVocabularyV11 = {
+  phases: [
+    'survey',
+    'triage', 'finders', 'deduplication', 'verification', 'sweep', 'sweep-deduplication', 'sweep-verification', 'merge-rank',
+    'decision',
+    'explanation',
+    'baseline-checks', 'fixes', 'documentation', 'checks', 'base-checks', 'repair', 'repair-checks',
+    'answer', 'answer-checks',
+    'report',
+  ],
+  explanationParts: ['conclusion', 'account', 'finding'],
+  findingPlaces: ['line', 'body'],
+  placeReasons: ['on-the-diff', 'left', 'outside-the-diff', 'no-patch', 'no-place'],
+  publicationDropReasons: ['refused', 'not-found'],
+} as const;
+
+const vocabularyV11 = reviewVocabularyV11;
+const phaseSchemaV11 = z.enum(vocabularyV11.phases);
+
+/** `phase.started` over the twenty-one phases. */
+export const phaseStartedV8 = z.strictObject({
+  phase: phaseSchemaV11,
+  attempt: z.number().int().min(1),
+});
+export type PhaseStarted = z.infer<typeof phaseStartedV8>;
+
+/** `phase.finished` over the twenty-one phases, with the blocker codes of version 5. */
+export const phaseFinishedV9 = z.strictObject({
+  phase: phaseSchemaV11,
+  attempt: z.number().int().min(1),
+  outcome: z.enum(vocabularyV3.phaseOutcomes),
+  blocker: blockerSchemaV5.nullable(),
+}).refine((finish) => (finish.outcome === 'blocked') === (finish.blocker !== null), {
+  message: 'a blocker is present exactly when the outcome is blocked',
+  path: ['blocker'],
+});
+export type PhaseFinished = z.infer<typeof phaseFinishedV9>;
+
+/** `worktree.checked` over the twenty-one phases, with the moments of version 6. */
+export const worktreeCheckedV9 = z.strictObject({
+  ...worktreeCheckedV6.shape,
+  phase: phaseSchemaV11,
+}).refine((check) => check.drifted === (check.files.length > 0 || check.head !== null), {
+  message: 'drifted exactly when some file differs or HEAD moved',
+  path: ['drifted'],
+});
+/** A worktree check as the fold holds it, whichever version recorded it. */
+export type WorktreeCheckV9 = z.infer<typeof worktreeCheckedV9>;
+
+/** `attempt.failed` over the twenty-one phases, with the faults of version 7, so a failed attempt of the writer can name its phase. */
+export const attemptFailedV9 = z.strictObject({
+  ...attemptFailedV7.shape,
+  phase: phaseSchemaV11,
+});
+export type AttemptFailed = z.infer<typeof attemptFailedV9>;
+
+/** `worker.lost` over the twenty-one phases, so a writer lost with its engine can name its unit. */
+export const workerLostV7 = z.strictObject({
+  workerId: z.uuid(),
+  phase: phaseSchemaV11.nullable(),
+  key: unitKeySchema.nullable(),
+  reason: z.string().min(1).max(1000),
+}).refine((lost) => (lost.phase === null) === (lost.key === null), {
+  message: 'a lost worker names both its phase and its unit key, or neither',
+  path: ['key'],
+});
+export type WorkerLost = z.infer<typeof workerLostV7>;
+
+/** `report.written` over the twenty-one phases: the statistics gain the row of the explanation. */
+export const reportWrittenV8 = z.strictObject({
+  report: artifactReferenceSchema,
+  statistics: z.strictObject({
+    phases: z.array(spendSchema.extend({ phase: phaseSchemaV11 })),
+    total: spendSchema,
+    budgetApplied: z.boolean(),
+  }),
+  patches: z.array(artifactReferenceSchema).max(2000),
+});
+/** The report as the fold holds it: version 1 reads as a report with no patch. */
+export type ReportWritten = z.infer<typeof reportWrittenV8>;
+
+/** A host as GitHub's URL of a pull request names it, with a port when it has one. */
+const githubHostSchemaV1 = z.string().max(253).regex(/^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$/, 'a host is a name with an optional port');
+
+/** An owner or a repository as GitHub spells it. */
+const githubNameSchemaV1 = z.string().max(100).regex(/^[A-Za-z0-9_.-]+$/, 'an owner or a repository is letters, digits, dots, dashes and underscores').refine((name) => name !== '.' && name !== '..', 'an owner or a repository is not . or ..');
+
+/** A pull request where it lives (R3 of the review on the pull request): its host, owner, repository and number. */
+const pullRequestTargetSchemaV1 = z.strictObject({
+  host: githubHostSchemaV1,
+  owner: githubNameSchemaV1,
+  repository: githubNameSchemaV1,
+  number: z.number().int().min(1),
+});
+export type PullRequestTarget = z.infer<typeof pullRequestTargetSchemaV1>;
+
+/** A URL that GitHub gave: of a pull request, a review or a comment. */
+const githubUrlSchemaV1 = z.url({ protocol: /^https?$/ }).max(2000);
+
+/**
+ * A scope request with the pull request that named it (R1, R3, TD2 of the
+ * review on the pull request): its number, and `<host>/<owner>/<repo>`
+ * when a URL named it, else null. Optional as `ref` and `range` are: only
+ * a request of a pull request holds it, which the fold holds a version 3
+ * capture to.
+ */
+export const scopeRequestSchemaV3 = z.strictObject({
+  ...scopeRequestSchemaV2.shape,
+  pullRequest: z.strictObject({
+    number: z.number().int().min(1),
+    repository: z.string().max(1000).regex(/^[^/\s]+\/[^/\s]+\/[^/\s]+$/, 'a repository is <host>/<owner>/<repo>').nullable(),
+  }).optional(),
+});
+
+/**
+ * The pull request as GitHub gave it at the capture (R3 of the review on
+ * the pull request): where it lives, its URL, the name of its base branch
+ * and its title, and its body frozen in the evidence store, or null for an
+ * empty body. GitHub is read once, at the capture.
+ */
+const pullRequestFactsSchemaV1 = z.strictObject({
+  ...pullRequestTargetSchemaV1.shape,
+  url: githubUrlSchemaV1,
+  baseRef: z.string().min(1).max(1000),
+  title: z.string().min(1).max(recordedTextLengthV1),
+  body: artifactReferenceSchema.nullable(),
+});
+export type PullRequestFacts = z.infer<typeof pullRequestFactsSchemaV1>;
+
+/**
+ * `scope.captured` of a pull request (R2, R3, TD2, TD3 of the review on
+ * the pull request): version 2 with the pull request in the request and
+ * its facts beside the change. The change is a range from GitHub's merge
+ * base to `HEAD`, so the mode is `range`, which the fold holds it to.
+ * Only a capture of a pull request records this version.
+ */
+export const scopeCapturedV3 = scopeCapturedV2.safeExtend({
+  request: scopeRequestSchemaV3,
+  pullRequest: pullRequestFactsSchemaV1,
+});
+export type ScopeCapturedV3 = z.infer<typeof scopeCapturedV3>;
+/**
+ * The captured change as the fold holds it: a version 1 capture reads as
+ * one with no pattern and nothing left out, and a capture before version
+ * 3 as one with no pull request.
+ */
+export type ScopeState = Omit<ScopeCapturedV3, 'pullRequest'> & { readonly pullRequest: PullRequestFacts | null };
+
+/**
+ * The settings version 2 of the record holds (R15, R20 of the review on
+ * the pull request): version 1's names, with the language of the review
+ * and the executable of `gh` and its arguments, in the registry's order.
+ * Frozen here for the reason `recordedSettingsV1` is: a test holds it
+ * equal to the settings registry. The layers, the file layers and the
+ * values of `scope.default` stay version 1's.
+ */
+export const recordedSettingsV2 = {
+  names: [
+    'review.base', 'review.language', 'scope.default', 'scope.exclude',
+    'checks.build', 'checks.typecheck', 'checks.lint', 'checks.test', 'checks.timeout_minutes',
+    'tools.path', 'conventions.user_rules', 'budget.usd', 'run.concurrency',
+    'runtimes.claude.strong', 'runtimes.claude.fast', 'runtimes.claude.executable', 'runtimes.claude.args',
+    'runtimes.codex.strong', 'runtimes.codex.fast', 'runtimes.codex.executable', 'runtimes.codex.args', 'runtimes.codex.windows_sandbox',
+    'github.executable', 'github.args',
+  ],
+} as const;
+
+const settingNameSchemaV2 = z.enum(recordedSettingsV2.names);
+
+/** A language tag, as `review.language` takes one: a language, then any subtags, such as `en`, `ko` or `pt-BR`. */
+export const languageTagSchemaV1 = z.string().max(35).regex(/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/, 'a language tag, such as en, ko or pt-BR');
+
+/**
+ * Version 2 of the record of the settings (R15, R20 of the review on the
+ * pull request): version 1's, with the values of the three settings it
+ * adds, which no field of the configuration holds, and their names among
+ * the layers and the repository values not followed. Only a read-only run
+ * of a pull request records it, at `review.configured@10`; every other
+ * run, and the fix side of `fix.pinned@2`, records version 1.
+ */
+export const settingsRecordedV2 = z.strictObject({
+  files: settingsSourcesShapeV1.files,
+  repository: settingsSourcesShapeV1.repository,
+  values: z.strictObject({
+    ...settingsRecordedV1.shape.values.shape,
+    'review.language': languageTagSchemaV1,
+    'github.executable': settingTextSchemaV1,
+    'github.args': z.array(z.string().max(1000)).max(64),
+  }),
+  layers: z.partialRecord(settingNameSchemaV2, settingLayerSchemaV1),
+  notFollowed: z.array(z.strictObject({ name: settingNameSchemaV2, repository: z.json(), value: z.json(), layer: settingLayerSchemaV1 })).max(recordedSettingsV2.names.length),
+  ignored: settingsSourcesShapeV1.ignored,
+}).superRefine(refineSources);
+export type SettingsRecordedV2 = z.infer<typeof settingsRecordedV2>;
+
+/**
+ * `review.configured` of a read-only run of a pull request (TD8, R20 of
+ * the review on the pull request): version 9 with its settings recorded
+ * at version 2 of the record. The version alone says that the run plans
+ * `explanation` right after the decision; every other run records version
+ * 9. The fold refuses one that fixes, or whose scope has no pull request.
+ */
+export const reviewConfiguredV10 = z.strictObject({
+  ...reviewConfiguredV4.shape,
+  settings: settingsRecordedV2,
+}).superRefine(refineRecordedConfiguration);
+export type ReviewConfigurationV10 = z.infer<typeof reviewConfiguredV10>;
+
+/** The failures of the checks of a dropped part, as the engine words them. */
+const partFailuresSchemaV1 = z.array(recordedTextSchema).min(1).max(100);
+
+/**
+ * A part of the writer's answer that no answer passed (R19, TD9 of the
+ * review on the pull request), with the failures of its checks: the
+ * conclusion, the account of the pull request, or the explanation of one
+ * finding.
+ */
+const droppedPartSchemaV1 = z.discriminatedUnion('part', [
+  z.strictObject({ part: z.literal(vocabularyV11.explanationParts[0]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV11.explanationParts[1]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV11.explanationParts[2]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
+]);
+export type DroppedPart = z.infer<typeof droppedPartSchemaV1>;
+
+/** A dropped part as one word: its kind, or `finding <id>` for the explanation of a finding. */
+const partName = (part: DroppedPart): string => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
+
+/**
+ * The writer's explanation (R18, R19, TD9 of the review on the pull
+ * request), recorded once the engine checked it: the writer whose answer
+ * completed the unit, or null when the phase degraded without one; the
+ * answer frozen in the evidence store, whose shape is the writer's output
+ * schema's, or null when no answer passed any part; each part that no
+ * answer passed, with its failures; and the findings the writer marked
+ * unexplained, which the review gives in the ledger's words with the mark.
+ * The fold holds it to a run configured at `review.configured@10`, once.
+ */
+export const explanationRecordedV1 = z.strictObject({
+  workerId: z.uuid().nullable(),
+  answer: artifactReferenceSchema.nullable(),
+  dropped: z.array(droppedPartSchemaV1).max(2002),
+  unexplained: z.array(candidateIdSchema).max(2000),
+}).superRefine((recorded, context) => {
+  const dropped = recorded.dropped.map(partName);
+  if (new Set(dropped).size !== dropped.length) context.addIssue({ code: 'custom', message: 'each part is dropped once', path: ['dropped'] });
+  if (new Set(recorded.unexplained).size !== recorded.unexplained.length) context.addIssue({ code: 'custom', message: 'each finding is marked unexplained once', path: ['unexplained'] });
+  if (recorded.unexplained.some((id) => dropped.includes(`finding ${id}`))) context.addIssue({ code: 'custom', message: 'a finding is dropped or marked unexplained, not both', path: ['unexplained'] });
+  if (recorded.answer === null && !(dropped.includes('conclusion') && dropped.includes('account'))) context.addIssue({ code: 'custom', message: 'an explanation with no answer drops its conclusion and its account', path: ['dropped'] });
+  if (recorded.workerId !== null && recorded.answer === null) context.addIssue({ code: 'custom', message: 'a writer that completed the unit has its answer frozen', path: ['answer'] });
+});
+export type ExplanationRecorded = z.infer<typeof explanationRecordedV1>;
+
+/**
+ * The marker of a publication (TD5 of the review on the pull request):
+ * `deep-review publication <run id> <serial>`, the serial counting the
+ * prepared publications of the run from 1. The body of the review carries
+ * it on its last line, and a settle looks for it there.
+ */
+const publicationMarkerSchemaV1 = z.string().max(200).regex(/^deep-review publication \S+ [1-9][0-9]*$/, 'a marker is deep-review publication, the run id and a serial from 1');
+
+/**
+ * A publication, recorded before its post (R13, TD5 of the review on the
+ * pull request): its marker; the pull request it goes to; the commit the
+ * review is made on; the JSON body of the post, frozen; the place of each
+ * finding, with the reason, a comment on its line exactly when its line
+ * is on the diff; and how many secrets the cleaning replaced, and no
+ * value of one. The fold holds it to the run's pull request and head.
+ */
+export const publishPreparedV1 = z.strictObject({
+  marker: publicationMarkerSchemaV1,
+  target: pullRequestTargetSchemaV1,
+  commit: commitId,
+  payload: artifactReferenceSchema,
+  places: z.array(z.strictObject({
+    finding: candidateIdSchema,
+    place: z.enum(vocabularyV11.findingPlaces),
+    reason: z.enum(vocabularyV11.placeReasons),
+  })).max(2000),
+  secrets: z.number().int().nonnegative(),
+}).superRefine((prepared, context) => {
+  const findings = prepared.places.map((place) => place.finding);
+  if (new Set(findings).size !== findings.length) context.addIssue({ code: 'custom', message: 'each finding has one place', path: ['places'] });
+  prepared.places.forEach((place, index) => {
+    if ((place.place === 'line') !== (place.reason === 'on-the-diff')) context.addIssue({ code: 'custom', message: 'a finding goes on its line exactly when its line is on the diff', path: ['places', index] });
+  });
+});
+export type PublishPrepared = z.infer<typeof publishPreparedV1>;
+
+/** What GitHub made, a review or a comment of one: its id and its URL. */
+const githubItemSchemaV1 = z.strictObject({ id: z.number().int().min(1), url: githubUrlSchemaV1 });
+
+/**
+ * A publication GitHub made (R13 of the review on the pull request): its
+ * marker, the review, and the comment of each finding, matched by the
+ * marker on its last line. The fold holds it to the open publication of
+ * its marker, and each comment to a finding it put on a line.
+ */
+export const publishPostedV1 = z.strictObject({
+  marker: publicationMarkerSchemaV1,
+  review: githubItemSchemaV1,
+  comments: z.array(z.strictObject({ finding: candidateIdSchema, comment: githubItemSchemaV1 })).max(2000),
+}).refine((posted) => new Set(posted.comments.map((comment) => comment.finding)).size === posted.comments.length, {
+  message: 'each finding has one comment',
+  path: ['comments'],
+});
+export type PublishPosted = z.infer<typeof publishPostedV1>;
+
+/**
+ * A publication not posted (R13 of the review on the pull request), by
+ * its marker: GitHub refused the post, with its status, a 4xx, and its
+ * message; or the settle of a publication a stop left open found no
+ * review that carries the marker. The fold holds it to the open
+ * publication of its marker, and the run can prepare another.
+ */
+export const publishDroppedV1 = z.discriminatedUnion('reason', [
+  z.strictObject({ marker: publicationMarkerSchemaV1, reason: z.literal(vocabularyV11.publicationDropReasons[0]), status: z.number().int().min(400).max(499), message: recordedTextSchema }),
+  z.strictObject({ marker: publicationMarkerSchemaV1, reason: z.literal(vocabularyV11.publicationDropReasons[1]) }),
+]);
+export type PublishDropped = z.infer<typeof publishDroppedV1>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
   'run.abandoned': { 1: { schema: runAbandonedV1 } },
-  'scope.captured': { 1: { schema: scopeCapturedV1 }, 2: { schema: scopeCapturedV2 } },
+  'scope.captured': { 1: { schema: scopeCapturedV1 }, 2: { schema: scopeCapturedV2 }, 3: { schema: scopeCapturedV3 } },
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
-  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 } },
+  'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 }, 7: { schema: workerLostV7 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
-  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 } },
-  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 } },
-  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 }, 8: { schema: worktreeCheckedV8 } },
+  'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 }, 8: { schema: phaseStartedV8 } },
+  'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 }, 9: { schema: phaseFinishedV9 } },
+  'worktree.checked': { 1: { schema: worktreeCheckedV1 }, 2: { schema: worktreeCheckedV2 }, 3: { schema: worktreeCheckedV3 }, 4: { schema: worktreeCheckedV4 }, 5: { schema: worktreeCheckedV5 }, 6: { schema: worktreeCheckedV6 }, 7: { schema: worktreeCheckedV7 }, 8: { schema: worktreeCheckedV8 }, 9: { schema: worktreeCheckedV9 } },
   'candidates.recorded': { 1: { schema: candidatesRecordedV1 }, 2: { schema: candidatesRecordedV2 } },
-  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 } },
+  'attempt.failed': { 1: { schema: attemptFailedV1 }, 2: { schema: attemptFailedV2 }, 3: { schema: attemptFailedV3 }, 4: { schema: attemptFailedV4 }, 5: { schema: attemptFailedV5 }, 6: { schema: attemptFailedV6 }, 7: { schema: attemptFailedV7 }, 8: { schema: attemptFailedV8 }, 9: { schema: attemptFailedV9 } },
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
   'verdicts.recorded': { 1: { schema: verdictsRecordedV1 }, 2: { schema: verdictsRecordedV2 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
-  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 } },
+  'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 }, 8: { schema: reportWrittenV8 } },
   'fixes.planned': { 1: { schema: fixesPlannedV1 } },
   'fixes.replanned': { 1: { schema: fixesReplannedV1 } },
   'checks.planned': { 1: { schema: checksPlannedV1 }, 2: { schema: checksPlannedV2 }, 3: { schema: checksPlannedV3 } },
@@ -2453,6 +2790,10 @@ export const eventRegistry = defineRegistry({
   'documentation.planned': { 1: { schema: documentationPlannedV1 } },
   'answer.recorded': { 1: { schema: answerRecordedV1 } },
   'answer.pass': { 1: { schema: answerPassV1 } },
+  'explanation.recorded': { 1: { schema: explanationRecordedV1 } },
+  'publish.prepared': { 1: { schema: publishPreparedV1 } },
+  'publish.posted': { 1: { schema: publishPostedV1 } },
+  'publish.dropped': { 1: { schema: publishDroppedV1 } },
 });
 
 export type EventRegistry = typeof eventRegistry;

@@ -10,7 +10,7 @@ import { configuration, reported, scope as scopeV1, settingsBlock, reportInput }
 
 const base = '1'.repeat(40);
 /** The scope as the fold holds it, with the patterns given and the paths they left out. */
-const scopeWith = (exclude: string[] = [], excluded: string[] = [], count = excluded.length): ScopeState => ({ ...scopeV1, request: { ...scopeV1.request, exclude }, excluded: { paths: excluded, count } });
+const scopeWith = (exclude: string[] = [], excluded: string[] = [], count = excluded.length): ScopeState => ({ ...scopeV1, request: { ...scopeV1.request, exclude }, excluded: { paths: excluded, count }, pullRequest: null });
 /** A configuration with a settings block, as version 6 records it, over the one given. */
 const configuredWith = (settings: Record<string, unknown> = {}): ReviewConfiguration => ({ ...configuration, survey: { userRules: 'judge' }, settings: settingsBlock(false, settings) as unknown as ReviewConfiguration['settings'] });
 

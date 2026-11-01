@@ -612,6 +612,8 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       throw new Error(`The ${unit.phase} phase runs checks, not workers`);
     case 'report':
       throw new Error('The report phase has no worker');
+    case 'explanation':
+      throw new Error('The explanation phase has no worker in this engine yet');
   }
 }
 
@@ -865,5 +867,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     case 'answer-checks':
     case 'report':
       throw new Error(`The ${unit.phase} phase has no worker`);
+    case 'explanation':
+      throw new Error('The explanation phase has no worker in this engine yet');
   }
 }

@@ -174,6 +174,9 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
       return mergeRankInput(review).length > 0 ? single('merge-rank') : [];
     case 'decision':
       return rankedFindings(review).length > 0 ? single('decider') : [];
+    case 'explanation':
+      // Only a run configured at review.configured@10 has the phase, and no run this engine configures is (TD8 of the review on the pull request).
+      throw new Error('No run this engine configures explains its review: the explanation phase has no worker yet');
     case 'fixes':
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'documentation':
@@ -288,6 +291,7 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'sweep-deduplication':
     case 'merge-rank':
     case 'decision':
+    case 'explanation':
     case 'baseline-checks':
     case 'checks':
     case 'base-checks':

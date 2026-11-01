@@ -15,6 +15,7 @@ const scope: ScopeState = {
   mode: 'worktree',
   request: { paths: [], exclude: [] },
   excluded: { paths: [], count: 0 },
+  pullRequest: null,
   base: '1'.repeat(40),
   head: '2'.repeat(40),
   files: [

@@ -193,6 +193,16 @@ describe('golden checkpoints', () => {
             const entries = Object.values(review.fix?.answers ?? {}).flatMap((ofPhase) => Object.values(ofPhase)).flatMap((answer) => answer.findings.flatMap((finding) => finding.validation));
             for (const entry of entries) assert.deepEqual(entry.runs, [], `${name} run ${String(index)} validation runs`);
           }
+          // A run recorded before the review on the pull request reads as one of no pull request, never explained or published, its explanation skipped (R5 of the review on the pull request).
+          if (!('publications' in recorded)) {
+            assert.deepEqual(actual.publications, [], `${name} run ${String(index)} publications`);
+            assert.equal(actual.explanation, null, `${name} run ${String(index)} explanation`);
+            if (runs[index]!.scope !== null) assert.equal(runs[index]!.scope!.pullRequest, null, `${name} run ${String(index)} scope.pullRequest`);
+            if (review !== null) {
+              assert.equal(review.explanationStep, false, `${name} run ${String(index)} explanationStep`);
+              assert.equal(review.phases.explanation.status, 'skipped', `${name} run ${String(index)} explanation phase`);
+            }
+          }
           // A review recorded before the triage's account of the change reads as one whose account is unrecorded (R18 of the brief of a run).
           if (review !== null && !('change' in ((recorded as { review?: object | null }).review ?? {}))) {
             assert.deepEqual(review.change, { kind: 'unrecorded' }, `${name} run ${String(index)} change`);
@@ -315,7 +325,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, and the cited run of every fixture from schema-1-17 on, record that its triage gave none; every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, the cited run of every fixture from schema-1-17 on, and the run of a pull request of every fixture from schema-1-18 on, record that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -329,7 +339,7 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited'].includes(candidate.worktree));
+      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited', '/fixture/pull-request'].includes(candidate.worktree));
       for (const run of gaveNone) assert.deepEqual(run.review?.change, { kind: 'none' }, run.worktree);
       for (const run of runs.filter((candidate) => candidate !== resumed && !gaveNone.includes(candidate) && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
@@ -397,6 +407,35 @@ describe('golden checkpoints', () => {
       const compared = runs.find((candidate) => candidate.worktree === '/fixture/compared')?.review;
       assert.equal(compared?.citedRuns, false, 'a run configured at version 8 cites no run');
       assert.equal(compared?.candidates['SCAN-1']?.verdict?.basis, null);
+    });
+  }
+
+  // The read-only run of a pull request, which every fixture from schema-1-18 on holds (R3, R13, R18, TD8 of the review on the pull request).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 18)) {
+    it(`folds ${name}'s run of a pull request: its capture, its explanation after a failed and a lost writer, and a publication dropped then one posted`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const run = checkpoint.foldRuns().find((candidate) => candidate.worktree === '/fixture/pull-request');
+      assert.ok(run?.review !== null && run?.review !== undefined && run.scope !== null, 'the fixture holds the run of a pull request');
+      const { review, scope } = run;
+      assert.deepEqual([scope.mode, scope.request.range, scope.request.pullRequest], ['range', { from: scope.base, to: 'HEAD', mergeBase: false }, { number: 42, repository: null }]);
+      assert.equal(scope.pullRequest?.url, 'https://github.com/fixture/changed/pull/42');
+      assert.match(checkpoint.evidence.read(scope.pullRequest!.body!).toString('utf8'), /An empty input crashed changed\(\)/, 'the body is frozen in the evidence store');
+      assert.equal(review.explanationStep, true);
+      assert.equal(review.configuration.fix, false);
+      assert.equal((review.configuration.settings?.values as Record<string, unknown> | undefined)?.['review.language'], 'ko', 'the language the repository\'s file gave');
+      assert.deepEqual(review.phases.explanation, { status: 'completed', attempt: 2 });
+      assert.equal(review.units.explanation.explanation?.answeredBy, run.explanation?.workerId);
+      assert.deepEqual([run.explanation?.dropped.map((part) => part.part), run.explanation?.unexplained], [['finding'], ['DESIGN-1']]);
+      assert.ok(review.report?.statistics.phases.some((row) => row.phase === 'explanation'), 'the report has the row of the explanation');
+      assert.deepEqual(run.publications.map((publication) => publication.status), ['dropped', 'posted']);
+      const [dropped, posted] = run.publications;
+      assert.ok(dropped?.status === 'dropped' && dropped.dropped.reason === 'refused' && dropped.dropped.status === 422);
+      assert.ok(posted?.status === 'posted');
+      assert.deepEqual(posted.posted.comments.map((comment) => comment.finding), ['SCAN-1']);
+      assert.equal(posted.prepared.marker, `deep-review publication ${run.id} 2`);
     });
   }
 

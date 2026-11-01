@@ -5,13 +5,19 @@
  * recorded setting, which the report, `status` and the controller use
  * whichever version recorded the run.
  */
-import type { FixSettingsRecorded, ReviewConfiguration, ReviewConfigurationV5, SettingsRecorded } from '../checkpoint/events.ts';
+import { recordedSettingsV1, type FixSettingsRecorded, type ReviewConfiguration, type ReviewConfigurationV5, type SettingsRecorded } from '../checkpoint/events.ts';
 import { recordedSetting } from '../checkpoint/settings-state.ts';
 import { resolvedValue, type ResolvedSettings } from './resolve.ts';
 import { checkSettingNames, checkTimeoutMinutes, defaultScope, isConfiguredRuntime, runtimeSettingNames, type Layer, type SettingName, type SettingValue } from './settings.ts';
 
 /** A value as the record holds one: what a file or a flag gives is JSON-like. */
 type JsonValue = SettingsRecorded['notFollowed'][number]['value'];
+
+/** A setting version 1 of the record names. */
+type RecordedNameV1 = SettingsRecorded['notFollowed'][number]['name'];
+
+/** Whether version 1 of the record names a setting, as it names every setting these records hold. */
+const namedByRecordV1 = (name: SettingName): name is RecordedNameV1 => (recordedSettingsV1.names as readonly string[]).includes(name);
 
 /** A setting as a run recorded it: its value, and its layer, or null for a run configured before the settings existed, whose values came from the defaults or its flags, which the ledger does not tell apart. */
 export interface RecordedSetting<V = unknown> {
@@ -60,7 +66,7 @@ function sourcesRecordOf(resolved: ResolvedSettings, names: readonly SettingName
   return {
     files: resolved.files.map((file) => ({ ...file })),
     repository: { ...resolved.repository },
-    notFollowed: resolved.notFollowed.filter((entry) => names.includes(entry.name)).map((entry) => ({ name: entry.name, repository: entry.repository as JsonValue, value: entry.value as JsonValue, layer: entry.layer })),
+    notFollowed: resolved.notFollowed.flatMap(({ name, repository, value, layer }) => (names.includes(name) && namedByRecordV1(name) ? [{ name, repository: repository as JsonValue, value: value as JsonValue, layer }] : [])),
     ignored: ignoredRecordOf(resolved.ignored),
   };
 }

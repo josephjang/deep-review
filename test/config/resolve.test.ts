@@ -229,7 +229,7 @@ describe('the flag layer', () => {
   });
 });
 
-describe('pass 1: the settings that choose the change', () => {
+describe('pass 1: the settings the engine needs before the repository\'s file', () => {
   it('gives each value of scope.default from the layer that sets it, and auto by default', () => {
     assert.deepEqual(resolveScopeSettings([], noFlags, () => null).scopeDefault, { value: 'auto', layer: 'default' });
     for (const value of scopeDefaults) {
@@ -239,9 +239,25 @@ describe('pass 1: the settings that choose the change', () => {
     assert.deepEqual(both.scopeDefault, { value: 'last-commit', layer: 'flag' });
   });
 
-  it('never reads the two settings from the repository\'s file', () => {
-    const settingsOfScope = resolveScopeSettings([file('repository', { 'scope.default': 'branch', 'review.base': 'develop' })], noFlags, () => 'origin/main');
-    assert.deepEqual(settingsOfScope, { scopeDefault: { value: 'auto', layer: 'default' }, reviewBase: { value: 'origin/main', layer: 'default' } });
+  it('never reads the four settings from the repository\'s file', () => {
+    const settingsOfScope = resolveScopeSettings([file('repository', { 'scope.default': 'branch', 'review.base': 'develop', 'github.executable': './gh', 'github.args': ['--x'] })], noFlags, () => 'origin/main');
+    assert.deepEqual(settingsOfScope, {
+      scopeDefault: { value: 'auto', layer: 'default' },
+      reviewBase: { value: 'origin/main', layer: 'default' },
+      githubExecutable: { value: 'gh', layer: 'default' },
+      githubArgs: { value: [], layer: 'default' },
+    });
+  });
+
+  it('resolves the executable of gh and its arguments from the operator\'s layers, before the repository\'s file is read (R15 of the review on the pull request)', () => {
+    const resolvedFirst = resolveScopeSettings([file('operator', { 'github.executable': '/opt/gh/bin/gh', 'github.args': ['--a'] }), file('clone', { 'github.args': ['--b'] })], noFlags, () => null);
+    assert.deepEqual(resolvedFirst.githubExecutable, { value: '/opt/gh/bin/gh', layer: 'operator' });
+    assert.deepEqual(resolvedFirst.githubArgs, { value: ['--b'], layer: 'clone' }, 'a higher layer replaces a lower list whole');
+    assert.deepEqual(resolveScopeSettings([file('operator', { 'github.executable': '/opt/gh/bin/gh' })], flags({ 'github.executable': '/usr/bin/gh' }), () => null).githubExecutable, { value: '/usr/bin/gh', layer: 'flag' });
+    const second = resolveSettings(inputs([file('operator', { 'github.executable': '/opt/gh/bin/gh' })], noFlags));
+    assert.deepEqual(second.values['github.executable'], resolveScopeSettings([file('operator', { 'github.executable': '/opt/gh/bin/gh' })], noFlags, () => null).githubExecutable, 'pass 2 resolves it as pass 1 does');
+    const defaults = resolveSettings(inputs([], noFlags));
+    assert.deepEqual([defaults.values['github.executable'], defaults.values['github.args']], [resolveScopeSettings([], noFlags, () => null).githubExecutable, resolveScopeSettings([], noFlags, () => null).githubArgs], 'with the same defaults');
   });
 
   it('takes the base from a layer over origin/HEAD, asking git only when no layer gives one', () => {
