@@ -24,6 +24,8 @@ Bash tool from then on.
    - everything since a ref: `--ref <ref>`
    - a range ending at HEAD: `--from <rev> --to HEAD`, adding
      `--merge-base` to measure from the merge base
+   - a pull request on GitHub: `--pr <number>`, or `--pr <URL>` when the
+     user gives the pull request's URL
    With no instruction, pass no scope flag: the engine chooses the scope
    its configuration names. Add `--path <path>` for each path the
    user limited the review to. Pass `--budget-usd <usd>` only when the
@@ -32,7 +34,10 @@ Bash tool from then on.
    fixed or applied, add `--fix`. When a read-only run of the same
    change has finished and the change is unchanged since, the same
    command with `--fix` continues that run and reviews nothing again,
-   so the fixes are of the findings the user read. The engine surveys
+   so the fixes are of the findings the user read. `publish` refuses a
+   run that `--fix` continued, so when the user wants the review of a
+   pull request posted, post it, as the paragraph on posting below
+   says, before you continue its run with `--fix`. The engine surveys
    the repository for its checks itself; add
    `--check <kind>=<command>` only for a check command the user names,
    and `--no-check <kind>` only for a check the user says to skip (kind
@@ -104,6 +109,8 @@ Bash tool from then on.
    paths and commands as printed. After a run with `--fix`, also say
    that the fixes are in the working tree, uncommitted, one patch per
    finding as the report's Patches lists them, and offer to commit them.
+   After a run of `--pr` without `--fix`, also offer to post its review
+   on the pull request.
    When the user asks for more on one finding, run the `main.mjs` of
    step 3 with only `report --finding <number>`, with the number that
    the brief shows. When the user asks for the whole result, run it with
@@ -177,6 +184,16 @@ characters of a run id that the brief shows. When the user asks for a
 run and does not know which, run it with only `status --all`, show what
 it prints, and then run `report --run <id>` with the run the user
 chooses. On exit code 2, show stderr verbatim.
+
+When the user asks to post the review on the pull request, run the
+`main.mjs` of step 3 with only `publish`, adding `--run <id>` when they
+name a run, and wait for it to exit. It posts the review of a finished
+run of `--pr` without `--fix` as a comment on the pull request, and the
+last line it prints is the URL of the review. Exit code 0: show the
+user that line, as printed, with no summary of the review. On any other
+exit code, show stderr verbatim and stop. Run `publish` only when the
+user asks to post the review, since `review --pr` posts nothing, and
+post nothing to the pull request another way.
 
 When the user asks how deep-review is configured, or what a run would
 take now, run the `config show` command of step 3 with the same scope

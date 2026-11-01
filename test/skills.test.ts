@@ -227,6 +227,21 @@ describe('the skill texts', () => {
       assert.ok(blockerActions['check-unavailable'].includes('checks.<kind> in the clone\'s file, which deep-review config init --clone writes, then abandon this run and start a new one'));
       assert.ok(!continuedCheckUnavailableAction.includes('clone\'s file'));
     });
+
+    // R16 of the review on the pull request: posting is a public act the user chooses, its result is the URL alone, and a run that --fix continued can no longer be posted.
+    it(`${name}: reviews a pull request with --pr, posts it with publish only when asked, and posts before --fix continues its run`, () => {
+      const text = read(path);
+      const step1 = text.slice(text.indexOf('1. Decide the scope'), text.indexOf('2. Decide whether to fix'));
+      assert.match(step1, /- a pull request on GitHub: `--pr <number>`, or `--pr <URL>` when the\s+user gives the pull request's URL/);
+      const step2 = text.slice(text.indexOf('2. Decide whether to fix'), text.indexOf('3. '));
+      assert.match(step2, /`publish` refuses a\s+run that `--fix` continued, so when the user wants the review of a\s+pull request posted, post it, as the paragraph on posting below\s+says, before you continue its run with `--fix`\./);
+      const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
+      assert.match(step4, /After a run of `--pr` without `--fix`, also offer to post its review\s+on the pull request\./);
+      assert.match(text, /When the user asks to post the review on the pull request, run the\s+`main\.mjs` of step 3 with only `publish`, adding `--run <id>` when they\s+name a run, and wait for it to exit\./);
+      assert.match(text, /Exit code 0: show the\s+user that line, as printed, with no summary of the review\./);
+      assert.match(text, /Run `publish` only when the\s+user asks to post the review, since `review --pr` posts nothing, and\s+post nothing to the pull request another way\./);
+      assert.ok(read('src/command.ts').includes('  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]'), 'the usage of the engine names publish and its flags');
+    });
   }
 
   // A new Claude Code session that asks for a result without naming the skill therefore searches for it first: https://github.com/josephjang/deep-review/issues/77
