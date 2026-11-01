@@ -217,6 +217,8 @@ export interface ReviewState extends AnswerState {
   readonly citedRuns: boolean;
   /** Whether the run explains its review for the readers of its pull request, the phase `explanation` (TD8 of the review on the pull request): configured at `review.configured@10`, which only a read-only run of a pull request records; false for every other run, whose `explanation` is skipped. */
   readonly explanationStep: boolean;
+  /** Whether the run recorded its explanation (`explanation.recorded`), which settles the writer's unit whether an answer completed it or the phase degraded without one (R18 of the review on the pull request); false until then, and for good in every run that does not explain its review. */
+  readonly explained: boolean;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
   readonly limits: ReviewLimits;
   readonly phases: Readonly<Record<Phase, PhaseState>>;
@@ -389,6 +391,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     baseChecksStep: compared,
     citedRuns: cited,
     explanationStep: explained,
+    explained: false,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? 'skipped' : 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
     blocker: null,
@@ -791,7 +794,7 @@ const explanationRecorded: Reducer<ExplanationRecorded> = (state, payload, event
   const stray = named.find((id) => !ranked.has(id));
   if (stray !== undefined) throw invalid(event, `explains ${stray}, which is not a finding of the run`);
   const units = payload.workerId === null ? review.units : answered(review, drafts, { phase: 'explanation', key: singleUnitKey('explanation') }, payload.workerId);
-  return { ...withReview(current, { ...review, units }, event), explanation: payload };
+  return { ...withReview(current, { ...review, units, explained: true }, event), explanation: payload };
 };
 
 const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {

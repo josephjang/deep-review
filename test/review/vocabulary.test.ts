@@ -119,9 +119,9 @@ describe('the phases', () => {
     assert.deepEqual(editingPhases.filter(answersFindings), ['fixes', 'answer']);
   });
 
-  it('let the run budget settle the fixes, the documentation step and the repair as not attempted, and block the answer pass before its launch (TD8 of answers, R8 of the documentation step)', () => {
-    assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['fixes', 'documentation', 'repair']);
-    assert.deepEqual([...budgetDegradingPhases], ['fixes', 'documentation', 'repair']);
+  it('let the run budget settle the fixes, the documentation step and the repair as not attempted, drop what no writer passed of the explanation, and block the answer pass before its launch (TD8 of answers, R8 of the documentation step, R18 of the review on the pull request)', () => {
+    assert.deepEqual(phases.filter(isBudgetDegradingPhase), ['explanation', 'fixes', 'documentation', 'repair']);
+    assert.deepEqual([...budgetDegradingPhases], ['fixes', 'documentation', 'repair'], 'the editing phases whose units the fix state leaves not attempted');
   });
 
   it('share the tree through claims and rounds in the fixes only, the documentation step, the repair and an answer pass being alone in it', () => {

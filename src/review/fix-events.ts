@@ -42,7 +42,8 @@ import { isClaimingPhase, type CheckKind, type EditingPhase, type Phase, type Tr
 export interface RevisionContext {
   readonly state: RunState;
   readonly worktree: string;
-  readonly evidence: Pick<EvidenceStore, 'put'>;
+  /** Where the frozen bytes go, and where the writer's earlier answer is read from (R19 of the review on the pull request). */
+  readonly evidence: Pick<EvidenceStore, 'put' | 'read'>;
   readonly match: ExpectedMatch;
   readonly claims: ClaimsAccess | null;
 }

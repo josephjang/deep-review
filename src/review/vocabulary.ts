@@ -159,7 +159,16 @@ export const documentationUnitKey = 'documentation';
  * the run is resumed with `--budget-usd`, or abandoned.
  */
 export const budgetDegradingPhases = ['fixes', 'documentation', 'repair'] as const satisfies readonly EditingPhase[];
-export const isBudgetDegradingPhase = (phase: Phase): phase is (typeof budgetDegradingPhases)[number] => (budgetDegradingPhases as readonly string[]).includes(phase);
+
+/**
+ * Whether a phase degrades at the run budget instead of blocking: an
+ * editing phase of `budgetDegradingPhases`, whose units are left not
+ * attempted, or the explanation, which records each part that no answer
+ * of its writer passed as dropped, so a step that decides nothing never
+ * holds the report back (R18 of the review on the pull request). Every
+ * other phase blocks at the budget.
+ */
+export const isBudgetDegradingPhase = (phase: Phase): boolean => phase === 'explanation' || (budgetDegradingPhases as readonly string[]).includes(phase);
 
 /**
  * The editing phases whose units share the tree through claims and rounds

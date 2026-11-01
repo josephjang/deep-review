@@ -70,15 +70,16 @@ export interface Live {
   readonly claimsLost: string | null;
 }
 
-/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, its batch's findings not attempted, or the run going on without its survey. */
+/** What a degrading role records for a unit that failed twice: its angle not run, its group unverified, its batch's findings not attempted, the run going on without its survey, or the explanation with each part no answer passed dropped. */
 type DegradationTarget =
   | { readonly kind: 'survey.failed' }
   | { readonly kind: 'angle.failed'; readonly angle: string }
   | { readonly kind: 'group.unverified'; readonly phase: VerificationPhase; readonly groupId: string }
-  | { readonly kind: 'unit.unattempted'; readonly phase: EditingPhase; readonly key: string; readonly cause: 'failures' | 'budget' };
+  | { readonly kind: 'unit.unattempted'; readonly phase: EditingPhase; readonly key: string; readonly cause: 'failures' | 'budget' }
+  | { readonly kind: 'explanation.dropped' };
 
-/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. */
-export type Degradation = DegradationTarget & { readonly reason: string };
+/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. The explanation's is a step of its own (`drop-explanation`), since what it records is read from the evidence store and the commits of the run. */
+export type Degradation = Exclude<DegradationTarget, { readonly kind: 'explanation.dropped' }> & { readonly reason: string };
 
 /** Why a check is skipped: the error its run records, and on the base the reason, which a run elsewhere has none of (R5 of the facts before a merge). */
 export interface CheckSkip {
@@ -118,6 +119,16 @@ export type Step =
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
   | { readonly kind: 'degrade'; readonly phase: Phase; readonly degradations: readonly Degradation[] }
+  /**
+   * Record the explanation with each part that no answer of the writer
+   * passed dropped, `reason` among its failures, once its writer failed
+   * twice with no answer that completed the unit, or at the run budget
+   * (R18 of the review on the pull request). The controller computes the
+   * record (`droppedExplanation`), since the parts an earlier answer
+   * passed are read from the evidence store and checked against the
+   * commits of the run.
+   */
+  | { readonly kind: 'drop-explanation'; readonly reason: string }
   | { readonly kind: 'finish-phase'; readonly phase: Phase; readonly attempt: number; readonly outcome: 'completed' | 'degraded' | 'blocked'; readonly blocker: Blocker | null }
   | { readonly kind: 'write-report' };
 
@@ -152,7 +163,7 @@ export function secondRoundOf(review: ReviewState): SecondRoundPlan {
   return planSecondRound(fix.plan, (id) => lastAnswerOf(fix, id)?.finding ?? null, batchSize, claimsOfRound(fix, 1));
 }
 
-/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass; R5 of answers; R1 of the documentation step): what its workers are asked, in the order they are launched. */
+/** The units of a phase (R2; R1, R11, R18, R21 of the fix pass; R5 of answers; R1 of the documentation step; R18 of the review on the pull request): what its workers are asked, in the order they are launched. */
 export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
   const single = (role: ReviewRole): Unit[] => [{ phase, key: singleUnitKey(phase), role }];
   switch (phase) {
@@ -175,8 +186,8 @@ export function unitsOf(review: ReviewState, phase: Phase): Unit[] {
     case 'decision':
       return rankedFindings(review).length > 0 ? single('decider') : [];
     case 'explanation':
-      // Only a run configured at review.configured@10 has the phase, and no run this engine configures is (TD8 of the review on the pull request).
-      throw new Error('No run this engine configures explains its review: the explanation phase has no worker yet');
+      // One writer, whatever the findings: with none to explain, it still writes the conclusion and the account (R18 of the review on the pull request).
+      return single('writer');
     case 'fixes':
       return [...fixPlanOf(review).batches, ...(review.fix?.secondRound?.batches ?? [])].map((batch) => ({ phase, key: batch.key, role: 'fixer' }));
     case 'documentation':
@@ -257,9 +268,11 @@ function listWithin(items: readonly string[], limit: number): string {
 
 /**
  * What a unit's role records once the unit has failed twice (R5, PD6; R12
- * of the fix pass; R9, PD6 of the repository survey): a finder's angle is
- * not run, a verifier's group is unverified, a fixer's batch is not
- * attempted, and a read-only review goes on without its survey. Null for
+ * of the fix pass; R9, PD6 of the repository survey; R18 of the review on
+ * the pull request): a finder's angle is not run, a verifier's group is
+ * unverified, a fixer's batch is not attempted, a read-only review goes on
+ * without its survey, and the explanation is recorded with each part no
+ * answer of its writer passed dropped. Null for
  * every other role, the decider among them, since no fixer may act on a
  * finding nobody decided (R9 of the decision step), the answer pass's
  * fixer, since an answer is the person's act and nothing else waits on it
@@ -285,13 +298,14 @@ function degradationOf(review: ReviewState, unit: Unit): DegradationTarget | nul
     case 'documentation':
     case 'repair':
       return { kind: 'unit.unattempted', phase: unit.phase, key: unit.key, cause: 'failures' };
+    case 'explanation':
+      return { kind: 'explanation.dropped' };
     case 'triage':
     case 'deduplication':
     case 'sweep':
     case 'sweep-deduplication':
     case 'merge-rank':
     case 'decision':
-    case 'explanation':
     case 'baseline-checks':
     case 'checks':
     case 'base-checks':
@@ -322,6 +336,8 @@ function degraded(review: ReviewState, unit: Unit): boolean {
       return isUnverified(review, target.phase, target.groupId);
     case 'unit.unattempted':
       return review.fix !== null && isNotAttempted(review.fix, target.phase, target.key);
+    case 'explanation.dropped':
+      return review.explained;
   }
 }
 
@@ -690,10 +706,14 @@ export function nextStep(review: ReviewState, live: Live): Step {
   // The units out of attempts whose outcome is not yet on the ledger: a degrading role's are degraded, unless interrupted; the rest block the phase.
   // A unit its own failures exhausted degrades even while another is stopped at the provider's usage limit: degrading launches nothing, and the fresh attempts after the limit's block would only pay for two more of its workers (R14 of resumable runs).
   const spent = units.filter((unit) => exhausted(review, unit, states[unit.key]) && !degraded(review, unit));
-  const degradations = spent.flatMap((unit): Degradation[] => {
+  const targets = spent.flatMap((unit) => {
     const target = exhaustedOutcome(review, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
+  // The explanation has one unit, so its degradation is the phase's only one.
+  const dropped = targets.find((target) => target.kind === 'explanation.dropped');
+  if (dropped !== undefined) return { kind: 'drop-explanation', reason: dropped.reason };
+  const degradations = targets.filter((target): target is Degradation => target.kind !== 'explanation.dropped');
   if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
   // A unit the provider's usage limit stopped, which never degrades since the limit is an interruption, blocks the phase once the workers in flight end, before any other unit out of attempts blocks it or another launches: a retry before the reset cannot pass, and the run resumes after it with fresh attempts (R14 of resumable runs).
   const limited = units.find((unit) => !settled(review, unit) && (states[unit.key]?.failures.some((failure) => failure.cause === 'limit') ?? false));
@@ -707,6 +727,8 @@ export function nextStep(review: ReviewState, live: Live): Step {
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
       const spend = { ...live.spend, usd: countedUsd };
       // The fixes, the documentation step and the repair stop launching instead and go on to the report, so their edits are never left unreported (R19, PD16 of the fix pass); the answer pass blocks instead, as a reading phase does (TD8 of answers), and a block on its retry leaves the edits its failed attempt recorded unreported until the run is resumed with --budget-usd, or abandoned.
+      // The explanation goes on to the report too, with each part that no answer of its writer passed dropped (R18 of the review on the pull request).
+      if (phase === 'explanation') return { kind: 'drop-explanation', reason: budgetBlocker(spend, runBudgetUsd).detail };
       if (isBudgetDegradingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
       return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(spend, runBudgetUsd) };
     }
