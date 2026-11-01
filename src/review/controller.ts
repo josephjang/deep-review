@@ -42,7 +42,7 @@ import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
 import { ghTokenVariables, type Gh } from '../github/gh.ts';
-import { listPullRequestFiles, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequestName } from '../github/pull-request.ts';
+import { listPullRequestFiles, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName } from '../github/pull-request.ts';
 import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
@@ -172,6 +172,11 @@ const urlAction = (name: PullRequestName): string | null => (name.repository ===
  * side. The request is then the range from the merge base to `HEAD`,
  * taken as it is, with the paths the command named.
  */
+/** Refuse a tree that `git status` does not show clean, as `--pr` reviews the head of the pull request alone. */
+function requireCleanTree(worktree: string, facts: PullRequest): void {
+  if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+}
+
 export function resolvePullRequestScope(worktree: string, named: Extract<NamedScope, { readonly mode: 'pull-request' }>['request'], gh: Gh): RequestedScope {
   const name = named.pullRequest;
   const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
@@ -180,7 +185,7 @@ export function resolvePullRequestScope(worktree: string, named: Extract<NamedSc
     if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
     const head = gitHead(worktree);
     if (head !== facts.head) throw new ReviewRefusedError(`HEAD is ${head}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
-    if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${words} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+    requireCleanTree(worktree, facts);
     const mergeBase = readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
     if (!hasCommit(worktree, mergeBase)) {
       throw new ReviewRefusedError(`the clone does not hold ${mergeBase}, the merge base GitHub gives for ${words} with its base branch ${facts.baseRef}; fetch the history down to it, such as \`git fetch --unshallow\` in a shallow clone, and run the command again`);
@@ -1360,11 +1365,12 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     }
     const requested = found === null || found.scope === null ? scopeRequestOf() : null;
     const scopeRequest = requested?.request ?? null;
-    // GitHub was read before the lock, so a HEAD that moved since is refused before a run is created (R2 of the review on the pull request).
+    // GitHub was read before the lock, so a HEAD that moved since, or a tree that changed, is refused before a run is created (R2 of the review on the pull request).
     const pullRequest = requested?.pullRequest ?? null;
     if (pullRequest !== null) {
       const head = gitHead(context.worktree);
       if (head !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head} since ${pullRequestWords(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
+      requireCleanTree(context.worktree, pullRequest.facts);
     }
     let configure: OpenedRun['configure'] = null;
     let capture: OpenedRun['capture'] = null;

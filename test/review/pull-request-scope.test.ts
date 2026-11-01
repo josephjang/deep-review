@@ -247,6 +247,17 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
     assert.deepEqual(box.checkpoint.listRuns(), []);
   });
 
+  it('refuses a tree that changed between the read of GitHub and the start lock, creating no run', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    const scope = pullRequestSource(box, gh, (read) => {
+      const read_ = read();
+      write(box.repo, 'src/a.ts', 'changed after the read\n');
+      return read_;
+    });
+    await refused(() => box.review('claude', { scope }), /^--pr reviews the head of pull request #42 of acme\/widgets in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree$/);
+    assert.deepEqual(box.checkpoint.listRuns(), []);
+  });
+
   describe('each refusal names its action and creates no run (R2, PD9)', () => {
     /** Review the sandbox's pull request #42 with `gh` answering `steps`, after `prepare`, which must be refused with `message`. */
     async function refusedReview(t: TestContext, message: RegExp, steps: (box: ReviewSandbox) => FakeGhStep[], prepare: (box: ReviewSandbox) => void = () => {}): Promise<{ box: ReviewSandbox; script: string }> {
