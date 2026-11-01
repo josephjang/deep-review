@@ -125,6 +125,11 @@
       "rubrics.md",
       "decider-rubric.md"
     ],
+    "writer": [
+      "writer-brief.md",
+      "worker-scope.md",
+      "writer-explanation.md"
+    ],
     "fixer": [
       "fixer-role.md",
       "fixer-brief.md",

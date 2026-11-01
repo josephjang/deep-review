@@ -17,6 +17,7 @@
     "sweep": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "merge-rank": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 600000 },
     "decider": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 1800000 },
+    "writer": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 1800000 },
     "fixer": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 1800000 },
     "documentation": { "tier": "strong", "effort": "high", "budgetUsd": 8, "timeoutMs": 1800000 }
   },
