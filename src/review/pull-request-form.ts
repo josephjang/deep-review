@@ -529,9 +529,12 @@ function statusSection(context: FormContext): Section {
  * brief as its English text (R20), or that the run examined everything;
  * then the notes of the explanation, each part the checks dropped, a run
  * with no explanation, and the findings whose answers the explanation
- * predates (R18).
+ * predates (R18). A gap is cleaned as a worker's words are, since it
+ * quotes the patterns of the settings and the paths of the change as they
+ * are, and a pattern such as `**` or a path such as `@org-team.json` would
+ * otherwise be read as Markdown or notify.
  */
-function gapsSection(context: FormContext): Section {
+function gapsSection(context: FormContext, say: Speaker): Section {
   const { words, brief, recorded } = context;
   const gaps = brief.notExamined;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
@@ -553,7 +556,7 @@ function gapsSection(context: FormContext): Section {
       words.gapsHeading,
       '',
       gaps.length === 0 ? `${words.noCheck} ${words.allExamined}` : words.noCheck,
-      ...(gaps.length === 0 ? [] : ['', words.gapsLead, '', ...gaps.map((gap) => `- ${gap.text}`)]),
+      ...(gaps.length === 0 ? [] : ['', words.gapsLead, '', ...gaps.map((gap) => `- ${say.words(gap.text)}`)]),
       ...notes.flatMap((note) => ['', note]),
     ],
   };
@@ -686,7 +689,7 @@ function renderBody(context: FormContext, cuts: ReadonlySet<BodyCut>): { readonl
     conclusionSection(context, say),
     changeSection(context, say, cuts),
     statusSection(context),
-    gapsSection(context),
+    gapsSection(context, say),
     tableSection(context, say, cuts),
     inFullSection(context, say),
     leftSection(context, say, cuts),

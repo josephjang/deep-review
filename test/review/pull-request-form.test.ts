@@ -184,6 +184,13 @@ describe('the cleaning of what the review posts (R11)', () => {
     assert.equal(lastLine(form.comments[0]!.body), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
   });
 
+  it('cleans the text of each gap, which quotes patterns and paths as they are', () => {
+    const history = rewritten(run(), (kind, payload) => (kind === 'scope.captured'
+      ? { ...payload, request: { ...(payload.request as object), exclude: ['**/__snapshots__/**', '@org-team.json'] }, excluded: { paths: ['a/__snapshots__/x.snap'], count: 1 } }
+      : undefined));
+    includes(formOf(history.fold()).body, '\n- 1 changed path under \\*\\*/\\_\\_snapshots\\_\\_/\\*\\*, `@org-team`.json, which the settings leave out.\n');
+  });
+
   describe('keeps code that the form puts on one line or splits into paragraphs from turning into live text', () => {
     /** The form of a run whose fix's reason, a worker's words, is `reason`, and whose writer's answer `said` changes. */
     const formWith = (reason: string, say: (said: ReturnType<typeof writerAnswer>) => void = () => undefined): PullRequestForm => {
