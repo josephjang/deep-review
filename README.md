@@ -22,8 +22,11 @@ a person asks; and the repository survey, which begins every run by
 naming the files that state the repository's conventions and, for a
 fix run, choosing its checks; and the configuration, which lets a
 repository state its review policy and an operator their preferences
-in files the engine reads and records. The engine ships as one bundle
-inside both artifacts, and the installed skill runs it.
+in files the engine reads and records; and the review on the pull
+request, which reviews a pull request on GitHub, explains the review
+for the people who read the pull request and, when asked, posts it
+there. The engine ships as one bundle inside both artifacts, and the
+installed skill runs it.
 
 ## Layout
 
@@ -38,6 +41,7 @@ src/build/               assembling and verifying dist/, and bundling the engine
 src/checkpoint/          the run ledger: location, SQLite, event registry, fold
 src/evidence/            content-addressed evidence store
 src/scope/               capturing the reviewed change from git and comparing the worktree to it
+src/github/              reading a pull request and posting its review through gh api
 src/config/              the configuration: the settings registry, the four files, the two passes of resolution,
                          the record, and the config command
 src/runtime/             running one model worker: the neutral contract, one adapter per runtime, the launcher,
@@ -139,8 +143,8 @@ caller builds the runtimes with. See
 ## The role prompts
 
 A worker runs in a role: the surveyor, the `SCAN` triage, one of the
-ten finder angles, the verifier, the sweep, the decider, the fixer and
-the rest, twenty in all. Each role's prompt is assembled from the fragments
+ten finder angles, the verifier, the sweep, the decider, the writer, the
+fixer and the rest, twenty-one in all. Each role's prompt is assembled from the fragments
 under `roles/fragments/` in the order `roles/manifest.json` lists for
 it, joined with one blank line. The manifest is the only place
 composition is declared, and every fragment is held to a few invariants
@@ -158,9 +162,9 @@ that the engine's narration of a review is not its task. The read-only
 review then rewrote the four fragments that narrate the phases for the
 engine's workers, in a commit of its own, and the `angle-decision` role
 left the manifest. Which model tier, effort, budget and timeout a role
-runs with is declared in `roles/policy.json` for the eighteen roles a
-review runs, the surveyor, the decider, the fixer and the documentation
-step's worker among them; what each must
+runs with is declared in `roles/policy.json` for the nineteen roles a
+review runs, the surveyor, the decider, the writer, the fixer and the
+documentation step's worker among them; what each must
 return is the output schema of the phase that runs it. `npm run roles -- --output <dir>`
 writes every assembled prompt for reading to a new directory outside
 `roles/`. See `docs/changes/2026-09-27-role-prompts.md`.
@@ -176,7 +180,8 @@ one lead per other angle; the nine other finder angles in parallel, each
 given its lead; deduplication; one verifier per group of candidates in
 one file; a gap sweep told which angles did not run; the sweep's own
 deduplication and verification; merge and rank; the decision (see The
-decision step); the report. Every angle runs on every review. Before each phase, and before each answer is
+decision step); in a read-only run of a pull request, the explanation
+(see Reviewing a pull request); the report. Every angle runs on every review. Before each phase, and before each answer is
 recorded, the worktree is compared with the captured scope, and a
 difference blocks the run until the tree is restored; an answer that
 arrives after the difference is set aside, neither recorded nor counted
@@ -618,6 +623,86 @@ An answer is applied to its run and recorded there. Nothing yet carries
 it to the next review, which may ask the same question again. See
 `docs/changes/2026-10-11-answers.requirements.md` and its design.
 
+## Reviewing a pull request
+
+`deep-review review --pr <number>` reviews a pull request on GitHub: the change from the merge base that GitHub gives for its base branch to its head, which must be the `HEAD` of a clean tree. A number names a pull request of the repository that `gh` takes as the clone's. A URL, such as `--pr https://github.com/<owner>/<repo>/pull/42`, names the host and the repository as well, and is the way to name the pull request when `gh` cannot tell the repository of the clone. `--pr` is a scope as `--branch` is: it goes with `--path`, `scope.exclude` and `--fix`, and is refused with another scope flag or with `--base`. `config show --pr` prints the scope that the review would capture, and refuses what the review would refuse.
+
+The engine reads GitHub and posts to it through the GitHub CLI, `gh`, with `gh api`, as the account and on the host that `gh` uses: the one that `gh auth login` stored, or the one that `GH_TOKEN` gives (`GH_ENTERPRISE_TOKEN` on a GitHub Enterprise Server). It never asks for, keeps or sends a token, and no token reaches its ledger or its logs. `github.executable`, `gh` as found on `PATH` by default, and `github.args` are operator-only settings, so a file of the repository never chooses a program that runs on the operator's machine. A read-only run of a pull request records both with its settings, and `publish`, which takes no `--set`, runs `gh` as the run recorded them, found on `PATH` again when it starts. A missing `gh` is refused with what to do, install it or name it with `github.executable`, and so is a `gh` with no account for the host: run `gh auth login`, or set `GH_TOKEN`.
+
+Before a run exists, the engine reads the pull request and holds the worktree to it. It refuses, in this order, each refusal naming its action and leaving no run behind: a pull request that is closed or merged; a `HEAD` that is not its head, to be checked out, for example with `gh pr checkout <n>`; a tree with uncommitted changes or untracked files; a merge base that the clone does not hold, to be fetched, such as with `git fetch --unshallow` in a shallow clone; and a change from that merge base whose paths are not the ones GitHub lists for the pull request, naming up to ten paths of each side. A pull request of more than 3000 files is refused before its files are listed, since GitHub lists no more. A path that `scope.exclude` leaves out is no difference: the run records it, and the posted review names the pattern that left it out. deep-review runs no `git fetch` of its own.
+
+The capture records the pull request beside the change: its host, owner, repository, number and URL, its base branch and its title, with its body frozen in the evidence store as it stood. No worker reads the title or the body. The run reads GitHub to capture its change, and a later `review --pr` resumes the active run of the worktree, as a review of any scope does, with no call to GitHub. The `Scope:` line of `config show` and of `status` names the pull request, as in `Scope: pull-request #42 of acme/widgets, 1 commit and 3 files, from the merge base with main (3f2a9c1e) to the working tree, which has no uncommitted change`, and About this run gives its URL.
+
+A read-only run of a pull request ends its review with one more phase, `explanation`, after the decision and before the report. One worker of the role `writer` explains the review for a reader of the pull request who knows neither the code nor deep-review. It writes three parts:
+
+- A conclusion, for the author and the reviewers: why the pull request needs what it needs before a merge, in two or three sentences, and one sentence for each action.
+- An account of what the pull request does, for someone who joins later: the terms a newcomer needs, the problem before the change, and the change.
+- For each finding that goes on its line or in full in the body: a title that names the cause, the problem as who meets what, the cases in which it breaks, each citing the lines that show it, and the decided fix or the question in plain words.
+
+Each part takes a Mermaid diagram where the flow takes long to say. The writer reads the code at the head, the brief, and the findings with their decisions and evidence, and never the title or the body of the pull request. On Claude Code it has no shell. On Codex, which gives every worker a shell, it has the read-only shell of a verifier. The shipped role policy runs it on the strong tier with a budget of 8 USD, and each read-only run of a pull request pays for it, whether or not its review is posted.
+
+The writer decides nothing. The numbers, verdicts, severities, statuses, decisions, evidence and places stay as the ledger records them, and the engine writes them beside the writer's text. The engine also writes the line of what the pull request needs, and lists the actions in the rank of their findings. It checks what it can count in the writer's answer: that each finding the answer names is one the writer was asked to explain, that each cited line exists at the head, or at the merge base for code that the change removed, that no part writes a verdict, and that each diagram is a flowchart, a sequence diagram or a state diagram written so that GitHub draws it. An answer that fails runs once more. A second failure, or the run budget, leaves each part that still fails in the engine's own words, and the run writes its report all the same. A finding that the writer cannot explain from its evidence and the code is marked unexplained, and the review gives it in the engine's own words with a mark that tells the reader to look at it. The checks find a cited line that does not exist, not a wrong reading of one that does: each case is a model's account that no verifier examined. So the legend of the review says that a model wrote the explanations from the evidence beneath them, and that only that evidence was verified, except where a finding's mark says that no verifier examined it. The writer's text appears only on the pull request and in `publish --dry-run`. The report of the run does not change.
+
+The role policy of every review names the writer, whatever its scope, so a directory of roles that `--roles` names must declare `writer` in its `manifest.json` and give it a tier, an effort, a budget and a timeout in its `policy.json`. Until it does, the engine refuses every run with that directory, since the policy must name exactly the roles that the review runs.
+
+`review.language`, `en` by default, is the language of the review on the pull request, as a language tag such as `en`, `ko` or `pt-BR`. The writer writes in it. The words that the engine writes itself, such as its headings, the line of what the pull request needs and who answers a question and how, come from a table of that language. The engine has tables for `en` and `ko`, and for another language its own words stay in English. The gaps of the brief and the words of the other workers stay in English in a review of any language, and verdicts, severities, identifiers, paths and commands are never translated. The setting is repository-first: the repository's file sets it over the operator's, since the people who read a pull request share its repository, and the clone's file and the command set it over both. When a repository reviews in another language than the one the operator's file names, and its own file sets none, set it in the clone's file, `review.language = "ko"` in the `deep-review.toml` that `config init --clone` writes, or for one run on the command, `--set review.language=ko`. A read-only run of a pull request records the language with its other settings before its first worker, so a resume and `publish` use it whatever the files say later.
+
+## Posting the review
+
+`deep-review publish` posts a finished read-only run of a pull request as one review of that pull request, on the head that the run reviewed, and prints the URL of the review as the last line of stdout. It chooses the run as `report` does, and `--run <id>` names another. The review is always a comment: it never approves and never requests changes, so the merge stays with the people and the rules of the repository. GitHub shows it as the account that `gh` uses, which is often the person who ran the review, and its body says that deep-review wrote it. `review --pr` posts nothing: posting is a separate command, which a person or a workflow chooses to run. A run is posted once, so a second `publish` posts nothing, prints the URL of the review and exits 0.
+
+`publish` refuses, with exit 2 and the action, and posts nothing: a run with no current report; a fix run, or a read-only run that `--fix` continued; a run of another scope than `--pr`; and a run that `--path` narrowed to part of the pull request. It then reads the pull request again through `gh`, and refuses a missing `gh` or one with no account for the host, a pull request that is no longer open, a head that is not the run's head, and a merge base that is not the run's base, since a run is posted only on the change that it reviewed. When the pull request has moved since the review, a new run of `review --pr` reviews its new head in full.
+
+`review --pr <number> --fix` continues a finished read-only run of the pull request into the fix pass, as `--fix` continues a read-only run of the same change, and the run is then a fix run, which `publish` refuses. To have the review on the pull request, post it with `publish` before you continue its run with `--fix`. The edits of a fix run never reach the pull request: not as suggestions, and not as commits pushed to its branch.
+
+The body of the review holds, in this order:
+
+1. A heading that names the review as deep-review's, with the run and the head; the engine's line of what the pull request needs before a merge, such as `Before the merge: 2 fixes and 1 question`; and the writer's conclusion, each action linked to its finding.
+2. The title and the core of the change as the brief gives them, with the writer's account of the pull request folded under them.
+3. A line that says that deep-review reviewed the pull request at its head, with the status line of the brief.
+4. What to know before the merge: each gap of the brief, such as an angle that did not run.
+5. A table of the findings, each with its number, severity, verdict, status, summary and place.
+6. Each fix and each question that has no line in the diff, in full, as its comment would give it.
+7. The findings left as is, folded.
+8. The candidates that verification refuted, each with the evidence that refuted it, folded.
+9. Each pattern of `scope.exclude` that left paths out of the run, with its count and the layer of the settings that set it.
+10. A folded legend of each verdict, of each severity, of each status that the findings have, of the mark of a finding that no verifier examined and of one that the writer did not explain, and of what the writer's explanations rest on, with a link to this README.
+11. A last line with the version of the engine, the runtime and its models, the run, and the commits it reviewed, then the marker of the publication, an HTML comment that GitHub does not show.
+
+Each finding that deep-review decided to fix, with or against a written rule, or that it asks about, gets a comment on its line when that line is on the new side of GitHub's diff of the pull request. The comment gives the number of the finding and the writer's title for it, its status, severity and verdict, and the writer's problem, cases and diagram. The decision follows: the approach of the fix, the question with its options, the cost of each and the option that deep-review would apply, or the departure with its rule, its source and the fact against it. Last, folded, comes the evidence, under a heading that says that the verifier checked it, or that no verifier did. A comment on a line that the pull request does not change, a context line of the diff, says so. Every other finding is in the body: one left as is, one whose line is outside the diff, one in a file that GitHub shows no diff of, and one with no place in the repository. A finding in the body that has a place links to its lines at the head, from two lines before to two lines after, which GitHub shows as code. Each question and each departure is in full once, in its comment or in the body, and the conclusion links to it.
+
+A question and a departure end with who answers and how: the person who ran the review, on the machine that holds the run, with `deep-review answer`. A reply on the pull request is not read yet. An answer recorded after the writer and before the post changes what the engine writes, and the body names each finding that the explanation predates. A posted review is never posted again or edited, so an answer recorded after the post does not reach the pull request.
+
+The rest stays on the machine: the report, with its About this run, which names local paths, and the evidence store, which a reader of the pull request cannot open, so the evidence of each finding is posted under it, folded. deep-review posts no check run, no approval and no request of changes.
+
+GitHub makes each comment on a line a conversation that a person resolves, and a repository can require each conversation to be resolved before a merge, with the rule "Require conversation resolution before merging". In such a repository each comment of the review holds the merge until the author of the pull request or someone who can write to the repository resolves its conversation, in their own name, once they have read it. A finding left as is gets no comment, so it holds nothing. A request of changes would hold the merge in the name of the account that posted it, until that account or an administrator dismissed it, which is why the review is a comment.
+
+Before it posts, the engine cleans each text that it did not write, the words of the workers and of the writer:
+
+- A token of a known form, from GitHub, Anthropic, OpenAI, AWS, Slack or a private key block, becomes `[redacted <kind>]`, and so does the value, 8 characters or longer, of each variable of the command's environment whose name holds `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY`, `PRIVATE_KEY` or `CREDENTIAL`. The publication records how many it replaced, never a value.
+- A path under the worktree becomes the path from the root of the repository. A scratch directory becomes `<scratch>`, the checkpoint `<checkpoint>`, the git common directory `<git>` and the directory of the engine `<engine>`. Any other path that starts at the root of the machine, at a drive letter, at a UNC share or at `~` becomes `<local path>`.
+- Outside code, a mention such as `@name`, a reference such as `#12`, `GH-12` or `owner/repo#12`, and the URL of an issue, a pull request or a discussion are written as code, so they notify no one and leave no trace in another issue. The writer's text holds no link or image of its own: each link of the review is one that the engine builds.
+
+The cleaning finds only these forms. A secret of another form, or one that only the environment of a worker held, is posted, and so are words that name the machine without a path, such as a user name or a host name in a sentence. The cleaning does not judge what a text says: the change under review can hold text aimed at a model, and a sentence that such text puts in the words of a worker or of the writer is posted as written. A finding whose evidence does not bear out its verdict is posted as the run recorded it. Read the dry run before you post, and do not post on a repository that cannot take these risks in public.
+
+`publish --dry-run` reads the pull request, makes every check, and prints where each finding goes and why, what was cut from the body to fit, how many secrets the cleaning replaced, then the body and each comment with its path and line. It posts nothing and records nothing. A publication that a stop left open is not settled either: the dry run looks for its review, and says what the next `publish` would record. When a review carries its marker, the dry run prints its URL as the last line and ends, since the next `publish` records it as posted and posts nothing. When none does, the dry run goes on as if the publication were dropped, and prints the review that the next `publish` would post.
+
+The engine records the publication on the ledger before it posts: the pull request, the head, the text frozen in the evidence store, and where each finding goes and why. After the post it records the review and the comment of each finding, which it matches to its finding by a marker on the comment's last line. A stop between the record and the post is settled by the next `publish`: it looks among the reviews of the pull request for the marker on the last line of the body, records the review that carries it as posted, and records the publication as not posted when none does, before it posts again. A review that GitHub made but does not list yet is the one case in which a stop can still post twice. A refusal of GitHub is recorded with its status and message, and `publish` exits 2 with the action: GitHub's message for a 422; the wait for a 403 or a 429 that names one; `gh auth` for a 401 or a 404; and for another 403, that the account or the token cannot write to the pull request. A timeout, a server error, or an answer it cannot read leaves the publication open and exits 1, and the next `publish` looks for the review before it posts; so does a review whose comments cannot be read after the post. A settle whose read of GitHub fails records nothing and exits 1 too, and the next `publish` settles again. Once the run is posted, `status` and About this run name the review on a line of its own, `Review: <url>`, and `status --json` gives it as `postedReview`.
+
+A body or a comment stays under 60,000 characters, a margin under what GitHub takes. A longer body is cut, first the diagrams of the writer's account, then the account, then the refuted candidates down to their summaries, then the findings left as is down to their rows in the table, and never in the evidence of a finding that asks a person to act. The body names each cut and says that the report of the run holds all of it. A body that still does not fit, and a comment that does not, are refused with their size before anything is recorded.
+
+### In a workflow
+
+deep-review ships no workflow, but both commands run in one, such as a GitHub Actions job on `pull_request`, with what they need on any machine: Node 26, the engine, and a runtime that can run its workers. A job also needs the head of the pull request checked out with its history. By default `actions/checkout` checks out a merge commit of the pull request, which is not its head, and only that one commit, so the clone holds no merge base. Give it `ref: ${{ github.event.pull_request.head.sha }}` and `fetch-depth: 0`.
+
+Both commands need a token that `gh` reads: `review --pr` to read the pull request, and `publish` to post its review. Set `GH_TOKEN: ${{ github.token }}` in the environment of each step, and give the job `permissions` with `contents: read` and `pull-requests: write`. A workflow that a pull request from a fork starts gets a token that cannot write, so GitHub refuses the post, and `publish` says that the token cannot write to the pull request.
+
+A run of a pull request launches its workers without `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, which only the engine's own calls of `gh` need. That keeps the token out of the workers' environment, not out of their reach: a worker runs as the same user as the engine, a verifier runs the code of the change, and that code can read the environment of the engine's process, or, on a person's machine, use the account that `gh auth login` stored. So review with a token that can write only code that the workflow would run with that token anyway, such as a pull request from a branch of the same repository. Never check out the head of a pull request from a fork in a workflow that `pull_request_target` starts: that event gives the job a token that can write, and the review would run the fork's code with it.
+
+The record of the run is the checkpoint, under the git directory of the clone, which goes away with the job. A review that a workflow posts still says who answers each question and how, but no one can answer it once the job has ended, until a later change keeps the checkpoint across jobs.
+
+See `docs/changes/2026-11-01-review-on-the-pull-request.requirements.md` and its design.
+
 ## Resuming after a stop
 
 A run can be stopped at any point: a Ctrl-C, a kill of the engine
@@ -635,7 +720,10 @@ Each worker and check runs under a small guard process, the engine's own
 `guard` command, which ends the child's tree when the engine is gone, so
 no child outlives a killed engine. A `deep-review commit` cut short
 records its series before the branch moves, and the next command
-completes it or drops it by where `HEAD` is. The notes of the run in
+completes it or drops it by where `HEAD` is. A `deep-review publish`
+cut short records its review before the post, and the next `publish`
+records it as posted or not by whether a review of the pull request
+carries its marker. The notes of the run in
 the report and `status` name what each stop did. `npm run resume-test` stops a run
 on the fakes at every point, in each way, and checks this contract; the
 suite runs a fixed set of those points.
@@ -750,11 +838,12 @@ highest:
 | operator-only | default, operator's file, clone's file, `--config` file, flag |
 
 A rule or fact of the repository, such as `scope.exclude`, a check
-command or `checks.timeout_minutes`, is repository-first: an operator's
+command, `checks.timeout_minutes` or `review.language`, is
+repository-first: an operator's
 general preference only fills a gap. The money and taste of the
 operator, `budget.usd` and the models, are operator-first: the
 repository's value is a suggestion. A fact of the operator's machine,
-such as `tools.path` or a runtime's executable, is operator-only, and
+such as `tools.path`, a runtime's executable or `github.executable`, is operator-only, and
 so are `scope.default` and `review.base`, which choose the change. The
 defaults are the role policy's, so with no file and no new flag a run
 pins what it pinned before. `deep-review config explain` lists every
