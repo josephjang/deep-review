@@ -330,7 +330,7 @@ const failedOnce = (history: History, fixture: Fixture, answer: WriterOutput, n 
   history.worker(n, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(answer)) })
     .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(n), reason: 'structural check: the answer fails the engine\'s checks', fault: 'unit' }, 9);
 
-const machine = (repo: string): MachineContext => ({ worktree: repo, checkpoint: join(repo, '.git', 'deep-review-checkpoint'), gitCommon: join(repo, '.git'), engine: '/opt/deep-review', scratch: [], environment: {}, rootEntries: ['home', 'opt', 'tmp'] });
+const machine = (repo: string): MachineContext => ({ worktree: repo, checkpoint: join(repo, '.git', 'deep-review-checkpoint'), gitCommon: join(repo, '.git'), engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp'] });
 
 const counted = (usd: number): Live['spend'] => ({ usd, charged: 0, lost: 0 });
 const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };

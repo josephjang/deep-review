@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { homedir } from 'node:os';
 import { describe, it } from 'node:test';
 import { machineContextOf, publicProse, publicWords, type MachineContext } from '../../src/review/public-text.ts';
 
@@ -12,6 +13,7 @@ const linked: MachineContext = {
   engine: '/home/ada/.claude/plugins/cache/deep-review/engine',
   scratch: ['/tmp/deep-review-scratch/0123456789abcdef/w1', '/tmp/deep-review-scratch/0123456789abcdef'],
   environment: {},
+  home: '/home/ada',
   rootEntries,
 };
 
@@ -25,6 +27,7 @@ const windows: MachineContext = {
   engine: 'C:\\Users\\ada\\.codex\\skills\\deep-review\\engine',
   scratch: ['C:\\Users\\ada\\AppData\\Local\\Temp\\deep-review-scratch\\0123456789abcdef\\w1', 'C:/Users/ada/AppData/Local/Temp/deep-review-scratch/0123456789abcdef/w1'],
   environment: {},
+  home: 'C:\\Users\\ada',
   rootEntries: [],
 };
 
@@ -83,6 +86,18 @@ describe('publicWords: the places of the machine', () => {
     assert.equal(words('the route /pulls/42 answers'), 'the route /pulls/42 answers');
     assert.equal(words('in src/tmp/x.ts and ./home/a'), 'in src/tmp/x.ts and ./home/a');
     assert.equal(words('see https://example.com/home/x'), 'see https://example.com/home/x');
+  });
+
+  it('writes the home directory as <local path> with the path after it, though a name in it holds a space', () => {
+    const spaced: MachineContext = { ...linked, home: '/home/John Smith' };
+    assert.equal(words('see /home/John Smith/notes/a.txt.', spaced), 'see \\<local path>.');
+    assert.equal(words('cd /home/John Smith && ls /home/John Smithers', spaced), 'cd \\<local path> && ls \\<local path> Smithers', 'a longer name is another directory, cleaned by the generic rule');
+    const windowsSpaced: MachineContext = { ...windows, home: 'C:\\Users\\John Smith' };
+    assert.equal(words('see c:/users/john smith/a.txt and C:\\Users\\John Smith\\b.txt', windowsSpaced), 'see \\<local path> and \\<local path>');
+  });
+
+  it('writes every path from the root as <local path> when the root could not be read', () => {
+    assert.equal(words('the route /pulls/42 answers', { ...linked, rootEntries: null }), 'the route \\<local path> answers');
   });
 });
 
@@ -187,7 +202,7 @@ describe('publicProse', () => {
 // R11 of the review on the pull request.
 describe('the machine a review cleans its text of', () => {
   const workers = { w: { launch: { scratch: '/tmp/deep-review-scratch/0123456789abcdef/a1b2' } } } as never;
-  const places = { worktree: '/work/repo', checkpoint: '/work/repo/.git/deep-review-checkpoint', gitCommon: '/work/repo/.git', engine: '/opt/deep-review', workers, environment: { GH_TOKEN: 'gho_secret' } };
+  const places = { worktree: '/work/repo', checkpoint: '/work/repo/.git/deep-review-checkpoint', gitCommon: '/work/repo/.git', engine: '/opt/deep-review', workers, environment: { GH_TOKEN: 'gho_secret' }, home: '/home/ada' };
 
   it('reads the entries of / off Windows, and spells the scratch directories of the run', () => {
     const read: string[] = [];
@@ -195,7 +210,15 @@ describe('the machine a review cleans its text of', () => {
     assert.deepEqual(read, ['/']);
     assert.deepEqual(machine.rootEntries, ['home', 'tmp', 'opt']);
     assert.deepEqual(machine.scratch, ['/tmp/deep-review-scratch/0123456789abcdef/a1b2', '/tmp/deep-review-scratch/0123456789abcdef']);
-    assert.deepEqual([machine.worktree, machine.checkpoint, machine.gitCommon, machine.engine, machine.environment], [places.worktree, places.checkpoint, places.gitCommon, places.engine, places.environment]);
+    assert.deepEqual([machine.worktree, machine.checkpoint, machine.gitCommon, machine.engine, machine.environment, machine.home], [places.worktree, places.checkpoint, places.gitCommon, places.engine, places.environment, places.home]);
+  });
+
+  it('takes the home directory of the process when the facts give none, and no root entries when the root cannot be read', () => {
+    const machine = machineContextOf({ ...places, home: undefined, platform: 'linux', readDirectory: () => null });
+    assert.equal(machine.home, homedir());
+    assert.equal(machine.rootEntries, null);
+    const windowsMachine = machineContextOf({ ...places, worktree: 'D:\\work\\repo', platform: 'win32', readDirectory: (directory) => (directory === 'D:\\' ? null : ['Users']) });
+    assert.equal(windowsMachine.rootEntries, null, 'one drive whose root cannot be read is enough');
   });
 
   it('on Windows, takes the letter and the root entries of each drive a place of the run or the system drive is on', () => {

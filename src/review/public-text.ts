@@ -12,6 +12,7 @@
  * the entries of the root of the machine.
  */
 import { readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import type { RunState } from '../checkpoint/fold.ts';
 import { scratchSpellings } from './fix-report.ts';
 import { codeParts, codeSpan, escapedText, windowsPath, withoutScratch } from './markdown.ts';
@@ -30,8 +31,16 @@ export interface MachineContext {
   readonly scratch: readonly string[];
   /** The command's environment, whose secret variables' values are redacted. */
   readonly environment: NodeJS.ProcessEnv;
-  /** The names that the root of the machine holds, such as `home` and `tmp`; a path that starts at one of them is local. */
-  readonly rootEntries: readonly string[];
+  /** The operator's home directory, written `<local path>` with the path after it, before any other path: a name in it can hold a space, where the generic rule would end the path. */
+  readonly home: string;
+  /**
+   * The names that the root of the machine holds, such as `home` and `tmp`;
+   * a path that starts at one of them is local. Null when the root could
+   * not be read, and then every path from the root is local: a route such
+   * as `/pulls/42` posted as a mark loses a word, while a path of the
+   * machine posted as written cannot be taken back.
+   */
+  readonly rootEntries: readonly string[] | null;
 }
 
 /** What `machineContextOf` gathers the machine of a run from. */
@@ -50,22 +59,23 @@ export interface MachineFacts {
   readonly environment: NodeJS.ProcessEnv;
   /** The platform of the machine, which says where its root is. */
   readonly platform: NodeJS.Platform;
-  /** The names a directory holds; the root's are read once a process with the default. */
-  readonly readDirectory?: (directory: string) => readonly string[];
+  /** The operator's home directory; the process's by default. */
+  readonly home?: string | undefined;
+  /** The names a directory holds, or null when it cannot be read; the root's are read once a process with the default. */
+  readonly readDirectory?: (directory: string) => readonly string[] | null;
 }
 
 /** The names each root directory held when this process first read it, since the root of a machine does not change while a command runs. */
-const readRoots = new Map<string, readonly string[]>();
+const readRoots = new Map<string, readonly string[] | null>();
 
-/** The names a root directory holds, read once a process; none for one this process cannot read. */
-function rootDirectoryEntries(directory: string): readonly string[] {
-  const known = readRoots.get(directory);
-  if (known !== undefined) return known;
-  let entries: readonly string[];
+/** The names a root directory holds, read once a process; null for one this process cannot read. */
+function rootDirectoryEntries(directory: string): readonly string[] | null {
+  if (readRoots.has(directory)) return readRoots.get(directory)!;
+  let entries: readonly string[] | null;
   try {
     entries = readdirSync(directory);
   } catch {
-    entries = [];
+    entries = null;
   }
   readRoots.set(directory, entries);
   return entries;
@@ -77,22 +87,29 @@ function rootDirectoryEntries(directory: string): readonly string[] {
  * a drive, so they are the letter of each drive that a place of the run or
  * the system drive is on, as a shell such as Git Bash spells a drive
  * (`/c/Users`), and the entries of the root of each such drive (`/Users`).
- * A UNC share is no drive, and its paths are cleaned as shares.
+ * A UNC share is no drive, and its paths are cleaned as shares. Null when
+ * a root cannot be read, so every path from the root counts as local.
  */
-function rootEntriesOf(facts: MachineFacts): string[] {
+function rootEntriesOf(facts: MachineFacts): string[] | null {
   const read = facts.readDirectory ?? rootDirectoryEntries;
-  if (facts.platform !== 'win32') return [...read('/')];
+  if (facts.platform !== 'win32') {
+    const entries = read('/');
+    return entries === null ? null : [...entries];
+  }
   const places = [facts.worktree, facts.checkpoint, facts.gitCommon, facts.engine, ...(facts.environment.SystemDrive === undefined ? [] : [`${facts.environment.SystemDrive}\\`])];
   const drives = [...new Set(places.flatMap((place) => /^([A-Za-z]):/.exec(place)?.[1]?.toUpperCase() ?? []))].sort();
-  return [...new Set([...drives.map((drive) => drive.toLowerCase()), ...drives.flatMap((drive) => read(`${drive}:\\`))])];
+  const roots = drives.map((drive) => read(`${drive}:\\`));
+  if (roots.includes(null)) return null;
+  return [...new Set([...drives.map((drive) => drive.toLowerCase()), ...roots.flatMap((entries) => entries ?? [])])];
 }
 
 /**
  * The machine a review cleans each text of (R11, "The cleaning (R11)" of
  * the design of the review on the pull request): the places of the run,
  * the spellings of the scratch directories of its workers, the command's
- * environment, whose secret values it redacts, and the names a path from
- * the root of the machine starts with. The writer's task and `publish`
+ * environment, whose secret values it redacts, the operator's home
+ * directory, and the names a path from the root of the machine starts
+ * with. The writer's task and `publish`
  * build theirs with it, so both clean alike.
  */
 export function machineContextOf(facts: MachineFacts): MachineContext {
@@ -103,6 +120,7 @@ export function machineContextOf(facts: MachineFacts): MachineContext {
     engine: facts.engine,
     scratch: scratchSpellings(facts.workers),
     environment: facts.environment,
+    home: facts.home ?? homedir(),
     rootEntries: rootEntriesOf(facts),
   };
 }
@@ -177,7 +195,8 @@ function withoutMachine(text: string, machine: MachineContext): PublicText {
   });
   let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text);
   if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)!}]`);
-  return { text: withoutLocalPaths(compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch)), compiled.roots), secrets };
+  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
+  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
 }
 
 /**
@@ -204,8 +223,10 @@ interface Compiled {
   readonly secretNames: ReadonlyMap<string, string>;
   /** The checkpoint, the git common directory and the engine, longest first, each with its mark, then the worktree with a separator after it, which gives way to the path from the root. */
   readonly places: readonly (readonly [pattern: RegExp, mark: string])[];
-  /** The root entries in lower case. */
-  readonly roots: ReadonlySet<string>;
+  /** Each spelling of the home directory with the path after it, after the places and before the generic rule of `withoutLocalPaths`. */
+  readonly home: readonly RegExp[];
+  /** The root entries in lower case, or null when every path from the root is local. */
+  readonly roots: ReadonlySet<string> | null;
 }
 
 /** The patterns of each machine, compiled once: a review cleans every text it posts with one context. */
@@ -230,7 +251,8 @@ function compiledOf(machine: MachineContext): Compiled {
     secretValues: values.length === 0 ? null : new RegExp(values.map((value) => RegExp.escape(value)).join('|'), 'g'),
     secretNames,
     places,
-    roots: new Set(machine.rootEntries.map((entry) => entry.toLowerCase())),
+    home: spellings(machine.home).map((spelling) => placePattern(spelling, String.raw`(?![\p{L}\p{N}_-]|\.[\p{L}\p{N}_-])${rest}`)),
+    roots: machine.rootEntries === null ? null : new Set(machine.rootEntries.map((entry) => entry.toLowerCase())),
   };
   compiledContexts.set(machine, compiled);
   return compiled;
@@ -260,7 +282,8 @@ const rest = String.raw`(?:[/\\]+${segment})*[/\\]*`;
  * Each path left that starts at the root of the machine, at a drive
  * letter, at a UNC share or at `~`. One that starts at the root counts only
  * when the root holds its first name, compared in any case since a macOS
- * or Windows root ignores it, so a route such as `/pulls/42` stays. A path
+ * or Windows root ignores it, so a route such as `/pulls/42` stays, or
+ * when the root could not be read. A path
  * inside a longer name or path, or after a mark such as `<git>`, is not
  * one; a URL's host is the first name of what follows its `//`, so a URL
  * stays as a whole. A separator may be doubled, as a path in a JSON
@@ -273,14 +296,16 @@ const localPath = new RegExp([
   String.raw`(?<![\p{L}\p{N}_.~/\\-])~[A-Za-z0-9_.-]*[/\\]+(?:${segment}${rest})?`,
 ].join('|'), 'gu');
 
-function withoutLocalPaths(text: string, roots: ReadonlySet<string>): string {
+function withoutLocalPaths(text: string, roots: ReadonlySet<string> | null): string {
   return text.replace(localPath, (path: string, ...args: unknown[]) => {
     const { first } = args.at(-1) as { first: string | undefined };
-    const ending = /[.!]*$/.exec(path)![0];
-    if (first !== undefined && !roots.has(first.replace(/[.!]+$/, '').toLowerCase())) return path;
-    return `<local path>${ending}`;
+    if (first !== undefined && roots !== null && !roots.has(first.replace(/[.!]+$/, '').toLowerCase())) return path;
+    return localPathMark(path);
   });
 }
+
+/** A local path as its mark, with the marks that end a sentence after it, which a name can also end with. */
+const localPathMark = (path: string): string => `<local path>${/[.!]*$/.exec(path)![0]}`;
 
 /**
  * The parts of a text that GitHub shows as code and as Markdown: each fenced
