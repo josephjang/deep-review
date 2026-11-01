@@ -28,7 +28,7 @@ import { reviewLanguage, type Account, type ExplainedFinding, type RecordedAnswe
 import { codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
-import { publicProse, publicWords, type MachineContext } from './public-text.ts';
+import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
 import { pullRequestWords, type PullRequestWords } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
@@ -220,8 +220,12 @@ interface FormContext {
  * The cleaning of each text the engine did not write, counting the
  * secrets it replaced (R11): a worker's words and the writer's prose, each
  * on one line, the writer's prose as paragraphs, a worker's text as a code
- * span, and a diagram, fenced before it is cleaned so the cleaning reads
- * it as code.
+ * span, and a diagram. Each text is put in the shape it is posted in
+ * before it is cleaned, on one line or split into paragraphs, and code is
+ * delimited after, so nothing done to a cleaned text turns what the
+ * cleaning read as code into Markdown: a fence joined onto one line, or
+ * split at a blank line, would no longer be code, and its text would be
+ * posted as it was written.
  */
 interface Speaker {
   readonly words: (text: string) => string;
@@ -238,16 +242,16 @@ function speakerOf(machine: MachineContext): Speaker {
     secrets += cleaned.secrets;
     return cleaned.text;
   };
-  const prose = (text: string): string => counted(publicProse(text, machine));
+  const prose = (text: string): string => counted(publicProse(inlineText(text).trim(), machine));
   return {
-    words: (text) => inlineText(counted(publicWords(text, machine))).trim(),
-    prose: (text) => inlineText(prose(text)).trim(),
-    paragraphs: (text) => prose(text).split(/\r?\n[ \t]*\r?\n/).map(paragraphText).filter((paragraph) => paragraph.trim() !== ''),
-    code: (text) => counted(publicWords(codeSpan(inlineText(text)), machine)),
+    words: (text) => counted(publicWords(inlineText(text).trim(), machine)),
+    prose,
+    paragraphs: (text) => text.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== '').map(paragraphText),
+    code: (text) => codeSpan(counted(publicCode(inlineText(text), machine))),
     diagram: (text) => {
-      const body = text.replace(/\s+$/, '');
+      const body = counted(publicCode(text.replace(/\s+$/, ''), machine));
       const fence = fenceFor(body);
-      return counted(publicProse(`${fence}mermaid\n${body}\n${fence}`, machine));
+      return `${fence}mermaid\n${body}\n${fence}`;
     },
     secrets: () => secrets,
   };

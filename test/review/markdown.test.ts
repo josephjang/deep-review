@@ -65,9 +65,15 @@ describe('capitalized', () => {
 
 describe('paragraphText', () => {
   it('escapes a leading character that would open a block', () => {
-    for (const opener of ['#', '>', '-', '+', '*', '=', '|', '`', '~']) assert.equal(paragraphText(`${opener} text`), `\\${opener} text`, opener);
+    for (const opener of ['#', '>', '-', '+', '*', '=', '|', '~', '```']) assert.equal(paragraphText(`${opener} text`), `\\${opener} text`, opener);
     assert.equal(paragraphText('## heading'), '\\## heading');
     assert.equal(paragraphText('```js'), '\\```js');
+  });
+
+  it('leaves a leading backtick that opens no fence, whose escape would end a code span', () => {
+    assert.equal(paragraphText('`parse()` returns null'), '`parse()` returns null');
+    assert.equal(paragraphText('```ts @x``` and more'), '```ts @x``` and more', 'a backtick after the run makes it no fence');
+    assert.equal(paragraphText('` text'), '` text', 'a single backtick opens no fence');
   });
 
   it('escapes the punctuation of an ordered list marker', () => {

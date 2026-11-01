@@ -18,7 +18,7 @@ import { briefMarkdown, briefOf } from './brief.ts';
 import { StructuralCheckError } from './errors.ts';
 import { inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
-import { publicWords, type MachineContext } from './public-text.ts';
+import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { writerOutputSchema, type CitedSide, type WriterOutput } from './schemas.ts';
 import { findingNumbers, rankedFindings, resolutionOf, type ReportFinding } from './state.ts';
 import { maxAttempts, truncated } from './steps.ts';
@@ -582,8 +582,8 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   const review = requireReview(state);
   const ids = findingsToExplain(review);
   const clean = (text: string): string => inlineText(publicWords(text, input.machine).text);
-  // Fenced before it is cleaned, so the cleaning reads it as code: its places and secrets give way to their marks, and nothing in it is escaped.
-  const quote = (text: string, info = ''): string => publicWords(fenced(text, info), input.machine).text;
+  // Cleaned as code, so its places and secrets give way to their marks and nothing in it is escaped, then fenced longer than any run of backticks the cleaning left.
+  const quote = (text: string, info = ''): string => fenced(publicCode(text, input.machine).text, info);
   const numbers = findingNumbers(review);
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked = rankedFindings(review);

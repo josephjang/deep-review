@@ -113,7 +113,14 @@ export interface PublicText {
   readonly secrets: number;
 }
 
-/** A worker's words as a review posts them: cleaned, escaped as the report escapes them, and with nothing that notifies an account or another issue. */
+/**
+ * A worker's words as a review posts them: cleaned, escaped as the report
+ * escapes them, and with nothing that notifies an account or another
+ * issue. What is code is read from the text as given, so the caller gives
+ * it in the shape it posts it in: a text that it puts on one line or
+ * splits into paragraphs is put on one line or split first, since a fence
+ * joined onto one line or split in two is no longer code.
+ */
 export function publicWords(text: string, machine: MachineContext): PublicText {
   return cleaned(text, machine, 'words');
 }
@@ -123,26 +130,26 @@ export function publicProse(text: string, machine: MachineContext): PublicText {
   return cleaned(text, machine, 'prose');
 }
 
+/**
+ * A text that the caller writes as code, a cited command or a diagram,
+ * cleaned of secrets and places only, since nothing in code notifies. The
+ * caller chooses the delimiter of the code from the cleaned text, since a
+ * place written as its mark can join two runs of backticks into a longer
+ * one.
+ */
+export function publicCode(text: string, machine: MachineContext): PublicText {
+  return withoutMachine(text, machine);
+}
+
 type Voice = 'words' | 'prose';
 
 /**
- * A text cleaned in the design's order: secrets, then places, then what
- * would notify. The scratch directories go before the other places, since
- * the engine makes them under the system's temporary directory, apart
- * from the others, and `withoutScratch` takes a prefix such as macOS's
- * `/private` with them. `escapedText` escapes each plain part of
- * `markdownParts`, so a span is read as the mentions are.
+ * A text cleaned in the design's order: secrets, then places
+ * (`withoutMachine`), then what would notify. `escapedText` escapes each
+ * plain part of `markdownParts`, so a span is read as the mentions are.
  */
 function cleaned(text: string, machine: MachineContext, voice: Voice): PublicText {
-  const compiled = compiledOf(machine);
-  let secrets = 0;
-  const redact = (from: string, pattern: RegExp, mark: (found: string) => string): string => from.replace(pattern, (found) => {
-    secrets += 1;
-    return mark(found);
-  });
-  let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text);
-  if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)!}]`);
-  const placed = withoutLocalPaths(compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch)), compiled.roots);
+  const { text: placed, secrets } = withoutMachine(text, machine);
   const parts = markdownParts(placed);
   const quiet = parts.map((part, index) => {
     if (part.code) return part.text;
@@ -152,6 +159,25 @@ function cleaned(text: string, machine: MachineContext, voice: Voice): PublicTex
     return `${parts[index - 1]?.code === true && plain.startsWith('`') ? ' ' : ''}${plain}${parts[index + 1]?.code === true && plain.endsWith('`') ? ' ' : ''}`;
   });
   return { text: quiet.join(''), secrets };
+}
+
+/**
+ * A text with its secrets and the places of the machine written as marks,
+ * the first two steps of the cleaning. The scratch directories go before
+ * the other places, since the engine makes them under the system's
+ * temporary directory, apart from the others, and `withoutScratch` takes a
+ * prefix such as macOS's `/private` with them.
+ */
+function withoutMachine(text: string, machine: MachineContext): PublicText {
+  const compiled = compiledOf(machine);
+  let secrets = 0;
+  const redact = (from: string, pattern: RegExp, mark: (found: string) => string): string => from.replace(pattern, (found) => {
+    secrets += 1;
+    return mark(found);
+  });
+  let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text);
+  if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)!}]`);
+  return { text: withoutLocalPaths(compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch)), compiled.roots), secrets };
 }
 
 /**
