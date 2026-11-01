@@ -25,22 +25,23 @@ const changed = (change: (policy: { roles: Record<string, Record<string, unknown
 };
 
 describe('the committed roles/policy.json', () => {
-  it('names exactly the eighteen roles the review runs, the checks block, and only the two runtimes', () => {
+  it('names exactly the nineteen roles the review runs, the checks block, and only the two runtimes', () => {
     assert.deepEqual(Object.keys(committed.roles).sort(), [...reviewRoles].sort());
-    assert.equal(reviewRoles.length, 18);
-    assert.deepEqual(reviewRoles, ['surveyor', 'triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'fixer', 'documentation'], 'the survey\'s role, the role of every angle in launch order, then the roles of the later phases, the decision, the fix pass and its documentation step');
+    assert.equal(reviewRoles.length, 19);
+    assert.deepEqual(reviewRoles, ['surveyor', 'triage', 'finder-REMOVALS', 'finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DESIGN', 'finder-DUPLICATION', 'finder-ALTITUDE', 'finder-CONVENTIONS', 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'writer', 'fixer', 'documentation'], 'the survey\'s role, the role of every angle in launch order, then the roles of the later phases, the decision, the explanation, the fix pass and its documentation step');
     assert.deepEqual(committed.checks, { timeoutMs: 1_200_000 });
     assert.deepEqual(Object.keys(committed.runtimes).sort(), ['claude', 'codex']);
     assert.equal(committed.concurrency, 4);
   });
 
-  it('carries the proof of concept\'s values, with the gate\'s for the fixer and Claude\'s budget: strong analyst and lead roles, fast scouts, medium CONVENTIONS and surveyor, 8 USD each, 600 s for a reader and 1800 s for the fixer, the documentation step and the decider, 60 USD a Claude run', () => {
+  it('carries the proof of concept\'s values, with the gate\'s for the fixer and Claude\'s budget: strong analyst and lead roles, fast scouts, medium CONVENTIONS and surveyor, 8 USD each, 600 s for a reader and 1800 s for the fixer, the documentation step, the decider and the writer, 60 USD a Claude run', () => {
     for (const [role, entry] of Object.entries(committed.roles)) {
       assert.equal(entry.budgetUsd, 8, role);
       // A fixer runs the suite against the unfixed code, the fixed code and a mutation; on the gate a Codex batch needed 1125 s and one ran past 1200 s (R12, R25 of the fix pass).
       // The decider reads every finding of a run; in the experiment before the decision step a Codex decider over zod's 30 findings needed 777 s (R13 of the decision step).
       // The documentation step writes as a fixer does, with the fixer's policy (PD8 of the documentation step).
-      assert.equal(entry.timeoutMs, role === 'fixer' || role === 'documentation' || role === 'decider' ? 1_800_000 : 600_000, role);
+      // The writer explains every finding a person acts on, with the decider's policy (TD8 of the review on the pull request).
+      assert.equal(entry.timeoutMs, role === 'fixer' || role === 'documentation' || role === 'decider' || role === 'writer' ? 1_800_000 : 600_000, role);
       const scout = ['finder-RIPPLE', 'finder-FOOTGUNS', 'finder-WRAPPERS', 'finder-EFFICIENCY', 'finder-DUPLICATION', 'finder-CONVENTIONS'].includes(role);
       assert.equal(entry.tier, scout ? 'fast' : 'strong', role);
       // The surveyor reads and picks commands that steer the whole fix pass: the strong model, at medium effort (Policy of the repository survey).
@@ -433,9 +434,9 @@ describe('rolesDigest', () => {
     assert.notEqual(rolesDigest(fixer), before);
   });
 
-  it('is one digest over every role, not only the eighteen the review runs', () => {
+  it('is one digest over every role, not only the nineteen the review runs', () => {
     assert.notEqual(rolesDigest(roles), rolesDigest(roles.filter((role) => (reviewRoles as readonly string[]).includes(role.key))));
-    assert.equal(finderAngles.length + 9, reviewRoles.length);
+    assert.equal(finderAngles.length + 10, reviewRoles.length);
     // The decider's prompt is one of them, so a changed decision rubric stops a pinned run from resuming under other prompts.
     const decider = roles.map((role) => (role.key === 'decider' ? { ...role, sha256: '0'.repeat(64) } : role));
     assert.notEqual(rolesDigest(decider), rolesDigest(roles));
