@@ -16,7 +16,9 @@
 // facts before a merge). The fixed set of a pull request holds the
 // writer of a read-only run of `review --pr` while it runs, after it
 // answered and before its answer is recorded, and after the record (R18,
-// "A stop" of the design of the review on the pull request).
+// "A stop" of the design of the review on the pull request), and `publish`
+// after it records the publication and before the post, and after the post
+// and before its record (R13).
 // `npm run resume-test` runs every point of the three.
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
@@ -73,13 +75,16 @@ const basePoints = [
   'worker.finished fixer repair:repair',
 ] as const;
 
-/** The points the suite stops the engine at in the explanation of a read-only run of a pull request, by name (R18 of the review on the pull request). */
+/** The points the suite stops the engine at in the explanation of a read-only run of a pull request and in its `publish`, by name (R13, R18 of the review on the pull request). */
 const pullRequestPoints = [
   // The writer while it runs, before it answers.
   'child writer explanation:explanation#1',
   // The writer's end, after it answered and before its finish and its explanation are recorded, in one append, and after that append.
   'before worker.finished writer explanation:explanation',
   'worker.finished writer explanation:explanation',
+  // `publish` after it records the publication and before the post, and after the post and before its record (R13).
+  'post before',
+  'post after',
 ] as const;
 
 /** Stop the run of `scenario` at each of `points` in each way that applies there, against its run with no stop, which it gives. */
@@ -139,5 +144,9 @@ describe('the contract of resumable runs, in the explanation of a pull request',
     const { outcome } = expected();
     assert.equal(outcome.state.review!.explanationStep, true, 'the run explains its review');
     assert.deepEqual(outcome.explanation, ['recorded from the writer', 'unexplained SCAN-1', 'unexplained SCAN-2']);
+  });
+
+  it('posts the run with no stop as one review, whose URL publish prints last', () => {
+    assert.equal(expected().published, 'https://github.com/acme/widgets/pull/42#pullrequestreview-1');
   });
 });
