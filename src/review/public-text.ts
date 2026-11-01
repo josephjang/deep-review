@@ -7,8 +7,13 @@
  * the places of the machine become marks or paths from the root of the
  * repository; and outside code, what GitHub would turn into a notice, a
  * mention, a reference or, in the writer's prose, a link, is written as
- * code. Pure: it reads no file system and no environment of its own.
+ * code. The cleaning is pure: it reads no file system and no environment
+ * of its own; `machineContextOf`, which gathers what it cleans of, reads
+ * the entries of the root of the machine.
  */
+import { readdirSync } from 'node:fs';
+import type { RunState } from '../checkpoint/fold.ts';
+import { scratchSpellings } from './fix-report.ts';
 import { codeParts, codeSpan, escapedText, windowsPath, withoutScratch } from './markdown.ts';
 
 /** What the machine that ran the review holds, which no posted text may name. */
@@ -27,6 +32,79 @@ export interface MachineContext {
   readonly environment: NodeJS.ProcessEnv;
   /** The names that the root of the machine holds, such as `home` and `tmp`; a path that starts at one of them is local. */
   readonly rootEntries: readonly string[];
+}
+
+/** What `machineContextOf` gathers the machine of a run from. */
+export interface MachineFacts {
+  /** The worktree that the run recorded. */
+  readonly worktree: string;
+  /** The checkpoint root. */
+  readonly checkpoint: string;
+  /** The git common directory of the repository. */
+  readonly gitCommon: string;
+  /** The directory of the engine: the one that holds its entry. */
+  readonly engine: string;
+  /** The run's workers, whose scratch directories `scratchSpellings` spells. */
+  readonly workers: RunState['workers'];
+  /** The command's environment, the variables that hold a token for gh included. */
+  readonly environment: NodeJS.ProcessEnv;
+  /** The platform of the machine, which says where its root is. */
+  readonly platform: NodeJS.Platform;
+  /** The names a directory holds; the root's are read once a process with the default. */
+  readonly readDirectory?: (directory: string) => readonly string[];
+}
+
+/** The names each root directory held when this process first read it, since the root of a machine does not change while a command runs. */
+const readRoots = new Map<string, readonly string[]>();
+
+/** The names a root directory holds, read once a process; none for one this process cannot read. */
+function rootDirectoryEntries(directory: string): readonly string[] {
+  const known = readRoots.get(directory);
+  if (known !== undefined) return known;
+  let entries: readonly string[];
+  try {
+    entries = readdirSync(directory);
+  } catch {
+    entries = [];
+  }
+  readRoots.set(directory, entries);
+  return entries;
+}
+
+/**
+ * The names a path from the root of the machine can start with (R11): off
+ * Windows, the entries of `/`. On Windows a path from the root resolves on
+ * a drive, so they are the letter of each drive that a place of the run or
+ * the system drive is on, as a shell such as Git Bash spells a drive
+ * (`/c/Users`), and the entries of the root of each such drive (`/Users`).
+ * A UNC share is no drive, and its paths are cleaned as shares.
+ */
+function rootEntriesOf(facts: MachineFacts): string[] {
+  const read = facts.readDirectory ?? rootDirectoryEntries;
+  if (facts.platform !== 'win32') return [...read('/')];
+  const places = [facts.worktree, facts.checkpoint, facts.gitCommon, facts.engine, ...(facts.environment.SystemDrive === undefined ? [] : [`${facts.environment.SystemDrive}\\`])];
+  const drives = [...new Set(places.flatMap((place) => /^([A-Za-z]):/.exec(place)?.[1]?.toUpperCase() ?? []))].sort();
+  return [...new Set([...drives.map((drive) => drive.toLowerCase()), ...drives.flatMap((drive) => read(`${drive}:\\`))])];
+}
+
+/**
+ * The machine a review cleans each text of (R11, "The cleaning (R11)" of
+ * the design of the review on the pull request): the places of the run,
+ * the spellings of the scratch directories of its workers, the command's
+ * environment, whose secret values it redacts, and the names a path from
+ * the root of the machine starts with. The writer's task and `publish`
+ * build theirs with it, so both clean alike.
+ */
+export function machineContextOf(facts: MachineFacts): MachineContext {
+  return {
+    worktree: facts.worktree,
+    checkpoint: facts.checkpoint,
+    gitCommon: facts.gitCommon,
+    engine: facts.engine,
+    scratch: scratchSpellings(facts.workers),
+    environment: facts.environment,
+    rootEntries: rootEntriesOf(facts),
+  };
 }
 
 /** A cleaned text and the count of the secrets it no longer holds; never a value. */

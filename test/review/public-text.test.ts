@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { publicProse, publicWords, type MachineContext } from '../../src/review/public-text.ts';
+import { machineContextOf, publicProse, publicWords, type MachineContext } from '../../src/review/public-text.ts';
 
 const rootEntries = ['bin', 'etc', 'home', 'private', 'tmp', 'usr', 'var'];
 
@@ -174,5 +174,28 @@ describe('publicProse', () => {
   it('leaves a bracket in code, and cleans as the words of a worker do', () => {
     assert.equal(prose('`argv[0]` for @octocat in /home/ada/work/feature/src/a.ts'), '`argv[0]` for `@octocat` in src/a.ts');
     assert.equal(prose('\\[already escaped]'), '\\[already escaped]');
+  });
+});
+
+// R11 of the review on the pull request.
+describe('the machine a review cleans its text of', () => {
+  const workers = { w: { launch: { scratch: '/tmp/deep-review-scratch/0123456789abcdef/a1b2' } } } as never;
+  const places = { worktree: '/work/repo', checkpoint: '/work/repo/.git/deep-review-checkpoint', gitCommon: '/work/repo/.git', engine: '/opt/deep-review', workers, environment: { GH_TOKEN: 'gho_secret' } };
+
+  it('reads the entries of / off Windows, and spells the scratch directories of the run', () => {
+    const read: string[] = [];
+    const machine = machineContextOf({ ...places, platform: 'linux', readDirectory: (directory) => (read.push(directory), ['home', 'tmp', 'opt']) });
+    assert.deepEqual(read, ['/']);
+    assert.deepEqual(machine.rootEntries, ['home', 'tmp', 'opt']);
+    assert.deepEqual(machine.scratch, ['/tmp/deep-review-scratch/0123456789abcdef/a1b2', '/tmp/deep-review-scratch/0123456789abcdef']);
+    assert.deepEqual([machine.worktree, machine.checkpoint, machine.gitCommon, machine.engine, machine.environment], [places.worktree, places.checkpoint, places.gitCommon, places.engine, places.environment]);
+  });
+
+  it('on Windows, takes the letter and the root entries of each drive a place of the run or the system drive is on', () => {
+    const read: string[] = [];
+    const entries: Record<string, string[]> = { 'C:\\': ['Users', 'Windows'], 'D:\\': ['work'] };
+    const machine = machineContextOf({ ...places, worktree: 'D:\\work\\repo', checkpoint: 'D:\\work\\repo\\.git\\deep-review-checkpoint', gitCommon: 'D:\\work\\repo\\.git', engine: 'c:\\tools\\deep-review', environment: { SystemDrive: 'C:' }, platform: 'win32', readDirectory: (directory) => (read.push(directory), entries[directory] ?? []) });
+    assert.deepEqual(read, ['C:\\', 'D:\\']);
+    assert.deepEqual(machine.rootEntries, ['c', 'd', 'Users', 'Windows', 'work']);
   });
 });
