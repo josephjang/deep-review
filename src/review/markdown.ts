@@ -118,7 +118,7 @@ export function paragraphText(text: string): string {
  * text and opens nothing; inside a span a backslash is literal and
  * stops no closer.
  */
-function codeParts(text: string): { readonly code: boolean; readonly text: string }[] {
+export function codeParts(text: string): { readonly code: boolean; readonly text: string }[] {
   const parts: { code: boolean; text: string }[] = [];
   let plain = '';
   let at = 0;
@@ -181,7 +181,7 @@ function escapedPlain(text: string): string {
 }
 
 /** Whether a path is spelled for Windows: it begins with a drive letter or holds a backslash. */
-const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
+export const windowsPath = (path: string): boolean => /^[A-Za-z]:|\\/.test(path);
 
 /**
  * A worker's text with each scratch directory of `scratch` written
