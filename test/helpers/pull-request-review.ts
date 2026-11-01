@@ -93,7 +93,7 @@ export const writerAnswer = (): WholeAnswer => ({
 });
 
 /** The machine of the histories here, whose worktree is `/w`. */
-export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, rootEntries: ['home', 'opt', 'tmp', 'w'] };
+export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };
 
 /** The form of a state against the files given, refused or not; `src/a.ts` holds 6 lines at the head. */
 export function renderedOf(state: RunState, answer: RecordedAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm | FormRefusal {
