@@ -255,8 +255,8 @@ export function diagramFailures(diagram: string): string[] {
 /** The failures of a part's diagram, named by where it is; none for a part with no diagram. */
 const diagramFailuresOf = (what: string, diagram: string | null): string[] => (diagram === null ? [] : diagramFailures(diagram).map((failure) => `${what} is no diagram GitHub draws: ${failure}`));
 
-/** A path from the root of the repository, as git names a file: no root, no drive, no backslash, and no empty, `.` or `..` name. */
-const repositoryPath = (path: string): boolean => path !== '' && !path.includes('\\') && !/^[A-Za-z]:/.test(path) && path.split('/').every((name) => name !== '' && name !== '.' && name !== '..');
+/** A path from the root of the repository, as git names a file: no root, no drive, no backslash, no NUL, which git cannot be given and no file name holds, and no empty, `.` or `..` name. */
+const repositoryPath = (path: string): boolean => path !== '' && !path.includes('\\') && !path.includes('\0') && !/^[A-Za-z]:/.test(path) && path.split('/').every((name) => name !== '' && name !== '.' && name !== '..');
 
 /** How a failure names a side. */
 const sideWords: Readonly<Record<CitedSide, string>> = { head: 'the head', base: 'the merge base' };
