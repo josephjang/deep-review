@@ -4,8 +4,9 @@ import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { RunClosedError } from '../checkpoint/errors.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
-import type { CapturedScopeRequest, FrozenFile, ScopeCapturedV2, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
+import type { CapturedScopeRequest, FrozenFile, ScopeCapturedV2, ScopeCapturedV3, ScopeFile, ScopeMode, ScopeRequest, ScopeState } from '../checkpoint/events.ts';
 import { sha256Hex, type EvidenceStore } from '../evidence/store.ts';
+import { pathDifference, type PathDifference, type PullRequest, type PullRequestFile, type PullRequestName } from '../github/pull-request.ts';
 import { readLinkText } from '../paths.ts';
 import { CaptureRacedError, EmptyChangeError, InvalidScopeRequestError, ScopeAlreadyCapturedError, UnsupportedRepositoryStateError } from './errors.ts';
 import * as gitApi from './git.ts';
@@ -143,12 +144,20 @@ export function scopeEnds(repo: string, input: ScopeRequest): { readonly mode: S
   return chooseMode(repo, normalizeRequest(input), gitApi.head(repo));
 }
 
+/** A pull request that a capture records beside its change (R3 of the review on the pull request): the name the command gave it, and what GitHub gave for it. */
+export interface CapturedPullRequest {
+  readonly name: PullRequestName;
+  readonly facts: PullRequest;
+}
+
 /** What a capture is held to beside its request (R4, R10 of the configuration). */
 export interface CaptureOptions {
   /** The patterns `scope.exclude` leaves out of the change. */
   readonly exclude?: readonly string[];
   /** The base the run's configuration was read at: a capture whose base is another refuses, since HEAD moved since. */
   readonly base?: string;
+  /** The pull request whose change the request is, whose head `HEAD` must still be; absent for any other scope. */
+  readonly pullRequest?: CapturedPullRequest;
 }
 
 /**
@@ -158,7 +167,12 @@ export interface CaptureOptions {
  * store the patch of the kept paths, and append one `scope.captured` event
  * that names the paths left out. Nothing is written to the ledger unless
  * every check passes, the base is the one the configuration was read at,
- * and the repository did not move meanwhile.
+ * and the repository did not move meanwhile. A capture of a pull request
+ * also holds `HEAD` to the head GitHub gave, freezes the body of the pull
+ * request in the evidence store, an empty one as none, and records version
+ * 3 with the pull request in the request and its facts beside the change
+ * (R2, R3, TD2 of the review on the pull request); every other capture
+ * records version 2.
  */
 export function captureScope(checkpoint: Checkpoint, runId: string, input: ScopeRequest, options: CaptureOptions = {}): RunState {
   const state = checkpoint.fold(runId);
@@ -171,6 +185,10 @@ export function captureScope(checkpoint: Checkpoint, runId: string, input: Scope
   const { request, mode, base, target, guard: guardBefore, changes, excluded } = resolveScopeRequest(repo, input, options.exclude ?? []);
   if (options.base !== undefined && base !== options.base) {
     throw new CaptureRacedError(`The change now starts from ${base}, not from ${options.base}, where the run's configuration was read: HEAD moved since; run the command again`);
+  }
+  const pullRequest = options.pullRequest;
+  if (pullRequest !== undefined && guardBefore.head !== pullRequest.facts.head) {
+    throw new CaptureRacedError(`HEAD is ${guardBefore.head}, not ${pullRequest.facts.head}, the head of pull request #${String(pullRequest.facts.number)} that GitHub gave: HEAD moved since; run the command again`);
   }
   const observations = observe(repo, base, changes);
 
@@ -187,7 +205,25 @@ export function captureScope(checkpoint: Checkpoint, runId: string, input: Scope
   }
 
   const payload: ScopeCapturedV2 = { mode, request, base, head: guardBefore.head, files, patch, excluded: { paths: excluded.slice(0, maxExcludedNamed), count: excluded.length } };
-  return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 2, payload }]);
+  if (pullRequest === undefined) return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 2, payload }]);
+  const { host, owner, repository, number, url, baseRef, title, body } = pullRequest.facts;
+  const captured: ScopeCapturedV3 = {
+    ...payload,
+    request: { ...request, pullRequest: { number: pullRequest.name.number, repository: pullRequest.name.repository } },
+    pullRequest: { host, owner, repository, number, url, baseRef, title, body: body === null ? null : checkpoint.evidence.put(body) },
+  };
+  return checkpoint.append(runId, state.lastSequence, [{ kind: 'scope.captured', version: 3, payload: captured }]);
+}
+
+/**
+ * How the changed paths of the change from `base` to the working tree,
+ * with no path and no pattern, differ from those the files of a pull
+ * request imply (R2, TD3 of the review on the pull request), or null when
+ * they are the same. A path that `scope.exclude` or `--path` would leave
+ * out is still a path of the change, so it is no difference.
+ */
+export function pullRequestPathDifference(repo: string, base: string, files: readonly PullRequestFile[]): PathDifference | null {
+  return pathDifference(files, changedNames(repo, 'range', base, null, []));
 }
 
 function validateRequest(request: ScopeRequest): void {
@@ -367,26 +403,40 @@ function buildPatch(repo: string, mode: ScopeMode, base: string, target: string 
   return Buffer.concat(parts);
 }
 
-/** A scope as a command names it, before any look at the tree: its mode, `auto` when it names none and the capture chooses by `git status`, and its request. */
-export interface NamedScope {
-  readonly mode: ScopeMode | 'auto';
-  readonly request: ScopeRequest;
-}
+/**
+ * A scope as a command names it, before any look at the tree: its mode,
+ * `auto` when it names none and the capture chooses by `git status`, and
+ * its request; or a pull request, by its number and the repository its
+ * URL names, with the paths, which only GitHub turns into a range (R1 of
+ * the review on the pull request).
+ */
+export type NamedScope =
+  | { readonly mode: ScopeMode | 'auto'; readonly request: ScopeRequest }
+  | { readonly mode: 'pull-request'; readonly request: { readonly pullRequest: PullRequestName; readonly paths: string[] } };
 
 /**
  * Whether a command that names `named` names the scope a run captured
  * (R11, TD9 of resumable runs), compared without a look at the tree, so
  * the flags still match after the run's fixes or `commit` changed it: a
  * `last-commit` or `worktree` mode the run of that mode, `auto` a run of
- * either, a ref or a range the same one, `--branch` among the ranges, and
- * in each case the same paths as the capture spells them.
+ * either, a ref or a range the same one, `--branch` among the ranges, a
+ * pull request the run of the pull request GitHub gave at its capture, by
+ * its number and, when the command gave a URL, its host, owner and
+ * repository, compared without regard to case, while no other scope names
+ * a run of a pull request (R4 of the review on the pull request), and in
+ * each case the same paths as the capture spells them.
  */
-export function namesScope(named: NamedScope, scope: Pick<ScopeState, 'mode' | 'request'>): boolean {
-  const request = normalizeRequest(named.request);
+export function namesScope(named: NamedScope, scope: Pick<ScopeState, 'mode' | 'request' | 'pullRequest'>): boolean {
   const recorded = scope.request;
-  const paths = [...request.paths].sort();
+  const paths = [...named.request.paths].map(normalizePath).sort();
   const recordedPaths = [...recorded.paths].sort();
   if (paths.length !== recordedPaths.length || paths.some((path, index) => path !== recordedPaths[index])) return false;
+  if (named.mode === 'pull-request') {
+    const { number, repository } = named.request.pullRequest;
+    const facts = scope.pullRequest;
+    return facts !== null && facts.number === number && (repository === null || repository.toLowerCase() === `${facts.host}/${facts.owner}/${facts.repository}`.toLowerCase());
+  }
+  const request = normalizeRequest(named.request);
   switch (named.mode) {
     case 'last-commit':
     case 'worktree':
@@ -396,13 +446,17 @@ export function namesScope(named: NamedScope, scope: Pick<ScopeState, 'mode' | '
     case 'ref':
       return scope.mode === 'ref' && recorded.ref === request.ref;
     case 'range':
-      return scope.mode === 'range' && recorded.range !== undefined && request.range !== undefined && recorded.range.from === request.range.from && recorded.range.to === request.range.to && recorded.range.mergeBase === request.range.mergeBase;
+      // A range of a pull request is reopened only by a command that names the pull request.
+      return scope.mode === 'range' && scope.pullRequest === null && recorded.range !== undefined && request.range !== undefined && recorded.range.from === request.range.from && recorded.range.to === request.range.to && recorded.range.mergeBase === request.range.mergeBase;
   }
 }
 
+/** A path as the capture spells it: with slashes, and none at its end. */
+const normalizePath = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '');
+
 function normalizeRequest(request: ScopeRequest): ScopeRequest {
   const normalized: { ref?: string; range?: { from: string; to: string; mergeBase: boolean }; paths: string[] } = {
-    paths: request.paths.map((path) => path.replaceAll('\\', '/').replace(/\/+$/, '')),
+    paths: request.paths.map(normalizePath),
   };
   if (request.ref !== undefined) normalized.ref = request.ref;
   if (request.range !== undefined) normalized.range = { from: request.range.from, to: request.range.to, mergeBase: request.range.mergeBase };

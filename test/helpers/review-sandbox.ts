@@ -90,11 +90,12 @@ export const afterFind = (checkpoint: Checkpoint, act: (target: Checkpoint) => v
  */
 export const scopeSource = (request: () => ScopeRequest, named = true): ScopeSource => ({
   named,
+  pullRequest: false,
   choice: () => {
     const given = request();
     return { mode: given.ref !== undefined ? 'ref' : given.range !== undefined ? 'range' : 'auto', request: given };
   },
-  request,
+  request: () => ({ request: request(), pullRequest: null }),
 });
 
 /** The checkpoint with `seen` called before each append, with the events, which may throw to refuse it; every other member goes to the checkpoint itself. */

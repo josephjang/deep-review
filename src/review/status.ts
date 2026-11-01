@@ -88,7 +88,8 @@ export function askedModeOf(state: RunState): AskedMode {
 /** The facts of the `Scope:` line of a run, from the scope it captured: no count of uncommitted files, which the run does not record. */
 function shownScopeOf(state: RunState, scope: ScopeState, commits: number | null): ShownScope {
   const mode = askedModeOf(state);
-  return { mode, base: scope.base, baseName: baseNameOf(mode, scope.request), target: scope.mode === 'last-commit' ? scope.head : null, commits, fileCount: scope.files.length, excludedCount: scope.excluded.count, uncommitted: null, empty: null };
+  const pullRequest = scope.pullRequest === null ? null : { number: scope.pullRequest.number, owner: scope.pullRequest.owner, repository: scope.pullRequest.repository };
+  return { mode, pullRequest, base: scope.base, baseName: baseNameOf(mode, scope.request, scope.pullRequest), target: scope.mode === 'last-commit' ? scope.head : null, commits, fileCount: scope.files.length, excludedCount: scope.excluded.count, uncommitted: null, empty: null };
 }
 
 /** What `status` prints about a run, as text lines and as a JSON value. */

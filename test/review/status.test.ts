@@ -300,7 +300,7 @@ describe('the scope of a run in status (R12 of the questions in the chat)', () =
     const withExcluded: RunState = { ...state, scope: { ...state.scope!, request: { ...state.scope!.request, exclude: ['dist/**'] }, excluded: { paths: ['dist/a.js', 'dist/b.js'], count: 2 } } };
     const described = describeRun(withExcluded, claudeAdapter, evidencePath, { commits: 3 });
     assert.equal(described.lines[2], `Scope: branch, 3 commits and 1 file (2 more paths left out by scope.exclude), from the merge base with origin/main (${'1'.repeat(8)}) to the working tree`);
-    assert.deepEqual(described.json.scope, { mode: 'branch', base: '1'.repeat(40), baseName: 'the merge base with origin/main', target: null, commits: 3, fileCount: 1, excludedCount: 2, uncommitted: null, empty: null, files: ['src/a.ts'], excluded: ['dist/a.js', 'dist/b.js'] });
+    assert.deepEqual(described.json.scope, { mode: 'branch', pullRequest: null, base: '1'.repeat(40), baseName: 'the merge base with origin/main', target: null, commits: 3, fileCount: 1, excludedCount: 2, uncommitted: null, empty: null, files: ['src/a.ts'], excluded: ['dist/a.js', 'dist/b.js'] });
     // With no count, the line leaves it out; a last-commit scope ends at its commit.
     const lastCommit: RunState = { ...state, scope: { ...state.scope!, mode: 'last-commit', request: { paths: [], exclude: [] } } };
     assert.equal(describeRun(lastCommit, claudeAdapter, evidencePath).lines[2], `Scope: last-commit, 1 file, from the parent of HEAD (${'1'.repeat(8)}) to ${'2'.repeat(8)}`);

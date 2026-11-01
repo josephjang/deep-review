@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, type TestContext } from 'node:test';
 import { main, type CommandIo } from '../../src/command.ts';
 import { locateCheckpoint } from '../../src/checkpoint/locate.ts';
 import { explainLines, initText, tomlValue, validateBytes } from '../../src/config/command.ts';
@@ -12,6 +12,7 @@ import { fileLayers, layerSettings, settingNames, settings } from '../../src/con
 import { repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { readPolicy } from '../../src/review/policy.ts';
 import { commitAll, git, repositoryWith, write } from '../helpers/repository.ts';
+import { fakeGh, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
 
 const policy = readPolicy(repositoryRolesRoot());
 
@@ -51,7 +52,7 @@ describe('the config command\'s text', () => {
   });
 
   it('gives the Scope line with no count of commits when git gave none, the empty tree by its name, and one of each in the singular (R12 of the questions in the chat)', () => {
-    const shown = { mode: 'last-commit', base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904', baseName: 'the parent of HEAD', target: 'a'.repeat(40), commits: null, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null } as const;
+    const shown = { mode: 'last-commit', pullRequest: null, base: '4b825dc642cb6eb9a060e54bf8d69288fbee4904', baseName: 'the parent of HEAD', target: 'a'.repeat(40), commits: null, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null } as const;
     assert.equal(scopeLine(shown), `Scope: last-commit, 1 file (1 more path left out by scope.exclude), from the empty tree to ${'a'.repeat(8)}`);
     assert.equal(scopeLine({ ...shown, mode: 'worktree', base: 'b'.repeat(40), baseName: 'HEAD', target: null, commits: 0, excludedCount: 0, uncommitted: 1 }), `Scope: worktree, no commit and 1 file, from HEAD (${'b'.repeat(8)}) to the working tree, where 1 file holds uncommitted changes`);
     assert.equal(scopeLine({ ...shown, mode: 'ref', base: 'b'.repeat(40), baseName: 'v1.0', target: null, commits: 1, excludedCount: 0, uncommitted: 0 }), `Scope: ref, 1 commit and 1 file, from v1.0 (${'b'.repeat(8)}) to the working tree, which has no uncommitted change`);
@@ -118,7 +119,7 @@ describe('deep-review config', () => {
     const json = JSON.parse(out.join('')) as { values: Record<string, { value: unknown; layer: string }>; scope: unknown; repository: { state: string } };
     assert.deepEqual(json.values['scope.exclude'], { value: ['dist/**'], layer: 'repository' });
     // The facts of the line, and the path of each reviewed file and of each path left out (PD9 of the questions in the chat).
-    assert.deepEqual(json.scope, { mode: 'last-commit', base, baseName: 'the parent of HEAD', target: head, commits: 1, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null, files: ['src/b.ts'], excluded: ['dist/b.js'] });
+    assert.deepEqual(json.scope, { mode: 'last-commit', pullRequest: null, base, baseName: 'the parent of HEAD', target: head, commits: 1, fileCount: 1, excludedCount: 1, uncommitted: null, empty: null, files: ['src/b.ts'], excluded: ['dist/b.js'] });
     assert.equal(json.repository.state, 'read');
     assert.equal(existsSync(join(locateCheckpoint(repo).root, 'ledger.sqlite')), false, 'no checkpoint, so no run');
   });
@@ -134,7 +135,7 @@ describe('deep-review config', () => {
     out.length = 0;
     assert.equal(await config('show', '--runtime', 'claude', '--json'), 0, err.join(''));
     const json = JSON.parse(out.join('')) as { scope: unknown };
-    assert.deepEqual(json.scope, { mode: 'worktree', base: head, baseName: 'HEAD', target: null, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: 'The change has no path left to review: scope.exclude (src/**) leaves out all 1 of its changed paths', files: [], excluded: [] }, 'an empty change keeps its reason, with two empty lists');
+    assert.deepEqual(json.scope, { mode: 'worktree', pullRequest: null, base: head, baseName: 'HEAD', target: null, commits: null, fileCount: 0, excludedCount: 0, uncommitted: null, empty: 'The change has no path left to review: scope.exclude (src/**) leaves out all 1 of its changed paths', files: [], excluded: [] }, 'an empty change keeps its reason, with two empty lists');
   });
 
   describe('the Scope line (R12 of the questions in the chat)', () => {
@@ -192,6 +193,45 @@ describe('deep-review config', () => {
       assert.equal(await config(...args), 1, args.join(' '));
       assert.match(err.join(''), /usage:/, args.join(' '));
     }
+  });
+
+  describe('--pr (R1, R6, R15 of the review on the pull request)', () => {
+    /** The flags that make `gh` the stand-in under `steps`, whose script the environment names. */
+    const withGh = (t: TestContext, steps: readonly FakeGhStep[]): string[] => {
+      const { script } = fakeGhWith(t, steps);
+      io = { ...io, environment: { ...io.environment, FAKE_GH_SCRIPT: script } };
+      return ['--set', `github.executable=${JSON.stringify(process.execPath)}`, '--set', `github.args=[${JSON.stringify(fakeGh)}]`];
+    };
+
+    it('shows the scope review --pr would capture, from the merge base the fake gh gives, with the repository\'s file read there, and starts no run', async (t) => {
+      const base = git(repo, 'rev-parse', 'HEAD~1');
+      const head = git(repo, 'rev-parse', 'HEAD');
+      const gh = withGh(t, [
+        { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: { html_url: 'https://github.com/acme/widgets/pull/42', number: 42, state: 'open', merged: false, head: { sha: head }, base: { ref: 'main' }, changed_files: 1, title: 'A change', body: null } }] },
+        { endpoint: 'repos/acme/widgets/git/ref/heads/main', pages: [{ body: { object: { sha: 'd'.repeat(40) } } }] },
+        { endpoint: `repos/acme/widgets/compare/${'d'.repeat(40)}...${head}`, pages: [{ body: { merge_base_commit: { sha: base } } }] },
+        { endpoint: 'repos/acme/widgets/pulls/42/files?per_page=100', pages: [{ body: [{ filename: 'src/a.ts', status: 'modified' }] }] },
+      ]);
+      assert.equal(await config('show', '--runtime', 'claude', '--pr', '42', ...gh), 0, err.join(''));
+      assert.equal(out.join('').split('\n')[0], `Scope: pull-request #42 of acme/widgets, 1 commit and 1 file, from the merge base with main (${base.slice(0, 8)}) to the working tree, which has no uncommitted change`);
+      assert.match(out.join(''), new RegExp(`^Repository's file: absent at ${base}$`, 'm'), 'pass 2 reads the repository\'s file at the merge base GitHub gave');
+      assert.equal(existsSync(join(locateCheckpoint(repo).root, 'ledger.sqlite')), false, 'no checkpoint, so no run');
+    });
+
+    it('refuses what review --pr refuses, a missing gh among them, with its action and exit 2', async (t) => {
+      const gh = withGh(t, [
+        { endpoint: 'repos/acme/widgets/pulls/42', pages: [{ status: 404, body: { message: 'Not Found' } }] },
+        { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: { html_url: 'https://github.com/acme/widgets/pull/42', number: 42, state: 'closed', merged: true, head: { sha: 'e'.repeat(40) }, base: { ref: 'main' }, changed_files: 1, title: 'A change', body: null } }] },
+      ]);
+      assert.equal(await config('show', '--runtime', 'claude', '--pr', 'https://github.com/acme/widgets/pull/42', ...gh), 2, err.join(''));
+      assert.match(err.join(''), /^refused: reading pull request #42: GitHub answered 404: Not Found$/m);
+      err.length = 0;
+      assert.equal(await config('show', '--runtime', 'claude', '--pr', '42', ...gh), 2);
+      assert.match(err.join(''), /^refused: pull request #42 of acme\/widgets is merged, and deep-review reviews an open pull request only$/m);
+      err.length = 0;
+      assert.equal(await config('show', '--runtime', 'claude', '--pr', '42', '--set', `github.executable=${JSON.stringify(join(root, 'no-gh'))}`), 2);
+      assert.match(err.join(''), /no-gh is not a file; set github\.executable to the path of gh's executable/);
+    });
   });
 
   it('refuses a --set of another runtime\'s setting, as the dedicated flag is refused, and takes one of the run\'s runtime', async () => {

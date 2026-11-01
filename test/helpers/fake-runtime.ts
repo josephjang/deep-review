@@ -381,7 +381,7 @@ export function record(host: FakeHost, stdin: string): void {
   if (file === undefined) return;
   const role = host.environment.FAKE_RECORD_ROLE;
   if (role !== undefined && readTaskHeader(stdin)?.role !== role) return;
-  const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH'];
+  const pinned = ['TEMP', 'TMP', 'TMPDIR', 'MSBUILDDISABLENODEREUSE', 'DOTNET_CLI_USE_MSBUILD_SERVER', 'UseSharedCompilation', 'UseRazorBuildServer', 'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'Path', 'PATH', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'];
   const seen = Object.fromEntries(Object.entries(host.environment).filter(([name]) => pinned.some((pin) => pin.toUpperCase() === name.toUpperCase())));
   writeWhole(file, JSON.stringify({ argv: host.args, stdin, cwd: host.cwd, environment: seen }), host.id);
 }

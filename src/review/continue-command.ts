@@ -30,10 +30,11 @@ const word = (text: string): string => (/^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.
  */
 const flagWords = (flag: string, value: string): string[] => (value.startsWith('-') ? [word(`${flag}=${value}`)] : [flag, word(value)]);
 
-/** The flags that name a captured scope as `namesScope` matches them: its mode, its ref or range, and each path. */
-function scopeFlags(scope: Pick<ScopeState, 'mode' | 'request'>): string[] {
+/** The flags that name a captured scope as `namesScope` matches them: its mode, its ref or range, or the URL of its pull request (R4 of the review on the pull request), and each path. */
+function scopeFlags(scope: Pick<ScopeState, 'mode' | 'request' | 'pullRequest'>): string[] {
   const { request } = scope;
   const paths = request.paths.flatMap((path) => flagWords('--path', path));
+  if (scope.pullRequest !== null) return [...flagWords('--pr', scope.pullRequest.url), ...paths];
   switch (scope.mode) {
     case 'last-commit':
       return ['--last-commit', ...paths];
