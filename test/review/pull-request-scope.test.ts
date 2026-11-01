@@ -168,7 +168,7 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
     const { head, base } = commitsOf(box);
     const captured = box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'scope.captured')!;
     assert.equal(captured.version, 3);
-    assert.equal(box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'review.configured')!.version, 9, 'a read-only run of a pull request still configures at version 9 here');
+    assert.equal(box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'review.configured')!.version, 10, 'a read-only run of a pull request explains its review');
     const scopeState = state.scope!;
     assert.deepEqual([scopeState.mode, scopeState.base, scopeState.head, scopeState.request.range, scopeState.request.pullRequest], ['range', base, head, { from: base, to: 'HEAD', mergeBase: false }, { number: 42, repository: null }]);
     const { body, ...facts } = scopeState.pullRequest!;
