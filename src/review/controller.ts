@@ -160,6 +160,11 @@ function refusingGitHub<T>(read: () => T, unreadable: string | null = null): T {
 /** What answers a pull request named by its number that `gh` cannot read, as when it cannot tell the repository of the clone, or null for one named by its URL. */
 const urlAction = (name: PullRequestName): string | null => (name.repository === null ? `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${String(name.number)}, when gh cannot tell the repository of this clone` : null);
 
+/** Refuse a tree that `git status` does not show clean, as `--pr` reviews the head of the pull request alone. */
+function requireCleanTree(worktree: string, facts: PullRequest): void {
+  if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+}
+
 /**
  * Read the pull request a command names from GitHub through `gh`, and
  * hold the worktree to it (R1, R2, TD3 of the review on the pull
@@ -174,11 +179,6 @@ const urlAction = (name: PullRequestName): string | null => (name.repository ===
  * side. The request is then the range from the merge base to `HEAD`,
  * taken as it is, with the paths the command named.
  */
-/** Refuse a tree that `git status` does not show clean, as `--pr` reviews the head of the pull request alone. */
-function requireCleanTree(worktree: string, facts: PullRequest): void {
-  if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
-}
-
 export function resolvePullRequestScope(worktree: string, named: Extract<NamedScope, { readonly mode: 'pull-request' }>['request'], gh: Gh): RequestedScope {
   const name = named.pullRequest;
   const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
