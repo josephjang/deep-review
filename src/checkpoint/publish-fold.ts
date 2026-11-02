@@ -6,10 +6,9 @@
  * pull request and the head the run reviewed, and to at most one posted
  * review, so a run is posted at most once.
  */
-import { InvalidHistoryError } from './errors.ts';
 import type { PublishDropped, PublishPosted, PublishPrepared } from './events.ts';
 import type { DecodedEvent, Reducer, RunState } from './fold.ts';
-import { invalid } from './review-fold.ts';
+import { invalid, requireRun } from './review-fold.ts';
 
 /**
  * One publication of a run: prepared and not settled yet, which a stop
@@ -28,12 +27,6 @@ export const publicationMarker = (runId: string, serial: number): string => `dee
 export function postedReviewUrl(run: Pick<RunState, 'publications'>): string | null {
   for (const publication of run.publications) if (publication.status === 'posted') return publication.posted.review.url;
   return null;
-}
-
-/** The run, which must exist. */
-function requireRun(state: RunState | undefined, event: DecodedEvent): RunState {
-  if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  return state;
 }
 
 /**

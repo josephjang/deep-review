@@ -310,11 +310,22 @@ export function unitOfLostWorker(phase: Phase | null, key: string | null): UnitR
 export const invalid = (event: DecodedEvent, what: string): InvalidHistoryError =>
   new InvalidHistoryError(`Run ${event.runId} ${what}, at sequence ${String(event.sequence)} (${event.kind}@${String(event.version)})`);
 
+/**
+ * The run, which must exist. It lives here rather than in fold.ts, whose
+ * `requireState` says the same, because the sub-folds import fold.ts as
+ * types only: fold.ts imports them as values, so a value import back would
+ * close the cycle.
+ */
+export function requireRun(state: RunState | undefined, event: DecodedEvent): RunState {
+  if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
+  return state;
+}
+
 /** The run, which must exist and be configured for review. */
 export function requireReview(state: RunState | undefined, event: DecodedEvent): { current: RunState; review: ReviewState } {
-  if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  if (state.review === null) throw invalid(event, `has ${event.kind} before review.configured`);
-  return { current: state, review: state.review };
+  const current = requireRun(state, event);
+  if (current.review === null) throw invalid(event, `has ${event.kind} before review.configured`);
+  return { current, review: current.review };
 }
 
 /** The phase, which must be running under the given attempt. */
@@ -381,9 +392,9 @@ interface ConfiguredSteps {
  * starts its state of it empty, and every run starts with no answer.
  */
 function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, { surveyed, decided, documented, compared, cited, explained }: ConfiguredSteps): RunState {
-  if (state === undefined) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  if (state.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
-  if (state.review !== null) throw invalid(event, 'is configured for review twice');
+  const current = requireRun(state, event);
+  if (current.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
+  if (current.review !== null) throw invalid(event, 'is configured for review twice');
   const skipped = new Set<Phase>([...(payload.fix ? [] : fixPhases), ...(surveyed ? [] : ['survey' as const]), ...(decided ? [] : ['decision' as const]), ...(documented ? [] : ['documentation' as const]), ...(compared ? [] : ['base-checks' as const]), ...(explained ? [] : ['explanation' as const]), ...answerPhases]);
   const review: ReviewState = {
     configuration: payload,
@@ -415,7 +426,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     answers: [],
     answerPasses: [],
   };
-  return withReview(state, review, event);
+  return withReview(current, review, event);
 }
 
 /** A run configured before version 6 recorded no settings, and was continued, if at all, by a `fix.pinned@1`, which recorded none either. */
