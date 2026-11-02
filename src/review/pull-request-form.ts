@@ -97,6 +97,12 @@ export function placeFindings(review: ReviewState, files: readonly PullRequestFi
   });
 }
 
+/** Each path whose count of lines the form asks of `lineCount`: the path of each finding with a place and of each refuted candidate with one, so the caller reads them at once. */
+export function lineCountPaths(review: ReviewState, places: readonly FindingPlacement[]): string[] {
+  const candidates = refuted(review).flatMap(({ candidate }) => (repositoryLocation(candidate) === null ? [] : [candidate.file!]));
+  return [...new Set([...places.flatMap((placement) => placement.location?.path ?? []), ...candidates])];
+}
+
 /** A commit as the form names it, by its first 8 characters, as the brief names a run. */
 const shortCommit = (commit: string): string => commit.slice(0, 8);
 
