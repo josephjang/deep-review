@@ -42,7 +42,7 @@ import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { refusingGitHub, type GitHubRefusal } from '../github/errors.ts';
 import { ghTokenVariables, type Gh } from '../github/gh.ts';
-import { listPullRequestFiles, pullRequestLabel, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName, type PullRequestTarget } from '../github/pull-request.ts';
+import { closedState, listPullRequestFiles, pullRequestLabel, readCurrentMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName, type PullRequestTarget } from '../github/pull-request.ts';
 import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
@@ -180,11 +180,11 @@ export function resolvePullRequestScope(worktree: string, named: Extract<NamedSc
   }
   return refusingGitHub(() => {
     const words = pullRequestLabel(facts);
-    if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
+    if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${closedState(facts)}, and deep-review reviews an open pull request only`);
     const head = gitHead(worktree);
     if (head !== facts.head) throw new ReviewRefusedError(`HEAD is ${head}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
     requireCleanTree(worktree, facts);
-    const mergeBase = readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
+    const mergeBase = readCurrentMergeBase(gh, facts);
     if (!hasCommit(worktree, mergeBase)) {
       throw new ReviewRefusedError(`the clone does not hold ${mergeBase}, the merge base GitHub gives for ${words} with its base branch ${facts.baseRef}; fetch the history down to it, such as \`git fetch --unshallow\` in a shallow clone, and run the command again`);
     }
