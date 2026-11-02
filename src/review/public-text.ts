@@ -287,12 +287,15 @@ const rest = String.raw`(?:[/\\]+${segment})*[/\\]*`;
  * inside a longer name or path, or after a mark such as `<git>`, is not
  * one; a URL's host is the first name of what follows its `//`, so a URL
  * stays as a whole. A separator may be doubled, as a path in a JSON
- * string spells a backslash, and a UNC share starts at a host's name.
+ * string spells a backslash, and a UNC share starts at a host's name. The
+ * separator after the host is escaped as the run before it is, one after
+ * two backslashes or two after four, so an escape such as `\\n\\n` or
+ * `\\s\\w`, whose runs are alike, is no share.
  */
 const localPath = new RegExp([
   String.raw`(?<![\p{L}\p{N}_.~>-])/(?<first>${segment})${rest}`,
   String.raw`(?<![\p{L}\p{N}_])[A-Za-z]:[/\\]+(?:${segment}${rest})?`,
-  String.raw`(?<!\\)\\{2,}[A-Za-z0-9_.$-]+[/\\]+${segment}${rest}`,
+  String.raw`(?<!\\)(?:\\{2}[A-Za-z0-9_.$-]+[/\\]|\\{4}[A-Za-z0-9_.$-]+\\{2})${segment}${rest}`,
   String.raw`(?<![\p{L}\p{N}_.~/\\-])~[A-Za-z0-9_.-]*[/\\]+(?:${segment}${rest})?`,
 ].join('|'), 'gu');
 
