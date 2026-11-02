@@ -171,15 +171,18 @@ const unrecordedWords = (settled: string | null): string => (settled === null ? 
  * A call of GitHub before the publication is prepared, whose refusal by
  * GitHub or `gh` is a refusal of the command (R8), with an account's
  * action for a 401 or a 404, and what was recorded, `unrecorded`; a
- * timeout and an answer the engine cannot read stay errors, exit 1.
+ * timeout and an answer the engine cannot read stay errors, exit 1. A
+ * call made once the account has read the pull request names in `gone`
+ * what a 404 means then, which no other account answers.
  */
-function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded: string): T {
+function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded: string, gone?: string): T {
   try {
     return read();
   } catch (error) {
     if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     if (!(error instanceof GitHubCallError)) throw error;
     const { failure } = error;
+    if (failure.kind === 'answer' && failure.status === 404 && gone !== undefined) throw new ReviewRefusedError(`${error.message}; ${gone}; ${unrecorded}`);
     if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestLabel(target)}`);
     if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     throw error;
@@ -206,9 +209,10 @@ function whyNotPostable(run: RunState): string | null {
 
 /**
  * Read the pull request again and refuse one that is not open (PD9), a
- * head that is not the run's head, and a merge base that is not the run's
- * base (PD2): a run is posted only on the change it reviewed. A refusal
- * says what was recorded, `unrecorded`.
+ * head that is not the run's head, a base branch or a commit of the
+ * comparison that GitHub no longer has, and a merge base that is not the
+ * run's base (PD2): a run is posted only on the change it reviewed. A
+ * refusal says what was recorded, `unrecorded`.
  */
 function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const scope = run.scope!;
@@ -219,7 +223,8 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
-  const mergeBase = refusingGitHub(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded);
+  const gone = `the base branch ${facts.baseRef} or a commit of its comparison with the head is no longer on GitHub; review the pull request again with deep-review review --pr ${String(target.number)}`;
+  const mergeBase = refusingGitHub(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded, gone);
   if (mergeBase !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase} now, not ${scope.base}, the base run ${run.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
