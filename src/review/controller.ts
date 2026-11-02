@@ -968,6 +968,13 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
                 degraded(`${degradation.key} not attempted${degradation.cause === 'budget' ? ' (budget)' : ''}`, degradation.reason);
                 // What failed workers left is already recorded, with each failure (R20 of the fix pass).
                 return { kind: 'unit.unattempted', version: writtenVersion('unit.unattempted', [degradation.phase]), payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+              case 'explanation.dropped': {
+                // The parts an earlier answer of the writer passed are kept, and every other is dropped with the reason, so the run writes its report (R18 of the review on the pull request).
+                const dropped = droppedExplanation(state, revisionContext(), degradation.reason);
+                const parts = (dropped.payload as ExplanationRecorded).dropped.length;
+                degraded(parts === 0 ? 'every part of the explanation kept from an earlier answer' : `${String(parts)} part${parts === 1 ? '' : 's'} of the explanation dropped`, degradation.reason);
+                return dropped;
+              }
             }
           }));
           break;
@@ -1018,14 +1025,6 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
         case 'await':
           await recordSettled(inFlight, record);
           break;
-        case 'drop-explanation': {
-          // The parts an earlier answer of the writer passed are kept, and every other is dropped with the reason, so the run writes its report (R18 of the review on the pull request).
-          const dropped = droppedExplanation(state, revisionContext(), step.reason);
-          const parts = (dropped.payload as ExplanationRecorded).dropped.length;
-          log(`phase explanation: ${parts === 0 ? 'every part of the explanation kept from an earlier answer' : `${String(parts)} part${parts === 1 ? '' : 's'} of the explanation dropped`}: ${step.reason}`);
-          state = append(checkpoint, state, [dropped]);
-          break;
-        }
         case 'finish-phase':
           // Before the phase's end, so no crash after it leaves a worktree of the base that no later attempt removes (TD3 of the facts before a merge).
           if (step.phase === 'base-checks') removeBase();
