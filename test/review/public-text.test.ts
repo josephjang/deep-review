@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { homedir } from 'node:os';
 import { describe, it } from 'node:test';
-import { machineContextOf, publicProse, publicWords, type MachineContext } from '../../src/review/public-text.ts';
+import { machineContextOf, publicCode, publicProse, publicWords, type MachineContext } from '../../src/review/public-text.ts';
 
 const rootEntries = ['bin', 'etc', 'home', 'private', 'tmp', 'usr', 'var'];
 
@@ -86,6 +86,15 @@ describe('publicWords: the places of the machine', () => {
     assert.equal(words('the route /pulls/42 answers'), 'the route /pulls/42 answers');
     assert.equal(words('in src/tmp/x.ts and ./home/a'), 'in src/tmp/x.ts and ./home/a');
     assert.equal(words('see https://example.com/home/x'), 'see https://example.com/home/x');
+  });
+
+  it('writes a UNC share and its JSON spelling as <local path>, and leaves an escape whose runs of backslashes are alike', () => {
+    assert.equal(words('on \\\\fileserver\\share\\x and "\\\\\\\\fileserver\\\\share\\\\x"', windows), 'on \\<local path> and "\\<local path>"');
+    assert.equal(publicCode('\\\\fileserver\\share\\x', windows).text, '<local path>');
+    const quoted = String.raw`split('\\n\\n'), the regex /\\s\\w/ and JSON "a\\nb\\tc"`;
+    assert.equal(words(quoted, windows), quoted);
+    assert.equal(words(`\`${quoted}\``, windows), `\`${quoted}\``, 'inside a code span');
+    assert.equal(publicCode(quoted, windows).text, quoted);
   });
 
   it('writes the home directory as <local path> with the path after it, though a name in it holds a space', () => {

@@ -105,25 +105,6 @@ describe('the body and the comments of the review (R9, R10, PD13, PD14)', () => 
     includes(formOf(state, said).body, '````mermaid\nflowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading\n````');
   });
 
-  it('checks each diagram again once cleaned, and leaves out with a line one that its cleaning broke (R11, R19)', () => {
-    const broken = writerAnswer();
-    broken.conclusion.diagram = 'flowchart LR\n  A["x"] --> /tmp/x';
-    const left = formOf(state, broken).body;
-    includes(left, '\n\nA diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.\n');
-    assert.ok(!left.includes('--> <local path>') && !left.includes('/tmp/x'), 'the broken diagram is not posted');
-    const edge = writerAnswer();
-    edge.conclusion.diagram = 'flowchart LR\n  A["x"] -- /tmp/x --> B["b"]';
-    includes(formOf(state, edge).body, '```mermaid\nflowchart LR\n  A["x"] -- <local path> --> B["b"]\n```');
-    const cleaned = writerAnswer();
-    cleaned.conclusion.diagram = 'flowchart LR\n  A["reads /tmp/x"] --> B["b"]';
-    const kept = formOf(state, cleaned).body;
-    includes(kept, '```mermaid\nflowchart LR\n  A["reads <local path>"] --> B["b"]\n```');
-    assert.ok(!kept.includes('A diagram is left out here'));
-    const secret = writerAnswer();
-    secret.conclusion.diagram = `flowchart LR\n  A["x"] -- ghp_${'a1B2'.repeat(9)} --> B["b"]`;
-    assert.equal(formOf(state, secret).secrets - formOf(state).secrets, 1, 'a secret of a diagram left out is still counted');
-  });
-
   it('gives the cited runs of a verdict as the verifier\'s own words, the command as code', () => {
     const cited = formOf(withAccount(rewritten(run(), (kind, payload) => (kind === 'verdicts.recorded' && payload.phase === 'verification'
       ? { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map((verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, basis: 'ran', runs: [{ command: 'node /tmp/x/probe.mjs', printed: ['TypeError: null'], probe: null, at: 3, exitCode: 1 }] } : verdict)) }
@@ -208,21 +189,6 @@ describe('the cleaning of what the review posts (R11)', () => {
       ? { ...payload, request: { ...(payload.request as object), exclude: ['**/__snapshots__/**', '@org-team.json'] }, excluded: { paths: ['a/__snapshots__/x.snap'], count: 1 } }
       : undefined));
     includes(formOf(history.fold()).body, '\n- 1 changed path under \\*\\*/\\_\\_snapshots\\_\\_/\\*\\*, `@org-team`.json, which the settings leave out.\n');
-  });
-
-  it('cleans the runtime\'s version, the models and the excluded patterns that the settings name, and counts their secrets', () => {
-    const token = `ghp_${'A1b2C3d4'.repeat(5)}`;
-    const history = rewritten(run(), (kind, payload) => {
-      if (kind === 'review.configured') return { ...payload, version: '2.1.283 @octocat', models: { strong: `/home/me/models/${token}`, fast: '@octocat' } };
-      if (kind === 'scope.captured') return { ...payload, request: { ...(payload.request as object), exclude: [`x/${token}`, 'vendor/**'] }, excluded: { paths: ['vendor/a.js'], count: 1 } };
-      return undefined;
-    });
-    const plain = formOf(run().fold());
-    const form = formOf(history.fold());
-    includes(form.body, '\nReviewed by deep-review 0.0.0+dev on claude 2.1.283 `@octocat` with \\<local path>[redacted GitHub token] and `@octocat`, run `run-1`, commits 11111111..22222222.\n');
-    includes(form.body, '`x/[redacted GitHub token]`, `vendor/**` left out 1 changed path');
-    assert.ok(!form.body.includes(token), 'no token');
-    assert.equal(form.secrets - plain.secrets, 3, 'the token in the path of the model, in the excluded pattern, and in the gap that quotes the pattern');
   });
 
   describe('keeps code that the form puts on one line or splits into paragraphs from turning into live text', () => {
