@@ -164,13 +164,30 @@ const nodeId = /^[\p{L}\p{N}_]+/u;
  * The text of an edge written between its arrow's two halves, as in
  * `A -- text --> B`, `A -. text .-> B` and `A == text ==> B`: an opening
  * `--`, `-.` or `==` that is no part of a longer arrow, and the text up to
- * the next arrow, which a semicolon in it would end early.
+ * the next arrow, which a semicolon in it would end early. A `--` or `==`
+ * right before `x` or `o` is a cross or circle arrow, as `A --x B`, which
+ * holds no text.
  */
-const edgeText = /(?<![-=.<])<?(?:--|==|-\.)(?![-=.>])(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
+const edgeText = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
+/** The value of `label:` in the body of a node's `@{ ... }` shape, its quoted text taken out. */
+const shapeLabel = /(?:^|[\s,])label\s*:\s*([^,]*)/;
 
-/** The failures of one line of a flowchart: each quoted label, each label between bars and each text of an edge, and the label of a node that is not quoted. */
+/** The failures of a subgraph's line, the text after `subgraph`: each quoted label, and the title as the rest of the line gives it, `S [title]` or a title alone. */
+function subgraphFailures(rest: string, number: number): string[] {
+  const quoted = /"([^"]*)"/g;
+  const bare = rest.replaceAll(quoted, '');
+  return [
+    ...[...rest.matchAll(quoted)].flatMap((label) => labelFailures(`the label on line ${String(number)}`, label[1]!)),
+    ...(bare.includes('"') ? [`line ${String(number)} opens a label it does not close`] : []),
+    ...labelFailures(`the title of the subgraph on line ${String(number)}`, bare),
+  ];
+}
+
+/** The failures of one line of a flowchart: each quoted label, each label between bars, each text of an edge, the title of a subgraph and the label of a node's `@{ ... }` shape, and the label of a node that is not quoted. */
 function flowchartLineFailures(line: string, number: number): string[] {
   if (flowchartStyling.test(line)) return [];
+  const subgraph = /^subgraph\b(.*)$/.exec(line);
+  if (subgraph !== null) return subgraphFailures(subgraph[1]!, number);
   const failures: string[] = [];
   // The quoted labels and those between bars are checked below, so they are taken out before the text of an edge is looked for.
   for (const edge of line.replaceAll(/"[^"]*"|\|[^|]*\|/g, '""').matchAll(edgeText)) failures.push(...labelFailures(`the text of an edge on line ${String(number)}`, edge[1]!));
@@ -193,6 +210,21 @@ function flowchartLineFailures(line: string, number: number): string[] {
       continue;
     }
     at += id[0].length;
+    if (line.startsWith('@{', at)) {
+      // The body of the shape runs to the first `}` outside a quoted text.
+      let close = at + 2;
+      while (close < line.length && line.charAt(close) !== '}') close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+      if (close === line.length) {
+        failures.push(`line ${String(number)} opens the shape of node ${id[0]} it does not close`);
+        break;
+      }
+      const body = line.slice(at + 2, close);
+      for (const quoted of body.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on line ${String(number)}`, quoted[1]!));
+      const label = shapeLabel.exec(body.replaceAll(/"[^"]*"/g, '""'));
+      if (label !== null) failures.push(...labelFailures(`the label of node ${id[0]} on line ${String(number)}`, label[1]!));
+      at = close + 1;
+      continue;
+    }
     const opening = shapeOpening.exec(line.slice(at));
     if (opening === null) continue;
     at += opening[0].length;
@@ -203,14 +235,18 @@ function flowchartLineFailures(line: string, number: number): string[] {
 
 /** The blocks of a sequence diagram and the participants, whose text after the keyword is a label. */
 const sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
+/** The title of a sequence diagram written with no colon, as `title The login`. */
+const sequenceTitle = /^title\s+(.+)$/;
 
 /**
  * The failures of a diagram (R19, TD9): its first line names a kind GitHub
  * draws; in a flowchart, the label of each node is quoted; and no label,
  * message or note holds an HTML entity or a semicolon: in a flowchart each
- * quoted label and each label between bars, and in the two other kinds the
- * text after a colon, each quoted text, each label of a block or a
- * participant, and each line of a note that spans lines. No line after
+ * quoted label, each label between bars, each text of an edge, the title
+ * of a subgraph and the label of an `@{ ... }` shape, and in the two other
+ * kinds the text after a colon, each quoted text, each label of a block or
+ * a participant, the title of a sequence diagram, and each line of a note
+ * that spans lines. No line after
  * the first holds a directive, `%%{`, which Mermaid reads anywhere in a
  * diagram and which can change how it draws it; a comment, `%%` alone,
  * is no failure. A run of backticks is no failure: the form fences a
@@ -248,6 +284,8 @@ export function diagramFailures(diagram: string): string[] {
     if (colon !== -1) failures.push(...labelFailures(`the text after the colon on ${where}`, line.slice(colon + 1)));
     const labelled = kind === 'sequenceDiagram' && colon === -1 ? sequenceLabelled.exec(line) : null;
     if (labelled !== null) failures.push(...labelFailures(`the label on ${where}`, labelled[1] ?? labelled[2] ?? ''));
+    const title = kind === 'sequenceDiagram' && colon === -1 ? sequenceTitle.exec(line) : null;
+    if (title !== null) failures.push(...labelFailures(`the title on ${where}`, title[1]!));
   });
   return [...new Set(failures)];
 }
