@@ -289,6 +289,18 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
       return { box, script };
     }
 
+    it('refuses a URL of a repository GitHub gives under another name, as a renamed or moved one, naming the URL GitHub gives; another case of the name is the same', async (t) => {
+      /** The sandbox's steps with the pull request read by the URL of `repository`, a `<host>/<owner>/<repo>`. */
+      const byUrlOf = (repository: string) => (box: ReviewSandbox): FakeGhStep[] => sandboxSteps(box).map((step, index) => (index === 0 ? { ...step, endpoint: `repos/${repository.slice(repository.indexOf('/') + 1)}/pulls/42` } : step));
+      const request = (repository: string): Extract<NamedScope, { readonly mode: 'pull-request' }>['request'] => ({ pullRequest: { number: 42, repository }, paths: [] });
+      const { box, gh } = sandboxWithGh(t, byUrlOf('github.com/old/widgets'));
+      const scope: ScopeSource = { named: true, pullRequest: true, choice: () => ({ mode: 'pull-request', request: request('github.com/old/widgets') }), request: () => resolvePullRequestScope(box.repo, request('github.com/old/widgets'), gh) };
+      await refused(() => box.review('claude', { scope }), /^GitHub gives pull request #42 of github\.com\/old\/widgets as https:\/\/github\.com\/acme\/widgets\/pull\/42, of github\.com\/acme\/widgets, as it does for a repository that was renamed or moved; give --pr https:\/\/github\.com\/acme\/widgets\/pull\/42 and run the command again$/);
+      assert.deepEqual(box.checkpoint.listRuns(), [], 'no run');
+      const cased = sandboxWithGh(t, byUrlOf('GitHub.com/ACME/widgets'));
+      assert.equal(resolvePullRequestScope(cased.box.repo, request('GitHub.com/ACME/widgets'), cased.gh).pullRequest!.facts.owner, 'acme');
+    });
+
     it('refuses a closed and a merged pull request', async (t) => {
       await refusedReview(t, /^pull request #42 of acme\/widgets is closed, and deep-review reviews an open pull request only$/, (box) => sandboxSteps(box, { pullRequest: { state: 'closed' } }));
       await refusedReview(t, /^pull request #42 of acme\/widgets is merged, and deep-review reviews an open pull request only$/, (box) => sandboxSteps(box, { pullRequest: { state: 'closed', merged: true } }));
