@@ -42,7 +42,7 @@ import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
 import { refusingGitHub, type GitHubRefusal } from '../github/errors.ts';
 import { ghTokenVariables, type Gh } from '../github/gh.ts';
-import { listPullRequestFiles, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName } from '../github/pull-request.ts';
+import { listPullRequestFiles, pullRequestLabel, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName } from '../github/pull-request.ts';
 import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
 import { scopeMismatch } from '../scope/compare.ts';
@@ -120,9 +120,6 @@ export interface ScopeSource {
   readonly request: () => RequestedScope;
 }
 
-/** What a pull request is called in a refusal: its number and where it lives. */
-const pullRequestWords = (facts: { readonly number: number; readonly owner: string; readonly repository: string }): string => `pull request #${String(facts.number)} of ${facts.owner}/${facts.repository}`;
-
 /** The paths on one side of a difference, up to the ones it names, and how many more. */
 const differingPaths = (paths: readonly string[], count: number): string => `${paths.join(', ')}${count > paths.length ? `, and ${String(count - paths.length)} more` : ''}`;
 
@@ -154,7 +151,7 @@ function namedRefusal(name: PullRequestName): GitHubRefusal {
 
 /** Refuse a tree that `git status` does not show clean, as `--pr` reviews the head of the pull request alone. */
 function requireCleanTree(worktree: string, facts: PullRequest): void {
-  if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+  if (gitStatus(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestLabel(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
 }
 
 /**
@@ -182,7 +179,7 @@ export function resolvePullRequestScope(worktree: string, named: Extract<NamedSc
     throw new ReviewRefusedError(`GitHub gives pull request #${String(name.number)} of ${name.repository} as ${facts.url}, of ${repository}, as it does for a repository that was renamed or moved; give --pr ${facts.url} and run the command again`);
   }
   return refusingGitHub(() => {
-    const words = pullRequestWords(facts);
+    const words = pullRequestLabel(facts);
     if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
     const head = gitHead(worktree);
     if (head !== facts.head) throw new ReviewRefusedError(`HEAD is ${head}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
@@ -194,7 +191,7 @@ export function resolvePullRequestScope(worktree: string, named: Extract<NamedSc
     const difference = pullRequestPathDifference(worktree, mergeBase, listPullRequestFiles(gh, facts));
     if (difference !== null) throw new ReviewRefusedError(`the change from the merge base ${mergeBase} to HEAD is not the change of ${words}: ${pathDifferenceWords(difference)}`);
     return { request: { range: { from: mergeBase, to: 'HEAD', mergeBase: false }, paths: [...named.paths] }, pullRequest: { name, facts } };
-  }, { host: facts.host, pullRequest: pullRequestWords(facts) });
+  }, { host: facts.host, pullRequest: pullRequestLabel(facts) });
 }
 
 export interface ReviewOptions {
@@ -692,7 +689,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       // A tree emptied since the run was opened is refused as the listing refused it, exit 2; the run, with no scope, resumes on the next command.
       state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base, ...(capture.pullRequest === null ? {} : { pullRequest: capture.pullRequest }) }));
       const excluded = state.scope!.excluded.count;
-      const reviewed = state.scope!.pullRequest === null ? '' : `${pullRequestWords(state.scope!.pullRequest)}, `;
+      const reviewed = state.scope!.pullRequest === null ? '' : `${pullRequestLabel(state.scope!.pullRequest)}, `;
       log(`run ${runId}: scope captured, ${reviewed}${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
@@ -1370,7 +1367,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
     const pullRequest = requested?.pullRequest ?? null;
     if (pullRequest !== null) {
       const head = gitHead(context.worktree);
-      if (head !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head} since ${pullRequestWords(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
+      if (head !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head} since ${pullRequestLabel(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
       requireCleanTree(context.worktree, pullRequest.facts);
     }
     let configure: OpenedRun['configure'] = null;
@@ -1506,10 +1503,10 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
  * and a command that names one continues only a run of it.
  */
 function pullRequestMismatch(named: CapturedPullRequest | null, recorded: PullRequestFacts | null): string | null {
-  if (recorded === null) return named === null ? null : `it reviewed no pull request, and this command names ${pullRequestWords(named.facts)}`;
-  if (named === null) return `it reviewed ${pullRequestWords(recorded)}, which only a command that names it with --pr continues`;
+  if (recorded === null) return named === null ? null : `it reviewed no pull request, and this command names ${pullRequestLabel(named.facts)}`;
+  if (named === null) return `it reviewed ${pullRequestLabel(recorded)}, which only a command that names it with --pr continues`;
   const where = (facts: PullRequestTarget): string => `${facts.host}/${facts.owner}/${facts.repository}`.toLowerCase();
-  return named.facts.number === recorded.number && where(named.facts) === where(recorded) ? null : `it reviewed ${pullRequestWords(recorded)}, not ${pullRequestWords(named.facts)}`;
+  return named.facts.number === recorded.number && where(named.facts) === where(recorded) ? null : `it reviewed ${pullRequestLabel(recorded)}, not ${pullRequestLabel(named.facts)}`;
 }
 
 /** Whether a run is a fix pass the run budget stopped, in this worktree (R11 of resumable runs). */
