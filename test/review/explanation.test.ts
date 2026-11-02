@@ -207,6 +207,29 @@ describe('the rules of a diagram GitHub draws (R19)', () => {
     ]);
   });
 
+  it('reads a cross or circle arrow as an arrow, not as the opening of the text of an edge', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  A --x B; B --> C\n  A --o B; C --> D\n  A["a"] --x B["b"]; B["b"] ==o C["c"]; C x--x D; D o--o E'), [], 'a semicolon that ends a statement after a cross or circle arrow');
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["a"] --o B["b"] -- &amp; --> C["c"]\n  C --x D -- a;b --x E'), [
+      'the text of an edge on line 2 holds the HTML entity &amp;',
+      'the text of an edge on line 3 holds a semicolon',
+    ]);
+  });
+
+  it('refuses an HTML entity and a semicolon in the label of a shape, the title of a subgraph and the title of a sequence diagram', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  A@{ shape: rect, label: x;y }\n  B@{ shape: rect, label: "p &lt; q" } --> C@{ label: done, shape: stadium }'), [
+      'the label of node A on line 2 holds a semicolon',
+      'the label on line 3 holds the HTML entity &lt;',
+    ]);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A@{ shape: rect, label: "a }'), ['line 2 opens the shape of node A it does not close']);
+    assert.deepEqual(diagramFailures('flowchart LR\n  subgraph S [a;b]\n  end\n  subgraph T [a &amp; b]\n  end\n  subgraph U ["c;d"]\n  end\n  subgraph The parser\n  end'), [
+      'the title of the subgraph on line 2 holds a semicolon',
+      'the title of the subgraph on line 4 holds the HTML entity &amp;',
+      'the label on line 6 holds a semicolon',
+    ]);
+    assert.deepEqual(diagramFailures('sequenceDiagram\n  title a;b\n  A->>B: read'), ['the title on line 2 holds a semicolon']);
+    assert.deepEqual(diagramFailures('sequenceDiagram\n  title The login\n  A->>B: read'), []);
+  });
+
   it('takes a diagram that holds three backticks, which the fence of the form keeps inside', () => {
     const diagram = 'flowchart LR\n  A["```js"] --> B["code"]';
     assert.deepEqual(diagramFailures(diagram), []);
