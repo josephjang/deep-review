@@ -18,7 +18,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { publicationMarker } from '../checkpoint/publish-fold.ts';
 import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
 import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
-import { listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readBranchHead, readMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
+import { closedState, listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readCurrentMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
 import { briefOf, cutAtWord } from './brief.ts';
 import { PublicationOpenError, ReviewRefusedError } from './errors.ts';
 import { gitLineCounts, recordedAnswerOf } from './explanation.ts';
@@ -219,12 +219,12 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const target = targetOf(run);
   const words = pullRequestLabel(target);
   const facts = refusingGitHub(target, () => readPullRequest(gh, target), unrecorded);
-  if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review posts to an open pull request only; ${unrecorded}`);
+  if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${closedState(facts)}, and deep-review posts to an open pull request only; ${unrecorded}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
   const gone = `the base branch ${facts.baseRef} or a commit of its comparison with the head is no longer on GitHub; review the pull request again with deep-review review --pr ${String(target.number)}`;
-  const mergeBase = refusingGitHub(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded, gone);
+  const mergeBase = refusingGitHub(target, () => readCurrentMergeBase(gh, facts), unrecorded, gone);
   if (mergeBase !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase} now, not ${scope.base}, the base run ${run.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
