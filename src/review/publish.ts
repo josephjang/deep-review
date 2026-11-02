@@ -284,15 +284,23 @@ const recordedMessage = (failure: GhAnswer): string => cutAtWord(failure.message
 
 /**
  * What to do about a post GitHub refused, by its status ("Publish" step
- * 8 of the design): wait as `retry-after` says for a 403 or a 429 that
- * carries it; give `gh` an account for a 401 or a 404; for a 403 without
- * it, the account or the token cannot write; for a 422 and any other,
- * answer GitHub's message.
+ * 8 of the design): for a 403 or a 429, wait as `retry-after` says when
+ * it carries it, else until `x-ratelimit-reset` when
+ * `x-ratelimit-remaining` says no request is left; give `gh` an account
+ * for a 401 or a 404; for a 403 with no wait and requests left, the
+ * account or the token cannot write; for a 422 and any other, answer
+ * GitHub's message.
  */
 function refusedAction(failure: GhAnswer, target: PullRequestTarget): string {
+  const limited = failure.status === 403 || failure.status === 429;
   const retry = failure.headers.get('retry-after');
-  if ((failure.status === 403 || failure.status === 429) && retry !== undefined) {
+  if (limited && retry !== undefined) {
     return `GitHub limits how fast an account posts; wait ${/^\d+$/.test(retry) ? counted(Number(retry), 'second', 'seconds') : `until ${retry}`} and run deep-review publish again`;
+  }
+  if (limited && failure.headers.get('x-ratelimit-remaining') === '0') {
+    const reset = failure.headers.get('x-ratelimit-reset');
+    const until = reset !== undefined && /^\d+$/.test(reset) ? `until ${new Date(Number(reset) * 1000).toISOString()}` : 'until GitHub resets its limit';
+    return `GitHub limits how many requests an account makes an hour; wait ${until} and run deep-review publish again`;
   }
   if (failure.status === 401 || failure.status === 404) return `${accountAction(target.host)} with an account that can write to ${pullRequestWords(target)}, and run deep-review publish again`;
   if (failure.status === 403) return `the account or the token that gh uses cannot write to ${pullRequestWords(target)}, as the token of a workflow on a pull request from a fork cannot; post with an account or a token that can write to its pull requests`;
