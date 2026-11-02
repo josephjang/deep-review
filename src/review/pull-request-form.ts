@@ -34,7 +34,7 @@ import { publicCode, publicProse, publicWords, type MachineContext } from './pub
 import { pullRequestWords, type PullRequestWords } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import type { FindingPlace, PlaceReason } from './vocabulary.ts';
+import { asksToAct, type FindingPlace, type PlaceReason } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
@@ -90,7 +90,7 @@ export function placeFindings(review: ReviewState, files: readonly PullRequestFi
     const location = repositoryLocation(primary) === null ? null : { path: primary.file!, line: primary.line! };
     const diff = location === null ? null : diffStateOf(byPath.get(location.path), location.line);
     const decision = decided.get(finding.id);
-    if (decision !== 'fix' && decision !== 'ask') return { finding: finding.id, place: 'body', reason: 'left', location, diff };
+    if (!asksToAct(decision)) return { finding: finding.id, place: 'body', reason: 'left', location, diff };
     if (location === null || diff === null) return { finding: finding.id, place: 'body', reason: 'no-place', location: null, diff: null };
     if (diff === 'added' || diff === 'context') return { finding: finding.id, place: 'line', reason: 'on-the-diff', location, diff };
     return { finding: finding.id, place: 'body', reason: diff === 'no-patch' ? 'no-patch' : 'outside-the-diff', location, diff };
@@ -193,7 +193,7 @@ interface FindingFacts {
 }
 
 /** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
-const acts = (facts: FindingFacts): boolean => facts.decision?.decision === 'fix' || facts.decision?.decision === 'ask';
+const acts = (facts: FindingFacts): boolean => asksToAct(facts.decision?.decision);
 
 /** What every part of the form reads, computed once. */
 interface FormContext {
