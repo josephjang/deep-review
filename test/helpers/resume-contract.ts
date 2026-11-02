@@ -35,7 +35,7 @@ import { baseLockReason } from '../../src/review/checks/base.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
 import { checkKinds, repairUnitKey } from '../../src/review/vocabulary.ts';
-import { lastLineMarker } from '../../src/review/publish.ts';
+import { lastLineMarker } from '../../src/review/markers.ts';
 import { fakeGh, fakeGhHeld, writeFakeGhScript, type FakeGhStep } from './fake-gh.ts';
 import { fixerAnswer, type Script } from './fake-runtime.ts';
 import { fixedA, fixedB, reviewScript } from './fix-pass-fixture.ts';

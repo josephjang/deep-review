@@ -6,6 +6,7 @@
  * pull request and the head the run reviewed, and to at most one posted
  * review, so a run is posted at most once.
  */
+import { publicationMarker } from '../review/markers.ts';
 import type { PublishDropped, PublishPosted, PublishPrepared } from './events.ts';
 import type { DecodedEvent, Reducer, RunState } from './fold.ts';
 import { invalid, requireRun } from './review-fold.ts';
@@ -19,9 +20,6 @@ export type Publication =
   | { readonly status: 'prepared'; readonly prepared: PublishPrepared }
   | { readonly status: 'posted'; readonly prepared: PublishPrepared; readonly posted: PublishPosted }
   | { readonly status: 'dropped'; readonly prepared: PublishPrepared; readonly dropped: PublishDropped };
-
-/** The marker of the run's publication with the serial `serial`, as the body of its review carries it. */
-export const publicationMarker = (runId: string, serial: number): string => `deep-review publication ${runId} ${String(serial)}`;
 
 /** The URL of the review of the run's posted publication, or null while none is posted; a run is posted at most once. */
 export function postedReviewUrl(run: Pick<RunState, 'publications'>): string | null {
