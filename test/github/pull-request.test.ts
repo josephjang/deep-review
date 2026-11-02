@@ -9,6 +9,7 @@ import {
   newLinesOf,
   pathDifference,
   postReview,
+  pullRequestPathOf,
   readBranchHead,
   readMergeBase,
   readPullRequest,
@@ -81,9 +82,13 @@ describe('readPullRequest', () => {
   });
 
   it('refuses an answer whose URL is not of the pull request it asked for', (t) => {
-    const { gh } = fakeGhWith(t, [{ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody({ html_url: 'https://github.com/acme/widgets/issues/42' }) }] }]);
-    const error = thrown(() => readPullRequest(gh, { number: 42, repository: null }), GitHubCallError);
-    assert.equal(error.failure.kind, 'unreadable');
+    const urls = ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull/43', 'https://github.com/acme/widgets/pull/42/files', 'https://github.com//widgets/pull/42'];
+    const { gh } = fakeGhWith(t, urls.map((url) => ({ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody({ html_url: url }) }] })));
+    for (const url of urls) {
+      const error = thrown(() => readPullRequest(gh, { number: 42, repository: null }), GitHubCallError);
+      assert.equal(error.failure.kind, 'unreadable', url);
+      assert.match(error.message, new RegExp(`${url.replaceAll('.', '\\.')} is not the URL of pull request #42`), url);
+    }
   });
 
   it('refuses an answer that lacks what the engine keeps', (t) => {
@@ -109,6 +114,20 @@ describe('readPullRequest', () => {
     assert.match(dotCom.message, /run `gh auth login --hostname github\.com`, or set GH_TOKEN$/);
     const enterprise = thrown(() => readPullRequest(gh, { number: 2, repository: 'ghe.example.com/acme/widgets' }), GitHubCallError);
     assert.match(enterprise.message, /run `gh auth login --hostname ghe\.example\.com`, or set GH_ENTERPRISE_TOKEN$/);
+  });
+});
+
+describe('pullRequestPathOf', () => {
+  it('splits the owner, the repository and the number around pull, with the segments after the number', () => {
+    assert.deepEqual(pullRequestPathOf(new URL('https://github.com/acme/widgets/pull/42')), { owner: 'acme', repository: 'widgets', number: '42', rest: [] });
+    assert.deepEqual(pullRequestPathOf(new URL('https://github.com/acme/widgets/pull/42/files?w=1#diff-1')), { owner: 'acme', repository: 'widgets', number: '42', rest: ['files'] });
+    assert.deepEqual(pullRequestPathOf(new URL('https://github.com/acme/widgets/pull/')), { owner: 'acme', repository: 'widgets', number: '', rest: [] }, 'the callers check the number');
+  });
+
+  it('gives null for a path that is not of a pull request', () => {
+    for (const url of ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull', 'https://github.com/acme/pull/42', 'https://github.com/']) {
+      assert.equal(pullRequestPathOf(new URL(url)), null, url);
+    }
   });
 });
 
