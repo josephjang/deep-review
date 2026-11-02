@@ -28,9 +28,10 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { RunState } from '../../src/checkpoint/fold.ts';
+import { operatorConfigPath } from '../../src/config/files.ts';
 import { baseLockReason } from '../../src/review/checks/base.ts';
 import { withoutVariables } from '../../src/runtime/environment.ts';
 import { checkpointScratchKey } from '../../src/runtime/scratch.ts';
@@ -270,7 +271,13 @@ export class ContractSandbox {
     this.temporary = join(this.box.directory, 'tmp');
     for (const directory of [this.stopDirectory, this.startDirectory, this.temporary]) mkdirSync(directory);
     this.ghScript = scenario.pullRequest === true ? join(this.box.directory, 'gh.json') : null;
-    if (this.ghScript !== null) writeFakeGhScript(this.ghScript, pullRequestSteps(this.box.repo));
+    if (this.ghScript !== null) {
+      writeFakeGhScript(this.ghScript, pullRequestSteps(this.box.repo));
+      // In the operator's file, since publish runs gh as the files name it now, not as the run recorded it.
+      const operator = operatorConfigPath(this.environment(), process.platform, this.box.home)!;
+      mkdirSync(dirname(operator), { recursive: true });
+      writeFileSync(operator, `schema = 1\ngithub.executable = ${JSON.stringify(process.execPath)}\ngithub.args = [${JSON.stringify(fakeGh)}]\n`);
+    }
   }
 
   close(): void {
@@ -302,10 +309,10 @@ export class ContractSandbox {
     };
   }
 
-  /** The arguments of `review --fix`, or of `review --pr` with the stand-in for `gh` in the scenario of a pull request, the same for every command of the run. */
+  /** The arguments of `review --fix`, or of `review --pr` in the scenario of a pull request, whose stand-in for `gh` the operator's file names, the same for every command of the run. */
   reviewArgs(): string[] {
     const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
-    const scope = this.scenario.pullRequest === true ? ['--pr', String(pullRequestNumber), '--set', `github.executable=${JSON.stringify(process.execPath)}`, '--set', `github.args=[${JSON.stringify(fakeGh)}]`] : ['--last-commit', '--fix', ...checks];
+    const scope = this.scenario.pullRequest === true ? ['--pr', String(pullRequestNumber)] : ['--last-commit', '--fix', ...checks];
     // One worker at a time, so a stop meets the same workers in flight in every run, and they end in the same order.
     return ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', this.box.rolesRoot, '--concurrency', '1', ...scope];
   }
