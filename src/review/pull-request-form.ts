@@ -27,6 +27,7 @@ import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion, type FindingStatus } from './brief.ts';
 import { diagramFailures, reviewLanguage, type Account, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
@@ -95,14 +96,6 @@ export function placeFindings(review: ReviewState, files: readonly PullRequestFi
     return { finding: finding.id, place: 'body', reason: diff === 'no-patch' ? 'no-patch' : 'outside-the-diff', location, diff };
   });
 }
-
-/** The marker of a publication, which the body carries on its last line (TD5). */
-export const publicationMarker = (run: string, serial: number): string => `deep-review publication ${run} ${String(serial)}`;
-
-/** The marker of a finding's comment, which the comment carries on its last line, so a settle matches it to its finding. */
-export const findingMarker = (run: string, finding: string): string => `deep-review finding ${run} ${finding}`;
-
-const markerLine = (marker: string): string => `<!-- ${marker} -->`;
 
 /** A commit as the form names it, by its first 8 characters, as the brief names a run. */
 const shortCommit = (commit: string): string => commit.slice(0, 8);

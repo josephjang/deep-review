@@ -15,7 +15,6 @@ import { dirname } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type PublishPosted, type PublishPrepared } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { publicationMarker } from '../checkpoint/publish-fold.ts';
 import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
 import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
 import { closedState, listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readCurrentMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
@@ -24,8 +23,9 @@ import { PublicationOpenError, ReviewRefusedError } from './errors.ts';
 import { gitLineCounts, recordedAnswerOf } from './explanation.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './lock.ts';
 import { counted } from './markdown.ts';
+import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
-import { findingMarker, formRefusalWords, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
+import { formRefusalWords, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
 import { runIdOf } from './runs.ts';
 import { hasCurrentReport } from './state.ts';
@@ -71,12 +71,6 @@ const targetOf = (run: RunState): PullRequestTarget => {
   const { host, owner, repository, number } = run.scope!.pullRequest!;
   return { host, owner, repository, number };
 };
-
-/** The marker on the last line of a text GitHub gives, `<!-- <marker> -->`, or null; a marker anywhere else is a worker's text, never the engine's (TD5). */
-export function lastLineMarker(body: string): string | null {
-  const last = body.trimEnd().split(/\r?\n/).at(-1)?.trim() ?? '';
-  return /^<!-- (.+) -->$/.exec(last)?.[1] ?? null;
-}
 
 /**
  * The run to publish: the one named by its id or the start of it, or the
