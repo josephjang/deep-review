@@ -8,6 +8,7 @@ import { dedicatedFlagValues } from '../../src/config/flags.ts';
 import { flagLayerOf, parseSetFlag } from '../../src/config/resolve.ts';
 import { configurationSource } from '../../src/config/source.ts';
 import type { PublishPosted, PublishPrepared } from '../../src/checkpoint/events.ts';
+import { GitHubCallError } from '../../src/github/errors.ts';
 import type { Gh } from '../../src/github/gh.ts';
 import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
 import { PublicationOpenError, ReviewRefusedError } from '../../src/review/errors.ts';
@@ -297,6 +298,17 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     for (const [steps, message] of cases) {
       const { gh, script } = publishGh(t, steps);
       refused(() => publishWith(box, gh), message);
+      assert.equal(writes(script), 0);
+    }
+    assert.deepEqual(publications(box), []);
+  });
+
+  it('ends a 5xx of a read before the post with exit 1, not a refusal, saying nothing was posted or recorded', async (t) => {
+    const box = await reviewed(t);
+    const failing = (endpoint: string, status: number): FakeGhStep[] => publishSteps(box).map((step) => (step.endpoint === endpoint ? { ...step, pages: [{ status, body: { message: 'Bad Gateway' } }] } : step));
+    for (const steps of [failing('repos/acme/widgets/pulls/42', 502), failing('repos/acme/widgets/pulls/42/files?per_page=100', 503)]) {
+      const { gh, script } = publishGh(t, steps);
+      assert.throws(() => publishWith(box, gh), (error: unknown) => error instanceof GitHubCallError && !(error instanceof ReviewRefusedError) && /GitHub answered 50[23]: Bad Gateway; nothing was posted or recorded$/.test(error.message));
       assert.equal(writes(script), 0);
     }
     assert.deepEqual(publications(box), []);
