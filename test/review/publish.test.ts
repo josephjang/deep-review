@@ -244,7 +244,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.equal(fakeGhHeld(next.script).length, 1);
   });
 
-  it('records a refusal of GitHub as not posted, with its status and message, and names the action of each status: the message of a 422, the wait of a 403 or 429 with retry-after, the account of a 401 or 404, and the token of a 403 without it', async (t) => {
+  it('records a refusal of GitHub as not posted, with its status and message, and names the action of each status: the message of a 422, the wait of a 403 or 429 with retry-after or with no requests left, the account of a 401 or 404, and the token of a 403 with neither', async (t) => {
     const box = await reviewed(t);
     const runId = box.run().id;
     const cases: [Partial<FakeGhStep>, RegExp][] = [
@@ -252,7 +252,8 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
       [{ held: false, pages: [{ status: 403, headers: { 'Retry-After': '60' }, body: { message: 'You have exceeded a secondary rate limit' } }] }, /with 403: You have exceeded a secondary rate limit; .*; GitHub limits how fast an account posts; wait 60 seconds and run deep-review publish again$/],
       [{ held: false, pages: [{ status: 429, headers: { 'Retry-After': '30' }, body: { message: 'Too Many Requests' } }] }, /wait 30 seconds and run deep-review publish again$/],
       [{ held: false, pages: [{ status: 404, body: { message: 'Not Found' } }] }, /run `gh auth login --hostname github\.com`, or set GH_TOKEN with an account that can write to pull request #42 of acme\/widgets/],
-      [{ held: false, pages: [{ status: 403, body: { message: 'Resource not accessible by integration' } }] }, /the account or the token that gh uses cannot write to pull request #42 of acme\/widgets, as the token of a workflow on a pull request from a fork cannot/],
+      [{ held: false, pages: [{ status: 403, headers: { 'X-RateLimit-Remaining': '4999' }, body: { message: 'Resource not accessible by integration' } }] }, /the account or the token that gh uses cannot write to pull request #42 of acme\/widgets, as the token of a workflow on a pull request from a fork cannot/],
+      [{ held: false, pages: [{ status: 403, headers: { 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1793620800' }, body: { message: 'API rate limit exceeded for installation ID 1' } }] }, /with 403: API rate limit exceeded for installation ID 1; .*; GitHub limits how many requests an account makes an hour; wait until 2026-11-02T12:00:00\.000Z and run deep-review publish again$/],
     ];
     for (const [post, message] of cases) {
       const { gh, script } = publishGh(t, publishSteps(box, { post }));
@@ -260,9 +261,9 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
       assert.equal(fakeGhHeld(script).length, 0);
     }
     const events = publications(box);
-    assert.deepEqual(events.map(([kind, payload]) => [kind, payload.reason, payload.status]), cases.flatMap((_, index) => [['publish.prepared', undefined, undefined], ['publish.dropped', 'refused', [422, 403, 429, 404, 403][index]]]));
+    assert.deepEqual(events.map(([kind, payload]) => [kind, payload.reason, payload.status]), cases.flatMap((_, index) => [['publish.prepared', undefined, undefined], ['publish.dropped', 'refused', [422, 403, 429, 404, 403, 403][index]]]));
     assert.equal(events[1]![1].message, 'Unprocessable Entity: Line must be part of the diff');
-    assert.equal(events.at(-2)![1].marker, publicationMarker(runId, 5));
+    assert.equal(events.at(-2)![1].marker, publicationMarker(runId, 6));
   });
 
   it('refuses a pull request that is closed or merged, a head that moved, a merge base that moved, gh that is missing and gh with no account, posting nothing and recording nothing', async (t) => {
