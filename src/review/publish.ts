@@ -15,7 +15,7 @@ import { dirname } from 'node:path';
 import type { Checkpoint } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type PublishPosted, type PublishPrepared } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
+import { GitHubCallError, refusingGitHub, type GitHubRefusal } from '../github/errors.ts';
 import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
 import { closedState, listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readCurrentMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
 import { briefOf, cutAtWord } from './brief.ts';
@@ -162,28 +162,12 @@ function settleFailure(error: unknown, run: RunState, prepared: PublishPrepared)
 const unrecordedWords = (settled: string | null): string => (settled === null ? 'nothing was posted or recorded' : `nothing was posted, and only that no review carries the publication ${settled}, which a stop left open, was recorded`);
 
 /**
- * A call of GitHub before the publication is prepared, whose refusal by
- * GitHub or `gh` is a refusal of the command (R8), with an account's
- * action for a 401 or a 404, and what was recorded, `unrecorded`; a
- * timeout, a server error of GitHub, a status of 500 or more, and an
- * answer the engine cannot read stay errors, exit 1, as for the post,
- * saying what was recorded too. A call made once the account has read the
- * pull request names in `gone` what a 404 means then, which no other
- * account answers.
+ * What a refusal of a call of GitHub before the publication is prepared
+ * names (`refusingGitHub`, R8): the account that must read the pull
+ * request, and what was recorded, `unrecorded`, which an error of the
+ * call, exit 1, names too.
  */
-function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded: string, gone?: string): T {
-  try {
-    return read();
-  } catch (error) {
-    if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
-    if (!(error instanceof GitHubCallError)) throw error;
-    const { failure } = error;
-    if (failure.kind === 'answer' && failure.status === 404 && gone !== undefined) throw new ReviewRefusedError(`${error.message}; ${gone}; ${unrecorded}`);
-    if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestLabel(target)}`);
-    if ((failure.kind === 'answer' && failure.status < 500) || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
-    throw new GitHubCallError(error.what, failure, unrecorded);
-  }
-}
+const readRefusal = (target: PullRequestTarget, unrecorded: string): GitHubRefusal => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded });
 
 /**
  * Why a run cannot be posted, before any call of GitHub (R8), or null: a
@@ -214,13 +198,14 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const scope = run.scope!;
   const target = targetOf(run);
   const words = pullRequestLabel(target);
-  const facts = refusingGitHub(target, () => readPullRequest(gh, target), unrecorded);
+  const facts = refusingGitHub(() => readPullRequest(gh, target), readRefusal(target, unrecorded));
   if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${closedState(facts)}, and deep-review posts to an open pull request only; ${unrecorded}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
   const gone = `the base branch ${facts.baseRef} or a commit of its comparison with the head is no longer on GitHub; review the pull request again with deep-review review --pr ${String(target.number)}`;
-  const mergeBase = refusingGitHub(target, () => readCurrentMergeBase(gh, facts), unrecorded, gone);
+  // Once the account has read the pull request, a 404 means a branch or a commit is gone, which no other account answers.
+  const mergeBase = refusingGitHub(() => readCurrentMergeBase(gh, facts), { ...readRefusal(target, unrecorded), gone });
   if (mergeBase !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase} now, not ${scope.base}, the base run ${run.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
@@ -363,7 +348,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
 
   // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded.
   const scope = run.scope!;
-  const files = refusingGitHub(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }), unrecorded);
+  const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
   const placements = placeFindings(run.review!, files);
   const lines = gitLineCounts(options.worktree, scope, { head: lineCountPaths(run.review!, placements) });
   const serial = run.publications.length + 1;

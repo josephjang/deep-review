@@ -47,10 +47,20 @@ describe('refusingGitHub (R8 and the publication in the design of the review on 
     assert.match(refusalOf(thrownBy(new GitHubCallError('reading', answer(404, 'Not Found')), recorded)), /with an account that can read pull request #42 of acme\/widgets; nothing was posted or recorded$/);
   });
 
-  it('leaves a server error, a timeout, an unreadable answer with no action and any other error as they are, exit 1', () => {
+  it('names in place of the account what a 404 means when the refusal says it is gone, and only for a 404', () => {
+    const gone = { ...acme, missing: 'check the number', gone: 'the base branch main is no longer on GitHub', recorded: 'nothing was posted or recorded' };
+    assert.equal(refusalOf(thrownBy(new GitHubCallError('reading the head of branch main', answer(404, 'Not Found')), gone)), 'reading the head of branch main: GitHub answered 404: Not Found; the base branch main is no longer on GitHub; nothing was posted or recorded');
+    assert.match(refusalOf(thrownBy(new GitHubCallError('reading', answer(401, 'Bad credentials')), gone)), /; run `gh auth login --hostname github\.com`, or set GH_TOKEN with an account that can read pull request #42 of acme\/widgets; nothing was posted or recorded$/);
+  });
+
+  it('leaves a server error, a timeout, an unreadable answer with no action and any other error errors, exit 1, saying what was recorded when the refusal names it', () => {
     for (const status of [500, 502, 503]) {
       const error = new GitHubCallError('reading', answer(status, 'Server Error'));
-      assert.equal(thrownBy(error, { ...acme, recorded: 'nothing was posted or recorded' }), error, `a ${String(status)} is no refusal`);
+      assert.equal(thrownBy(error, acme), error, `a ${String(status)} is no refusal`);
+      const recorded = thrownBy(error, { ...acme, recorded: 'nothing was posted or recorded' });
+      assert.ok(recorded instanceof GitHubCallError && !(recorded instanceof ReviewRefusedError), `a ${String(status)} is no refusal`);
+      assert.equal(recorded.message, `reading: GitHub answered ${String(status)}: Server Error; nothing was posted or recorded`);
+      assert.equal(recorded.failure, error.failure);
     }
     const timeout = new GitHubCallError('reading', { kind: 'timeout', timeoutMs: 1000 });
     assert.equal(thrownBy(timeout, acme), timeout);
