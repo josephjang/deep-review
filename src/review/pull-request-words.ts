@@ -63,6 +63,8 @@ export interface PullRequestWords {
   readonly changeTextHeading: string;
   readonly accountDiagramsCut: string;
   readonly accountCut: string;
+  /** The line in place of a diagram that passed the checks and that its cleaning broke (R11, R19). */
+  readonly diagramBroken: string;
 
   /** The line that says deep-review reviewed the pull request at its head, with the counts of its findings. */
   readonly statusLine: (head: string, counts: StatusCounts) => string;
@@ -177,6 +179,7 @@ const english: PullRequestWords = {
   changeTextHeading: 'What the change does',
   accountDiagramsCut: 'The diagrams of this account are left out, so that the review fits the length GitHub takes.',
   accountCut: 'deep-review\'s account for a reader new to this change is left out, so that the review fits the length GitHub takes; the core of the change above stays.',
+  diagramBroken: 'A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.',
 
   statusLine: (head, counts) => {
     const parts = [
@@ -327,6 +330,7 @@ const korean: PullRequestWords = {
   changeTextHeading: '변경 내용',
   accountDiagramsCut: 'GitHub가 받는 길이에 맞추느라 이 설명의 다이어그램은 뺐습니다.',
   accountCut: 'GitHub가 받는 길이에 맞추느라 변경을 처음 보는 분을 위한 deep-review의 설명은 뺐습니다. 위의 변경 요지는 그대로 두었습니다.',
+  diagramBroken: '이 리뷰를 실행한 컴퓨터의 경로와 비밀 값을 지우는 과정에서 다이어그램이 깨져 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
 
   statusLine: (head, counts) => {
     const parts = [
