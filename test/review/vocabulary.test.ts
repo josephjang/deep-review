@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answeredUnits, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, asksToAct, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -65,6 +65,11 @@ describe('the decisions', () => {
     assert.deepEqual(counts, { fix: 1, leave: 0, ask: 2 });
     assert.equal(decisionCountWords(counts), '1 to fix, 0 to leave, 2 to ask the author');
     assert.equal(decisionCountWords(decisionCounts([])), '0 to fix, 0 to leave, 0 to ask the author');
+  });
+
+  it('ask a person to act for a fix and a question to the author, and for no finding left as is or with no decision (R9, R10, R18 of the review on the pull request)', () => {
+    assert.deepEqual(decisionKinds.filter((kind) => asksToAct(kind)), ['fix', 'ask']);
+    assert.equal(asksToAct(undefined), false);
   });
 });
 
