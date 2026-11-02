@@ -10,9 +10,10 @@
  * ("The place of a finding" of the design, TD4). `pullRequestForm`
  * renders the body in the order of R9, with the engine's own words from
  * the table of the run's language (pull-request-words.ts, R20), each text
- * of a worker through `publicWords` and each of the writer through
- * `publicProse` (R11), and a comment on its line for each fix and each
- * question that has one (R10). A body over the limit is cut in the order
+ * of a worker, the runtime's version and the models and the patterns the
+ * settings name through `publicWords` or `publicCode`, each of the writer
+ * through `publicProse` (R11), and a comment on its line for each fix and
+ * each question that has one (R10). A body over the limit is cut in the order
  * of R12, and a body that still does not fit, or a comment that does not,
  * is a refusal with its size and parts, before anything is recorded.
  */
@@ -629,12 +630,12 @@ function refutedSection(context: FormContext, say: Speaker, cuts: ReadonlySet<Bo
   return { part: 'refuted', lines: [`<details><summary>${words.refutedHeading(context.refuted.length)}</summary>`, '', cut ? words.refutedCut : words.refutedLead, '', ...entries, '', '</details>'] };
 }
 
-/** The patterns of `scope.exclude` that left paths out of the run, with the count of those paths and the layer that set them, as the run recorded them (R12). */
-function excludedSection(context: FormContext): Section {
+/** The patterns of `scope.exclude` that left paths out of the run, cleaned as code, with the count of those paths and the layer that set them, as the run recorded them (R11, R12). */
+function excludedSection(context: FormContext, say: Speaker): Section {
   const { words, scope } = context;
   if (scope.excluded.count === 0) return { part: 'excluded', lines: [] };
   const layer = context.review.configuration.settings?.layers['scope.exclude'] ?? null;
-  return { part: 'excluded', lines: [words.excludedHeading, '', words.excluded(scope.request.exclude.map(codeSpan).join(', '), scope.excluded.count, layer === null ? null : words.layers[layer])] };
+  return { part: 'excluded', lines: [words.excludedHeading, '', words.excluded(scope.request.exclude.map((pattern) => say.code(pattern)).join(', '), scope.excluded.count, layer === null ? null : words.layers[layer])] };
 }
 
 /** The legend, folded: each verdict and severity, each status the findings have, the two marks, and the line on what a model wrote, with the README (R9, R20). */
@@ -659,8 +660,8 @@ function legendSection(context: FormContext): Section {
   };
 }
 
-/** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, then the marker of the publication (R9, R13). */
-function lastSection(context: FormContext): Section {
+/** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, then the marker of the publication (R9, R13). The version the runtime gave and the models the settings name are no text of the engine's, so they are cleaned. */
+function lastSection(context: FormContext, say: Speaker): Section {
   const { configuration } = context.review;
   return {
     part: 'last line',
@@ -668,9 +669,9 @@ function lastSection(context: FormContext): Section {
       context.words.lastLine({
         engine: inlineText(context.input.engine),
         runtime: configuration.runtime,
-        version: inlineText(configuration.version),
-        strong: inlineText(configuration.models.strong),
-        fast: inlineText(configuration.models.fast),
+        version: say.words(configuration.version),
+        strong: say.words(configuration.models.strong),
+        fast: say.words(configuration.models.fast),
         run: codeSpan(shortRunId(context.state.id)),
         base: shortCommit(context.scope.base),
         head: shortCommit(context.scope.head),
@@ -694,9 +695,9 @@ function renderBody(context: FormContext, cuts: ReadonlySet<BodyCut>): { readonl
     inFullSection(context, say),
     leftSection(context, say, cuts),
     refutedSection(context, say, cuts),
-    excludedSection(context),
+    excludedSection(context, say),
     legendSection(context),
-    lastSection(context),
+    lastSection(context, say),
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
 }

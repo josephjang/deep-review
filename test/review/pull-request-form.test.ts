@@ -191,6 +191,21 @@ describe('the cleaning of what the review posts (R11)', () => {
     includes(formOf(history.fold()).body, '\n- 1 changed path under \\*\\*/\\_\\_snapshots\\_\\_/\\*\\*, `@org-team`.json, which the settings leave out.\n');
   });
 
+  it('cleans the runtime\'s version, the models and the excluded patterns that the settings name, and counts their secrets', () => {
+    const token = `ghp_${'A1b2C3d4'.repeat(5)}`;
+    const history = rewritten(run(), (kind, payload) => {
+      if (kind === 'review.configured') return { ...payload, version: '2.1.283 @octocat', models: { strong: `/home/me/models/${token}`, fast: '@octocat' } };
+      if (kind === 'scope.captured') return { ...payload, request: { ...(payload.request as object), exclude: [`x/${token}`, 'vendor/**'] }, excluded: { paths: ['vendor/a.js'], count: 1 } };
+      return undefined;
+    });
+    const plain = formOf(run().fold());
+    const form = formOf(history.fold());
+    includes(form.body, '\nReviewed by deep-review 0.0.0+dev on claude 2.1.283 `@octocat` with \\<local path>[redacted GitHub token] and `@octocat`, run `run-1`, commits 11111111..22222222.\n');
+    includes(form.body, '`x/[redacted GitHub token]`, `vendor/**` left out 1 changed path');
+    assert.ok(!form.body.includes(token), 'no token');
+    assert.equal(form.secrets - plain.secrets, 3, 'the token in the path of the model, in the excluded pattern, and in the gap that quotes the pattern');
+  });
+
   describe('keeps code that the form puts on one line or splits into paragraphs from turning into live text', () => {
     /** The form of a run whose fix's reason, a worker's words, is `reason`, and whose writer's answer `said` changes. */
     const formWith = (reason: string, say: (said: ReturnType<typeof writerAnswer>) => void = () => undefined): PullRequestForm => {
