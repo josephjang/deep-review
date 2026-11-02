@@ -193,8 +193,9 @@ function repositoryOfName(name: string): GitHubRepository {
   return { host, owner, repository };
 }
 
-/** The call that reads the pull request `name`: in the clone for a number, on its host for a URL. */
-function pullRequestCall(name: PullRequestName): GhCall {
+/** The call that reads the pull request `name`: in the clone for a number, on its host for a URL or a target. */
+function pullRequestCall(name: PullRequestName | PullRequestTarget): GhCall {
+  if ('host' in name) return { endpoint: pullPath(name), hostname: name.host };
   if (name.repository === null) return { endpoint: `repos/{owner}/{repo}/pulls/${String(name.number)}` };
   const repository = repositoryOfName(name.repository);
   return { endpoint: pullPath({ ...repository, number: name.number }), hostname: repository.host };
@@ -214,13 +215,14 @@ function targetOfUrl(url: string, number: number): PullRequestTarget | null {
 }
 
 /**
- * Read the pull request `name`. A number is read in the clone that
- * `gh.cwd` names, which fills `{owner}` and `{repo}` with the repository
- * `gh` takes for it; a URL's repository is read on its host. The host, the
+ * Read the pull request `name`, as a command names it or where a run
+ * recorded it. A number is read in the clone that `gh.cwd` names, which
+ * fills `{owner}` and `{repo}` with the repository `gh` takes for it; a
+ * URL's repository and a target are read on their host. The host, the
  * owner and the repository are those of the pull request's own URL, so
  * every later call names the host that GitHub gave.
  */
-export function readPullRequest(gh: Gh, name: PullRequestName): PullRequest {
+export function readPullRequest(gh: Gh, name: PullRequestName | PullRequestTarget): PullRequest {
   const what = `reading pull request #${String(name.number)}`;
   const answer = readOne(gh, what, pullRequestCall(name), pullRequestSchema);
   const target = targetOfUrl(answer.html_url, name.number);

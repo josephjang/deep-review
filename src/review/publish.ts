@@ -218,7 +218,7 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const scope = run.scope!;
   const target = targetOf(run);
   const words = pullRequestLabel(target);
-  const facts = refusingGitHub(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }), unrecorded);
+  const facts = refusingGitHub(target, () => readPullRequest(gh, target), unrecorded);
   if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review posts to an open pull request only; ${unrecorded}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
