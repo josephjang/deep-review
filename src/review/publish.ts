@@ -25,7 +25,7 @@ import { acquireRunLock, acquireStartLock, type ReleaseLock } from './lock.ts';
 import { counted } from './markdown.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
-import { formRefusalWords, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
+import { formRefusalWords, lineCountPaths, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
 import { runIdOf } from './runs.ts';
 import { hasCurrentReport } from './state.ts';
@@ -365,7 +365,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const scope = run.scope!;
   const files = refusingGitHub(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }), unrecorded);
   const placements = placeFindings(run.review!, files);
-  const lines = gitLineCounts(options.worktree, scope);
+  const lines = gitLineCounts(options.worktree, scope, { head: lineCountPaths(run.review!, placements) });
   const serial = run.publications.length + 1;
   const form = pullRequestForm({
     state: run,
