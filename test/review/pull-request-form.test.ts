@@ -99,6 +99,19 @@ describe('the body and the comments of the review (R9, R10, PD13, PD14)', () => 
     includes(comment, '<details><summary>Evidence that the verifier checked</summary>\n\n- Summary: null dereference\n- Reason: same root cause at lines 4 and 7\n- Evidence: line 4 dereferences null\n- How the verifier established it: it traced the lines.\n\n</details>');
   });
 
+  it('keeps on one line the text of a link to a path that holds a line break, a cited case\'s and a refuted candidate\'s, so neither opens a block of its own', () => {
+    const said = writerAnswer();
+    (said.findings[0] as ExplainedFinding).cases[0]!.lines.path = 'src/a.ts\n# x';
+    const history = rewritten(run(), (kind, payload) => (kind === 'candidates.recorded' && payload.key === 'RIPPLE'
+      ? { ...payload, candidates: (payload.candidates as Record<string, unknown>[]).map((entry) => (entry.id === 'RIPPLE-2' ? { ...entry, file: 'src/a.ts\n- y', inScope: false } : entry)) }
+      : undefined));
+    const broken = formOf(history.fold(), said);
+    const text = [broken.body, ...broken.comments.map((entry) => entry.body)].join('\n');
+    includes(text, '- An empty file reaches the read on line 4. ([`src/a.ts # x:3-4`](');
+    includes(broken.body, '- RIPPLE-2 (RIPPLE), [`src/a.ts - y:9`](');
+    assert.ok(!/^# x/m.test(text) && !/^- y/m.test(text), 'no line of a path starts a block');
+  });
+
   it('fences each diagram longer than any run of backticks in it, so no diagram ends its fence (R19)', () => {
     const said = writerAnswer();
     said.conclusion.diagram = 'flowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading';

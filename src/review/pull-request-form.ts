@@ -284,8 +284,8 @@ function aroundUrl(context: FormContext, location: FindingLocation): string {
 /** Where a finding is read: its comment's line in the files of the pull request, or its block in the body. */
 const hrefOf = (context: FormContext, facts: FindingFacts): string => (facts.placement.place === 'line' ? lineUrl(context.pullRequest, facts.placement.location) : `#${findingAnchor(facts.finding.number)}`);
 
-/** A location as a link's text. */
-const locationText = (location: FindingLocation): string => codeSpan(`${location.path}:${String(location.line)}`);
+/** A location as a link's text, on one line whatever line break its path holds. */
+const locationText = (location: FindingLocation): string => codeSpan(inlineText(`${location.path}:${String(location.line)}`));
 
 /** The marks after a finding's verdict: no verifier examined it. */
 const verdictMarks = (context: FormContext, facts: FindingFacts): string[] => (facts.entry.resolution.unverified ? [context.words.unverifiedMark] : []);
@@ -327,11 +327,11 @@ interface FindingParts {
   readonly evidence: string[];
 }
 
-/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed. */
+/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed; its text is on one line whatever line break the path holds. */
 function caseLink(context: FormContext, cited: ExplainedFinding['cases'][number]['lines']): string {
   const range = cited.from === cited.to ? String(cited.from) : `${String(cited.from)}-${String(cited.to)}`;
   const commit = cited.side === 'head' ? context.scope.head : context.scope.base;
-  return `[${codeSpan(`${cited.path}:${range}`)}](${blobUrl(context.pullRequest, commit, cited.path, cited.from, cited.to)})`;
+  return `[${codeSpan(inlineText(`${cited.path}:${range}`))}](${blobUrl(context.pullRequest, commit, cited.path, cited.from, cited.to)})`;
 }
 
 /** The writer's problem, cases and diagram of a finding, or, without them, the mark and the finder's own account in its place (R18, R19). */
