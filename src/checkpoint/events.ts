@@ -2520,7 +2520,6 @@ const pullRequestTargetSchemaV1 = z.strictObject({
   repository: githubNameSchemaV1,
   number: z.number().int().min(1),
 });
-export type PullRequestTarget = z.infer<typeof pullRequestTargetSchemaV1>;
 
 /** A URL that GitHub gave: of a pull request, a review or a comment. */
 const githubUrlSchemaV1 = z.url({ protocol: /^https?$/ }).max(2000);
