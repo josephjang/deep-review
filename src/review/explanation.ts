@@ -11,7 +11,7 @@ import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type DroppedPart, type ExplanationRecorded, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import type { CandidateState, ReviewState, UnitFailure } from '../checkpoint/review-fold.ts';
+import type { CandidateState, ReviewState, UnitFailure, UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
@@ -22,7 +22,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { writerOutputSchema, type CitedSide, type WriterOutput } from './schemas.ts';
 import { findingNumbers, rankedFindings, resolutionOf, type ReportFinding } from './state.ts';
-import { maxAttempts, truncated } from './steps.ts';
+import { degradesOnNextFailure, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
 import { asksToAct, singleUnitKey, verdictBasisWords, verdicts } from './vocabulary.ts';
 
@@ -533,7 +533,8 @@ function requireReview(state: RunState): ReviewState {
 }
 
 /** The failures of the writer's unit in the phase's current attempt, which a re-entered phase clears. */
-const writerFailures = (review: ReviewState): readonly UnitFailure[] => review.units.explanation[singleUnitKey('explanation')]?.failures ?? [];
+const writerUnit = (review: ReviewState): UnitState | undefined => review.units.explanation[singleUnitKey('explanation')];
+const writerFailures = (review: ReviewState): readonly UnitFailure[] => writerUnit(review)?.failures ?? [];
 
 /**
  * The answers of the writers whose attempts at the unit failed in the
@@ -584,9 +585,7 @@ export function writerContribution(state: RunState, receipt: { readonly workerId
   const strays = answers.at(-1)!.strays;
   if (strays.length > 0) context.log(`the answer explains ${strays.join(', ')}, which ${strays.length === 1 ? 'is no finding' : 'are no findings'} of the run that asks a person to act; not kept`);
   const merged = mergeAnswers(answers, ids);
-  const failures = writerFailures(review);
-  const lastAttempt = failures.length + 1 >= maxAttempts && failures.every((failure) => failure.cause === 'unit');
-  if (merged.dropped.length > 0 && !lastAttempt) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
+  if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
   return { kind: 'explanation.recorded', version: 1, payload: explanationRecord(receipt.workerId, merged, context.evidence) };
 }
 
