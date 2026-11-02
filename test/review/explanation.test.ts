@@ -12,7 +12,7 @@ import { contributionOf, invocationFor, type PhaseContext } from '../../src/revi
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
 import type { WriterOutput } from '../../src/review/schemas.ts';
-import { nextStep, type Live } from '../../src/review/steps.ts';
+import { nextStep, type Live, type Step } from '../../src/review/steps.ts';
 import { reviewRoles } from '../../src/review/vocabulary.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { claudeTools } from '../../src/runtime/claude.ts';
@@ -408,6 +408,15 @@ const machine = (repo: string): MachineContext => ({ worktree: repo, checkpoint:
 const counted = (usd: number): Live['spend'] => ({ usd, charged: 0, lost: 0 });
 const idle: Live = { running: new Set(), spend: counted(0), evidencePath: (reference) => `/evidence/${reference.sha256.slice(0, 8)}`, checkSettings: noCheckSettings, claimsLost: null };
 
+/** The reason of the step that drops the explanation, the phase's one degradation, failing the test for any other step. */
+function droppedReason(step: Step): string {
+  assert.ok(step.kind === 'degrade' && step.phase === 'explanation', JSON.stringify(step));
+  assert.equal(step.degradations.length, 1, JSON.stringify(step));
+  const [degradation] = step.degradations;
+  assert.equal(degradation!.kind, 'explanation.dropped', JSON.stringify(step));
+  return degradation!.reason;
+}
+
 describe('the explanation phase (R18, R19, TD8)', () => {
   let directory = '';
   let fixture: Fixture;
@@ -508,9 +517,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const history = failedOnce(decided(fixture).start('explanation'), fixture, first)
       .worker(62, 'writer explanation:explanation', { outcome: 'timeout', termination: 'killed', exitCode: null, signal: 'SIGKILL', output: null, error: 'The worker ran past its timeout' })
       .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(62), reason: 'timeout: The worker ran past its timeout', fault: 'unit' }, 9);
-    const step = nextStep(history.review(), idle);
-    assert.equal(step.kind, 'drop-explanation', JSON.stringify(step));
-    const reason = step.kind === 'drop-explanation' ? step.reason : '';
+    const reason = droppedReason(nextStep(history.review(), idle));
     assert.match(reason, /^2 attempts did not complete: structural check: [^;]*; timeout: The worker ran past its timeout$/);
     const event = droppedExplanation(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence }, reason);
     const explanation = recorded(event);
@@ -525,9 +532,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
   it('degrades at the run budget instead of blocking, dropping each part no answer passed, and records no answer when none passed any part', () => {
     const history = decided(fixture).start('explanation');
     const runBudgetUsd = history.review().limits.runBudgetUsd!;
-    const step = nextStep(history.review(), { ...idle, spend: counted(runBudgetUsd) });
-    assert.equal(step.kind, 'drop-explanation', JSON.stringify(step));
-    const reason = step.kind === 'drop-explanation' ? step.reason : '';
+    const reason = droppedReason(nextStep(history.review(), { ...idle, spend: counted(runBudgetUsd) }));
     assert.match(reason, /^spent \d+\.\d\d USD of the \d+\.\d\d USD run budget$/);
     const explanation = recorded(droppedExplanation(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence }, reason));
     assert.equal(explanation.answer, null);

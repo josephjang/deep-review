@@ -78,8 +78,8 @@ type DegradationTarget =
   | { readonly kind: 'unit.unattempted'; readonly phase: EditingPhase; readonly key: string; readonly cause: 'failures' | 'budget' }
   | { readonly kind: 'explanation.dropped' };
 
-/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, with the reason. The explanation's is a step of its own (`drop-explanation`), since what it records is read from the evidence store and the commits of the run. */
-export type Degradation = Exclude<DegradationTarget, { readonly kind: 'explanation.dropped' }> & { readonly reason: string };
+/** A degradation the planner asks for: the event that records a unit exhausted under a degrading role, or one the run budget stopped, with the reason. The controller builds each event; the explanation's from the evidence store and the commits of the run (`droppedExplanation`). */
+export type Degradation = DegradationTarget & { readonly reason: string };
 
 /** Why a check is skipped: the error its run records, and on the base the reason, which a run elsewhere has none of (R5 of the facts before a merge). */
 export interface CheckSkip {
@@ -119,16 +119,6 @@ export type Step =
   | { readonly kind: 'launch'; readonly units: readonly Unit[] }
   | { readonly kind: 'await' }
   | { readonly kind: 'degrade'; readonly phase: Phase; readonly degradations: readonly Degradation[] }
-  /**
-   * Record the explanation with each part that no answer of the writer
-   * passed dropped, `reason` among its failures, once its writer failed
-   * twice with no answer that completed the unit, or at the run budget
-   * (R18 of the review on the pull request). The controller computes the
-   * record (`droppedExplanation`), since the parts an earlier answer
-   * passed are read from the evidence store and checked against the
-   * commits of the run.
-   */
-  | { readonly kind: 'drop-explanation'; readonly reason: string }
   | { readonly kind: 'finish-phase'; readonly phase: Phase; readonly attempt: number; readonly outcome: 'completed' | 'degraded' | 'blocked'; readonly blocker: Blocker | null }
   | { readonly kind: 'write-report' };
 
@@ -429,15 +419,18 @@ export function checkUnavailableBlocker(unavailable: readonly UnavailableCheck[]
 }
 
 /**
- * What an editing phase records once the run budget is reached (R19 of
- * the fix pass): every unit with no worker in flight that has not settled
- * is not attempted, with the budget as the cause, whether it was waiting
- * for a launch, for a retry, or for its cluster's earlier batch.
+ * What a phase that degrades at the run budget records once it is reached
+ * (`isBudgetDegradingPhase`): in an editing phase (R19 of the fix pass),
+ * every unit with no worker in flight that has not settled is not
+ * attempted, with the budget as the cause, whether it was waiting for a
+ * launch, for a retry, or for its cluster's earlier batch; the
+ * explanation's writer records the explanation with each part no answer
+ * passed dropped (R18 of the review on the pull request).
  */
 function budgetDegradations(review: ReviewState, units: readonly Unit[], live: Live, spent: string): Degradation[] {
   return units
     .filter((unit) => !settled(review, unit) && !live.running.has(unitName(unit.phase, unit.key)))
-    .map((unit): Degradation => ({ kind: 'unit.unattempted', phase: unit.phase as EditingPhase, key: unit.key, cause: 'budget', reason: spent }));
+    .map((unit): Degradation => (unit.phase === 'explanation' ? { kind: 'explanation.dropped', reason: spent } : { kind: 'unit.unattempted', phase: unit.phase as EditingPhase, key: unit.key, cause: 'budget', reason: spent }));
 }
 
 /** The blocker a phase finishes with when the spend the budget check counts reached the run budget, naming the workers it counted at their caps and the lost ones it left out. */
@@ -713,11 +706,7 @@ export function nextStep(review: ReviewState, live: Live): Step {
     const target = exhaustedOutcome(review, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
-  // The explanation has one unit, so its degradation is the phase's only one.
-  const dropped = targets.find((target) => target.kind === 'explanation.dropped');
-  if (dropped !== undefined) return { kind: 'drop-explanation', reason: dropped.reason };
-  const degradations = targets.filter((target): target is Degradation => target.kind !== 'explanation.dropped');
-  if (degradations.length > 0) return { kind: 'degrade', phase, degradations };
+  if (targets.length > 0) return { kind: 'degrade', phase, degradations: targets };
   // A unit the provider's usage limit stopped, which never degrades since the limit is an interruption, blocks the phase once the workers in flight end, before any other unit out of attempts blocks it or another launches: a retry before the reset cannot pass, and the run resumes after it with fresh attempts (R14 of resumable runs).
   const limited = units.find((unit) => !settled(review, unit) && (states[unit.key]?.failures.some((failure) => failure.cause === 'limit') ?? false));
   if (limited !== undefined) return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: workerFailedBlocker(review, limited, states[limited.key]) };
@@ -731,7 +720,6 @@ export function nextStep(review: ReviewState, live: Live): Step {
       const spend = { ...live.spend, usd: countedUsd };
       // The fixes, the documentation step and the repair stop launching instead and go on to the report, so their edits are never left unreported (R19, PD16 of the fix pass); the answer pass blocks instead, as a reading phase does (TD8 of answers), and a block on its retry leaves the edits its failed attempt recorded unreported until the run is resumed with --budget-usd, or abandoned.
       // The explanation goes on to the report too, with each part that no answer of its writer passed dropped (R18 of the review on the pull request).
-      if (phase === 'explanation') return { kind: 'drop-explanation', reason: budgetBlocker(spend, runBudgetUsd).detail };
       if (isBudgetDegradingPhase(phase)) return { kind: 'degrade', phase, degradations: budgetDegradations(review, units, live, budgetBlocker(spend, runBudgetUsd).detail) };
       return running.length > 0 ? { kind: 'await' } : { kind: 'finish-phase', phase, attempt, outcome: 'blocked', blocker: budgetBlocker(spend, runBudgetUsd) };
     }
