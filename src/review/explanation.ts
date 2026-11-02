@@ -161,16 +161,40 @@ const flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
 const shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
 const nodeId = /^[\p{L}\p{N}_]+/u;
 /**
- * The text of an edge written between its arrow's two halves, as in
- * `A -- text --> B`, `A -. text .-> B` and `A == text ==> B`: an opening
- * `--`, `-.` or `==` that is no part of a longer arrow, and the text up to
- * the next arrow, which a semicolon in it would end early. A `--` or `==`
+ * The opening of the text of an edge written between its arrow's two
+ * halves, as in `A -- text --> B`, `A -. text .-> B` and `A == text ==> B`:
+ * `--`, `-.` or `==` that is no part of a longer arrow. A `--` or `==`
  * right before `x` or `o` is a cross or circle arrow, as `A --x B`, which
  * holds no text.
  */
-const edgeText = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
+const edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+/** The second half of the arrow that ends the text of an edge, which a semicolon in the text would end early. */
+const edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
 /** The value of `label:` in the body of a node's `@{ ... }` shape, its quoted text taken out. */
 const shapeLabel = /(?:^|[\s,])label\s*:\s*([^,]*)/;
+
+/** The text of an edge whose opening is at `at`: where its text starts and ends, past each quoted label and each label between bars in it, and where its closing arrow ends; null when no edge text opens there or none closes. */
+function edgeTextAt(line: string, at: number): { readonly start: number; readonly end: number; readonly closed: number } | null {
+  edgeTextOpening.lastIndex = at;
+  const opening = edgeTextOpening.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === '|') {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing.lastIndex = end;
+    const closing = edgeTextClosing.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
 
 /** The failures of a subgraph's line, the text after `subgraph`: each quoted label, and the title as the rest of the line gives it, `S [title]` or a title alone. */
 function subgraphFailures(rest: string, number: number): string[] {
@@ -189,10 +213,24 @@ function flowchartLineFailures(line: string, number: number): string[] {
   const subgraph = /^subgraph\b(.*)$/.exec(line);
   if (subgraph !== null) return subgraphFailures(subgraph[1]!, number);
   const failures: string[] = [];
-  // The quoted labels and those between bars are checked below, so they are taken out before the text of an edge is looked for.
-  for (const edge of line.replaceAll(/"[^"]*"|\|[^|]*\|/g, '""').matchAll(edgeText)) failures.push(...labelFailures(`the text of an edge on line ${String(number)}`, edge[1]!));
+  // The text of the edge the walk is in, whose words are no nodes, and which the walk leaves past its closing arrow.
+  let edge: ReturnType<typeof edgeTextAt> = null;
   let at = 0;
   while (at < line.length) {
+    if (edge !== null && at >= edge.end) {
+      at = edge.closed;
+      edge = null;
+      continue;
+    }
+    if (edge === null) {
+      edge = edgeTextAt(line, at);
+      if (edge !== null) {
+        // Its quoted labels and those between bars are checked as the walk meets them, so they are taken out of its text.
+        failures.push(...labelFailures(`the text of an edge on line ${String(number)}`, line.slice(edge.start, edge.end).replaceAll(/"[^"]*"|\|[^|]*\|/g, '""')));
+        at = edge.start;
+        continue;
+      }
+    }
     const char = line.charAt(at);
     if (char === '"' || char === '|') {
       const close = line.indexOf(char, at + 1);
@@ -210,6 +248,7 @@ function flowchartLineFailures(line: string, number: number): string[] {
       continue;
     }
     at += id[0].length;
+    if (edge !== null) continue;
     if (line.startsWith('@{', at)) {
       // The body of the shape runs to the first `}` outside a quoted text.
       let close = at + 2;
