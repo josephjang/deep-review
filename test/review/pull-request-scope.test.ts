@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { hasScopeFlags, namedScopeOf, pullRequestNameOf, UsageError } from '../../src/command.ts';
 import type { ScopeRequest } from '../../src/checkpoint/events.ts';
 import type { ScopeSettings } from '../../src/config/resolve.ts';
+import { GitHubCallError } from '../../src/github/errors.ts';
 import type { Gh } from '../../src/github/gh.ts';
 import type { PullRequestName } from '../../src/github/pull-request.ts';
 import { replayVerifier } from '../../src/replay/run.ts';
@@ -332,6 +333,14 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
     it('refuses a pull request of more than 3000 files from changed_files, before its files are listed', async (t) => {
       const { script } = await refusedReview(t, /changes 3001 files, and GitHub lists no more than 3000/, (box) => sandboxSteps(box, { pullRequest: { changed_files: 3001 } }));
       assert.ok(!fakeGhCalls(script).some((call) => call.args.some((arg) => arg.endsWith('/files?per_page=100'))));
+    });
+
+    it('leaves a server error of GitHub an error, exit 1, not a refusal, on the read of the pull request and on a later read', async (t) => {
+      for (const steps of [() => [{ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ status: 502, body: { message: 'Bad Gateway' } }] }], (box: ReviewSandbox) => sandboxSteps(box).map((step) => (step.endpoint.endsWith('/files?per_page=100') ? { ...step, pages: [{ status: 503, body: { message: 'Service Unavailable' } }] } : step))]) {
+        const { box, gh } = sandboxWithGh(t, steps);
+        await assert.rejects(box.review('claude', { scope: pullRequestSource(box, gh) }), (error: unknown) => error instanceof GitHubCallError && !(error instanceof ReviewRefusedError) && /GitHub answered 50[23]/.test(error.message));
+        assert.deepEqual(box.checkpoint.listRuns(), [], 'no run');
+      }
     });
 
     it('refuses gh with no account for the host, with its action, and a number gh cannot read, naming the URL', async (t) => {
