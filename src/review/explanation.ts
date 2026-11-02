@@ -23,7 +23,7 @@ import { writerOutputSchema, type CitedSide, type WriterOutput } from './schemas
 import { findingNumbers, rankedFindings, resolutionOf, type ReportFinding } from './state.ts';
 import { maxAttempts, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
-import { singleUnitKey, verdictBasisWords, verdicts } from './vocabulary.ts';
+import { asksToAct, singleUnitKey, verdictBasisWords, verdicts } from './vocabulary.ts';
 
 const writerOutputShape = writerOutputSchema.shape;
 const explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
@@ -72,7 +72,7 @@ export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer'>, 
  */
 export function findingsToExplain(review: ReviewState): string[] {
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision.decision]));
-  return rankedFindings(review).flatMap((entry) => (decided.get(entry.finding.id) === 'leave' || !decided.has(entry.finding.id) ? [] : [entry.finding.id]));
+  return rankedFindings(review).flatMap((entry) => (asksToAct(decided.get(entry.finding.id)) ? [entry.finding.id] : []));
 }
 
 /** A part of the answer as `explanation.recorded@1` names a dropped one: the conclusion, the account, or `finding <id>`. */
