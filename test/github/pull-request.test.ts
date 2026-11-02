@@ -82,6 +82,14 @@ describe('readPullRequest', () => {
     assert.deepEqual(argsOf(script), ['api', '--include', '-X', 'GET', '--hostname', 'ghe.example.com', 'repos/acme/widgets/pulls/7']);
   });
 
+  it('reads a target on its host, as a run recorded it', (t) => {
+    const url = 'https://ghe.example.com/acme/widgets/pull/7';
+    const { gh, script } = fakeGhWith(t, [{ endpoint: 'repos/acme/widgets/pulls/7', pages: [{ body: pullRequestBody({ html_url: url, number: 7 }) }] }]);
+    const pullRequest = readPullRequest(gh, { host: 'ghe.example.com', owner: 'acme', repository: 'widgets', number: 7 });
+    assert.deepEqual([pullRequest.host, pullRequest.owner, pullRequest.repository, pullRequest.number], ['ghe.example.com', 'acme', 'widgets', 7]);
+    assert.deepEqual(argsOf(script), ['api', '--include', '-X', 'GET', '--hostname', 'ghe.example.com', 'repos/acme/widgets/pulls/7']);
+  });
+
   it('refuses an answer whose URL is not of the pull request it asked for', (t) => {
     const urls = ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull/43', 'https://github.com/acme/widgets/pull/42/files', 'https://github.com//widgets/pull/42'];
     const { gh } = fakeGhWith(t, urls.map((url) => ({ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody({ html_url: url }) }] })));
