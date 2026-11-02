@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { commitCount, commitMessages, emptyTree, isEmptyTree } from '../../src/scope/git.ts';
+import { blobsRaw, commitCount, commitMessages, emptyTree, isEmptyTree, treeEntries } from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, write } from '../helpers/repository.ts';
 
 describe('commitMessages (R6 of the brief of a run)', () => {
@@ -153,6 +153,29 @@ describe('isEmptyTree', () => {
     const sandbox = mkdtempSync(join(tmpdir(), 'deep-review-empty-tree-'));
     try {
       assert.equal(isEmptyTree(emptyTree(createRepository(join(sandbox, 'repo')))), true);
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('blobsRaw', () => {
+  it('reads each blob\'s raw bytes with one git cat-file, an empty blob and one that holds line feeds and no last one included', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'deep-review-blobs-'));
+    try {
+      const repo = createRepository(join(sandbox, 'repo'));
+      write(repo, 'a.txt', 'one\ntwo\n');
+      write(repo, 'empty.txt', '');
+      write(repo, 'b.bin', '\n\nlast');
+      const head = commitAll(repo, 'blobs');
+      const entries = treeEntries(repo, head, ['a.txt', 'empty.txt', 'b.bin']);
+      const id = (path: string): string => entries.get(path)!.objectId;
+      const blobs = blobsRaw(repo, [id('a.txt'), id('empty.txt'), id('b.bin'), id('a.txt')]);
+      assert.deepEqual([...blobs.keys()].sort(), [id('a.txt'), id('empty.txt'), id('b.bin')].sort());
+      assert.equal(blobs.get(id('a.txt'))!.toString('utf8'), 'one\ntwo\n');
+      assert.equal(blobs.get(id('empty.txt'))!.length, 0);
+      assert.equal(blobs.get(id('b.bin'))!.toString('utf8'), '\n\nlast');
+      assert.deepEqual(blobsRaw(repo, []), new Map(), 'no id runs no git');
     } finally {
       rmSync(sandbox, { recursive: true, force: true });
     }

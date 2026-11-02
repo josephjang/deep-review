@@ -13,7 +13,7 @@ import { recordedTextLengthV1, type DroppedPart, type ExplanationRecorded, type 
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState, UnitFailure } from '../checkpoint/review-fold.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
-import { blobRaw, treeEntries } from '../scope/git.ts';
+import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
 import { StructuralCheckError } from './errors.ts';
 import { inlineText } from './markdown.ts';
@@ -106,21 +106,50 @@ export function lineCountOf(bytes: Uint8Array): number {
   return bytes.length > 0 && bytes[bytes.length - 1] !== 0x0a ? count + 1 : count;
 }
 
+/** A path from the root of the repository, as git names a file: no root, no drive, no backslash, no NUL, which git cannot be given and no file name holds, and no empty, `.` or `..` name. */
+const repositoryPath = (path: string): boolean => path !== '' && !path.includes('\\') && !path.includes('\0') && !/^[A-Za-z]:/.test(path) && path.split('/').every((name) => name !== '' && name !== '.' && name !== '..');
+
+/** The most characters of paths one `git ls-tree` of `gitLineCounts` is given, well inside the shortest command line a platform takes. */
+const maxPathCharacters = 8000;
+
 /**
  * The count of lines of a path at a side, read with git at the commit of
  * the side, the head or the merge base the run recorded, so a resume in a
  * worktree that moved checks the same lines; null when that commit holds
- * no regular file at the path. Each path and commit is read once.
+ * no regular file at the path. Each path and commit is read once. The
+ * first count asked of a side reads every path of `paths` for that side
+ * at once, with one `git ls-tree` for each few thousand characters of
+ * paths and one `git cat-file --batch`; a path outside them is read alone.
  */
-export function gitLineCounts(worktree: string, scope: Pick<ScopeState, 'base' | 'head'>): AnswerCheckInput['lineCount'] {
+export function gitLineCounts(worktree: string, scope: Pick<ScopeState, 'base' | 'head'>, paths: Readonly<Partial<Record<CitedSide, readonly string[]>>> = {}): AnswerCheckInput['lineCount'] {
   const counts = new Map<string, number | null>();
+  const read = (commit: string, wanted: readonly string[]): void => {
+    const entries = new Map<string, TreeEntry>();
+    for (let from = 0; from < wanted.length;) {
+      let to = from + 1;
+      for (let length = wanted[from]!.length; to < wanted.length && length + wanted[to]!.length <= maxPathCharacters; to += 1) length += wanted[to]!.length;
+      for (const [path, entry] of treeEntries(worktree, commit, wanted.slice(from, to))) entries.set(path, entry);
+      from = to;
+    }
+    const file = (path: string): TreeEntry | undefined => {
+      const entry = entries.get(path);
+      return entry?.mode.startsWith('100') ? entry : undefined;
+    };
+    const blobs = blobsRaw(worktree, wanted.flatMap((path) => file(path)?.objectId ?? []));
+    for (const path of wanted) {
+      const entry = file(path);
+      counts.set(`${commit}:${path}`, entry === undefined ? null : lineCountOf(blobs.get(entry.objectId)!));
+    }
+  };
+  const prefilled = new Set<CitedSide>();
   return (side, path) => {
     const commit = side === 'head' ? scope.head : scope.base;
-    const key = `${commit}:${path}`;
-    if (!counts.has(key)) {
-      const entry = treeEntries(worktree, commit, [path]).get(path);
-      counts.set(key, entry === undefined || !entry.mode.startsWith('100') ? null : lineCountOf(blobRaw(worktree, entry.objectId)));
+    if (!prefilled.has(side)) {
+      prefilled.add(side);
+      read(commit, [...new Set(paths[side] ?? [])].filter((given) => repositoryPath(given) && !counts.has(`${commit}:${given}`)));
     }
+    const key = `${commit}:${path}`;
+    if (!counts.has(key)) read(commit, [path]);
     return counts.get(key)!;
   };
 }
@@ -332,9 +361,6 @@ export function diagramFailures(diagram: string): string[] {
 /** The failures of a part's diagram, named by where it is; none for a part with no diagram. */
 const diagramFailuresOf = (what: string, diagram: string | null): string[] => (diagram === null ? [] : diagramFailures(diagram).map((failure) => `${what} is no diagram GitHub draws: ${failure}`));
 
-/** A path from the root of the repository, as git names a file: no root, no drive, no backslash, no NUL, which git cannot be given and no file name holds, and no empty, `.` or `..` name. */
-const repositoryPath = (path: string): boolean => path !== '' && !path.includes('\\') && !path.includes('\0') && !/^[A-Za-z]:/.test(path) && path.split('/').every((name) => name !== '' && name !== '.' && name !== '..');
-
 /** How a failure names a side. */
 const sideWords: Readonly<Record<CitedSide, string>> = { head: 'the head', base: 'the merge base' };
 
@@ -523,11 +549,14 @@ function earlierAnswers(state: RunState, review: ReviewState, evidence: Pick<Evi
   });
 }
 
-/** The answers of the unit's earlier attempts and `latest`, checked against the run, in order. */
+/** The answers of the unit's earlier attempts and `latest`, checked against the run, in order, the lines of every path their cases cite read at once. */
 function checkedAnswers(state: RunState, review: ReviewState, context: { readonly worktree: string; readonly evidence: Pick<EvidenceStore, 'read'> }, ids: readonly string[], latest: WriterOutput | null): CheckedAnswer[] {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const input: AnswerCheckInput = { ids, lineCount: gitLineCounts(context.worktree, state.scope) };
-  return [...earlierAnswers(state, review, context.evidence), ...(latest === null ? [] : [latest])].map((answer) => checkAnswer(answer, input));
+  const answers = [...earlierAnswers(state, review, context.evidence), ...(latest === null ? [] : [latest])];
+  const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
+  const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
+  const input: AnswerCheckInput = { ids, lineCount: gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') }) };
+  return answers.map((answer) => checkAnswer(answer, input));
 }
 
 /** The failures of the parts a merge dropped, as one reason of an attempt that failed and as the task of the next names them. */

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -315,6 +315,34 @@ describe('the lines of a path at a side, read with git (R19)', () => {
     const nul = goodAnswer();
     nul.findings[0]!.explanation!.cases[0]!.lines.path = 'src/a\0.ts';
     assert.deepEqual(checkAnswer(nul, { ids: ['RIPPLE-1'], lineCount: lines }).findings.get('RIPPLE-1')!.failures, ['case 1 of RIPPLE-1 cites "src/a\\u0000.ts", which is not a path from the root of the repository'], 'a NUL, which no argument of git can hold, is a failed check');
+  });
+
+  it('reads every path it is given for a side with the first count asked of that side, and a path outside them alone', () => {
+    const repo = createRepository(join(directory, 'batched'));
+    write(repo, 'src/a.ts', numbered(10));
+    write(repo, 'src/b.ts', '');
+    write(repo, 'src/c.ts', 'one line, no line feed');
+    write(repo, 'src/d.ts', numbered(3));
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(12));
+    const head = commitAll(repo, 'head');
+    const many = Array.from({ length: 400 }, (_, index) => `src/missing/${'x'.repeat(40)}-${String(index)}.ts`);
+    const lines = gitLineCounts(repo, { base, head }, { head: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src', 'src/a.ts', 'src/a\0.ts', ...many], base: ['src/a.ts'] });
+    assert.equal(lines('head', 'src/a.ts'), 12);
+    const away = join(directory, 'batched-git');
+    renameSync(join(repo, '.git'), away);
+    try {
+      assert.equal(lines('head', 'src/b.ts'), 0, 'an empty file, read with the first count of the head');
+      assert.equal(lines('head', 'src/c.ts'), 1);
+      assert.equal(lines('head', 'src'), null, 'a directory is no file');
+      assert.equal(lines('head', many.at(-1)!), null, 'a path past the first git ls-tree');
+      assert.throws(() => lines('base', 'src/a.ts'), /git/, 'the base is read with the first count asked of it');
+      assert.throws(() => lines('head', 'src/d.ts'), /git/, 'a path outside the given ones is read when it is asked');
+    } finally {
+      renameSync(away, join(repo, '.git'));
+    }
+    assert.equal(lines('base', 'src/a.ts'), 10);
+    assert.equal(lines('head', 'src/d.ts'), 3);
   });
 });
 

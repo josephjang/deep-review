@@ -242,6 +242,27 @@ export function blobRaw(repo: string, objectId: string): Buffer {
   return git(repo, ['cat-file', 'blob', objectId]);
 }
 
+/** The raw bytes of each blob, keyed by object id, read with one `git cat-file --batch` however many there are. */
+export function blobsRaw(repo: string, objectIds: readonly string[]): Map<string, Buffer> {
+  const blobs = new Map<string, Buffer>();
+  const ids = [...new Set(objectIds)];
+  if (ids.length === 0) return blobs;
+  // Each object comes as `<id> blob <size>`, a line feed, its bytes and a line feed.
+  const output = git(repo, ['cat-file', '--batch'], { input: Buffer.from(ids.map((id) => `${id}\n`).join('')) });
+  let at = 0;
+  while (at < output.length) {
+    const lineEnd = output.indexOf(0x0a, at);
+    const header = output.subarray(at, lineEnd === -1 ? output.length : lineEnd).toString('utf8');
+    const match = /^([0-9a-f]+) blob ([0-9]+)$/.exec(header);
+    if (lineEnd === -1 || match === null) throw new Error(`Unexpected cat-file --batch header: ${header}`);
+    const start = lineEnd + 1;
+    const end = start + Number(match[2]);
+    blobs.set(match[1]!, output.subarray(start, end));
+    at = end + 1;
+  }
+  return blobs;
+}
+
 /**
  * The object id git would store these bytes under at `path`, through the
  * clean conversion the path's configuration and attributes ask for (line
