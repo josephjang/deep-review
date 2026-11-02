@@ -255,6 +255,14 @@ export function readMergeBase(gh: Gh, repository: GitHubRepository, base: string
   return readOne(gh, `comparing ${base} with ${head}`, { endpoint: `${repositoryPath(repository)}/compare/${base}...${head}`, hostname: repository.host }, comparisonSchema).merge_base_commit.sha;
 }
 
+/** The merge base of the pull request `facts` now: GitHub's comparison of the head of its base branch with its head. */
+export function readCurrentMergeBase(gh: Gh, facts: GitHubRepository & Pick<PullRequest, 'baseRef' | 'head'>): string {
+  return readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
+}
+
+/** How a pull request that is not open is called in a refusal: merged, or closed without a merge. */
+export const closedState = (facts: Pick<PullRequest, 'merged'>): 'merged' | 'closed' => (facts.merged ? 'merged' : 'closed');
+
 /**
  * Every file of the pull request, 100 a page and every page. A pull
  * request of more files than GitHub lists is refused before any is listed,

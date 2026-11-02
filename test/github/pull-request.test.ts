@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { GitHubCallError, PullRequestRefusedError } from '../../src/github/errors.ts';
 import {
+  closedState,
   impliedPaths,
   listPullRequestFiles,
   listReviewComments,
@@ -12,6 +13,7 @@ import {
   pullRequestLabel,
   pullRequestPathOf,
   readBranchHead,
+  readCurrentMergeBase,
   readMergeBase,
   readPullRequest,
   type PullRequestFile,
@@ -147,7 +149,14 @@ describe('pullRequestLabel', () => {
   });
 });
 
-describe('readBranchHead and readMergeBase', () => {
+describe('closedState', () => {
+  it('calls a pull request that is not open merged when it was merged, else closed', () => {
+    assert.equal(closedState({ merged: true }), 'merged');
+    assert.equal(closedState({ merged: false }), 'closed');
+  });
+});
+
+describe('readBranchHead, readMergeBase and readCurrentMergeBase', () => {
   it('percent-encodes each segment of a branch name, keeping its slashes, on the host', (t) => {
     const { gh, script } = fakeGhWith(t, [{ endpoint: 'repos/acme/widgets/git/ref/heads/release/1.0%23hot%25fix', pages: [{ body: { ref: 'refs/heads/release/1.0#hot%fix', object: { sha: base, type: 'commit' } } }] }]);
     assert.equal(readBranchHead(gh, target, 'release/1.0#hot%fix'), base);
@@ -158,6 +167,15 @@ describe('readBranchHead and readMergeBase', () => {
     const { gh, script } = fakeGhWith(t, [{ endpoint: `repos/acme/widgets/compare/${base}...${head}`, pages: [{ body: { status: 'ahead', merge_base_commit: { sha: mergeBase }, commits: [] } }] }]);
     assert.equal(readMergeBase(gh, target, base, head), mergeBase);
     assert.ok(argsOf(script).includes('--hostname'));
+  });
+
+  it('takes the merge base of a pull request now from the comparison of the head of its base branch with its head', (t) => {
+    const { gh, script } = fakeGhWith(t, [
+      { endpoint: 'repos/acme/widgets/git/ref/heads/main', pages: [{ body: { ref: 'refs/heads/main', object: { sha: base, type: 'commit' } } }] },
+      { endpoint: `repos/acme/widgets/compare/${base}...${head}`, pages: [{ body: { status: 'ahead', merge_base_commit: { sha: mergeBase }, commits: [] } }] },
+    ]);
+    assert.equal(readCurrentMergeBase(gh, { ...target, baseRef: 'main', head }), mergeBase);
+    assert.deepEqual(fakeGhCalls(script).map((call) => call.args.at(-1)), ['repos/acme/widgets/git/ref/heads/main', `repos/acme/widgets/compare/${base}...${head}`]);
   });
 });
 
