@@ -171,9 +171,11 @@ const unrecordedWords = (settled: string | null): string => (settled === null ? 
  * A call of GitHub before the publication is prepared, whose refusal by
  * GitHub or `gh` is a refusal of the command (R8), with an account's
  * action for a 401 or a 404, and what was recorded, `unrecorded`; a
- * timeout and an answer the engine cannot read stay errors, exit 1. A
- * call made once the account has read the pull request names in `gone`
- * what a 404 means then, which no other account answers.
+ * timeout, a server error of GitHub, a status of 500 or more, and an
+ * answer the engine cannot read stay errors, exit 1, as for the post,
+ * saying what was recorded too. A call made once the account has read the
+ * pull request names in `gone` what a 404 means then, which no other
+ * account answers.
  */
 function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded: string, gone?: string): T {
   try {
@@ -184,8 +186,8 @@ function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded:
     const { failure } = error;
     if (failure.kind === 'answer' && failure.status === 404 && gone !== undefined) throw new ReviewRefusedError(`${error.message}; ${gone}; ${unrecorded}`);
     if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestLabel(target)}`);
-    if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
-    throw error;
+    if ((failure.kind === 'answer' && failure.status < 500) || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
+    throw new GitHubCallError(error.what, failure, unrecorded);
   }
 }
 
