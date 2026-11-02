@@ -161,7 +161,10 @@ function requireCleanTree(worktree: string, facts: PullRequest): void {
  * Read the pull request a command names from GitHub through `gh`, and
  * hold the worktree to it (R1, R2, TD3 of the review on the pull
  * request), in this order, each refusal naming its action and creating
- * nothing: a pull request that is closed or merged is refused (PD9); a
+ * nothing: a URL whose repository is not the one GitHub gives for the
+ * pull request, as a renamed or moved repository's is not, naming the URL
+ * GitHub gives, since the run records the name the command gave beside
+ * GitHub's facts; a pull request that is closed or merged (PD9); a
  * `HEAD` that is not its head, naming `gh pr checkout`; a tree that `git
  * status` does not show clean, as `--last-commit` refuses one; a merge
  * base, from GitHub's comparison of the head of its base branch now with
@@ -174,6 +177,10 @@ function requireCleanTree(worktree: string, facts: PullRequest): void {
 export function resolvePullRequestScope(worktree: string, named: Extract<NamedScope, { readonly mode: 'pull-request' }>['request'], gh: Gh): RequestedScope {
   const name = named.pullRequest;
   const facts = refusingGitHub(() => readPullRequest(gh, name), namedRefusal(name));
+  const repository = `${facts.host}/${facts.owner}/${facts.repository}`;
+  if (name.repository !== null && name.repository.toLowerCase() !== repository.toLowerCase()) {
+    throw new ReviewRefusedError(`GitHub gives pull request #${String(name.number)} of ${name.repository} as ${facts.url}, of ${repository}, as it does for a repository that was renamed or moved; give --pr ${facts.url} and run the command again`);
+  }
   return refusingGitHub(() => {
     const words = pullRequestWords(facts);
     if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
