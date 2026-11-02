@@ -34,7 +34,9 @@ export interface GitHubRefusal {
   readonly pullRequest: string;
   /** What else a 404 may mean, such as a number that names no pull request, said before the account's action; none when absent. */
   readonly missing?: string;
-  /** What the command recorded, said at the end of each refusal; nothing when absent. */
+  /** What a 404 means in place of the account's action, for a call made once the account has read the pull request, which no other account answers; the account's action when absent. */
+  readonly gone?: string;
+  /** What the command recorded, said at the end of each refusal and of each error; nothing when absent. */
   readonly recorded?: string;
   /** The action that answers an answer the engine cannot read, which is a refusal then; an error when absent. */
   readonly unreadable?: string;
@@ -43,14 +45,15 @@ export interface GitHubRefusal {
 /**
  * The result of `read`, calls of GitHub, with each one GitHub or `gh`
  * refused, and each pull request the engine cannot review as GitHub gave
- * it, turned into a refusal, exit 2, that names its action: a 401 or a 404
+ * it, turned into a refusal, exit 2, that names its action: a 404 names
+ * what it means when the refusal says it is `gone`, else a 401 or a 404
  * names the account that must read the pull request, after what else a
  * 404 may mean; another answer of 4xx, `gh` missing and `gh` with no
  * account for the host name their own. A timeout and a server error of
  * GitHub, a status of 500 or more, stay errors, exit 1, as for the post
  * (the publication in the design of the review on the pull request), and
  * so does an answer the engine cannot read, unless the refusal names the
- * action that answers it.
+ * action that answers it; each says what was recorded too.
  */
 export function refusingGitHub<T>(read: () => T, refusal: GitHubRefusal): T {
   const refused = (words: string): ReviewRefusedError => new ReviewRefusedError(refusal.recorded === undefined ? words : `${words}; ${refusal.recorded}`);
@@ -60,12 +63,13 @@ export function refusingGitHub<T>(read: () => T, refusal: GitHubRefusal): T {
     if (error instanceof PullRequestRefusedError) throw refused(error.message);
     if (!(error instanceof GitHubCallError)) throw error;
     const { failure } = error;
+    if (failure.kind === 'answer' && failure.status === 404 && refusal.gone !== undefined) throw refused(`${error.message}; ${refusal.gone}`);
     if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) {
       const missing = failure.status === 404 && refusal.missing !== undefined ? `${refusal.missing}, or ` : '';
       throw refused(`${error.message}; ${missing}${accountAction(refusal.host)} with an account that can read ${refusal.pullRequest}`);
     }
     if ((failure.kind === 'answer' && failure.status < 500) || failure.kind === 'missing' || failure.kind === 'no-account') throw refused(error.message);
     if (failure.kind === 'unreadable' && refusal.unreadable !== undefined) throw refused(`${error.message}; ${refusal.unreadable}`);
-    throw error;
+    throw refusal.recorded === undefined ? error : new GitHubCallError(error.what, failure, refusal.recorded);
   }
 }
