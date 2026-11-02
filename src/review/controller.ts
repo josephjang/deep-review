@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, ExplanationRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, ReviewConfiguration, ReviewConfigurationV10, ReviewConfigurationV9, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
+import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, ExplanationRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, PullRequestFacts, PullRequestTarget, ReviewConfiguration, ReviewConfigurationV10, ReviewConfigurationV9, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
 import { isDocumentItem, reviewConfiguredV10, reviewConfiguredV9 } from '../checkpoint/events.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf, settingsRecordV2Of } from '../config/record.ts';
@@ -1339,7 +1339,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       }
     }
     if (found === null && fixing) {
-      const chosen = chooseContinuation(runs, context, () => scopeRequestOf().request);
+      const chosen = chooseContinuation(runs, context, scopeRequestOf);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
         const refolded = refoldUnderLock(checkpoint, chosen.id, log);
@@ -1435,9 +1435,10 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
 /**
  * The finished read-only run a `review --fix` continues (R2, TD8 of fix
  * pass continuation): the newest that qualifies (`continuable`) whose
- * scope the command names, its files as git would store them what the run
- * froze and `HEAD` at its head (`scopeMismatch`), the change as the run's
- * own `scope.exclude` leaves it. The request is resolved once per set of
+ * scope the command names, its pull request the one the command names or
+ * neither naming one (`pullRequestMismatch`), its files as git would store
+ * them what the run froze and `HEAD` at its head (`scopeMismatch`), the
+ * change as the run's own `scope.exclude` leaves it. The request is resolved once per set of
  * patterns, from the first candidate on, and none is resolved when no run
  * qualifies. A candidate whose patterns refuse the change, leaving it
  * empty or a `--path` with only what they leave out, is passed over with
@@ -1448,7 +1449,7 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * first reason it was not continued. Either way, it names each run passed
  * over whose answers do not carry to the new run.
  */
-function chooseContinuation(runs: readonly RunState[], context: OpenContext, request: () => ScopeRequest): RunState | null {
+function chooseContinuation(runs: readonly RunState[], context: OpenContext, request: () => RequestedScope): RunState | null {
   if (context.fresh === true) {
     context.log('--fresh: no finished run is considered; a new run is created');
     logAnswersNotCarried(runs, context);
@@ -1460,7 +1461,7 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
     const key = JSON.stringify(exclude);
     const known = resolutions.get(key);
     if (known !== undefined) return known;
-    const scopeRequest = request();
+    const scopeRequest = request().request;
     let made: ResolvedScope | { readonly refused: string };
     if (exclude.length === 0) made = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
     else {
@@ -1478,7 +1479,8 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
   };
   const reasons = new Map<string, string>();
   for (const run of continuable(runs, context.worktree)) {
-    const listed = resolved(run.scope!.request.exclude);
+    const otherPullRequest = pullRequestMismatch(request().pullRequest, run.scope!.pullRequest);
+    const listed = otherPullRequest === null ? resolved(run.scope!.request.exclude) : { refused: otherPullRequest };
     const reason = 'refused' in listed ? listed.refused : scopeMismatch(listed, run.scope!, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path));
     if (reason === null) return run;
     reasons.set(run.id, reason);
@@ -1492,6 +1494,21 @@ function chooseContinuation(runs: readonly RunState[], context: OpenContext, req
   }
   logAnswersNotCarried(runs, context);
   return null;
+}
+
+/**
+ * Why a finished run is not of the pull request the command names, or
+ * null when it is, or when neither names one (R4 of the review on the
+ * pull request): a run of a pull request is continued only by a command
+ * that names it, its number, host, owner and repository as GitHub gave
+ * them, compared without regard to case as `namesScope` compares them,
+ * and a command that names one continues only a run of it.
+ */
+function pullRequestMismatch(named: CapturedPullRequest | null, recorded: PullRequestFacts | null): string | null {
+  if (recorded === null) return named === null ? null : `it reviewed no pull request, and this command names ${pullRequestWords(named.facts)}`;
+  if (named === null) return `it reviewed ${pullRequestWords(recorded)}, which only a command that names it with --pr continues`;
+  const where = (facts: PullRequestTarget): string => `${facts.host}/${facts.owner}/${facts.repository}`.toLowerCase();
+  return named.facts.number === recorded.number && where(named.facts) === where(recorded) ? null : `it reviewed ${pullRequestWords(recorded)}, not ${pullRequestWords(named.facts)}`;
 }
 
 /** Whether a run is a fix pass the run budget stopped, in this worktree (R11 of resumable runs). */
