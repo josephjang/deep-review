@@ -40,7 +40,7 @@ import type { ProcessRunner } from '../runtime/process.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import type { PinnedRuntimeOptions } from '../runtime/runtimes.ts';
 import { checkpointScratchKey, defaultScratchRoot } from '../runtime/scratch.ts';
-import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
+import { refusingGitHub, type GitHubRefusal } from '../github/errors.ts';
 import { ghTokenVariables, type Gh } from '../github/gh.ts';
 import { listPullRequestFiles, readBranchHead, readMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName } from '../github/pull-request.ts';
 import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
@@ -135,30 +135,22 @@ function pathDifferenceWords(difference: PathDifference): string {
 }
 
 /**
- * The result of `read`, calls of GitHub, with each call that GitHub or
- * `gh` refused, `gh` missing or with no account for the host included, and
- * each pull request the engine cannot review as GitHub gave it, turned
- * into a refusal that names it and its action. A timeout and a server
- * error of GitHub, a status of 500 or more, stay errors, exit 1, as for
- * the post (the publication in the design of the review on the pull
- * request), and so does an answer the engine cannot read, unless
- * `unreadable` names the action that answers it: a refusal then names it.
+ * What a refusal of the read of the pull request a command names says
+ * (`refusingGitHub`). GitHub answers 404 both for a number that names no
+ * pull request and for one the account cannot read, so a pull request
+ * named by its number names both; `gh` may also not tell the repository
+ * of the clone, which the URL of the pull request answers.
  */
-function refusingGitHub<T>(read: () => T, unreadable: string | null = null): T {
-  try {
-    return read();
-  } catch (error) {
-    if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(error.message);
-    if (!(error instanceof GitHubCallError)) throw error;
-    const { failure } = error;
-    if ((failure.kind === 'answer' && failure.status < 500) || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(error.message);
-    if (failure.kind === 'unreadable' && unreadable !== null) throw new ReviewRefusedError(`${error.message}; ${unreadable}`);
-    throw error;
-  }
+function namedRefusal(name: PullRequestName): GitHubRefusal {
+  const number = String(name.number);
+  if (name.repository !== null) return { host: name.repository.slice(0, name.repository.indexOf('/')), pullRequest: `pull request #${number} of ${name.repository}` };
+  return {
+    host: null,
+    pullRequest: `pull request #${number}`,
+    missing: `check that pull request #${number} exists in the repository of this clone`,
+    unreadable: `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${number}, when gh cannot tell the repository of this clone`,
+  };
 }
-
-/** What answers a pull request named by its number that `gh` cannot read, as when it cannot tell the repository of the clone, or null for one named by its URL. */
-const urlAction = (name: PullRequestName): string | null => (name.repository === null ? `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${String(name.number)}, when gh cannot tell the repository of this clone` : null);
 
 /** Refuse a tree that `git status` does not show clean, as `--pr` reviews the head of the pull request alone. */
 function requireCleanTree(worktree: string, facts: PullRequest): void {
@@ -181,7 +173,7 @@ function requireCleanTree(worktree: string, facts: PullRequest): void {
  */
 export function resolvePullRequestScope(worktree: string, named: Extract<NamedScope, { readonly mode: 'pull-request' }>['request'], gh: Gh): RequestedScope {
   const name = named.pullRequest;
-  const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
+  const facts = refusingGitHub(() => readPullRequest(gh, name), namedRefusal(name));
   return refusingGitHub(() => {
     const words = pullRequestWords(facts);
     if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review reviews an open pull request only`);
@@ -195,7 +187,7 @@ export function resolvePullRequestScope(worktree: string, named: Extract<NamedSc
     const difference = pullRequestPathDifference(worktree, mergeBase, listPullRequestFiles(gh, facts));
     if (difference !== null) throw new ReviewRefusedError(`the change from the merge base ${mergeBase} to HEAD is not the change of ${words}: ${pathDifferenceWords(difference)}`);
     return { request: { range: { from: mergeBase, to: 'HEAD', mergeBase: false }, paths: [...named.paths] }, pullRequest: { name, facts } };
-  });
+  }, { host: facts.host, pullRequest: pullRequestWords(facts) });
 }
 
 export interface ReviewOptions {

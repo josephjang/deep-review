@@ -343,6 +343,15 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
       }
     });
 
+    it('names for a 404 on a number both a pull request missing from the repository and the account, and for a 401, a URL or a later read the account alone', async (t) => {
+      await refusedReview(t, /^reading pull request #42: GitHub answered 404: Not Found; check that pull request #42 exists in the repository of this clone, or run `gh auth login`, or set GH_TOKEN \(GH_ENTERPRISE_TOKEN for a GitHub Enterprise Server\) with an account that can read pull request #42$/, () => [{ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ status: 404, body: { message: 'Not Found' } }] }]);
+      await refusedReview(t, /^reading pull request #42: GitHub answered 401: Bad credentials; run `gh auth login`, or set GH_TOKEN \(GH_ENTERPRISE_TOKEN for a GitHub Enterprise Server\) with an account that can read pull request #42$/, () => [{ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ status: 401, body: { message: 'Bad credentials' } }] }]);
+      await refusedReview(t, /: GitHub answered 404: Not Found; run `gh auth login --hostname github\.com`, or set GH_TOKEN with an account that can read pull request #42 of acme\/widgets$/, (box) => sandboxSteps(box).map((step) => (step.endpoint.endsWith('/files?per_page=100') ? { ...step, pages: [{ status: 404, body: { message: 'Not Found' } }] } : step)));
+      const { box, gh } = sandboxWithGh(t, () => [{ endpoint: 'repos/acme/widgets/pulls/42', pages: [{ status: 404, body: { message: 'Not Found' } }] }]);
+      assert.throws(() => resolvePullRequestScope(box.repo, { pullRequest: { number: 42, repository: 'github.com/acme/widgets' }, paths: [] }, gh), (error: unknown) => error instanceof ReviewRefusedError
+        && /; run `gh auth login --hostname github\.com`, or set GH_TOKEN with an account that can read pull request #42 of github\.com\/acme\/widgets$/.test(error.message) && !error.message.includes('check that'));
+    });
+
     it('refuses gh with no account for the host, with its action, and a number gh cannot read, naming the URL', async (t) => {
       await refusedReview(t, /gh has no account for the host of the clone; run `gh auth login`/, () => [{ endpoint: 'repos/{owner}/{repo}/pulls/42', noAccount: true }]);
       await refusedReview(t, /give --pr the URL of the pull request, such as https:\/\/github\.com\/<owner>\/<repo>\/pull\/42/, () => []);
