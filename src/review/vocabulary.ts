@@ -491,6 +491,15 @@ export const decisionKindSchema = z.enum(decisionKinds);
 export type DecisionKind = z.infer<typeof decisionKindSchema>;
 
 /**
+ * Whether a decision asks a person to act (R9, R10, R18 of the review on
+ * the pull request): a fix, with a departure or without, or a question to
+ * the author. The writer explains each such finding and the form of the
+ * pull request posts it as an action; a finding left as is, or with no
+ * decision, does neither.
+ */
+export const asksToAct = (decision: DecisionKind | undefined): boolean => decision === 'fix' || decision === 'ask';
+
+/**
  * What a person's answer to a decided finding is (R1, R3 of answers, PD2):
  * one of an ask's options, or the acceptance or the rejection of a fix's
  * departure from a rule. Every reader of an answer switches on it.
