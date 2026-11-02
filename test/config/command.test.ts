@@ -224,7 +224,7 @@ describe('deep-review config', () => {
         { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: { html_url: 'https://github.com/acme/widgets/pull/42', number: 42, state: 'closed', merged: true, head: { sha: 'e'.repeat(40) }, base: { ref: 'main' }, changed_files: 1, title: 'A change', body: null } }] },
       ]);
       assert.equal(await config('show', '--runtime', 'claude', '--pr', 'https://github.com/acme/widgets/pull/42', ...gh), 2, err.join(''));
-      assert.match(err.join(''), /^refused: reading pull request #42: GitHub answered 404: Not Found$/m);
+      assert.match(err.join(''), /^refused: reading pull request #42: GitHub answered 404: Not Found; run `gh auth login --hostname github\.com`, or set GH_TOKEN with an account that can read pull request #42 of github\.com\/acme\/widgets$/m);
       err.length = 0;
       assert.equal(await config('show', '--runtime', 'claude', '--pr', '42', ...gh), 2);
       assert.match(err.join(''), /^refused: pull request #42 of acme\/widgets is merged, and deep-review reviews an open pull request only$/m);
