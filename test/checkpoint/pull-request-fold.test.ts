@@ -220,6 +220,19 @@ describe('the publications of a run', () => {
     assert.throws(() => atVersion9().add('publish.prepared', publication(1)).fold(), /prepares a publication, but its scope has no pull request/);
   });
 
+  it('refuse a publication, a post and a drop before the run is created, in the words the rest of the fold uses, as the configuration does', () => {
+    const configured = pullRequestReported().events.find((event) => event.kind === 'review.configured')!;
+    const cases: [string, unknown, number][] = [
+      ['publish.prepared', publication(1), 1],
+      ['publish.posted', posted(1), 1],
+      ['publish.dropped', notFound(1), 1],
+      ['review.configured', configured.payload, configured.version],
+    ];
+    for (const [kind, payload, version] of cases) {
+      assert.throws(() => new History().add(kind, payload, version).fold(), (error: unknown) => error instanceof InvalidHistoryError && error.message === `Run run-1 has ${kind} at sequence 1 before its creation`, kind);
+    }
+  });
+
   it('hold a publication to the next serial of the run, the pull request it reviewed, its head, and the findings it ranked', () => {
     assert.throws(() => explained().add('publish.prepared', publication(2)).fold(), /marks its publication deep-review publication run-1 2, not deep-review publication run-1 1/);
     assert.throws(() => explained().add('publish.prepared', publication(1)).add('publish.dropped', notFound(1)).add('publish.prepared', publication(1)).fold(), /not deep-review publication run-1 2/);
