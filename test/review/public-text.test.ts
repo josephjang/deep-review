@@ -189,6 +189,19 @@ describe('publicWords: secrets', () => {
     assert.deepEqual(cleaned, { text: 'auth [redacted value of DEPLOY_TOKEN] with [redacted value of db_password], [redacted value of CI_API_KEY] and abc', secrets: 3 });
   });
 
+  it('replaces such a value only where it stands whole, not inside a longer word or path', () => {
+    const machine: MachineContext = { ...linked, environment: { SECRET_ENV: 'development', DEPLOY_TOKEN: 'tok-1234567890' } };
+    assert.deepEqual(publicWords('run in development mode, (development), "development".', machine), {
+      text: 'run in [redacted value of SECRET_ENV] mode, ([redacted value of SECRET_ENV]), "[redacted value of SECRET_ENV]".',
+      secrets: 3,
+    });
+    assert.deepEqual(publicWords('the developments, predevelopment, development-mode, development_x, src/development/a.ts, development.local and tok-1234567890a', machine), {
+      text: 'the developments, predevelopment, development-mode, development_x, src/development/a.ts, development.local and tok-1234567890a',
+      secrets: 0,
+    });
+    assert.deepEqual(publicWords('auth=tok-1234567890&x', machine), { text: 'auth=[redacted value of DEPLOY_TOKEN]&x', secrets: 1 });
+  });
+
   it('counts nothing in a text with no secret, and leaves a word that only looks like a prefix', () => {
     assert.deepEqual(publicWords('the task-sk-a and xoxo-hugs', linked), { text: 'the task-sk-a and xoxo-hugs', secrets: 0 });
   });

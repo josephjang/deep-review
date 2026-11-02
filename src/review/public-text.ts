@@ -218,7 +218,7 @@ const secretForms: readonly (readonly [kind: string, pattern: RegExp])[] = [
 const secretName = /TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|CREDENTIAL/i;
 
 interface Compiled {
-  /** The values of the environment's secret variables, longest first, or none. */
+  /** The values of the environment's secret variables, longest first, each where it stands whole and not inside a longer word or path, as a name of a place stands; or none. */
   readonly secretValues: RegExp | null;
   readonly secretNames: ReadonlyMap<string, string>;
   /** The checkpoint, the git common directory and the engine, longest first, each with its mark, then the worktree with a separator after it, which gives way to the path from the root. */
@@ -248,7 +248,7 @@ function compiledOf(machine: MachineContext): Compiled {
     ...spellings(machine.worktree).map((spelling) => [placePattern(spelling, String.raw`[/\\]`), ''] as const),
   ];
   const compiled: Compiled = {
-    secretValues: values.length === 0 ? null : new RegExp(values.map((value) => RegExp.escape(value)).join('|'), 'g'),
+    secretValues: values.length === 0 ? null : new RegExp(String.raw`(?<![\p{L}\p{N}_./\\-])(?:${values.map((value) => RegExp.escape(value)).join('|')})(?![\p{L}\p{N}_-]|[./\\][\p{L}\p{N}_-])`, 'gu'),
     secretNames,
     places,
     home: spellings(machine.home).map((spelling) => placePattern(spelling, String.raw`(?![\p{L}\p{N}_-]|\.[\p{L}\p{N}_-])${rest}`)),
