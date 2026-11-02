@@ -327,7 +327,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.deepEqual(publications(box), []);
   });
 
-  it('runs gh as the run recorded it and posts in the language the run recorded, after the operator\'s file changes (R15, R20)', async (t) => {
+  it('runs gh as the operator\'s file names it now and posts in the language the run recorded, after the file changes (R15, R20)', async (t) => {
     const box = ReviewSandbox.forTest(t, reviewScript);
     const environment: NodeJS.ProcessEnv = { ...process.env, XDG_CONFIG_HOME: join(box.directory, 'xdg'), APPDATA: join(box.directory, 'appdata') };
     const operator = operatorConfigPath(environment, process.platform)!;
@@ -336,12 +336,14 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     const flags = flagLayerOf([
       ...dedicatedFlagValues({ runtime: 'claude', policy: {}, checks: null, executableArgs: [fakeClaude] }),
       parseSetFlag(`github.executable=${JSON.stringify(process.execPath)}`),
-      parseSetFlag(`github.args=[${JSON.stringify(fakeGh)}]`),
+      parseSetFlag(`github.args=[${JSON.stringify(join(box.directory, 'moved', 'gh.ts'))}]`),
     ]);
     const configuration = configurationSource({ worktree: box.repo, locations: { operator, clone: cloneConfigPath(join(box.repo, '.git')), invocation: null }, repositoryConfig: true, flags });
     const reading = fakeGhWith(t, reviewSteps(box));
     reportText(await box.review('claude', { scope: pullRequestSource(box, reading.gh), configuration }));
-    writeFileSync(operator, 'schema = 1\nreview.language = "en"\n');
+    const recorded = box.run().review!.configuration.settings!.values;
+    assert.ok('github.args' in recorded && recorded['github.args'][0] === join(box.directory, 'moved', 'gh.ts'), 'the run recorded the gh that is gone by the post');
+    writeFileSync(operator, `schema = 1\nreview.language = "en"\ngithub.executable = ${JSON.stringify(process.execPath)}\ngithub.args = [${JSON.stringify(fakeGh)}]\n`);
     const { script } = fakeGhWith(t, publishSteps(box));
     const out: string[] = [];
     const err: string[] = [];
@@ -349,7 +351,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.equal(code, 0, err.join(''));
     const text = out.join('');
     assert.ok(text.includes('## deep-review의 풀 리퀘스트 리뷰 (실행 '), text);
-    assert.equal(fakeGhCalls(script).length, 4, 'the recorded gh read the pull request, the head of its base branch, the merge base and the files');
+    assert.equal(fakeGhCalls(script).length, 4, 'the gh the operator\'s file names now read the pull request, the head of its base branch, the merge base and the files');
     assert.equal(writes(script), 0);
   });
 });

@@ -501,22 +501,15 @@ function commit(values: Values, io: CommandIo, root: string, worktree: string): 
 }
 
 /**
- * How `publish` runs `gh` for a run (R15 of the review on the pull
- * request): the executable and the arguments the run recorded with its
- * settings, which a `--set` of its review may have given and `publish`
- * takes no flag for, else those pass 1 gives from the operator's and the
- * clone's file; resolved on PATH now, as `review --pr` resolves its own,
- * in the worktree, with the command's own environment.
+ * How `publish` runs `gh` (R15 of the review on the pull request): as
+ * pass 1 gives `github.executable` and `github.args` from the operator's
+ * and the clone's file now, as every command that calls `gh` resolves
+ * them anew, so a `gh` moved or set again since the review is the one
+ * that posts it; what the run recorded of them is not used.
  */
-function publishGhOf(run: RunState, io: CommandIo, worktree: string, commonDir: string): Gh {
-  const values = run.review?.configuration.settings?.values;
-  let named: { readonly executable: string; readonly args: readonly string[] };
-  if (values !== undefined && 'github.executable' in values) named = { executable: values['github.executable'], args: values['github.args'] };
-  else {
-    const scope = configurationSource({ worktree, locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: null }, repositoryConfig: false, flags: flagLayerOf([]) }).scopeSettings();
-    named = { executable: scope.githubExecutable.value, args: scope.githubArgs.value };
-  }
-  return { executable: resolveExecutable(named.executable, io.environment, process.platform, io.cwd, githubExecutableAdvice), args: named.args, cwd: worktree, environment: io.environment };
+function publishGhOf(io: CommandIo, worktree: string, commonDir: string): Gh {
+  const scope = configurationSource({ worktree, locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: null }, repositoryConfig: false, flags: flagLayerOf([]) }).scopeSettings();
+  return githubOf(scope, io, worktree);
 }
 
 /**
@@ -536,7 +529,7 @@ function publish(values: Values, io: CommandIo, root: string, worktree: string, 
       gitCommon: commonDir,
       ...(values.run === undefined ? {} : { runId: values.run }),
       dryRun: values['dry-run'] === true,
-      gh: (run) => publishGhOf(run, io, worktree, commonDir),
+      gh: () => publishGhOf(io, worktree, commonDir),
       engineEntry: io.engineEntry ?? sourceEntry,
       environment: io.environment,
       log,
