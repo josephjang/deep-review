@@ -18,7 +18,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { publicationMarker } from '../checkpoint/publish-fold.ts';
 import { GitHubCallError, PullRequestRefusedError } from '../github/errors.ts';
 import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
-import { listPullRequestFiles, listReviewComments, listReviews, postReview, readBranchHead, readMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
+import { listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readBranchHead, readMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
 import { briefOf, cutAtWord } from './brief.ts';
 import { PublicationOpenError, ReviewRefusedError } from './errors.ts';
 import { gitLineCounts, recordedAnswerOf } from './explanation.ts';
@@ -71,9 +71,6 @@ const targetOf = (run: RunState): PullRequestTarget => {
   const { host, owner, repository, number } = run.scope!.pullRequest!;
   return { host, owner, repository, number };
 };
-
-/** A pull request as a refusal names it. */
-const pullRequestWords = (target: PullRequestTarget): string => `pull request #${String(target.number)} of ${target.owner}/${target.repository}`;
 
 /** The marker on the last line of a text GitHub gives, `<!-- <marker> -->`, or null; a marker anywhere else is a worker's text, never the engine's (TD5). */
 export function lastLineMarker(body: string): string | null {
@@ -183,7 +180,7 @@ function refusingGitHub<T>(target: PullRequestTarget, read: () => T, unrecorded:
     if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     if (!(error instanceof GitHubCallError)) throw error;
     const { failure } = error;
-    if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestWords(target)}`);
+    if (failure.kind === 'answer' && (failure.status === 401 || failure.status === 404)) throw new ReviewRefusedError(`${error.message}; ${accountAction(target.host)} with an account that can read ${pullRequestLabel(target)}`);
     if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; ${unrecorded}`);
     throw error;
   }
@@ -216,7 +213,7 @@ function whyNotPostable(run: RunState): string | null {
 function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   const scope = run.scope!;
   const target = targetOf(run);
-  const words = pullRequestWords(target);
+  const words = pullRequestLabel(target);
   const facts = refusingGitHub(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }), unrecorded);
   if (facts.state !== 'open') throw new ReviewRefusedError(`${words} is ${facts.merged ? 'merged' : 'closed'}, and deep-review posts to an open pull request only; ${unrecorded}`);
   if (facts.head !== scope.head) {
@@ -302,8 +299,8 @@ function refusedAction(failure: GhAnswer, target: PullRequestTarget): string {
     const until = reset !== undefined && /^\d+$/.test(reset) ? `until ${new Date(Number(reset) * 1000).toISOString()}` : 'until GitHub resets its limit';
     return `GitHub limits how many requests an account makes an hour; wait ${until} and run deep-review publish again`;
   }
-  if (failure.status === 401 || failure.status === 404) return `${accountAction(target.host)} with an account that can write to ${pullRequestWords(target)}, and run deep-review publish again`;
-  if (failure.status === 403) return `the account or the token that gh uses cannot write to ${pullRequestWords(target)}, as the token of a workflow on a pull request from a fork cannot; post with an account or a token that can write to its pull requests`;
+  if (failure.status === 401 || failure.status === 404) return `${accountAction(target.host)} with an account that can write to ${pullRequestLabel(target)}, and run deep-review publish again`;
+  if (failure.status === 403) return `the account or the token that gh uses cannot write to ${pullRequestLabel(target)}, as the token of a workflow on a pull request from a fork cannot; post with an account or a token that can write to its pull requests`;
   return 'answer what GitHub says, and run deep-review publish again';
 }
 
@@ -407,7 +404,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
     // 8. GitHub refused it, so nothing was posted, and the run can prepare another.
     if (failure.kind === 'answer' && failure.status >= 400 && failure.status < 500) {
       checkpoint.append(run.id, run.lastSequence, [{ kind: 'publish.dropped', version: 1, payload: { marker: prepared.marker, reason: 'refused', status: failure.status, message: recordedMessage(failure) } }]);
-      throw new ReviewRefusedError(`GitHub refused the review of ${pullRequestWords(target)} with ${String(failure.status)}${failure.message === null ? '' : `: ${failure.message}`}; nothing was posted, and the publication ${prepared.marker} is recorded as not posted; ${refusedAction(failure, target)}`);
+      throw new ReviewRefusedError(`GitHub refused the review of ${pullRequestLabel(target)} with ${String(failure.status)}${failure.message === null ? '' : `: ${failure.message}`}; nothing was posted, and the publication ${prepared.marker} is recorded as not posted; ${refusedAction(failure, target)}`);
     }
     // gh made no request, so nothing was posted; the next publish finds no review with the marker and posts.
     if (failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(`${error.message}; the publication ${prepared.marker} stays open, and deep-review publish looks for its review before it posts again`);
