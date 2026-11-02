@@ -25,7 +25,7 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion, type FindingStatus } from './brief.ts';
-import { reviewLanguage, type Account, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { diagramFailures, reviewLanguage, type Account, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
@@ -226,7 +226,10 @@ interface FormContext {
  * delimited after, so nothing done to a cleaned text turns what the
  * cleaning read as code into Markdown: a fence joined onto one line, or
  * split at a blank line, would no longer be code, and its text would be
- * posted as it was written.
+ * posted as it was written. A diagram is checked again once cleaned, since
+ * a mark the cleaning wrote can break a diagram that passed the checks,
+ * and one that no longer passes is left out with the line that says so
+ * (R19).
  */
 interface Speaker {
   readonly words: (text: string) => string;
@@ -237,7 +240,7 @@ interface Speaker {
   readonly secrets: () => number;
 }
 
-function speakerOf(machine: MachineContext): Speaker {
+function speakerOf(machine: MachineContext, words: PullRequestWords): Speaker {
   let secrets = 0;
   const counted = (cleaned: { readonly text: string; readonly secrets: number }): string => {
     secrets += cleaned.secrets;
@@ -251,6 +254,7 @@ function speakerOf(machine: MachineContext): Speaker {
     code: (text) => codeSpan(counted(publicCode(inlineText(text), machine))),
     diagram: (text) => {
       const body = counted(publicCode(text.replace(/\s+$/, ''), machine));
+      if (diagramFailures(body).length > 0) return words.diagramBroken;
       const fence = fenceFor(body);
       return `${fence}mermaid\n${body}\n${fence}`;
     },
@@ -407,7 +411,7 @@ const joinedParts = (parts: FindingParts): string[] => [...parts.explanation, ''
 
 /** The comment of a finding on its line, with its marker as its last line, or the refusal of one over the limit. */
 function commentOf(context: FormContext, facts: FindingFacts & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
-  const say = speakerOf(context.input.machine);
+  const say = speakerOf(context.input.machine, context.words);
   const heading = `**${String(facts.finding.number)}. ${titleOf(facts, say)}**`;
   const parts = findingParts(context, facts, say);
   const body = [heading, '', ...joinedParts(parts), '', markerLine(findingMarker(context.state.id, facts.finding.id))].join('\n');
@@ -684,7 +688,7 @@ function lastSection(context: FormContext, say: Speaker): Section {
 
 /** The body with the cuts given, in the order of R9, and the secrets its cleaning replaced. */
 function renderBody(context: FormContext, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
-  const say = speakerOf(context.input.machine);
+  const say = speakerOf(context.input.machine, context.words);
   const sections = [
     { part: 'heading', lines: [context.words.heading(codeSpan(shortRunId(context.state.id)), codeSpan(shortCommit(context.scope.head)))] },
     conclusionSection(context, say),
