@@ -23042,7 +23042,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, decisionKinds, decisionKindSchema, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -23175,6 +23175,7 @@ var init_vocabulary = __esm({
     };
     decisionKinds = ["fix", "leave", "ask"];
     decisionKindSchema = external_exports.enum(decisionKinds);
+    asksToAct = (decision) => decision === "fix" || decision === "ask";
     decisionCountWords = (counts) => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
     leaveReasons = ["outside-change-not-regression", "superseded", "intended"];
     leaveReasonSchema = external_exports.enum(leaveReasons);
@@ -23905,10 +23906,14 @@ function poolCandidates(review2, phase) {
 function unitOfLostWorker(phase, key) {
   return phase === null || key === null ? null : { phase, key };
 }
-function requireReview(state, event) {
+function requireRun(state, event) {
   if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  if (state.review === null) throw invalid(event, `has ${event.kind} before review.configured`);
-  return { current: state, review: state.review };
+  return state;
+}
+function requireReview(state, event) {
+  const current = requireRun(state, event);
+  if (current.review === null) throw invalid(event, `has ${event.kind} before review.configured`);
+  return { current, review: current.review };
 }
 function requireRunning(review2, event, phase, attempt) {
   const state = review2.phases[phase];
@@ -23940,9 +23945,9 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   return { ...review2, units };
 }
 function configure(state, payload, event, { surveyed, decided, documented, compared, cited, explained }) {
-  if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  if (state.scope === null) throw invalid(event, "is configured for review before its scope is captured");
-  if (state.review !== null) throw invalid(event, "is configured for review twice");
+  const current = requireRun(state, event);
+  if (current.scope === null) throw invalid(event, "is configured for review before its scope is captured");
+  if (current.review !== null) throw invalid(event, "is configured for review twice");
   const skipped = /* @__PURE__ */ new Set([...payload.fix ? [] : fixPhases, ...surveyed ? [] : ["survey"], ...decided ? [] : ["decision"], ...documented ? [] : ["documentation"], ...compared ? [] : ["base-checks"], ...explained ? [] : ["explanation"], ...answerPhases]);
   const review2 = {
     configuration: payload,
@@ -23974,7 +23979,7 @@ function configure(state, payload, event, { surveyed, decided, documented, compa
     answers: [],
     answerPasses: []
   };
-  return withReview(state, review2, event);
+  return withReview(current, review2, event);
 }
 function reopened(review2, drafts, phase, key) {
   const { units, ofPhase } = writableUnits(review2, drafts, phase);
@@ -24888,27 +24893,37 @@ var init_fix_fold = __esm({
   }
 });
 
+// src/review/markers.ts
+function lastLineMarker(body) {
+  const last = body.trimEnd().split(/\r?\n/).at(-1)?.trim() ?? "";
+  return /^<!-- (.+) -->$/.exec(last)?.[1] ?? null;
+}
+var publicationMarker, findingMarker, markerLine;
+var init_markers = __esm({
+  "src/review/markers.ts"() {
+    "use strict";
+    publicationMarker = (run2, serial) => `deep-review publication ${run2} ${String(serial)}`;
+    findingMarker = (run2, finding) => `deep-review finding ${run2} ${finding}`;
+    markerLine = (marker) => `<!-- ${marker} -->`;
+  }
+});
+
 // src/checkpoint/publish-fold.ts
 function postedReviewUrl(run2) {
   for (const publication of run2.publications) if (publication.status === "posted") return publication.posted.review.url;
   return null;
-}
-function requireRun(state, event) {
-  if (state === void 0) throw new InvalidHistoryError(`Run ${event.runId} has ${event.kind} at sequence ${String(event.sequence)} before its creation`);
-  return state;
 }
 function requireOpen(current, marker, event, verb) {
   const last = current.publications.at(-1);
   if (last?.status !== "prepared" || last.prepared.marker !== marker) throw invalid(event, `${verb} the publication ${marker}, which no open publication of the run is`);
   return last.prepared;
 }
-var publicationMarker, publishPrepared, settled, publishPosted, publishDropped, publishReducers;
+var publishPrepared, settled, publishPosted, publishDropped, publishReducers;
 var init_publish_fold = __esm({
   "src/checkpoint/publish-fold.ts"() {
     "use strict";
-    init_errors4();
+    init_markers();
     init_review_fold();
-    publicationMarker = (runId, serial) => `deep-review publication ${runId} ${String(serial)}`;
     publishPrepared = (state, payload, event) => {
       const current = requireRun(state, event);
       const scope = current.scope;
@@ -27043,6 +27058,25 @@ function blobThroughFilters(repo, commit2, path) {
 function blobRaw(repo, objectId) {
   return git(repo, ["cat-file", "blob", objectId]);
 }
+function blobsRaw(repo, objectIds) {
+  const blobs = /* @__PURE__ */ new Map();
+  const ids2 = [...new Set(objectIds)];
+  if (ids2.length === 0) return blobs;
+  const output2 = git(repo, ["cat-file", "--batch"], { input: Buffer.from(ids2.map((id) => `${id}
+`).join("")) });
+  let at = 0;
+  while (at < output2.length) {
+    const lineEnd = output2.indexOf(10, at);
+    const header = output2.subarray(at, lineEnd === -1 ? output2.length : lineEnd).toString("utf8");
+    const match = /^([0-9a-f]+) blob ([0-9]+)$/.exec(header);
+    if (lineEnd === -1 || match === null) throw new Error(`Unexpected cat-file --batch header: ${header}`);
+    const start = lineEnd + 1;
+    const end = start + Number(match[2]);
+    blobs.set(match[1], output2.subarray(start, end));
+    at = end + 1;
+  }
+  return blobs;
+}
 function storedBlobId(repo, path, bytes) {
   return gitText(repo, ["hash-object", `--path=${path}`, "--stdin"], { input: bytes }).trim();
 }
@@ -27912,17 +27946,38 @@ var init_gh = __esm({
 });
 
 // src/github/errors.ts
+function refusingGitHub(read, refusal) {
+  const refused = (words) => new ReviewRefusedError(refusal.recorded === void 0 ? words : `${words}; ${refusal.recorded}`);
+  try {
+    return read();
+  } catch (error62) {
+    if (error62 instanceof PullRequestRefusedError) throw refused(error62.message);
+    if (!(error62 instanceof GitHubCallError)) throw error62;
+    const { failure: failure2 } = error62;
+    if (failure2.kind === "answer" && failure2.status === 404 && refusal.gone !== void 0) throw refused(`${error62.message}; ${refusal.gone}`);
+    if (failure2.kind === "answer" && (failure2.status === 401 || failure2.status === 404)) {
+      const missing = failure2.status === 404 && refusal.missing !== void 0 ? `${refusal.missing}, or ` : "";
+      throw refused(`${error62.message}; ${missing}${accountAction(refusal.host)} with an account that can read ${refusal.pullRequest}`);
+    }
+    if (failure2.kind === "answer" && failure2.status < 500 || failure2.kind === "missing" || failure2.kind === "no-account") throw refused(error62.message);
+    if (failure2.kind === "unreadable" && refusal.unreadable !== void 0) throw refused(`${error62.message}; ${refusal.unreadable}`);
+    throw refusal.recorded === void 0 ? error62 : new GitHubCallError(error62.what, failure2, refusal.recorded);
+  }
+}
 var GitHubCallError, PullRequestRefusedError;
 var init_errors8 = __esm({
   "src/github/errors.ts"() {
     "use strict";
     init_errors3();
+    init_errors7();
     init_gh();
     GitHubCallError = class extends EngineError {
       name = "GitHubCallError";
+      what;
       failure;
-      constructor(what, failure2) {
-        super(`${what}: ${ghFailureOf(failure2)}`);
+      constructor(what, failure2, recorded) {
+        super(`${what}: ${ghFailureOf(failure2)}${recorded === void 0 ? "" : `; ${recorded}`}`);
+        this.what = what;
         this.failure = failure2;
       }
     };
@@ -27933,6 +27988,11 @@ var init_errors8 = __esm({
 });
 
 // src/github/pull-request.ts
+function pullRequestPathOf(url2) {
+  const [owner, repository, pull, number5, ...rest2] = url2.pathname.split("/").slice(1);
+  if (owner === void 0 || repository === void 0 || pull !== "pull" || number5 === void 0) return null;
+  return { owner, repository, number: number5, rest: rest2 };
+}
 function bodiesOf(gh, what, call) {
   const result = runGhApi(gh, call);
   if (!succeeded(result)) throw new GitHubCallError(what, result);
@@ -27964,6 +28024,7 @@ function repositoryOfName(name) {
   return { host, owner, repository };
 }
 function pullRequestCall(name) {
+  if ("host" in name) return { endpoint: pullPath(name), hostname: name.host };
   if (name.repository === null) return { endpoint: `repos/{owner}/{repo}/pulls/${String(name.number)}` };
   const repository = repositoryOfName(name.repository);
   return { endpoint: pullPath({ ...repository, number: name.number }), hostname: repository.host };
@@ -27975,10 +28036,9 @@ function targetOfUrl(url2, number5) {
   } catch {
     return null;
   }
-  const parts = parsedUrl.pathname.split("/").slice(1);
-  const [owner, repository, pull, given] = parts;
-  if (parts.length !== 4 || owner === void 0 || repository === void 0 || owner === "" || repository === "" || pull !== "pull" || given !== String(number5)) return null;
-  return { host: parsedUrl.host, owner: decodeURIComponent(owner), repository: decodeURIComponent(repository), number: number5 };
+  const path = pullRequestPathOf(parsedUrl);
+  if (path === null || parsedUrl.port !== "" || path.rest.length > 0 || path.owner === "" || path.repository === "" || path.number !== String(number5)) return null;
+  return { host: parsedUrl.hostname, owner: decodeURIComponent(path.owner), repository: decodeURIComponent(path.repository), number: number5 };
 }
 function readPullRequest(gh, name) {
   const what = `reading pull request #${String(name.number)}`;
@@ -28003,6 +28063,9 @@ function readBranchHead(gh, repository, ref) {
 }
 function readMergeBase(gh, repository, base, head2) {
   return readOne(gh, `comparing ${base} with ${head2}`, { endpoint: `${repositoryPath(repository)}/compare/${base}...${head2}`, hostname: repository.host }, comparisonSchema).merge_base_commit.sha;
+}
+function readCurrentMergeBase(gh, facts) {
+  return readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
 }
 function listPullRequestFiles(gh, pullRequest) {
   if (pullRequest.changedFiles > maxListedFiles) {
@@ -28082,13 +28145,14 @@ function newLinesOf(patch) {
   }
   return lines;
 }
-var pullRequestFileStatuses, maxListedFiles, maxNamedPaths, commitSha, pullRequestSchema, refSchema, comparisonSchema, filesSchema, postedTextSchema, hunkHeader;
+var pullRequestLabel, pullRequestFileStatuses, maxListedFiles, maxNamedPaths, commitSha, pullRequestSchema, refSchema, comparisonSchema, filesSchema, postedTextSchema, closedState, hunkHeader;
 var init_pull_request = __esm({
   "src/github/pull-request.ts"() {
     "use strict";
     init_zod();
     init_errors8();
     init_gh();
+    pullRequestLabel = (target) => `pull request #${String(target.number)} of ${target.owner}/${target.repository}`;
     pullRequestFileStatuses = ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"];
     maxListedFiles = 3e3;
     maxNamedPaths = 10;
@@ -28115,6 +28179,7 @@ var init_pull_request = __esm({
       })
     );
     postedTextSchema = external_exports.object({ id: external_exports.number().int().positive(), html_url: external_exports.string(), body: external_exports.string().nullable() });
+    closedState = (facts) => facts.merged ? "merged" : "closed";
     hunkHeader = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
   }
 });
@@ -30202,7 +30267,7 @@ function checkUnavailableBlocker(unavailable, continued) {
   return { code: "check-unavailable", detail: `${prefix}${listWithin(items, maxRecordedTextLength - prefix.length)}`, action };
 }
 function budgetDegradations(review2, units, live2, spent) {
-  return units.filter((unit) => !settled2(review2, unit) && !live2.running.has(unitName(unit.phase, unit.key))).map((unit) => ({ kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "budget", reason: spent }));
+  return units.filter((unit) => !settled2(review2, unit) && !live2.running.has(unitName(unit.phase, unit.key))).map((unit) => unit.phase === "explanation" ? { kind: "explanation.dropped", reason: spent } : { kind: "unit.unattempted", phase: unit.phase, key: unit.key, cause: "budget", reason: spent });
 }
 function budgetBlocker(spend, budgetUsd) {
   const note = budgetSpendNote(spend);
@@ -30341,10 +30406,7 @@ function nextStep(review2, live2) {
     const target = exhaustedOutcome(review2, unit, states[unit.key]);
     return target === null ? [] : [{ ...target, reason: failureReason(states[unit.key]) }];
   });
-  const dropped = targets.find((target) => target.kind === "explanation.dropped");
-  if (dropped !== void 0) return { kind: "drop-explanation", reason: dropped.reason };
-  const degradations = targets.filter((target) => target.kind !== "explanation.dropped");
-  if (degradations.length > 0) return { kind: "degrade", phase, degradations };
+  if (targets.length > 0) return { kind: "degrade", phase, degradations: targets };
   const limited = units.find((unit) => !settled2(review2, unit) && (states[unit.key]?.failures.some((failure2) => failure2.cause === "limit") ?? false));
   if (limited !== void 0) return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: workerFailedBlocker(review2, limited, states[limited.key]) };
   const blocking = spent.find((unit) => exhaustedOutcome(review2, unit, states[unit.key]) === null);
@@ -30355,7 +30417,6 @@ function nextStep(review2, live2) {
     const countedUsd = live2.spend.usd;
     if (runBudgetUsd !== null && countedUsd !== null && countedUsd >= runBudgetUsd) {
       const spend = { ...live2.spend, usd: countedUsd };
-      if (phase === "explanation") return { kind: "drop-explanation", reason: budgetBlocker(spend, runBudgetUsd).detail };
       if (isBudgetDegradingPhase(phase)) return { kind: "degrade", phase, degradations: budgetDegradations(review2, units, live2, budgetBlocker(spend, runBudgetUsd).detail) };
       return running.length > 0 ? { kind: "await" } : { kind: "finish-phase", phase, attempt, outcome: "blocked", blocker: budgetBlocker(spend, runBudgetUsd) };
     }
@@ -30368,7 +30429,7 @@ function nextStep(review2, live2) {
   const outcome = units.some((unit) => degraded(review2, unit)) ? "degraded" : "completed";
   return { kind: "finish-phase", phase, attempt, outcome, blocker: null };
 }
-var maxAttempts, exhausted, truncationMark, interrupted, settled2, launchableUnit, usd, passRevised, repairRevisedSince;
+var maxAttempts, exhausted, truncationMark, interrupted, degradesOnNextFailure, settled2, launchableUnit, usd, passRevised, repairRevisedSince;
 var init_steps = __esm({
   "src/review/steps.ts"() {
     "use strict";
@@ -30387,6 +30448,7 @@ var init_steps = __esm({
     exhausted = (review2, unit, state) => !isAnswered(review2, unit.phase, unit.key) && (state?.failures.length ?? 0) >= maxAttempts;
     truncationMark = " [truncated]";
     interrupted = (state) => state?.failures.some((failure2) => failure2.cause !== "unit") ?? false;
+    degradesOnNextFailure = (state) => (state?.failures.length ?? 0) + 1 >= maxAttempts && !interrupted(state);
     settled2 = (review2, unit) => isAnswered(review2, unit.phase, unit.key) || degraded(review2, unit);
     launchableUnit = (review2, unit, state) => !settled2(review2, unit) && !exhausted(review2, unit, state) && !waitsForItsCluster(review2, unit);
     usd = (value) => value.toFixed(2);
@@ -35996,7 +36058,7 @@ function compiledOf(machine) {
     ...spellings(machine.worktree).map((spelling) => [placePattern(spelling, String.raw`[/\\]`), ""])
   ];
   const compiled = {
-    secretValues: values.length === 0 ? null : new RegExp(values.map((value) => RegExp.escape(value)).join("|"), "g"),
+    secretValues: values.length === 0 ? null : new RegExp(String.raw`(?<![\p{L}\p{N}_./\\-])(?:${values.map((value) => RegExp.escape(value)).join("|")})(?![\p{L}\p{N}_-]|[./\\][\p{L}\p{N}_-])`, "gu"),
     secretNames,
     places,
     home: spellings(machine.home).map((spelling) => placePattern(spelling, String.raw`(?![\p{L}\p{N}_-]|\.[\p{L}\p{N}_-])${rest}`)),
@@ -36100,7 +36162,7 @@ var init_public_text = __esm({
     localPath = new RegExp([
       String.raw`(?<![\p{L}\p{N}_.~>-])/(?<first>${segment})${rest}`,
       String.raw`(?<![\p{L}\p{N}_])[A-Za-z]:[/\\]+(?:${segment}${rest})?`,
-      String.raw`(?<!\\)\\{2,}[A-Za-z0-9_.$-]+[/\\]+${segment}${rest}`,
+      String.raw`(?<!\\)(?:\\{2}[A-Za-z0-9_.$-]+[/\\]|\\{4}[A-Za-z0-9_.$-]+\\{2})${segment}${rest}`,
       String.raw`(?<![\p{L}\p{N}_.~/\\-])~[A-Za-z0-9_.-]*[/\\]+(?:${segment}${rest})?`
     ].join("|"), "gu");
     localPathMark = (path) => `<local path>${/[.!]*$/.exec(path)[0]}`;
@@ -36713,22 +36775,42 @@ function recordedAnswerOf(recorded, evidence) {
 }
 function findingsToExplain(review2) {
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision.decision]));
-  return rankedFindings(review2).flatMap((entry) => decided.get(entry.finding.id) === "leave" || !decided.has(entry.finding.id) ? [] : [entry.finding.id]);
+  return rankedFindings(review2).flatMap((entry) => asksToAct(decided.get(entry.finding.id)) ? [entry.finding.id] : []);
 }
 function lineCountOf(bytes) {
   let count3 = 0;
   for (const byte of bytes) if (byte === 10) count3 += 1;
   return bytes.length > 0 && bytes[bytes.length - 1] !== 10 ? count3 + 1 : count3;
 }
-function gitLineCounts(worktree, scope) {
+function gitLineCounts(worktree, scope, paths = {}) {
   const counts = /* @__PURE__ */ new Map();
+  const read = (commit2, wanted) => {
+    const entries = /* @__PURE__ */ new Map();
+    for (let from = 0; from < wanted.length; ) {
+      let to = from + 1;
+      for (let length = wanted[from].length; to < wanted.length && length + wanted[to].length <= maxPathCharacters; to += 1) length += wanted[to].length;
+      for (const [path, entry] of treeEntries(worktree, commit2, wanted.slice(from, to))) entries.set(path, entry);
+      from = to;
+    }
+    const file2 = (path) => {
+      const entry = entries.get(path);
+      return entry?.mode.startsWith("100") ? entry : void 0;
+    };
+    const blobs = blobsRaw(worktree, wanted.flatMap((path) => file2(path)?.objectId ?? []));
+    for (const path of wanted) {
+      const entry = file2(path);
+      counts.set(`${commit2}:${path}`, entry === void 0 ? null : lineCountOf(blobs.get(entry.objectId)));
+    }
+  };
+  const prefilled = /* @__PURE__ */ new Set();
   return (side, path) => {
     const commit2 = side === "head" ? scope.head : scope.base;
-    const key = `${commit2}:${path}`;
-    if (!counts.has(key)) {
-      const entry = treeEntries(worktree, commit2, [path]).get(path);
-      counts.set(key, entry === void 0 || !entry.mode.startsWith("100") ? null : lineCountOf(blobRaw(worktree, entry.objectId)));
+    if (!prefilled.has(side)) {
+      prefilled.add(side);
+      read(commit2, [...new Set(paths[side] ?? [])].filter((given) => repositoryPath2(given) && !counts.has(`${commit2}:${given}`)));
     }
+    const key = `${commit2}:${path}`;
+    if (!counts.has(key)) read(commit2, [path]);
     return counts.get(key);
   };
 }
@@ -36743,12 +36825,57 @@ function labelFailures(what, text3) {
     ...text3.replaceAll(htmlEntity, "").includes(";") ? [`${what} holds a semicolon`] : []
   ];
 }
+function edgeTextAt(line, at) {
+  edgeTextOpening.lastIndex = at;
+  const opening = edgeTextOpening.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing.lastIndex = end;
+    const closing = edgeTextClosing.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+function subgraphFailures(rest2, number5) {
+  const quoted2 = /"([^"]*)"/g;
+  const bare = rest2.replaceAll(quoted2, "");
+  return [
+    ...[...rest2.matchAll(quoted2)].flatMap((label) => labelFailures(`the label on line ${String(number5)}`, label[1])),
+    ...bare.includes('"') ? [`line ${String(number5)} opens a label it does not close`] : [],
+    ...labelFailures(`the title of the subgraph on line ${String(number5)}`, bare)
+  ];
+}
 function flowchartLineFailures(line, number5) {
   if (flowchartStyling.test(line)) return [];
+  const subgraph = /^subgraph\b(.*)$/.exec(line);
+  if (subgraph !== null) return subgraphFailures(subgraph[1], number5);
   const failures = [];
-  for (const edge of line.replaceAll(/"[^"]*"|\|[^|]*\|/g, '""').matchAll(edgeText)) failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, edge[1]));
+  let edge = null;
   let at = 0;
   while (at < line.length) {
+    if (edge !== null && at >= edge.end) {
+      at = edge.closed;
+      edge = null;
+      continue;
+    }
+    if (edge === null) {
+      edge = edgeTextAt(line, at);
+      if (edge !== null) {
+        failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, line.slice(edge.start, edge.end).replaceAll(/"[^"]*"|\|[^|]*\|/g, '""')));
+        at = edge.start;
+        continue;
+      }
+    }
     const char = line.charAt(at);
     if (char === '"' || char === "|") {
       const close = line.indexOf(char, at + 1);
@@ -36766,6 +36893,21 @@ function flowchartLineFailures(line, number5) {
       continue;
     }
     at += id[0].length;
+    if (edge !== null) continue;
+    if (line.startsWith("@{", at)) {
+      let close = at + 2;
+      while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+      if (close === line.length) {
+        failures.push(`line ${String(number5)} opens the shape of node ${id[0]} it does not close`);
+        break;
+      }
+      const body = line.slice(at + 2, close);
+      for (const quoted2 of body.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on line ${String(number5)}`, quoted2[1]));
+      const label = shapeLabel.exec(body.replaceAll(/"[^"]*"/g, '""'));
+      if (label !== null) failures.push(...labelFailures(`the label of node ${id[0]} on line ${String(number5)}`, label[1]));
+      at = close + 1;
+      continue;
+    }
     const opening = shapeOpening.exec(line.slice(at));
     if (opening === null) continue;
     at += opening[0].length;
@@ -36805,6 +36947,8 @@ function diagramFailures(diagram) {
     if (colon !== -1) failures.push(...labelFailures(`the text after the colon on ${where}`, line.slice(colon + 1)));
     const labelled = kind === "sequenceDiagram" && colon === -1 ? sequenceLabelled.exec(line) : null;
     if (labelled !== null) failures.push(...labelFailures(`the label on ${where}`, labelled[1] ?? labelled[2] ?? ""));
+    const title = kind === "sequenceDiagram" && colon === -1 ? sequenceTitle.exec(line) : null;
+    if (title !== null) failures.push(...labelFailures(`the title on ${where}`, title[1]));
   });
   return [...new Set(failures)];
 }
@@ -36925,8 +37069,11 @@ function earlierAnswers(state, review2, evidence) {
 }
 function checkedAnswers(state, review2, context, ids2, latest) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const input2 = { ids: ids2, lineCount: gitLineCounts(context.worktree, state.scope) };
-  return [...earlierAnswers(state, review2, context.evidence), ...latest === null ? [] : [latest]].map((answer3) => checkAnswer(answer3, input2));
+  const answers = [...earlierAnswers(state, review2, context.evidence), ...latest === null ? [] : [latest]];
+  const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
+  const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
+  const input2 = { ids: ids2, lineCount: gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") }) };
+  return answers.map((answer3) => checkAnswer(answer3, input2));
 }
 function droppedWords(dropped) {
   return dropped.map((part) => `${partNameOf(part)}: ${part.failures.join("; ")}`).join(". ");
@@ -36938,9 +37085,7 @@ function writerContribution(state, receipt, context) {
   const strays = answers.at(-1).strays;
   if (strays.length > 0) context.log(`the answer explains ${strays.join(", ")}, which ${strays.length === 1 ? "is no finding" : "are no findings"} of the run that asks a person to act; not kept`);
   const merged = mergeAnswers(answers, ids2);
-  const failures = writerFailures(review2);
-  const lastAttempt = failures.length + 1 >= maxAttempts && failures.every((failure2) => failure2.cause === "unit");
-  if (merged.dropped.length > 0 && !lastAttempt) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
+  if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review2))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
   return { kind: "explanation.recorded", version: 1, payload: explanationRecord(receipt.workerId, merged, context.evidence) };
 }
 function droppedExplanation(state, context, reason) {
@@ -36951,7 +37096,7 @@ function droppedExplanation(state, context, reason) {
 }
 function reviewLanguage(review2) {
   const values = review2.configuration.settings?.values;
-  return values !== void 0 && "review.language" in values ? values["review.language"] : "en";
+  return values !== void 0 && "review.language" in values ? values["review.language"] : defaultLanguage;
 }
 function languageWords(tag) {
   try {
@@ -37052,12 +37197,13 @@ function writerTask(state, input2) {
     "Return `conclusion`, `account` and `findings` as your role prompt defines them."
   ].join("\n");
 }
-var writerOutputShape, explanationShape, explainedFindingSchema, unexplainedFindingSchema, recordedAnswerSchema, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId, edgeText, sequenceLabelled, diagramFailuresOf, repositoryPath2, sideWords, maxPartFailures, keptAny, partNameOf, writerFailures;
+var writerOutputShape, explanationShape, explainedFindingSchema, unexplainedFindingSchema, recordedAnswerSchema, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId, edgeTextOpening, edgeTextClosing, shapeLabel, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, maxPartFailures, keptAny, partNameOf, writerUnit, writerFailures;
 var init_explanation = __esm({
   "src/review/explanation.ts"() {
     "use strict";
     init_zod();
     init_events();
+    init_settings();
     init_git();
     init_brief();
     init_errors7();
@@ -37078,6 +37224,8 @@ var init_explanation = __esm({
       account: writerOutputShape.account.nullable(),
       findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchema, unexplainedFindingSchema]))
     });
+    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
+    maxPathCharacters = 8e3;
     verdictWord = new RegExp(`\\b(${verdicts.join("|")})\\b`, "g");
     blank = (text3) => text3.trim() === "";
     htmlEntity = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g;
@@ -37089,15 +37237,18 @@ var init_explanation = __esm({
     flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
     shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
     nodeId = /^[\p{L}\p{N}_]+/u;
-    edgeText = /(?<![-=.<])<?(?:--|==|-\.)(?![-=.>])(.*?)(?:-{2,}|={2,}|\.-+)[>ox]?/g;
+    edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel = /(?:^|[\s,])label\s*:\s*([^,]*)/;
     sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
+    sequenceTitle = /^title\s+(.+)$/;
     diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
-    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
     sideWords = { head: "the head", base: "the merge base" };
     maxPartFailures = 100;
     keptAny = (merged) => merged.answer.conclusion !== null || merged.answer.account !== null || merged.answer.findings.length > 0;
     partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
-    writerFailures = (review2) => review2.units.explanation[singleUnitKey("explanation")]?.failures ?? [];
+    writerUnit = (review2) => review2.units.explanation[singleUnitKey("explanation")];
+    writerFailures = (review2) => writerUnit(review2)?.failures ?? [];
   }
 });
 
@@ -38155,38 +38306,40 @@ function pathDifferenceWords(difference) {
     ...difference.inChangeCount === 0 ? [] : [`the clone's change holds ${String(difference.inChangeCount)} changed path${difference.inChangeCount === 1 ? "" : "s"} that GitHub does not list (${differingPaths(difference.inChange, difference.inChangeCount)})`]
   ].join("; ");
 }
-function refusingGitHub(read, unreadable = null) {
-  try {
-    return read();
-  } catch (error62) {
-    if (error62 instanceof PullRequestRefusedError) throw new ReviewRefusedError(error62.message);
-    if (!(error62 instanceof GitHubCallError)) throw error62;
-    const { failure: failure2 } = error62;
-    if (failure2.kind === "answer" || failure2.kind === "missing" || failure2.kind === "no-account") throw new ReviewRefusedError(error62.message);
-    if (failure2.kind === "unreadable" && unreadable !== null) throw new ReviewRefusedError(`${error62.message}; ${unreadable}`);
-    throw error62;
-  }
+function namedRefusal(name) {
+  const number5 = String(name.number);
+  if (name.repository !== null) return { host: name.repository.slice(0, name.repository.indexOf("/")), pullRequest: `pull request #${number5} of ${name.repository}` };
+  return {
+    host: null,
+    pullRequest: `pull request #${number5}`,
+    missing: `check that pull request #${number5} exists in the repository of this clone`,
+    unreadable: `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${number5}, when gh cannot tell the repository of this clone`
+  };
 }
 function requireCleanTree(worktree, facts) {
-  if (status(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestWords(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
+  if (status(worktree).length > 0) throw new ReviewRefusedError(`--pr reviews the head of ${pullRequestLabel(facts)} in a clean tree, and this tree has uncommitted changes or untracked files; commit, stash or remove them, or review them with --worktree`);
 }
 function resolvePullRequestScope(worktree, named, gh) {
   const name = named.pullRequest;
-  const facts = refusingGitHub(() => readPullRequest(gh, name), urlAction(name));
+  const facts = refusingGitHub(() => readPullRequest(gh, name), namedRefusal(name));
+  const repository = `${facts.host}/${facts.owner}/${facts.repository}`;
+  if (name.repository !== null && name.repository.toLowerCase() !== repository.toLowerCase()) {
+    throw new ReviewRefusedError(`GitHub gives pull request #${String(name.number)} of ${name.repository} as ${facts.url}, of ${repository}, as it does for a repository that was renamed or moved; give --pr ${facts.url} and run the command again`);
+  }
   return refusingGitHub(() => {
-    const words = pullRequestWords(facts);
-    if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${facts.merged ? "merged" : "closed"}, and deep-review reviews an open pull request only`);
+    const words = pullRequestLabel(facts);
+    if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${closedState(facts)}, and deep-review reviews an open pull request only`);
     const head2 = head(worktree);
     if (head2 !== facts.head) throw new ReviewRefusedError(`HEAD is ${head2}, not ${facts.head}, the head of ${words}; check it out, for example with \`gh pr checkout ${String(facts.number)}\`, and run the command again`);
     requireCleanTree(worktree, facts);
-    const mergeBase2 = readMergeBase(gh, facts, readBranchHead(gh, facts, facts.baseRef), facts.head);
+    const mergeBase2 = readCurrentMergeBase(gh, facts);
     if (!hasCommit(worktree, mergeBase2)) {
       throw new ReviewRefusedError(`the clone does not hold ${mergeBase2}, the merge base GitHub gives for ${words} with its base branch ${facts.baseRef}; fetch the history down to it, such as \`git fetch --unshallow\` in a shallow clone, and run the command again`);
     }
     const difference = pullRequestPathDifference(worktree, mergeBase2, listPullRequestFiles(gh, facts));
     if (difference !== null) throw new ReviewRefusedError(`the change from the merge base ${mergeBase2} to HEAD is not the change of ${words}: ${pathDifferenceWords(difference)}`);
     return { request: { range: { from: mergeBase2, to: "HEAD", mergeBase: false }, paths: [...named.paths] }, pullRequest: { name, facts } };
-  });
+  }, { host: facts.host, pullRequest: pullRequestLabel(facts) });
 }
 function inFlightOf(unit, startedAt, running) {
   let settled4 = null;
@@ -38410,7 +38563,7 @@ async function runReview(options2) {
     if (capture !== null) {
       state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base, ...capture.pullRequest === null ? {} : { pullRequest: capture.pullRequest } }));
       const excluded2 = state.scope.excluded.count;
-      const reviewed = state.scope.pullRequest === null ? "" : `${pullRequestWords(state.scope.pullRequest)}, `;
+      const reviewed = state.scope.pullRequest === null ? "" : `${pullRequestLabel(state.scope.pullRequest)}, `;
       log(`run ${runId}: scope captured, ${reviewed}${String(state.scope.files.length)} files${excluded2 === 0 ? "" : `; scope.exclude left out ${String(excluded2)} changed path${excluded2 === 1 ? "" : "s"}`}`);
     }
     if (configure2 !== null) {
@@ -38609,6 +38762,12 @@ async function runReview(options2) {
               case "unit.unattempted":
                 degraded2(`${degradation.key} not attempted${degradation.cause === "budget" ? " (budget)" : ""}`, degradation.reason);
                 return { kind: "unit.unattempted", version: writtenVersion("unit.unattempted", [degradation.phase]), payload: { phase: degradation.phase, key: degradation.key, cause: degradation.cause, reason: degradation.reason } };
+              case "explanation.dropped": {
+                const dropped = droppedExplanation(state, revisionContext(), degradation.reason);
+                const parts = dropped.payload.dropped.length;
+                degraded2(parts === 0 ? "every part of the explanation kept from an earlier answer" : `${String(parts)} part${parts === 1 ? "" : "s"} of the explanation dropped`, degradation.reason);
+                return dropped;
+              }
             }
           }));
           break;
@@ -38656,13 +38815,6 @@ async function runReview(options2) {
         case "await":
           await recordSettled(inFlight, record2);
           break;
-        case "drop-explanation": {
-          const dropped = droppedExplanation(state, revisionContext(), step.reason);
-          const parts = dropped.payload.dropped.length;
-          log(`phase explanation: ${parts === 0 ? "every part of the explanation kept from an earlier answer" : `${String(parts)} part${parts === 1 ? "" : "s"} of the explanation dropped`}: ${step.reason}`);
-          state = append(checkpoint, state, [dropped]);
-          break;
-        }
         case "finish-phase":
           if (step.phase === "base-checks") removeBase();
           log(`phase ${step.phase}: ${step.outcome}${step.blocker === null ? "" : ` (${step.blocker.code}): ${step.blocker.detail}`}`);
@@ -38798,7 +38950,7 @@ async function openRun(context) {
       }
     }
     if (found === null && fixing) {
-      const chosen = chooseContinuation(runs, context, () => scopeRequestOf2().request);
+      const chosen = chooseContinuation(runs, context, scopeRequestOf2);
       if (chosen !== null) {
         release = releaseOnExit(acquireRunLock(checkpoint.root, chosen.id));
         const refolded = refoldUnderLock(checkpoint, chosen.id, log);
@@ -38824,7 +38976,7 @@ async function openRun(context) {
     const pullRequest = requested?.pullRequest ?? null;
     if (pullRequest !== null) {
       const head2 = head(context.worktree);
-      if (head2 !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head2} since ${pullRequestWords(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
+      if (head2 !== pullRequest.facts.head) throw new ReviewRefusedError(`HEAD moved to ${head2} since ${pullRequestLabel(pullRequest.facts)} was read at its head ${pullRequest.facts.head}; run the command again`);
       requireCleanTree(context.worktree, pullRequest.facts);
     }
     let configure2 = null;
@@ -38889,7 +39041,7 @@ function chooseContinuation(runs, context, request) {
     const key = JSON.stringify(exclude);
     const known = resolutions.get(key);
     if (known !== void 0) return known;
-    const scopeRequest = request();
+    const scopeRequest = request().request;
     let made;
     if (exclude.length === 0) made = refusingEmptyChange(() => resolveScopeRequest(context.worktree, scopeRequest, exclude));
     else {
@@ -38906,7 +39058,8 @@ function chooseContinuation(runs, context, request) {
   };
   const reasons = /* @__PURE__ */ new Map();
   for (const run2 of continuable(runs, context.worktree)) {
-    const listed2 = resolved(run2.scope.request.exclude);
+    const otherPullRequest = pullRequestMismatch(request().pullRequest, run2.scope.pullRequest);
+    const listed2 = otherPullRequest === null ? resolved(run2.scope.request.exclude) : { refused: otherPullRequest };
     const reason = "refused" in listed2 ? listed2.refused : scopeMismatch(listed2, run2.scope, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path));
     if (reason === null) return run2;
     reasons.set(run2.id, reason);
@@ -38920,6 +39073,12 @@ function chooseContinuation(runs, context, request) {
   }
   logAnswersNotCarried(runs, context);
   return null;
+}
+function pullRequestMismatch(named, recorded) {
+  if (recorded === null) return named === null ? null : `it reviewed no pull request, and this command names ${pullRequestLabel(named.facts)}`;
+  if (named === null) return `it reviewed ${pullRequestLabel(recorded)}, which only a command that names it with --pr continues`;
+  const where = (facts) => `${facts.host}/${facts.owner}/${facts.repository}`.toLowerCase();
+  return named.facts.number === recorded.number && where(named.facts) === where(recorded) ? null : `it reviewed ${pullRequestLabel(recorded)}, not ${pullRequestLabel(named.facts)}`;
 }
 async function reopenRun(runs, context) {
   const { checkpoint, log } = context;
@@ -39130,7 +39289,7 @@ function reenterPhase(checkpoint, state, adapter, log) {
   log(`phase ${phase}: re-entered (attempt ${String(attempt)})${review2.blocker === null ? "" : `, clearing the ${review2.blocker.code} blocker`}; ${progressWords(state, adapter, Date.now())}`);
   return append(checkpoint, state, [{ kind: "phase.started", version: writtenVersion("phase.started", [phase]), payload: { phase, attempt } }]);
 }
-var pullRequestWords, differingPaths, urlAction, seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped, spendBound;
+var differingPaths, seconds, usd3, fileCount, revisionSummary, checkLine, presurveyRulesFileNames, driftList, budgetStopped, spendBound;
 var init_controller = __esm({
   "src/review/controller.ts"() {
     "use strict";
@@ -39195,9 +39354,7 @@ var init_controller = __esm({
     init_survey();
     init_tasks();
     init_vocabulary();
-    pullRequestWords = (facts) => `pull request #${String(facts.number)} of ${facts.owner}/${facts.repository}`;
     differingPaths = (paths, count3) => `${paths.join(", ")}${count3 > paths.length ? `, and ${String(count3 - paths.length)} more` : ""}`;
-    urlAction = (name) => name.repository === null ? `give --pr the URL of the pull request, such as https://github.com/<owner>/<repo>/pull/${String(name.number)}, when gh cannot tell the repository of this clone` : null;
     seconds = (ms) => `${(ms / 1e3).toFixed(1)} s`;
     usd3 = (value) => value === null ? "" : `, ${value.toFixed(2)} USD`;
     fileCount = (count3) => `${String(count3)} file${count3 === 1 ? "" : "s"}`;
@@ -39424,7 +39581,7 @@ var init_executable = __esm({
 });
 
 // src/review/pull-request-words.ts
-function pullRequestWords2(language) {
+function pullRequestWords(language) {
   const primary = language.split("-")[0].toLowerCase();
   return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
 }
@@ -39459,6 +39616,7 @@ var init_pull_request_words = __esm({
       changeTextHeading: "What the change does",
       accountDiagramsCut: "The diagrams of this account are left out, so that the review fits the length GitHub takes.",
       accountCut: "deep-review's account for a reader new to this change is left out, so that the review fits the length GitHub takes; the core of the change above stays.",
+      diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
       statusLine: (head2, counts) => {
         const parts = [
           ...counts.toFix === 0 ? [] : [`would fix ${String(counts.toFix)}${counts.againstRule === 0 ? "" : ` (${String(counts.againstRule)} against a written rule)`}`],
@@ -39596,6 +39754,7 @@ var init_pull_request_words = __esm({
       changeTextHeading: "\uBCC0\uACBD \uB0B4\uC6A9",
       accountDiagramsCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC774 \uC124\uBA85\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4.",
       accountCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uBCC0\uACBD\uC744 \uCC98\uC74C \uBCF4\uB294 \uBD84\uC744 \uC704\uD55C deep-review\uC758 \uC124\uBA85\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC704\uC758 \uBCC0\uACBD \uC694\uC9C0\uB294 \uADF8\uB300\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.",
+      diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
       statusLine: (head2, counts) => {
         const parts = [
           ...counts.toFix === 0 ? [] : [`\uACE0\uCE60 \uB300\uC0C1 ${String(counts.toFix)}\uAC74${counts.againstRule === 0 ? "" : `(\uADF8\uC911 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB974\uAC8C \uACE0\uCE60 \uAC83 ${String(counts.againstRule)}\uAC74)`}`],
@@ -39727,18 +39886,22 @@ function placeFindings(review2, files) {
     const location = repositoryLocation(primary) === null ? null : { path: primary.file, line: primary.line };
     const diff = location === null ? null : diffStateOf(byPath.get(location.path), location.line);
     const decision = decided.get(finding.id);
-    if (decision !== "fix" && decision !== "ask") return { finding: finding.id, place: "body", reason: "left", location, diff };
+    if (!asksToAct(decision)) return { finding: finding.id, place: "body", reason: "left", location, diff };
     if (location === null || diff === null) return { finding: finding.id, place: "body", reason: "no-place", location: null, diff: null };
     if (diff === "added" || diff === "context") return { finding: finding.id, place: "line", reason: "on-the-diff", location, diff };
     return { finding: finding.id, place: "body", reason: diff === "no-patch" ? "no-patch" : "outside-the-diff", location, diff };
   });
+}
+function lineCountPaths(review2, places) {
+  const candidates = refuted(review2).flatMap(({ candidate }) => repositoryLocation(candidate) === null ? [] : [candidate.file]);
+  return [.../* @__PURE__ */ new Set([...places.flatMap((placement) => placement.location?.path ?? []), ...candidates])];
 }
 function formRefusalWords(refusal) {
   const what = refusal.text.kind === "body" ? "the body of the review, after every cut," : `the comment of ${refusal.text.finding} on ${refusal.text.path}:${String(refusal.text.line)}`;
   const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(", ");
   return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
 }
-function speakerOf(machine) {
+function speakerOf(machine, words) {
   let secrets = 0;
   const counted3 = (cleaned2) => {
     secrets += cleaned2.secrets;
@@ -39752,6 +39915,7 @@ function speakerOf(machine) {
     code: (text3) => codeSpan(counted3(publicCode(inlineText(text3), machine))),
     diagram: (text3) => {
       const body = counted3(publicCode(text3.replace(/\s+$/, ""), machine));
+      if (diagramFailures(body).length > 0) return words.diagramBroken;
       const fence = fenceFor(body);
       return `${fence}mermaid
 ${body}
@@ -39791,7 +39955,7 @@ function statusParagraph(context, facts, status3 = null) {
 function caseLink(context, cited) {
   const range = cited.from === cited.to ? String(cited.from) : `${String(cited.from)}-${String(cited.to)}`;
   const commit2 = cited.side === "head" ? context.scope.head : context.scope.base;
-  return `[${codeSpan(`${cited.path}:${range}`)}](${blobUrl(context.pullRequest, commit2, cited.path, cited.from, cited.to)})`;
+  return `[${codeSpan(inlineText(`${cited.path}:${range}`))}](${blobUrl(context.pullRequest, commit2, cited.path, cited.from, cited.to)})`;
 }
 function explanationLines(context, facts, say) {
   const { words } = context;
@@ -39853,7 +40017,7 @@ function findingParts(context, facts, say) {
   };
 }
 function commentOf(context, facts) {
-  const say = speakerOf(context.input.machine);
+  const say = speakerOf(context.input.machine, context.words);
   const heading = `**${String(facts.finding.number)}. ${titleOf(facts, say)}**`;
   const parts = findingParts(context, facts, say);
   const body = [heading, "", ...joinedParts(parts), "", markerLine(findingMarker(context.state.id, facts.finding.id))].join("\n");
@@ -40030,11 +40194,11 @@ function refutedSection(context, say, cuts) {
   });
   return { part: "refuted", lines: [`<details><summary>${words.refutedHeading(context.refuted.length)}</summary>`, "", cut ? words.refutedCut : words.refutedLead, "", ...entries, "", "</details>"] };
 }
-function excludedSection(context) {
+function excludedSection(context, say) {
   const { words, scope } = context;
   if (scope.excluded.count === 0) return { part: "excluded", lines: [] };
   const layer = context.review.configuration.settings?.layers["scope.exclude"] ?? null;
-  return { part: "excluded", lines: [words.excludedHeading, "", words.excluded(scope.request.exclude.map(codeSpan).join(", "), scope.excluded.count, layer === null ? null : words.layers[layer])] };
+  return { part: "excluded", lines: [words.excludedHeading, "", words.excluded(scope.request.exclude.map((pattern) => say.code(pattern)).join(", "), scope.excluded.count, layer === null ? null : words.layers[layer])] };
 }
 function legendSection(context) {
   const { words } = context;
@@ -40056,7 +40220,7 @@ function legendSection(context) {
     ]
   };
 }
-function lastSection(context) {
+function lastSection(context, say) {
   const { configuration } = context.review;
   return {
     part: "last line",
@@ -40064,20 +40228,20 @@ function lastSection(context) {
       context.words.lastLine({
         engine: inlineText(context.input.engine),
         runtime: configuration.runtime,
-        version: inlineText(configuration.version),
-        strong: inlineText(configuration.models.strong),
-        fast: inlineText(configuration.models.fast),
+        version: say.words(configuration.version),
+        strong: say.words(configuration.models.strong),
+        fast: say.words(configuration.models.fast),
         run: codeSpan(shortRunId(context.state.id)),
         base: shortCommit(context.scope.base),
         head: shortCommit(context.scope.head)
       }),
       "",
-      markerLine(publicationMarker2(context.state.id, context.input.serial))
+      markerLine(publicationMarker(context.state.id, context.input.serial))
     ]
   };
 }
 function renderBody(context, cuts) {
-  const say = speakerOf(context.input.machine);
+  const say = speakerOf(context.input.machine, context.words);
   const sections = [
     { part: "heading", lines: [context.words.heading(codeSpan(shortRunId(context.state.id)), codeSpan(shortCommit(context.scope.head)))] },
     conclusionSection(context, say),
@@ -40088,9 +40252,9 @@ function renderBody(context, cuts) {
     inFullSection(context, say),
     leftSection(context, say, cuts),
     refutedSection(context, say, cuts),
-    excludedSection(context),
+    excludedSection(context, say),
     legendSection(context),
-    lastSection(context)
+    lastSection(context, say)
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join("\n")).join("\n\n"), secrets: say.secrets() };
 }
@@ -40137,7 +40301,7 @@ function pullRequestForm(input2) {
       departure: brief.departures.find((departure) => departure.id === finding.id) ?? null
     };
   });
-  const context = { state, review: review2, scope, pullRequest: scope.pullRequest, brief, words: pullRequestWords2(reviewLanguage(review2)), findings, answer: input2.answer, recorded, refuted: refuted(review2), input: input2 };
+  const context = { state, review: review2, scope, pullRequest: scope.pullRequest, brief, words: pullRequestWords(reviewLanguage(review2)), findings, answer: input2.answer, recorded, refuted: refuted(review2), input: input2 };
   const comments = [];
   let secrets = 0;
   for (const facts of findings) {
@@ -40166,7 +40330,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, readmeUrl, publicationMarker2, findingMarker, markerLine, shortCommit, bodyCuts, acts, urlPath, lineUrl, hrefOf, locationText, verdictMarks, statusMarks, titleOf, joinedParts, judgedDetail;
+var maxPostedLength, readmeUrl, shortCommit, bodyCuts, acts, urlPath, lineUrl, hrefOf, locationText, verdictMarks, statusMarks, titleOf, joinedParts, judgedDetail;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -40176,24 +40340,23 @@ var init_pull_request_form = __esm({
     init_brief();
     init_explanation();
     init_markdown();
+    init_markers();
     init_needs();
     init_prompts();
     init_public_text();
     init_pull_request_words();
     init_runs();
     init_state();
+    init_vocabulary();
     maxPostedLength = 6e4;
     readmeUrl = "https://github.com/josephjang/deep-review#readme";
-    publicationMarker2 = (run2, serial) => `deep-review publication ${run2} ${String(serial)}`;
-    findingMarker = (run2, finding) => `deep-review finding ${run2} ${finding}`;
-    markerLine = (marker) => `<!-- ${marker} -->`;
     shortCommit = (commit2) => commit2.slice(0, 8);
     bodyCuts = ["account-diagrams", "account", "refuted", "left"];
-    acts = (facts) => facts.decision?.decision === "fix" || facts.decision?.decision === "ask";
+    acts = (facts) => asksToAct(facts.decision?.decision);
     urlPath = (path) => path.split("/").map(encodeURIComponent).join("/");
     lineUrl = (pullRequest, location) => `${pullRequest.url}/files#diff-${createHash8("sha256").update(location.path).digest("hex")}R${String(location.line)}`;
     hrefOf = (context, facts) => facts.placement.place === "line" ? lineUrl(context.pullRequest, facts.placement.location) : `#${findingAnchor(facts.finding.number)}`;
-    locationText = (location) => codeSpan(`${location.path}:${String(location.line)}`);
+    locationText = (location) => codeSpan(inlineText(`${location.path}:${String(location.line)}`));
     verdictMarks = (context, facts) => facts.entry.resolution.unverified ? [context.words.unverifiedMark] : [];
     statusMarks = (context, facts) => facts.explained.kind === "unexplained" ? [context.words.unexplainedMark] : [];
     titleOf = (facts, say) => facts.explained.kind === "explained" ? say.prose(facts.explained.value.title) : say.words(firstSentence(facts.entry.finding.summary));
@@ -40264,10 +40427,6 @@ var init_report_choice = __esm({
 
 // src/review/publish.ts
 import { dirname as dirname7 } from "node:path";
-function lastLineMarker(body) {
-  const last = body.trimEnd().split(/\r?\n/).at(-1)?.trim() ?? "";
-  return /^<!-- (.+) -->$/.exec(last)?.[1] ?? null;
-}
 function chooseRun2(options2, log) {
   const { checkpoint, worktree } = options2;
   if (options2.runId !== void 0) return checkpoint.fold(runIdOf(checkpoint, options2.runId));
@@ -40324,18 +40483,6 @@ function settleFailure(error62, run2, prepared) {
   if (kind === "missing" || kind === "no-account") return new ReviewRefusedError(`${error62.message}; the publication ${prepared.marker} of run ${run2.id}, which a stop left open, stays open until publish can read the reviews of the pull request`);
   return new PublicationOpenError(`run ${run2.id}: the publication ${prepared.marker}, which a stop left open, is not settled, since ${error62.message}; nothing is recorded, and deep-review publish looks for its review again`);
 }
-function refusingGitHub2(target, read, unrecorded2) {
-  try {
-    return read();
-  } catch (error62) {
-    if (error62 instanceof PullRequestRefusedError) throw new ReviewRefusedError(`${error62.message}; ${unrecorded2}`);
-    if (!(error62 instanceof GitHubCallError)) throw error62;
-    const { failure: failure2 } = error62;
-    if (failure2.kind === "answer" && (failure2.status === 401 || failure2.status === 404)) throw new ReviewRefusedError(`${error62.message}; ${accountAction(target.host)} with an account that can read ${pullRequestWords3(target)}`);
-    if (failure2.kind === "answer" || failure2.kind === "missing" || failure2.kind === "no-account") throw new ReviewRefusedError(`${error62.message}; ${unrecorded2}`);
-    throw error62;
-  }
-}
 function whyNotPostable(run2) {
   const review2 = run2.review;
   const scope = run2.scope;
@@ -40349,13 +40496,14 @@ function whyNotPostable(run2) {
 function requireUnmoved(gh, run2, unrecorded2) {
   const scope = run2.scope;
   const target = targetOf(run2);
-  const words = pullRequestWords3(target);
-  const facts = refusingGitHub2(target, () => readPullRequest(gh, { number: target.number, repository: `${target.host}/${target.owner}/${target.repository}` }), unrecorded2);
-  if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${facts.merged ? "merged" : "closed"}, and deep-review posts to an open pull request only; ${unrecorded2}`);
+  const words = pullRequestLabel(target);
+  const facts = refusingGitHub(() => readPullRequest(gh, target), readRefusal(target, unrecorded2));
+  if (facts.state !== "open") throw new ReviewRefusedError(`${words} is ${closedState(facts)}, and deep-review posts to an open pull request only; ${unrecorded2}`);
   if (facts.head !== scope.head) {
     throw new ReviewRefusedError(`the head of ${words} is ${facts.head} now, not ${scope.head}, the head run ${run2.id} reviewed, and a run is posted only on the change it reviewed; check out the new head, such as with \`gh pr checkout ${String(target.number)}\`, and review it with deep-review review --pr ${String(target.number)}`);
   }
-  const mergeBase2 = refusingGitHub2(target, () => readMergeBase(gh, target, readBranchHead(gh, target, facts.baseRef), facts.head), unrecorded2);
+  const gone = `the base branch ${facts.baseRef} or a commit of its comparison with the head is no longer on GitHub; review the pull request again with deep-review review --pr ${String(target.number)}`;
+  const mergeBase2 = refusingGitHub(() => readCurrentMergeBase(gh, facts), { ...readRefusal(target, unrecorded2), gone });
   if (mergeBase2 !== scope.base) {
     throw new ReviewRefusedError(`the merge base of ${words} with its base branch ${facts.baseRef} is ${mergeBase2} now, not ${scope.base}, the base run ${run2.id} reviewed from, and a run is posted only on the change it reviewed; review the pull request again with deep-review review --pr ${String(target.number)}`);
   }
@@ -40400,12 +40548,18 @@ function dryRunLines(run2, placements, form, notes) {
   ];
 }
 function refusedAction(failure2, target) {
+  const limited = failure2.status === 403 || failure2.status === 429;
   const retry = failure2.headers.get("retry-after");
-  if ((failure2.status === 403 || failure2.status === 429) && retry !== void 0) {
+  if (limited && retry !== void 0) {
     return `GitHub limits how fast an account posts; wait ${/^\d+$/.test(retry) ? counted(Number(retry), "second", "seconds") : `until ${retry}`} and run deep-review publish again`;
   }
-  if (failure2.status === 401 || failure2.status === 404) return `${accountAction(target.host)} with an account that can write to ${pullRequestWords3(target)}, and run deep-review publish again`;
-  if (failure2.status === 403) return `the account or the token that gh uses cannot write to ${pullRequestWords3(target)}, as the token of a workflow on a pull request from a fork cannot; post with an account or a token that can write to its pull requests`;
+  if (limited && failure2.headers.get("x-ratelimit-remaining") === "0") {
+    const reset = failure2.headers.get("x-ratelimit-reset");
+    const until = reset !== void 0 && /^\d+$/.test(reset) ? `until ${new Date(Number(reset) * 1e3).toISOString()}` : "until GitHub resets its limit";
+    return `GitHub limits how many requests an account makes an hour; wait ${until} and run deep-review publish again`;
+  }
+  if (failure2.status === 401 || failure2.status === 404) return `${accountAction(target.host)} with an account that can write to ${pullRequestLabel(target)}, and run deep-review publish again`;
+  if (failure2.status === 403) return `the account or the token that gh uses cannot write to ${pullRequestLabel(target)}, as the token of a workflow on a pull request from a fork cannot; post with an account or a token that can write to its pull requests`;
   return "answer what GitHub says, and run deep-review publish again";
 }
 function publishLocked(options2, runId, log) {
@@ -40449,9 +40603,9 @@ function publishLocked(options2, runId, log) {
   const unrecorded2 = unrecordedWords(settled4);
   const changedFiles = requireUnmoved(ghOf(), run2, unrecorded2);
   const scope = run2.scope;
-  const files = refusingGitHub2(target, () => listPullRequestFiles(ghOf(), { ...target, changedFiles }), unrecorded2);
+  const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded2));
   const placements = placeFindings(run2.review, files);
-  const lines = gitLineCounts(options2.worktree, scope);
+  const lines = gitLineCounts(options2.worktree, scope, { head: lineCountPaths(run2.review, placements) });
   const serial = run2.publications.length + 1;
   const form = pullRequestForm({
     state: run2,
@@ -40484,7 +40638,7 @@ function publishLocked(options2, runId, log) {
     const { failure: failure2 } = error62;
     if (failure2.kind === "answer" && failure2.status >= 400 && failure2.status < 500) {
       checkpoint.append(run2.id, run2.lastSequence, [{ kind: "publish.dropped", version: 1, payload: { marker: prepared.marker, reason: "refused", status: failure2.status, message: recordedMessage(failure2) } }]);
-      throw new ReviewRefusedError(`GitHub refused the review of ${pullRequestWords3(target)} with ${String(failure2.status)}${failure2.message === null ? "" : `: ${failure2.message}`}; nothing was posted, and the publication ${prepared.marker} is recorded as not posted; ${refusedAction(failure2, target)}`);
+      throw new ReviewRefusedError(`GitHub refused the review of ${pullRequestLabel(target)} with ${String(failure2.status)}${failure2.message === null ? "" : `: ${failure2.message}`}; nothing was posted, and the publication ${prepared.marker} is recorded as not posted; ${refusedAction(failure2, target)}`);
     }
     if (failure2.kind === "missing" || failure2.kind === "no-account") throw new ReviewRefusedError(`${error62.message}; the publication ${prepared.marker} stays open, and deep-review publish looks for its review before it posts again`);
     throw new PublicationOpenError(`${error62.message}; GitHub may have made the review or not, so the publication ${prepared.marker} stays open, and deep-review publish looks for the review by its marker before it posts again`);
@@ -40500,12 +40654,11 @@ function publishLocked(options2, runId, log) {
   if (posted.comments.length !== form.comments.length) log(`run ${run2.id}: the review has ${counted(posted.comments.length, "comment", "comments")} that carry the marker of a finding, of the ${String(form.comments.length)} posted`);
   return { kind: "posted", runId: run2.id, url: made.url, how: "posted", comments: posted.comments.length };
 }
-var targetOf, pullRequestWords3, unrecordedWords, cutWords, recordedMessage;
+var targetOf, unrecordedWords, readRefusal, cutWords, recordedMessage;
 var init_publish = __esm({
   "src/review/publish.ts"() {
     "use strict";
     init_events();
-    init_publish_fold();
     init_errors8();
     init_gh();
     init_pull_request();
@@ -40514,6 +40667,7 @@ var init_publish = __esm({
     init_explanation();
     init_lock();
     init_markdown();
+    init_markers();
     init_public_text();
     init_pull_request_form();
     init_report_choice();
@@ -40523,8 +40677,8 @@ var init_publish = __esm({
       const { host, owner, repository, number: number5 } = run2.scope.pullRequest;
       return { host, owner, repository, number: number5 };
     };
-    pullRequestWords3 = (target) => `pull request #${String(target.number)} of ${target.owner}/${target.repository}`;
     unrecordedWords = (settled4) => settled4 === null ? "nothing was posted or recorded" : `nothing was posted, and only that no review carries the publication ${settled4}, which a stop left open, was recorded`;
+    readRefusal = (target, unrecorded2) => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded2 });
     cutWords = {
       "account-diagrams": "the diagrams of the account of the pull request",
       account: "the account of the pull request",
@@ -41075,9 +41229,9 @@ function scopeRequestOf(values, worktree, scope) {
 }
 function pullRequestNameOf(text3) {
   const refused = () => new UsageError(`--pr takes the number of a pull request, such as 42, or its URL, such as https://github.com/<owner>/<repo>/pull/42, not ${JSON.stringify(text3)}`);
-  const number5 = (digits2) => {
-    const value = Number(digits2);
-    if (digits2 === void 0 || !/^[1-9][0-9]*$/.test(digits2) || !Number.isSafeInteger(value)) throw refused();
+  const number5 = (digits) => {
+    const value = Number(digits);
+    if (digits === void 0 || !/^[1-9][0-9]*$/.test(digits) || !Number.isSafeInteger(value)) throw refused();
     return value;
   };
   if (/^[0-9]+$/.test(text3)) return { number: number5(text3), repository: null };
@@ -41087,9 +41241,10 @@ function pullRequestNameOf(text3) {
   } catch {
     throw refused();
   }
-  const [owner, repository, pull, digits] = url2.pathname.split("/").slice(1);
-  if (url2.protocol !== "https:" || url2.host === "" || owner === void 0 || repository === void 0 || !githubName.test(owner) || !githubName.test(repository) || pull !== "pull") throw refused();
-  return { number: number5(digits), repository: `${url2.host}/${owner}/${repository}` };
+  const path = pullRequestPathOf(url2);
+  if (url2.protocol !== "https:" || url2.host === "" || path === null || !githubName.test(path.owner) || !githubName.test(path.repository)) throw refused();
+  if (url2.port !== "") throw new UsageError(`--pr cannot take ${JSON.stringify(text3)}: its host names the port ${url2.port}, and gh names a host without a port, so it cannot reach this pull request`);
+  return { number: number5(path.number), repository: `${url2.host}/${path.owner}/${path.repository}` };
 }
 function namedScopeOf(values, scope) {
   const paths = values.path ?? [];
@@ -41278,15 +41433,9 @@ function commit(values, io, root, worktree) {
     checkpoint.close();
   }
 }
-function publishGhOf(run2, io, worktree, commonDir) {
-  const values = run2.review?.configuration.settings?.values;
-  let named;
-  if (values !== void 0 && "github.executable" in values) named = { executable: values["github.executable"], args: values["github.args"] };
-  else {
-    const scope = configurationSource({ worktree, locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: null }, repositoryConfig: false, flags: flagLayerOf([]) }).scopeSettings();
-    named = { executable: scope.githubExecutable.value, args: scope.githubArgs.value };
-  }
-  return { executable: resolveExecutable(named.executable, io.environment, process.platform, io.cwd, githubExecutableAdvice), args: named.args, cwd: worktree, environment: io.environment };
+function publishGhOf(io, worktree, commonDir) {
+  const scope = configurationSource({ worktree, locations: { operator: operatorConfigPath(io.environment, process.platform), clone: cloneConfigPath(commonDir), invocation: null }, repositoryConfig: false, flags: flagLayerOf([]) }).scopeSettings();
+  return githubOf(scope, io, worktree);
 }
 function publish(values, io, root, worktree, commonDir) {
   const checkpoint = openCheckpoint(root, false);
@@ -41300,7 +41449,7 @@ function publish(values, io, root, worktree, commonDir) {
       gitCommon: commonDir,
       ...values.run === void 0 ? {} : { runId: values.run },
       dryRun: values["dry-run"] === true,
-      gh: (run2) => publishGhOf(run2, io, worktree, commonDir),
+      gh: () => publishGhOf(io, worktree, commonDir),
       engineEntry: io.engineEntry ?? sourceEntry,
       environment: io.environment,
       log,
@@ -41814,6 +41963,7 @@ var init_command2 = __esm({
     init_content();
     init_errors7();
     init_executable();
+    init_pull_request();
     init_lock();
     init_assemble();
     init_policy();
