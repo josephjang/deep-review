@@ -45,7 +45,7 @@ import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
 import { githubExecutableAdvice, resolveExecutable } from './review/executable.ts';
 import type { Gh } from './github/gh.ts';
-import type { PullRequestName } from './github/pull-request.ts';
+import { pullRequestPathOf, type PullRequestName } from './github/pull-request.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './review/lock.ts';
 import { assembleRoles } from './roles/assemble.ts';
 import { codexWindowsSandboxFlagProblem, invocationFlagProblem, maxConcurrency, readPolicy, rolesDigest, type PolicyFlags } from './review/policy.ts';
@@ -254,9 +254,9 @@ export function pullRequestNameOf(text: string): PullRequestName {
   } catch {
     throw refused();
   }
-  const [owner, repository, pull, digits] = url.pathname.split('/').slice(1);
-  if (url.protocol !== 'https:' || url.host === '' || owner === undefined || repository === undefined || !githubName.test(owner) || !githubName.test(repository) || pull !== 'pull') throw refused();
-  return { number: number(digits), repository: `${url.host}/${owner}/${repository}` };
+  const path = pullRequestPathOf(url);
+  if (url.protocol !== 'https:' || url.host === '' || path === null || !githubName.test(path.owner) || !githubName.test(path.repository)) throw refused();
+  return { number: number(path.number), repository: `${url.host}/${path.owner}/${path.repository}` };
 }
 
 /** Whether the scope is `--branch`, given or named by `scope.default` with no mode among the flags: the range from `review.base` to HEAD from their merge base. */

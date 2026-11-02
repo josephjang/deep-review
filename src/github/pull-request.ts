@@ -38,6 +38,30 @@ export interface PullRequestName {
 }
 
 /**
+ * The segments of the path of a pull request's URL,
+ * `/<owner>/<repo>/pull/<number>`, as the URL spells them, with the
+ * segments after the number in `rest`.
+ */
+export interface PullRequestPath {
+  readonly owner: string;
+  readonly repository: string;
+  readonly number: string;
+  readonly rest: readonly string[];
+}
+
+/**
+ * The path of `url` split as a pull request's, or null when it has no
+ * owner, repository and number around a `pull` segment. Each caller checks
+ * the segments as its source asks: `--pr` allows text after the number,
+ * and GitHub's URL of a pull request must be of the number asked for.
+ */
+export function pullRequestPathOf(url: URL): PullRequestPath | null {
+  const [owner, repository, pull, number, ...rest] = url.pathname.split('/').slice(1);
+  if (owner === undefined || repository === undefined || pull !== 'pull' || number === undefined) return null;
+  return { owner, repository, number, rest };
+}
+
+/**
  * What the engine keeps of a pull request: where it is, read from its URL;
  * whether it is open and whether it was merged; the commit of its head;
  * the name of its base branch; how many files it changes; and its title
@@ -181,10 +205,9 @@ function targetOfUrl(url: string, number: number): PullRequestTarget | null {
   } catch {
     return null;
   }
-  const parts = parsedUrl.pathname.split('/').slice(1);
-  const [owner, repository, pull, given] = parts;
-  if (parts.length !== 4 || owner === undefined || repository === undefined || owner === '' || repository === '' || pull !== 'pull' || given !== String(number)) return null;
-  return { host: parsedUrl.host, owner: decodeURIComponent(owner), repository: decodeURIComponent(repository), number };
+  const path = pullRequestPathOf(parsedUrl);
+  if (path === null || path.rest.length > 0 || path.owner === '' || path.repository === '' || path.number !== String(number)) return null;
+  return { host: parsedUrl.host, owner: decodeURIComponent(path.owner), repository: decodeURIComponent(path.repository), number };
 }
 
 /**
