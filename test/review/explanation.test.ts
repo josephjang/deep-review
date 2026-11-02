@@ -183,6 +183,12 @@ describe('the rules of a diagram GitHub draws (R19)', () => {
     assert.deepEqual(diagramFailures('flowchart LR\n  A["open --> B'), ['line 2 opens a label it does not close']);
   });
 
+  it('reads no word of the text of an edge as a node, and still refuses an unquoted node on the same line', () => {
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["a"] -- calls parse(x) --> B["b"]\n  B -- uses map[k] --> C["c"]\n  C -- <local path> --> D["d"]\n  D -. "q" then f{y} .-> E["e"]'), []);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A["a"] -- calls parse(x) --> B[b]'), ['the label of node B on line 2 is not quoted']);
+    assert.deepEqual(diagramFailures('flowchart LR\n  A[a] -- calls parse(x) --> B["b"]; B --x C(c)'), ['the label of node A on line 2 is not quoted', 'the label of node C on line 2 is not quoted']);
+  });
+
   it('refuses an HTML entity and a semicolon in a label of a flowchart, in a message and in a note', () => {
     assert.deepEqual(diagramFailures('flowchart LR\n  A["a &lt; b"] --> B["x; y"]\n  B -->|"c &#59; d"| C["c"]'), [
       'the label on line 2 holds the HTML entity &lt;',
