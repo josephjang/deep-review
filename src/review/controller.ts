@@ -138,9 +138,11 @@ function pathDifferenceWords(difference: PathDifference): string {
  * The result of `read`, calls of GitHub, with each call that GitHub or
  * `gh` refused, `gh` missing or with no account for the host included, and
  * each pull request the engine cannot review as GitHub gave it, turned
- * into a refusal that names it and its action. A timeout stays an error,
- * and so does an answer the engine cannot read, unless `unreadable` names
- * the action that answers it: a refusal then names it.
+ * into a refusal that names it and its action. A timeout and a server
+ * error of GitHub, a status of 500 or more, stay errors, exit 1, as for
+ * the post (the publication in the design of the review on the pull
+ * request), and so does an answer the engine cannot read, unless
+ * `unreadable` names the action that answers it: a refusal then names it.
  */
 function refusingGitHub<T>(read: () => T, unreadable: string | null = null): T {
   try {
@@ -149,7 +151,7 @@ function refusingGitHub<T>(read: () => T, unreadable: string | null = null): T {
     if (error instanceof PullRequestRefusedError) throw new ReviewRefusedError(error.message);
     if (!(error instanceof GitHubCallError)) throw error;
     const { failure } = error;
-    if (failure.kind === 'answer' || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(error.message);
+    if ((failure.kind === 'answer' && failure.status < 500) || failure.kind === 'missing' || failure.kind === 'no-account') throw new ReviewRefusedError(error.message);
     if (failure.kind === 'unreadable' && unreadable !== null) throw new ReviewRefusedError(`${error.message}; ${unreadable}`);
     throw error;
   }
