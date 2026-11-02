@@ -27,6 +27,9 @@ export interface PullRequestTarget extends GitHubRepository {
   readonly number: number;
 }
 
+/** A pull request as a refusal names it: its number and the repository it lives in. */
+export const pullRequestLabel = (target: Pick<PullRequestTarget, 'number' | 'owner' | 'repository'>): string => `pull request #${String(target.number)} of ${target.owner}/${target.repository}`;
+
 /**
  * A pull request as a command names it: its number, and its repository as
  * `<host>/<owner>/<repo>` when the command gave its URL, or null for a
