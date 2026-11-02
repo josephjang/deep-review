@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
-import { bodyCuts, findingMarker, formRefusalWords, maxPostedLength, placeFindings, publicationMarker, readmeUrl, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
+import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, readmeUrl, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withAccount, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
 import { answer, answerableDecisions, askDecision, decisions, explanation, pullRequestFacts, worker } from '../helpers/review-history.ts';
 
