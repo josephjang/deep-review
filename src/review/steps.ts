@@ -327,7 +327,7 @@ function degraded(review: ReviewState, unit: Unit): boolean {
     case 'unit.unattempted':
       return review.fix !== null && isNotAttempted(review.fix, target.phase, target.key);
     case 'explanation.dropped':
-      return review.explained;
+      return review.explanationDegraded;
   }
 }
 
