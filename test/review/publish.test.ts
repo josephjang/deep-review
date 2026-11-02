@@ -286,6 +286,22 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.deepEqual(publications(box), []);
   });
 
+  it('refuses a 404 of the head of the base branch or of the comparison as a branch or a commit GitHub no longer has, not as an account that cannot read the pull request', async (t) => {
+    const box = await reviewed(t);
+    const notFound = (endpoint: string): FakeGhStep[] => publishSteps(box).map((step) => (step.endpoint.startsWith(endpoint) ? { ...step, pages: [{ status: 404, body: { message: 'Not Found' } }] } : step));
+    const action = /; the base branch main or a commit of its comparison with the head is no longer on GitHub; review the pull request again with deep-review review --pr 42; nothing was posted or recorded$/;
+    const cases: [readonly FakeGhStep[], RegExp][] = [
+      [notFound('repos/acme/widgets/git/ref/heads/'), new RegExp(`^reading the head of branch main: GitHub answered 404: Not Found${action.source}`)],
+      [notFound('repos/acme/widgets/compare/'), new RegExp(`^comparing ${baseHead} with ${commitsOf(box).head}: GitHub answered 404: Not Found${action.source}`)],
+    ];
+    for (const [steps, message] of cases) {
+      const { gh, script } = publishGh(t, steps);
+      refused(() => publishWith(box, gh), message);
+      assert.equal(writes(script), 0);
+    }
+    assert.deepEqual(publications(box), []);
+  });
+
   it('says what a refusal after the settle recorded: that the publication a stop left open was not found', async (t) => {
     const box = await reviewed(t);
     const runId = box.run().id;
