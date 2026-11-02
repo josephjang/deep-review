@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import { parseArgs } from 'node:util';
 import { hasScopeFlags, namedScopeOf, pullRequestNameOf, UsageError } from '../../src/command.ts';
+import type { ScopeRequest } from '../../src/checkpoint/events.ts';
 import type { ScopeSettings } from '../../src/config/resolve.ts';
 import type { Gh } from '../../src/github/gh.ts';
 import type { PullRequestName } from '../../src/github/pull-request.ts';
@@ -116,17 +117,18 @@ const pullRequestBody = (head: string, overrides: Record<string, unknown> = {}):
   ...overrides,
 });
 
-/** What `gh` answers for pull request #42 of the sandbox: the pull request, the head of its base branch, the merge base, and its files, each as `change` gives it. */
-function sandboxSteps(box: ReviewSandbox, change: { readonly pullRequest?: Record<string, unknown>; readonly mergeBase?: string; readonly files?: readonly unknown[]; readonly baseRef?: string } = {}): FakeGhStep[] {
+/** What `gh` answers for pull request #42 of the sandbox, of acme/widgets unless `change` names another `<owner>/<repo>`: the pull request, the head of its base branch, the merge base, and its files, each as `change` gives it. */
+function sandboxSteps(box: ReviewSandbox, change: { readonly pullRequest?: Record<string, unknown>; readonly mergeBase?: string; readonly files?: readonly unknown[]; readonly baseRef?: string; readonly repository?: string } = {}): FakeGhStep[] {
   const { head, base } = commitsOf(box);
   const baseRef = change.baseRef ?? 'main';
   const encoded = baseRef.split('/').map(encodeURIComponent).join('/');
   const baseHead = 'd'.repeat(40);
+  const repository = change.repository ?? 'acme/widgets';
   return [
-    { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody(head, { base: { ref: baseRef }, ...change.pullRequest }) }] },
-    { endpoint: `repos/acme/widgets/git/ref/heads/${encoded}`, pages: [{ body: { object: { sha: baseHead } } }] },
-    { endpoint: `repos/acme/widgets/compare/${baseHead}...${head}`, pages: [{ body: { merge_base_commit: { sha: change.mergeBase ?? base } } }] },
-    { endpoint: 'repos/acme/widgets/pulls/42/files?per_page=100', pages: [{ body: change.files ?? sandboxFiles }] },
+    { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody(head, { html_url: `https://github.com/${repository}/pull/42`, base: { ref: baseRef }, ...change.pullRequest }) }] },
+    { endpoint: `repos/${repository}/git/ref/heads/${encoded}`, pages: [{ body: { object: { sha: baseHead } } }] },
+    { endpoint: `repos/${repository}/compare/${baseHead}...${head}`, pages: [{ body: { merge_base_commit: { sha: change.mergeBase ?? base } } }] },
+    { endpoint: `repos/${repository}/pulls/42/files?per_page=100`, pages: [{ body: change.files ?? sandboxFiles }] },
   ];
 }
 
@@ -336,6 +338,54 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
       await refusedReview(t, /gh has no account for the host of the clone; run `gh auth login`/, () => [{ endpoint: 'repos/{owner}/{repo}/pulls/42', noAccount: true }]);
       await refusedReview(t, /give --pr the URL of the pull request, such as https:\/\/github\.com\/<owner>\/<repo>\/pull\/42/, () => []);
     });
+  });
+});
+
+describe('the continuation of a run of a pull request (R4 of the review on the pull request)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
+  /** The range of the sandbox's change, from the merge base with HEAD~1, as `--branch` names it with HEAD~1 its base. */
+  const branchRange = (): ScopeRequest => ({ range: { from: 'HEAD~1', to: 'HEAD', mergeBase: true }, paths: [] });
+
+  it('continues the finished run of the pull request a --pr --fix names', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => [...sandboxSteps(sandbox), ...sandboxSteps(sandbox)]);
+    box.script(reviewScript);
+    reportText(await box.review('claude', { scope: pullRequestSource(box, gh) }));
+    const finished = box.run();
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    assert.equal(box.run().id, finished.id, 'the run of #42, continued');
+    assert.notEqual(box.run().review!.continuedFrom, null);
+  });
+
+  it('continues no run of a pull request from --branch --fix or a plain --fix of the same change, which publish could no longer post', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    box.script(reviewScript);
+    reportText(await box.review('claude', { scope: pullRequestSource(box, gh) }));
+    const finished = box.run();
+    for (const named of [true, false]) {
+      box.logs.length = 0;
+      reportText(await box.fix('claude', { scope: scopeSource(branchRange, named) }));
+      assert.ok(box.logs.includes(`run ${finished.id}: not continued: it reviewed pull request #42 of acme/widgets, which only a command that names it with --pr continues`), box.logs.join('\n'));
+      assert.equal(box.checkpoint.fold(finished.id).review!.fix, null, 'the run of #42 stays read-only, and postable');
+    }
+    assert.equal(box.checkpoint.foldRuns().length, 3, 'a new run for each');
+  });
+
+  it('continues no run of the same change that is not of the pull request a --pr --fix names: a --branch run, or a run of another pull request', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => [...sandboxSteps(sandbox, { repository: 'forks/widgets' }), ...sandboxSteps(sandbox), ...sandboxSteps(sandbox)]);
+    box.script(reviewScript);
+    reportText(await box.review('claude', { scope: pullRequestSource(box, gh) }));
+    const otherPullRequest = box.run();
+    assert.equal(otherPullRequest.scope!.pullRequest!.owner, 'forks');
+    box.logs.length = 0;
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    assert.ok(box.logs.includes(`run ${otherPullRequest.id}: not continued: it reviewed pull request #42 of forks/widgets, not pull request #42 of acme/widgets`), box.logs.join('\n'));
+    reportText(await box.review('claude', { scope: scopeSource(branchRange) }));
+    const branch = box.checkpoint.foldRuns().at(-1)!;
+    assert.equal(branch.scope!.pullRequest, null);
+    box.logs.length = 0;
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    assert.ok(box.logs.includes(`run ${branch.id}: not continued: it reviewed no pull request, and this command names pull request #42 of acme/widgets`), box.logs.join('\n'));
+    for (const run of [otherPullRequest, branch]) assert.equal(box.checkpoint.fold(run.id).review!.fix, null, `run ${run.id} stays read-only`);
+    assert.equal(box.checkpoint.foldRuns().length, 4, 'a new run for each --pr --fix');
   });
 });
 
