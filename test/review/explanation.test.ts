@@ -455,6 +455,8 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const answer = recordedAnswerOf(explanation, fixture.evidence);
     assert.deepEqual(answer?.conclusion, goodAnswer().conclusion);
     assert.deepEqual(answer?.findings.map((finding) => [finding.id, finding.unexplained]), [['RIPPLE-1', false]]);
+    const after = decided(fixture).start('explanation').worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodAnswer())) }).add('explanation.recorded', explanation);
+    assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'completed', blocker: null }, 'an explanation no part of which was dropped does not degrade the phase');
   });
 
   it('records a finding the writer marked unexplained, which the review gives in the ledger\'s words with the mark', () => {
@@ -498,6 +500,8 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     // A case on removed code cites the merge base, which holds it.
     const removed = goodAnswer();
     removed.findings[0]!.explanation!.cases[0]!.lines = { side: 'base', path: 'src/gone.ts', from: 1, to: 3 };
+    const after = history.worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(second)) }).add('explanation.recorded', explanation);
+    assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 'a part dropped degrades the phase');
     assert.deepEqual(recorded(contribution(history, fixture, receipt(removed))[0]).dropped, []);
   });
 

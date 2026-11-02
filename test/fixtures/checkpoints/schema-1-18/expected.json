@@ -1399,7 +1399,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -3363,7 +3363,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 30
@@ -5836,7 +5836,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -6826,7 +6826,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 2,
           "runBudgetUsd": null
@@ -7117,7 +7117,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": null
@@ -8486,7 +8486,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -11076,7 +11076,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -13905,7 +13905,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 80
@@ -16359,7 +16359,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -18195,7 +18195,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 120
@@ -19664,7 +19664,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -21589,7 +21589,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 40
@@ -24357,7 +24357,7 @@
         "baseChecksStep": false,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -26830,7 +26830,7 @@
         "baseChecksStep": true,
         "citedRuns": false,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -29310,7 +29310,7 @@
         "baseChecksStep": true,
         "citedRuns": true,
         "explanationStep": false,
-        "explained": false,
+        "explanationDegraded": false,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60
@@ -31425,7 +31425,7 @@
         "baseChecksStep": true,
         "citedRuns": true,
         "explanationStep": true,
-        "explained": true,
+        "explanationDegraded": true,
         "limits": {
           "concurrency": 4,
           "runBudgetUsd": 60

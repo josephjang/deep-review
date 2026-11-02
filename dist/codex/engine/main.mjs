@@ -23955,7 +23955,7 @@ function configure(state, payload, event, { surveyed, decided, documented, compa
     baseChecksStep: compared,
     citedRuns: cited,
     explanationStep: explained,
-    explained: false,
+    explanationDegraded: false,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
     blocker: null,
@@ -24262,7 +24262,7 @@ var init_review_fold = __esm({
       const stray = named.find((id) => !ranked2.has(id));
       if (stray !== void 0) throw invalid(event, `explains ${stray}, which is not a finding of the run`);
       const units = payload.workerId === null ? review2.units : answered(review2, drafts, { phase: "explanation", key: singleUnitKey("explanation") }, payload.workerId);
-      return { ...withReview(current, { ...review2, units, explained: true }, event), explanation: payload };
+      return { ...withReview(current, { ...review2, units, explanationDegraded: payload.workerId === null || payload.dropped.length > 0 }, event), explanation: payload };
     };
     reportWritten = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
@@ -30240,7 +30240,7 @@ function degraded(review2, unit) {
     case "unit.unattempted":
       return review2.fix !== null && isNotAttempted(review2.fix, target.phase, target.key);
     case "explanation.dropped":
-      return review2.explained;
+      return review2.explanationDegraded;
   }
 }
 function exhaustedOutcome(review2, unit, state) {
