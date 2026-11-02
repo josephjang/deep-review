@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
-import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, readmeUrl, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { bodyCuts, formRefusalWords, lineCountPaths, maxPostedLength, placeFindings, readmeUrl, type FindingPlacement, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withAccount, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
 import { answer, answerableDecisions, askDecision, decisions, explanation, pullRequestFacts, worker } from '../helpers/review-history.ts';
 
@@ -35,6 +35,19 @@ describe('the place of a finding (R10, TD4)', () => {
     assert.deepEqual(placesOf([decisions[0], askDecision('SWEEP-1', true)], filesWith())[1], { finding: 'SWEEP-1', place: 'body', reason: 'no-place', location: null, diff: null });
     const leftOnTheDiff = placesOf([{ ...decisions[0], decision: 'leave', fix: null, leave: { reason: 'intended', supersededBy: null } }, decisions[1]], filesWith())[0];
     assert.deepEqual(leftOnTheDiff, { finding: 'RIPPLE-1', place: 'body', reason: 'left', location: { path: 'src/a.ts', line: 4 }, diff: 'added' });
+  });
+
+  it('lists each path the form asks the count of lines of, each once: of each finding with a place and of each refuted candidate', () => {
+    const state = run().fold();
+    const places: FindingPlacement[] = [
+      { finding: 'RIPPLE-1', place: 'body', reason: 'no-patch', location: { path: 'src/b.ts', line: 2 }, diff: 'no-patch' },
+      { finding: 'SWEEP-1', place: 'body', reason: 'left', location: null, diff: null },
+    ];
+    // RIPPLE-2, refuted, points at src/a.ts:9.
+    assert.deepEqual(lineCountPaths(state.review!, places), ['src/b.ts', 'src/a.ts']);
+    const asked: string[] = [];
+    formOf(state, writerAnswer(), filesWith(), { places, lineCount: (path) => (asked.push(path), 6) });
+    assert.deepEqual([...new Set(asked)].sort(), ['src/a.ts', 'src/b.ts'], 'the form asks no other path');
   });
 });
 
