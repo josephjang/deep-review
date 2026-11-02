@@ -351,6 +351,9 @@ function degraded(review: ReviewState, unit: Unit): boolean {
  */
 const interrupted = (state: UnitState | undefined): boolean => state?.failures.some((failure) => failure.cause !== 'unit') ?? false;
 
+/** Whether one more failure of a unit makes it out of attempts with no interruption among its failures, so its role's degradation is recorded (`exhausted`, `exhaustedOutcome`): the unit's last attempt. */
+export const degradesOnNextFailure = (state: UnitState | undefined): boolean => (state?.failures.length ?? 0) + 1 >= maxAttempts && !interrupted(state);
+
 /**
  * What a unit out of attempts records, or null when it blocks its phase
  * instead: its role's degradation (`degradationOf`), unless an
