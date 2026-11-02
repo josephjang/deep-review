@@ -12,6 +12,7 @@ import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type DroppedPart, type ExplanationRecorded, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState, UnitFailure } from '../checkpoint/review-fold.ts';
+import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
@@ -604,10 +605,10 @@ export function droppedExplanation(state: RunState, context: ExplanationContext,
   return { kind: 'explanation.recorded', version: 1, payload: explanationRecord(null, merged, context.evidence) };
 }
 
-/** The language the run recorded for its review (R20): `review.language` of its settings, or English for a run that recorded none. */
+/** The language the run recorded for its review (R20): `review.language` of its settings, or the default language for a run that recorded none. */
 export function reviewLanguage(review: ReviewState): string {
   const values = review.configuration.settings?.values;
-  return values !== undefined && 'review.language' in values ? values['review.language'] : 'en';
+  return values !== undefined && 'review.language' in values ? values['review.language'] : defaultLanguage;
 }
 
 /** A language tag with its name in English where the platform knows it, as `ko (Korean)`. */
