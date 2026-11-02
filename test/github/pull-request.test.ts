@@ -9,6 +9,7 @@ import {
   newLinesOf,
   pathDifference,
   postReview,
+  pullRequestLabel,
   pullRequestPathOf,
   readBranchHead,
   readMergeBase,
@@ -128,6 +129,13 @@ describe('pullRequestPathOf', () => {
     for (const url of ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull', 'https://github.com/acme/pull/42', 'https://github.com/']) {
       assert.equal(pullRequestPathOf(new URL(url)), null, url);
     }
+  });
+});
+
+describe('pullRequestLabel', () => {
+  it('names a pull request by its number and its owner and repository, without the host', () => {
+    assert.equal(pullRequestLabel(target), 'pull request #42 of acme/widgets');
+    assert.equal(pullRequestLabel({ number: 7, owner: 'ghe-org', repository: 'tools.js' }), 'pull request #7 of ghe-org/tools.js');
   });
 });
 
