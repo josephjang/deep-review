@@ -238,7 +238,8 @@ const githubName = /^[A-Za-z0-9_.-]+$/;
  * the clone's, or the URL of a pull request,
  * `https://<host>/<owner>/<repo>/pull/<number>`, with any path, query or
  * fragment after the number left out, whose repository is
- * `<host>/<owner>/<repo>`. Anything else is refused with the usage.
+ * `<host>/<owner>/<repo>`. Anything else is refused with the usage, and a
+ * host with a port by name, since `gh api --hostname` takes no port.
  */
 export function pullRequestNameOf(text: string): PullRequestName {
   const refused = (): UsageError => new UsageError(`--pr takes the number of a pull request, such as 42, or its URL, such as https://github.com/<owner>/<repo>/pull/42, not ${JSON.stringify(text)}`);
@@ -256,6 +257,7 @@ export function pullRequestNameOf(text: string): PullRequestName {
   }
   const path = pullRequestPathOf(url);
   if (url.protocol !== 'https:' || url.host === '' || path === null || !githubName.test(path.owner) || !githubName.test(path.repository)) throw refused();
+  if (url.port !== '') throw new UsageError(`--pr cannot take ${JSON.stringify(text)}: its host names the port ${url.port}, and gh names a host without a port, so it cannot reach this pull request`);
   return { number: number(path.number), repository: `${url.host}/${path.owner}/${path.repository}` };
 }
 

@@ -45,7 +45,12 @@ describe('--pr names a pull request without GitHub (R1, R4 of the review on the 
     assert.deepEqual(pullRequestNameOf('42'), { number: 42, repository: null });
     assert.deepEqual(pullRequestNameOf('https://github.com/acme/widgets/pull/42'), { number: 42, repository: 'github.com/acme/widgets' });
     assert.deepEqual(pullRequestNameOf('https://github.com/acme/widgets/pull/42/files?w=1#diff-1'), { number: 42, repository: 'github.com/acme/widgets' });
-    assert.deepEqual(pullRequestNameOf('https://ghe.example.com:8443/team/tool.js/pull/7/commits'), { number: 7, repository: 'ghe.example.com:8443/team/tool.js' });
+    assert.deepEqual(pullRequestNameOf('https://ghe.example.com/team/tool.js/pull/7/commits'), { number: 7, repository: 'ghe.example.com/team/tool.js' });
+    assert.deepEqual(pullRequestNameOf('https://ghe.example.com:443/team/tool.js/pull/7'), { number: 7, repository: 'ghe.example.com/team/tool.js' }, 'the default port is no port');
+  });
+
+  it('refuses the URL of a host with a port by name, since gh names a host without one', () => {
+    assert.throws(() => pullRequestNameOf('https://ghe.example.com:8443/o/r/pull/7'), (error: unknown) => error instanceof UsageError && /^--pr cannot take "https:\/\/ghe\.example\.com:8443\/o\/r\/pull\/7": its host names the port 8443, and gh names a host without a port/.test(error.message));
   });
 
   it('refuses with the usage what is neither a number nor the URL of a pull request', () => {
