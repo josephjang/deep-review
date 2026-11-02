@@ -93,7 +93,7 @@ describe('readPullRequest', () => {
   });
 
   it('refuses an answer whose URL is not of the pull request it asked for', (t) => {
-    const urls = ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull/43', 'https://github.com/acme/widgets/pull/42/files', 'https://github.com//widgets/pull/42'];
+    const urls = ['https://github.com/acme/widgets/issues/42', 'https://github.com/acme/widgets/pull/43', 'https://github.com/acme/widgets/pull/42/files', 'https://github.com//widgets/pull/42', 'https://github.com:8443/acme/widgets/pull/42'];
     const { gh } = fakeGhWith(t, urls.map((url) => ({ endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: pullRequestBody({ html_url: url }) }] })));
     for (const url of urls) {
       const error = thrown(() => readPullRequest(gh, { number: 42, repository: null }), GitHubCallError);

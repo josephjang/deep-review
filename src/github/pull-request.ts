@@ -201,7 +201,7 @@ function pullRequestCall(name: PullRequestName | PullRequestTarget): GhCall {
   return { endpoint: pullPath({ ...repository, number: name.number }), hostname: repository.host };
 }
 
-/** Where the pull request of `url`, `https://<host>/<owner>/<repo>/pull/<number>`, is, or null when the URL is not of that form or of another number. */
+/** Where the pull request of `url`, `https://<host>/<owner>/<repo>/pull/<number>`, is, or null when the URL is not of that form, of another number, or on a host with a port, which `gh api --hostname` cannot name. */
 function targetOfUrl(url: string, number: number): PullRequestTarget | null {
   let parsedUrl: URL;
   try {
@@ -210,8 +210,8 @@ function targetOfUrl(url: string, number: number): PullRequestTarget | null {
     return null;
   }
   const path = pullRequestPathOf(parsedUrl);
-  if (path === null || path.rest.length > 0 || path.owner === '' || path.repository === '' || path.number !== String(number)) return null;
-  return { host: parsedUrl.host, owner: decodeURIComponent(path.owner), repository: decodeURIComponent(path.repository), number };
+  if (path === null || parsedUrl.port !== '' || path.rest.length > 0 || path.owner === '' || path.repository === '' || path.number !== String(number)) return null;
+  return { host: parsedUrl.hostname, owner: decodeURIComponent(path.owner), repository: decodeURIComponent(path.repository), number };
 }
 
 /**
