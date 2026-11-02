@@ -7,13 +7,16 @@ import { accountAction, ghFailureOf, type GhResult } from './gh.ts';
  * a timeout, no account for the host, an answer of GitHub that is not a
  * success, or one the engine cannot read. `failure` keeps what the call
  * gave, so a caller can tell a refusal of GitHub, with its status and
- * message, from a post whose outcome is unknown.
+ * message, from a post whose outcome is unknown; `what` names the call,
+ * and `recorded`, when given, what the command recorded, said last.
  */
 export class GitHubCallError extends EngineError {
   override readonly name = 'GitHubCallError';
+  readonly what: string;
   readonly failure: GhResult;
-  constructor(what: string, failure: GhResult) {
-    super(`${what}: ${ghFailureOf(failure)}`);
+  constructor(what: string, failure: GhResult, recorded?: string) {
+    super(`${what}: ${ghFailureOf(failure)}${recorded === undefined ? '' : `; ${recorded}`}`);
+    this.what = what;
     this.failure = failure;
   }
 }
