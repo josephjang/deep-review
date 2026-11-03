@@ -26,7 +26,7 @@ import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { acquireStartLock, type ReleaseLock } from '../review/lock.ts';
 import { pinnedRole, readPolicy, resolvePolicy } from '../review/policy.ts';
 import { checkCitedVerdicts } from '../review/cited-runs.ts';
-import { checkVerdicts, verifierOutputSchema, verifierOutputSchemaV2, type VerifierOutput, type VerifierOutputV2 } from '../review/schemas.ts';
+import { checkVerdicts, verifierOutputSchemaFor, type VerifierOutput, type VerifierOutputV2, type VerifierOutputV3 } from '../review/schemas.ts';
 import { budgetSpendOf, settledWorkers, spendOf } from '../review/spend.ts';
 import { assembleRoles, type AssembledRole } from '../roles/assemble.ts';
 import type { RuntimeAdapter } from '../runtime/adapter.ts';
@@ -316,8 +316,9 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
   // The CLI version each sample's first worker was launched on, by sample; a sample no worker ran in has none.
   const versionOf = new Map<string, string>();
 
-  // A replayed verifier answers in the schema its run asked for, so a replay of a run configured before runs on the record measures what it measured before (R10 of runs on the record).
+  // A replayed verifier answers in the schema its run asked for, so a replay of a run configured before runs on the record, or before the review read as a report, measures what it measured before (R10 of runs on the record).
   const cited = state.review?.citedRuns ?? false;
+  const outputSchema = verifierOutputSchemaFor({ citedRuns: cited, reportForm: state.review?.reportForm ?? false });
   /** One attempt of a group in a sample: its verdicts by candidate id, or why it gave none. */
   const attempt = async ({ sample, group, prompt }: SamplingUnit): Promise<Map<string, SampledVerdict> | string> => {
     const invocation: InvocationInput = {
@@ -329,7 +330,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       access: 'read-only',
       shell: true,
       prompt,
-      outputSchema: cited ? verifierOutputSchemaV2 : verifierOutputSchema,
+      outputSchema,
       timeoutMs: settings.timeoutMs,
       ...(settings.budgetUsd === null ? {} : { budgetUsd: settings.budgetUsd }),
       label: unitLabel(verifierRole, group.phase, group.id),
@@ -344,7 +345,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
     workersOf.get(sample)!.add(receipt.workerId);
     if (!versionOf.has(sample)) versionOf.set(sample, receipt.runtime.version);
     if (receipt.outcome !== 'completed') return `${receipt.outcome}: ${receipt.error ?? 'no reason recorded'}`;
-    const answer = receipt.output as VerifierOutput | VerifierOutputV2;
+    const answer = receipt.output as VerifierOutput | VerifierOutputV2 | VerifierOutputV3;
     try {
       checkVerdicts(answer, group.candidates.length);
       // Each cited run is looked up in the replayed worker's own record and its probe frozen from the worker's own scratch directory, as the run does, so an answer the run would refuse fails the attempt; the probe goes to the replay's own checkpoint, since a replay writes nothing to the run's.

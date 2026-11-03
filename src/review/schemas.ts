@@ -7,10 +7,11 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
-import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, verifierNoteLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -160,6 +161,38 @@ export const verifierOutputSchemaV2 = z.strictObject({
   })),
 });
 export type VerifierOutputV2 = z.infer<typeof verifierOutputSchemaV2>;
+
+/** A note of the verifier's beside its evidence line, in one sentence, at the length the ledger records (`verifierNoteLengthV1`). */
+const verifierNote = z.string().min(1).max(verifierNoteLengthV1);
+
+/**
+ * The verifier's answer in a run whose review reads as a report (R7, R9,
+ * TD1 of the review that reads as a report): version 2's, and on each
+ * verdict what keeps it from CONFIRMED, a fact not settled or a choice
+ * that remains, which a PLAUSIBLE verdict gives and no other does, and
+ * the choice between two behaviors the code leaves to the author, or
+ * null. `verifierOutputSchemaFor` gives it to the verification units of
+ * such a run alone, and `checkVerdicts` holds the first to the verdict.
+ */
+export const verifierOutputSchemaV3 = z.strictObject({
+  verdicts: z.array(z.strictObject({
+    ...verifierOutputSchemaV2.shape.verdicts.element.shape,
+    unconfirmed: z.strictObject({ kind: z.enum(unconfirmedKinds), text: verifierNote }).nullable(),
+    authorChoice: verifierNote.nullable(),
+  })),
+});
+export type VerifierOutputV3 = z.infer<typeof verifierOutputSchemaV3>;
+
+/**
+ * The schema a verifier of a run answers in, the one the run was
+ * configured with, also when this engine resumes or replays it: version 3
+ * in a run whose review reads as a report, version 2 in one with runs on
+ * the record, and version 1 before.
+ */
+export function verifierOutputSchemaFor(review: Pick<ReviewState, 'citedRuns' | 'reportForm'>): typeof verifierOutputSchema | typeof verifierOutputSchemaV2 | typeof verifierOutputSchemaV3 {
+  if (review.reportForm) return verifierOutputSchemaV3;
+  return review.citedRuns ? verifierOutputSchemaV2 : verifierOutputSchema;
+}
 
 /** The findings after merge and rank: a primary candidate, the candidates folded into it, and a severity. */
 export const mergeRankOutputSchema = z.strictObject({
@@ -474,9 +507,12 @@ export function checkDeduplication(output: DeduplicationOutput, count: number): 
  * one outside the group; and in an answer that gives each verdict its
  * basis (R2, R3 of runs on the record), a verdict that rests on a run and
  * cites none, one of another basis that cites a run, or a cited line that
- * is blank.
+ * is blank; and in an answer that gives each verdict its notes (R7, R9 of
+ * the review that reads as a report), a PLAUSIBLE verdict that does not
+ * say what keeps it from CONFIRMED, another verdict that does, or a note
+ * that is blank.
  */
-export function checkVerdicts(output: VerifierOutput | VerifierOutputV2, count: number): void {
+export function checkVerdicts(output: VerifierOutput | VerifierOutputV2 | VerifierOutputV3, count: number): void {
   const seen = new Set<number>();
   for (const verdict of output.verdicts) {
     if (verdict.index >= count) throw outOfRange('A verdict', verdict.index, count);
@@ -487,6 +523,11 @@ export function checkVerdicts(output: VerifierOutput | VerifierOutputV2, count: 
     if (verdict.basis === 'ran' && verdict.runs.length === 0) throw new StructuralCheckError(`${what} rests on a run and cites none`);
     if (verdict.basis !== 'ran' && verdict.runs.length > 0) throw new StructuralCheckError(`${what} is ${verdict.basis} and cites a run, which only a verdict that rests on a run does`);
     if (verdict.runs.some((run) => run.printed.some(isBlankCitedLine))) throw new StructuralCheckError(`${what} cites a blank line of what a run printed`);
+    if (!('unconfirmed' in verdict)) continue;
+    if (verdict.verdict === 'PLAUSIBLE' && verdict.unconfirmed === null) throw new StructuralCheckError(`${what} is PLAUSIBLE and gives no unconfirmed, the fact not settled or the choice that keeps it from CONFIRMED`);
+    if (verdict.verdict !== 'PLAUSIBLE' && verdict.unconfirmed !== null) throw new StructuralCheckError(`${what} is ${verdict.verdict} and gives unconfirmed, which only a PLAUSIBLE verdict does`);
+    if (verdict.unconfirmed !== null && verdict.unconfirmed.text.trim() === '') throw new StructuralCheckError(`${what} gives a blank unconfirmed`);
+    if (verdict.authorChoice !== null && verdict.authorChoice.trim() === '') throw new StructuralCheckError(`${what} gives a blank authorChoice; give null when the code leaves the author no choice`);
   }
   const missing = missingIndexes(seen, count);
   if (missing.length > 0) throw new StructuralCheckError(`No verdict for index ${missing.map(String).join(', ')} of the ${String(count)} candidates in the group`);
