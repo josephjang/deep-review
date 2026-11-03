@@ -379,7 +379,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     const code = await main(['publish', '--dry-run', '--repo', box.repo], { stdout: (text) => out.push(text), stderr: (text) => err.push(text), environment: { ...environment, FAKE_GH_SCRIPT: script }, cwd: box.repo, engineEntry: cliEntry });
     assert.equal(code, 0, err.join(''));
     const text = out.join('');
-    assert.ok(text.includes('## deep-review의 풀 리퀘스트 리뷰 (실행 '), text);
+    assert.ok(text.includes('## deep-review의 풀 리퀘스트 리뷰\n'), text);
     assert.equal(fakeGhCalls(script).length, 4, 'the gh the operator\'s file names now read the pull request, the head of its base branch, the merge base and the files');
     assert.equal(writes(script), 0);
   });

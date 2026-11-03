@@ -1,46 +1,46 @@
 /**
  * The form of the pull request (R9, R10, R12, TD6 of the review on the
- * pull request): the body and the comments of the one review `publish`
- * posts, rendered from the brief value, the ranked findings with their
- * decisions, the place of each finding and the writer's explanation, and
- * nothing else. Pure: the caller reads GitHub, the evidence store and the
- * commits, and this module only renders.
+ * pull request; R1 to R5, R12 to R16 of the review that reads as a
+ * report): the body and the comments of the one review `publish` posts,
+ * rendered from one view of the run (`FormView`) that `formViewOf` builds
+ * once from the brief value, the ranked findings with their decisions, the
+ * place of each finding, the counts of the run and the writer's
+ * explanation, and nothing else. Pure: the caller reads GitHub, the
+ * evidence store and the commits, and this module only renders.
  *
  * `placeFindings` puts each finding on its line or in the body
  * ("The place of a finding" of the design, TD4). `pullRequestForm`
- * renders the body in the order of R9, with the engine's own words from
- * the table of the run's language (pull-request-words.ts, R20), each text
+ * renders the body in the order of R1, with the engine's own words from
+ * the table of the run's language (pull-request-words.ts, R15), each text
  * of a worker, the runtime's version and the models and the patterns the
  * settings name through `publicWords` or `publicCode`, each of the writer
  * through `publicProse` (R11), and a comment on its line for each fix and
- * each question that has one (R10). A body over the limit is cut in the order
- * of R12, and a body that still does not fit, or a comment that does not,
- * is a refusal with its size and parts, before anything is recorded.
+ * each question that has one (R5). Every link to code is a permalink at
+ * the reviewed head, or at the merge base for removed lines (R14). A body
+ * over the limit is cut in the order of `bodyCuts`, and a body that still
+ * does not fit, or a comment that does not, is a refusal with its size and
+ * parts, before anything is recorded.
  */
-import { createHash } from 'node:crypto';
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import type { ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
-import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion, type FindingStatus } from './brief.ts';
-import { diagramFailures, reviewLanguage, type Account, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
+import { diagramFailures, reviewLanguage, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
-import { answerCommand } from './needs.ts';
+import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
-import { pullRequestWords, type PullRequestWords } from './pull-request-words.ts';
+import { pullRequestWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
-import { rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { asksToAct, type FindingPlace, type PlaceReason } from './vocabulary.ts';
+import { mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
+import { asksToAct, verdictBases, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
-
-/** The README of deep-review's repository, which the legend links (R9). */
-export const readmeUrl = 'https://github.com/josephjang/deep-review#readme';
 
 /** Where a finding points in the repository: its path from the root and its line at the head. */
 export interface FindingLocation {
@@ -97,23 +97,17 @@ export function placeFindings(review: ReviewState, files: readonly PullRequestFi
   });
 }
 
-/** Each path whose count of lines the form asks of `lineCount`: the path of each finding with a place and of each refuted candidate with one, so the caller reads them at once. */
-export function lineCountPaths(review: ReviewState, places: readonly FindingPlacement[]): string[] {
-  const candidates = refuted(review).flatMap(({ candidate }) => (repositoryLocation(candidate) === null ? [] : [candidate.file!]));
-  return [...new Set([...places.flatMap((placement) => placement.location?.path ?? []), ...candidates])];
-}
-
 /** A commit as the form names it, by its first 8 characters, as the brief names a run. */
 const shortCommit = (commit: string): string => commit.slice(0, 8);
 
 /**
- * What a body over the limit is cut of, in this order (R12): the diagrams
- * of the writer's account of the pull request, then the account itself,
- * then the refuted candidates down to their summaries and places, then the
- * findings left as is down to their rows in the table. The evidence of a
- * fix or a question is never cut.
+ * What a body over the limit is cut of, in this order (TD5 of the review
+ * that reads as a report): the refuted candidates, then the findings left
+ * as is, then the table of the minor findings, each of which has its
+ * comment, then the diagrams of the areas. What needs a person, the areas
+ * and the findings in full are never cut.
  */
-export const bodyCuts = ['account-diagrams', 'account', 'refuted', 'left'] as const;
+export const bodyCuts = ['refuted', 'left', 'minor-table', 'area-diagrams'] as const;
 export type BodyCut = (typeof bodyCuts)[number];
 
 /** What the form renders from beyond the fold, each read by the caller. */
@@ -124,8 +118,6 @@ export interface PullRequestFormInput {
   readonly answer: WriterAnswer | null;
   /** The place of each finding (`placeFindings`), against the files of the pull request as `publish` read them. */
   readonly places: readonly FindingPlacement[];
-  /** The count of lines of a path at the head, or null when it holds no such file, so a link to the lines around a finding stays within its file. */
-  readonly lineCount: (path: string) => number | null;
   /** The machine that ran the review, which no posted text names (R11). */
   readonly machine: MachineContext;
   /** The identity of the engine that renders the review. */
@@ -187,8 +179,22 @@ type Explained =
   | { readonly kind: 'unexplained'; readonly reason: string | null }
   | { readonly kind: 'none' };
 
-/** A ranked finding with all the form reads of it. */
-interface FindingFacts {
+/** Why a verdict is PLAUSIBLE and not CONFIRMED, as its verifier gave it (R7): a fact it could not settle, or a choice that remains. */
+export interface Unconfirmed {
+  readonly kind: 'fact' | 'choice';
+  readonly text: string;
+}
+
+/** What a minor finding reaches, as the writer gives it (R13): what a user sees, or the code. */
+export type FindingKind = 'user' | 'code';
+
+/**
+ * A ranked finding with all the form reads of it: the ledger's facts, and
+ * the parts that the writer's and the verifier's answers give, each null
+ * when the answer has none, which the form then replaces with the engine's
+ * words (R16).
+ */
+interface FindingView {
   readonly finding: BriefFinding;
   readonly entry: ReportFinding;
   readonly decision: RecordedDecision | null;
@@ -196,25 +202,63 @@ interface FindingFacts {
   readonly explained: Explained;
   readonly question: BriefQuestion | null;
   readonly departure: BriefDeparture | null;
+  /** The writer's sentence of what deep-review would do (`conclusion.actions`); null falls back to the first sentence of the decided approach. */
+  readonly action: string | null;
+  /** The writer's line of how the verifier checked it (R10); null falls back to the words of the verdict's basis. */
+  readonly checked: string | null;
+  /** The writer's kind of a minor finding (R13); null lists it with the code. */
+  readonly kind: FindingKind | null;
+  /** The verifier's reason for a PLAUSIBLE verdict (R7); null says that it gave none. */
+  readonly unconfirmed: Unconfirmed | null;
+  /** The choice the verifier leaves to the author (R9); null when it named none. */
+  readonly authorChoice: string | null;
 }
 
-/** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
-const acts = (facts: FindingFacts): boolean => asksToAct(facts.decision?.decision);
+/** An area of the major findings that ask a person to act, as the writer gives it (R4): its title, its intro, a diagram or none, and its findings by id. */
+interface AreaView {
+  readonly title: string;
+  readonly intro: string;
+  readonly diagram: string | null;
+  readonly findings: readonly string[];
+}
 
-/** What every part of the form reads, computed once. */
-interface FormContext {
+/** A candidate a verifier refuted, with the writer's sentence of its claim and of why it was refuted (R11), each null when the writer gave none. */
+interface RefutedView {
+  readonly candidate: CandidateState;
+  readonly claim: string | null;
+  readonly why: string | null;
+}
+
+/** The run as every part of the form reads it, built once by `formViewOf`. */
+interface FormView {
   readonly state: RunState;
   readonly review: ReviewState;
   readonly scope: ScopeState;
   readonly pullRequest: PullRequestFacts;
   readonly brief: Brief;
   readonly words: PullRequestWords;
-  readonly findings: readonly FindingFacts[];
-  readonly answer: WriterAnswer | null;
+  readonly findings: readonly FindingView[];
+  /** The writer's areas; null puts every major finding that acts in one area named by the engine (R16). */
+  readonly areas: readonly AreaView[] | null;
+  readonly refuted: readonly RefutedView[];
+  readonly counts: ReviewCounts;
+  /** The writer's sentence that names the areas, and its diagram, which an older run's single area takes. */
+  readonly conclusion: { readonly why: string; readonly diagram: string | null } | null;
   readonly recorded: ExplanationRecorded | null;
-  readonly refuted: readonly { readonly candidate: CandidateState; readonly evidence: string }[];
   readonly input: PullRequestFormInput;
 }
+
+/** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
+const acts = (view: FindingView): boolean => asksToAct(view.decision?.decision);
+
+/** Whether a finding is minor; critical findings count with the major ones. */
+const isMinor = (view: FindingView): boolean => view.finding.severity === 'minor';
+
+/** Whether a finding is left as is while its verifier named a choice for the author (R9), which goes in what needs a person and in full. */
+const forAuthor = (view: FindingView): boolean => view.decision?.decision === 'leave' && view.authorChoice !== null;
+
+/** Whether a finding is in full in the body: one that acts or is for the author, with no comment on a line. */
+const inFull = (view: FindingView): boolean => (acts(view) || forAuthor(view)) && view.placement.place === 'body';
 
 /**
  * The cleaning of each text the engine did not write, counting the
@@ -235,6 +279,8 @@ interface Speaker {
   readonly prose: (text: string) => string;
   readonly paragraphs: (text: string) => string[];
   readonly code: (text: string) => string;
+  /** A worker's text as a sentence, its first word capitalized when it is a plain lower-case word, as a decider's approach or option often starts. */
+  readonly sentence: (text: string) => string;
   readonly diagram: (text: string) => string;
   readonly secrets: () => number;
 }
@@ -251,50 +297,57 @@ function speakerOf(machine: MachineContext, words: PullRequestWords): Speaker {
     prose,
     paragraphs: (text) => text.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== '').map(paragraphText),
     code: (text) => codeSpan(counted(publicCode(inlineText(text), machine))),
+    sentence: (text) => {
+      const cleaned = counted(publicWords(inlineText(text).trim(), machine));
+      return sentenceText(/^[a-z]+ /.test(cleaned) ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}` : cleaned);
+    },
     diagram: (text) => {
       const body = counted(publicCode(text.replace(/\s+$/, ''), machine));
       if (diagramFailures(body).length > 0) return words.diagramBroken;
-      const fence = fenceFor(body);
-      return `${fence}mermaid\n${body}\n${fence}`;
+      return fenced(body);
     },
     secrets: () => secrets,
   };
 }
 
+/** A diagram in a Mermaid fence that no run of backticks in it closes. */
+function fenced(diagram: string): string {
+  const fence = fenceFor(diagram);
+  return `${fence}mermaid\n${diagram}\n${fence}`;
+}
+
+/** Blocks of lines with one blank line between each two, an empty block left out. */
+const blocks = (...parts: readonly (readonly string[])[]): string[] => parts.filter((part) => part.length > 0).flatMap((part, index) => (index === 0 ? [...part] : ['', ...part]));
+
 /** A path from the root of the repository as a URL path, each name percent-encoded. */
 const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
 
-/** The lines `from` to `to` of `path` at `commit`, as GitHub shows them in the repository of the pull request. */
+/** The lines `from` to `to` of `path` at `commit`, as GitHub shows them in the repository of the pull request: a permalink, which no later push moves (R14). */
 function blobUrl(pullRequest: PullRequestFacts, commit: string, path: string, from: number, to: number): string {
   return `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}/blob/${commit}/${urlPath(path)}#L${String(from)}${to === from ? '' : `-L${String(to)}`}`;
 }
 
-/** A line of the new side in the files of the pull request, the anchor GitHub gives it: the SHA-256 of the path and the line. */
-const lineUrl = (pullRequest: PullRequestFacts, location: FindingLocation): string =>
-  `${pullRequest.url}/files#diff-${createHash('sha256').update(location.path).digest('hex')}R${String(location.line)}`;
+/** The line of a location at the reviewed head. */
+const headUrl = (view: FormView, location: FindingLocation): string => blobUrl(view.pullRequest, view.scope.head, location.path, location.line, location.line);
 
-/** The lines of a finding at the head, two before its line and two after, within its file, which GitHub shows as code on a line of its own. */
-function aroundUrl(context: FormContext, location: FindingLocation): string {
-  const count = context.input.lineCount(location.path);
-  const to = Math.max(location.line, count === null ? location.line + 2 : Math.min(count, location.line + 2));
-  return blobUrl(context.pullRequest, context.scope.head, location.path, Math.max(1, location.line - 2), to);
-}
+/** A location as a link to its line at the head, its text on one line whatever line break its path holds. */
+const locationLink = (view: FormView, location: FindingLocation): string => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
 
-/** Where a finding is read: its comment's line in the files of the pull request, or its block in the body. */
-const hrefOf = (context: FormContext, facts: FindingFacts): string => (facts.placement.place === 'line' ? lineUrl(context.pullRequest, facts.placement.location) : `#${findingAnchor(facts.finding.number)}`);
+/** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block in the body. */
+const hrefOf = (view: FormView, finding: FindingView): string => (finding.placement.place === 'line' ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`);
 
-/** A location as a link's text, on one line whatever line break its path holds. */
-const locationText = (location: FindingLocation): string => codeSpan(inlineText(`${location.path}:${String(location.line)}`));
+/** The command that continues the run into the fix pass, as a code span. */
+const fixCommand = (view: FormView): string => codeSpan(`deep-review review --pr ${String(view.pullRequest.number)} --fix`);
 
 /** The marks after a finding's verdict: no verifier examined it. */
-const verdictMarks = (context: FormContext, facts: FindingFacts): string[] => (facts.entry.resolution.unverified ? [context.words.unverifiedMark] : []);
+const verdictMarks = (view: FormView, finding: FindingView): string[] => (finding.entry.resolution.unverified ? [view.words.unverifiedMark] : []);
 
-/** The marks after a finding's status: the writer did not explain it. */
-const statusMarks = (context: FormContext, facts: FindingFacts): string[] => (facts.explained.kind === 'unexplained' ? [context.words.unexplainedMark] : []);
+/** A finding's verdict with its marks, as the areas and the minor table give it. */
+const verdictText = (view: FormView, finding: FindingView): string => [finding.finding.verdict, ...verdictMarks(view, finding)].join(', ');
 
 /** The note on what the pull request does to a finding's line, or that it has no place; none for an added line. */
-function diffNote(context: FormContext, placement: FindingPlacement): string | null {
-  const { words } = context;
+function diffNote(view: FormView, placement: FindingPlacement): string | null {
+  const { words } = view;
   if (placement.reason === 'no-place') return words.noPlaceNote;
   switch (placement.diff) {
     case 'context':
@@ -309,129 +362,187 @@ function diffNote(context: FormContext, placement: FindingPlacement): string | n
   }
 }
 
-/** The first paragraph of a finding's block: what became of it, or the sentence `status` gives in its place, its severity and verdict with their marks, and the note on its line. */
-function statusParagraph(context: FormContext, facts: FindingFacts, status: string | null = null): string {
-  const note = diffNote(context, facts.placement);
-  const { finding } = facts;
-  return [status ?? context.words.statusSentences[finding.status], context.words.grade(finding.severity, finding.verdict, verdictMarks(context, facts)), ...(note === null ? [] : [note])].join(' ');
+/** The line under a finding's title (R5): its severity, its verdict with how it was checked, what became of it, or the sentence `status` gives in its place, and the note on its line. */
+function gradeLine(view: FormView, finding: FindingView, status: string | null = null): string {
+  const { words } = view;
+  const { basis } = finding.entry.resolution;
+  const note = diffNote(view, finding.placement);
+  return [words.grade(finding.finding.severity, finding.finding.verdict, basis === null ? null : words.basisWords[basis], verdictMarks(view, finding)), status ?? words.statusSentences[finding.finding.status], ...(note === null ? [] : [note])].join(' ');
 }
 
 /** A finding's title: the writer's, or the first sentence of its summary. */
-const titleOf = (facts: FindingFacts, say: Speaker): string => (facts.explained.kind === 'explained' ? say.prose(facts.explained.value.title) : say.words(firstSentence(facts.entry.finding.summary)));
+const titleOf = (finding: FindingView, say: Speaker): string => (finding.explained.kind === 'explained' ? say.prose(finding.explained.value.title) : say.words(firstSentence(finding.entry.finding.summary)));
+
+/** What deep-review would do about a fix, as one sentence: the writer's, or the first sentence of the decided approach. */
+function actionSentence(finding: FindingView, say: Speaker): string {
+  if (finding.action !== null) return sentenceText(say.prose(finding.action));
+  return finding.decision?.decision === 'fix' ? say.sentence(firstSentence(finding.decision.fix.approach)) : '';
+}
+
+/** The tail of a finding's line in an area or a row of the minor table: what deep-review would do, or what a question recommends. */
+function actionTail(view: FormView, finding: FindingView, say: Speaker): string {
+  const { words } = view;
+  const { question } = finding;
+  if (finding.decision?.decision === 'ask' && question !== null) return words.recommends(question.choice, say.sentence(question.options[question.choice - 1]!.option));
+  return [words.wouldDo(actionSentence(finding, say)), ...(finding.departure === null ? [] : [words.againstRule])].join(' ');
+}
+
+/** Why a PLAUSIBLE verdict is not CONFIRMED (R7): its verifier's reason, that it gave none, or that no verifier examined it; none for a CONFIRMED one. */
+function whyPlausible(view: FormView, finding: FindingView, say: Speaker): string[] {
+  if (finding.finding.verdict !== 'PLAUSIBLE') return [];
+  if (finding.entry.resolution.unverified) return [view.words.whyUnverified];
+  const given = finding.unconfirmed;
+  return [view.words.whyPlausible(given === null ? null : { kind: given.kind, text: sentenceText(say.words(given.text)) })];
+}
+
+/** The mark of a finding the writer did not explain, with its reason, as a paragraph of its own (R19 of the review on the pull request); none for one it explained or a run with no explanation. */
+function unexplainedMark(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { explained } = finding;
+  return explained.kind === 'unexplained' ? [[view.words.unexplained(explained.reason === null ? null : say.prose(explained.reason))]] : [];
+}
+
+/** The paragraphs of what goes wrong: the writer's problem, or, without it, the finder's own account in its place. */
+function problemParagraphs(finding: FindingView, say: Speaker): string[] {
+  const { explained } = finding;
+  return explained.kind === 'explained' ? say.paragraphs(explained.value.problem) : [paragraphText(say.words(finding.entry.primary.detail))];
+}
+
+/** What goes wrong, each paragraph a block after the mark of a finding not explained, the first under its label and the last with the reason of a PLAUSIBLE verdict, then the writer's diagram (R5, R7). */
+function explanationBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const paragraphs = problemParagraphs(finding, say);
+  const told = paragraphs.length === 0 ? [''] : paragraphs;
+  const last = told.length - 1;
+  const lines = told.map((paragraph, index) => [index === 0 ? `${view.words.problemLabel} ${paragraph}` : paragraph, ...(index === last ? whyPlausible(view, finding, say) : [])].join(' ').trim());
+  const diagram = finding.explained.kind === 'explained' && finding.explained.value.diagram !== null ? [[say.diagram(finding.explained.value.diagram)]] : [];
+  return [...unexplainedMark(view, finding, say), ...lines.map((line) => [line]), ...diagram];
+}
+
+/** A minor finding's one paragraph (R5) after the mark of one not explained: what goes wrong, why it is PLAUSIBLE, and what deep-review would do. */
+function minorBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const parts = [...problemParagraphs(finding, say), ...whyPlausible(view, finding, say), ...(finding.decision?.decision === 'fix' ? [view.words.wouldDo(actionSentence(finding, say))] : [])];
+  return [...unexplainedMark(view, finding, say), [parts.join(' ')]];
+}
+
+/** The decided fix, folded, with each option rejected (R5). */
+function decidedFixLines(view: FormView, decision: Extract<RecordedDecision, { decision: 'fix' }>, say: Speaker): string[] {
+  const { words } = view;
+  const rejected = decision.fix.rejected.map((option) => `- ${words.rejected(say.sentence(option.option), say.sentence(option.reason))}`);
+  return [`<details><summary>${words.asDecided}</summary>`, '', paragraphText(say.sentence(decision.fix.approach)), ...(rejected.length === 0 ? [] : ['', ...rejected]), '', '</details>'];
+}
+
+/** A fix against a written rule (R8): the rule, its source, the fact against it, and how its answer is given or was. */
+function departureLines(view: FormView, departure: BriefDeparture, say: Speaker): string[] {
+  const { words } = view;
+  const sentence = (text: string): string => sentenceText(say.words(text));
+  const paragraph = words.departure(sentence(departure.rule), sentence(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject), fixCommand(view));
+  const given = departure.review;
+  const answered = given === null ? [] : [given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at)];
+  return [[paragraph, ...answered].join(' ')];
+}
+
+/** A question (R8): why it is one, the question, its options with their costs, then the option recommended and the one that stands with the command that answers, or the answer given. */
+function questionBlocks(view: FormView, finding: FindingView, question: BriefQuestion, grounds: string, say: Speaker): string[][] {
+  const { words } = view;
+  const options = question.options.map((option) => words.option(option.number, say.sentence(option.option), say.sentence(option.cost)));
+  const given = question.answer;
+  const standing = given !== null && given.option !== null
+    ? [[words.answeredOption(given.option, given.at)]]
+    : [
+      [words.standing(question.choice, question.default, question.options[question.default - 1]!.edits, null)],
+      [words.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>')), fixCommand(view))],
+    ];
+  return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options, ...standing];
+}
+
+/** Why a finding is left as is, and the choice its verifier leaves to the author (R9). */
+function authorBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { words } = view;
+  const leave = finding.decision?.decision === 'leave' ? finding.decision : null;
+  const why = leave === null ? [] : [[`${words.whyLeft} ${leftBecauseOf(view, leave)} ${say.sentence(leave.grounds)}`]];
+  return [...why, [`${words.whyLook} ${words.authorChoice(say.sentence(finding.authorChoice ?? ''))}`]];
+}
+
+/** The engine's words on why a finding is left as is, with the finding that supersedes it. */
+function leftBecauseOf(view: FormView, leave: Extract<RecordedDecision, { decision: 'leave' }>): string {
+  const by = leave.leave.supersededBy;
+  return view.words.leftBecause(view.words.leaveReasons[leave.leave.reason], by === null ? null : view.words.findingList([view.brief.numbers.get(by)!]));
+}
+
+/** What deep-review would do about a finding of R5's order, each a block: the sentence and the folded fix, with a departure between; the question; or, left for the author, why and the choice. */
+function decisionBlocks(view: FormView, finding: FindingView, say: Speaker, minor: boolean): string[][] {
+  const { decision, departure, question } = finding;
+  if (decision?.decision === 'fix') {
+    const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
+    return [...would, ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
+  }
+  if (decision?.decision === 'ask' && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
+  return forAuthor(finding) ? authorBlocks(view, finding, say) : [];
+}
+
+/** How the verifier checked a finding, folded (R10): the writer's line, or the words of the verdict's basis. */
+function checkedLines(view: FormView, finding: FindingView, say: Speaker): string[] {
+  const { words } = view;
+  const { resolution } = finding.entry;
+  const fallback = resolution.unverified ? words.notVerified : resolution.basis === null ? words.noBasis : words.basisSentences[resolution.basis];
+  return [`<details><summary>${words.howChecked}</summary>`, '', finding.checked === null ? fallback : paragraphText(sentenceText(say.prose(finding.checked))), '', '</details>'];
+}
+
+/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed (R14); its text is on one line whatever line break the path holds. */
+function caseLink(view: FormView, cited: ExplainedFinding['cases'][number]['lines']): string {
+  const range = cited.from === cited.to ? String(cited.from) : `${String(cited.from)}-${String(cited.to)}`;
+  const link = `[${codeSpan(inlineText(`${cited.path}:${range}`))}](${blobUrl(view.pullRequest, cited.side === 'head' ? view.scope.head : view.scope.base, cited.path, cited.from, cited.to)})`;
+  return cited.side === 'head' ? link : view.words.atBase(link);
+}
+
+/** The code a finding rests on (R5): each case the writer cites with its sentence, or, for a minor finding and one with no cases, its own line at the head; none for a finding with no place. */
+function codeLines(view: FormView, finding: FindingView, say: Speaker, minor: boolean): string[] {
+  const { words } = view;
+  const cases = !minor && finding.explained.kind === 'explained' ? finding.explained.value.cases : [];
+  if (cases.length > 0) return [words.codeHeading, ...cases.map((cited) => `- ${caseLink(view, cited.lines)} ${sentenceText(say.prose(cited.sentence))}`)];
+  const { location } = finding.placement;
+  return location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`];
+}
 
 /** The parts of a finding's block, which a comment and the body share, and whose sizes a refusal names. */
 interface FindingParts {
   readonly explanation: string[];
   readonly decision: string[];
-  readonly evidence: string[];
+  readonly checked: string[];
+  readonly code: string[];
 }
 
-/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed; its text is on one line whatever line break the path holds. */
-function caseLink(context: FormContext, cited: ExplainedFinding['cases'][number]['lines']): string {
-  const range = cited.from === cited.to ? String(cited.from) : `${String(cited.from)}-${String(cited.to)}`;
-  const commit = cited.side === 'head' ? context.scope.head : context.scope.base;
-  return `[${codeSpan(inlineText(`${cited.path}:${range}`))}](${blobUrl(context.pullRequest, commit, cited.path, cited.from, cited.to)})`;
-}
-
-/** The writer's problem, cases and diagram of a finding, or, without them, the mark and the finder's own account in its place (R18, R19). */
-function explanationLines(context: FormContext, facts: FindingFacts, say: Speaker): string[] {
-  const { words } = context;
-  const { explained } = facts;
-  if (explained.kind !== 'explained') {
-    const mark = explained.kind === 'unexplained' ? [words.unexplained(explained.reason === null ? null : say.prose(explained.reason)), ''] : [];
-    return [...mark, paragraphText(say.words(facts.entry.primary.detail))];
-  }
-  const { value } = explained;
-  return [
-    ...say.paragraphs(value.problem).flatMap((paragraph) => [paragraph, '']),
-    ...value.cases.map((cited) => `- ${sentenceText(say.prose(cited.sentence))} (${caseLink(context, cited.lines)})`),
-    ...(value.diagram === null ? [] : ['', say.diagram(value.diagram)]),
-  ];
-}
-
-/** The engine's words on a finding's decision, then the writer's, then who answers a question or a departure and how, each a paragraph (R9, R10, PD7). */
-function decisionLines(context: FormContext, facts: FindingFacts, say: Speaker): string[] {
-  const { words } = context;
-  const { decision, finding } = facts;
-  const sentence = (text: string): string => sentenceText(say.words(text));
-  const engine: string[][] = [];
-  let answer: string | null = null;
-  if (decision?.decision === 'fix') {
-    engine.push([[words.decidedFix(sentence(decision.fix.approach)), ...decision.fix.rejected.map((option) => words.rejected(say.words(option.option), say.words(option.reason).replace(/[.]+$/, '')))].join(' ')]);
-    const departure = facts.departure;
-    if (departure !== null) {
-      engine.push([words.departure(say.words(departure.rule), say.words(departure.source), sentence(departure.fact))]);
-      const given = departure.review;
-      answer = given === null
-        ? words.answerDeparture(codeSpan(departure.accept), codeSpan(departure.reject))
-        : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
-    }
-  }
-  const question = facts.question;
-  if (decision?.decision === 'ask' && question !== null) {
-    engine.push([words.question(sentence(question.question))], [words.choice(question.choice, question.default)], question.options.map((option) => `- ${words.option(option.number, sentence(option.option), sentence(option.cost), sentence(option.rule))}`));
-    const given = question.answer;
-    answer = given !== null && given.option !== null
-      ? words.answeredOption(given.option, given.at)
-      : words.answerQuestion(codeSpan(answerCommand(context.state.id, finding.number, '--option <k>')));
-  }
-  const writer = facts.explained.kind === 'explained' ? say.paragraphs(facts.explained.value.decision).map((paragraph) => [paragraph]) : [];
-  return [...engine, ...writer, ...(answer === null ? [] : [[answer]])].flatMap((paragraph, index) => [...(index === 0 ? [] : ['']), ...paragraph]);
-}
-
-/** The evidence of a finding, folded under a heading that says whether a verifier checked it (PD6): its summary, the reason, the evidence line, and how the verifier established it with each run it cites. */
-function evidenceLines(context: FormContext, facts: FindingFacts, say: Speaker): string[] {
-  return ['<details><summary>' + (facts.entry.resolution.unverified ? context.words.evidenceUnverified : context.words.evidenceVerified) + '</summary>', '', ...evidenceItems(context, facts.entry, say), '', '</details>'];
-}
-
-/** The items of a finding's evidence, which the fold of a finding left as is gives unfolded. */
-function evidenceItems(context: FormContext, entry: ReportFinding, say: Speaker): string[] {
-  const { words } = context;
-  const { resolution } = entry;
-  const runs = resolution.basis === null ? [] : [[words.basis(words.basisWords[resolution.basis]), ...resolution.runs.map((run) => words.citedRun(say.code(run.command), run.printed.map((line) => `"${say.words(line)}"`).join(' / '), words.exitCode(run.exitCode)))].join(' ')];
-  return [
-    `- ${words.summaryLabel}: ${say.words(entry.finding.summary)}`,
-    `- ${words.reasonLabel}: ${say.words(entry.finding.reason)}`,
-    `- ${words.evidenceLabel}: ${resolution.evidence === null ? words.noEvidence : say.words(resolution.evidence)}`,
-    ...runs.map((line) => `- ${line}`),
-  ];
-}
-
-/** The parts of the block of a finding that asks a person to act, in a comment or in full in the body (R10). */
-function findingParts(context: FormContext, facts: FindingFacts, say: Speaker): FindingParts {
+/** The parts of the block of a finding in R5's order: a major one with its problem, diagram, decision and folded check; a minor one with its problem and action in one paragraph, its departure and its folded fix. */
+function findingParts(view: FormView, finding: FindingView, say: Speaker): FindingParts {
+  const minor = isMinor(finding);
   return {
-    explanation: [statusParagraph(context, facts), '', ...explanationLines(context, facts, say)],
-    decision: decisionLines(context, facts, say),
-    evidence: evidenceLines(context, facts, say),
+    explanation: blocks([gradeLine(view, finding)], ...(minor ? minorBlocks(view, finding, say) : explanationBlocks(view, finding, say))),
+    decision: blocks(...decisionBlocks(view, finding, say, minor)),
+    checked: minor ? [] : checkedLines(view, finding, say),
+    code: codeLines(view, finding, say, minor),
   };
 }
 
-const joinedParts = (parts: FindingParts): string[] => [...parts.explanation, '', ...parts.decision, '', ...parts.evidence];
+const joinedParts = (parts: FindingParts): string[] => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
 
-/** The comment of a finding on its line, with its marker as its last line, or the refusal of one over the limit. */
-function commentOf(context: FormContext, facts: FindingFacts & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
-  const say = speakerOf(context.input.machine, context.words);
-  const heading = `**${String(facts.finding.number)}. ${titleOf(facts, say)}**`;
-  const parts = findingParts(context, facts, say);
-  const body = [heading, '', ...joinedParts(parts), '', markerLine(findingMarker(context.state.id, facts.finding.id))].join('\n');
-  const { location } = facts.placement;
+/** The comment of a finding on its line, with the id of the finding and its marker as its last lines, or the refusal of one over the limit. */
+function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
+  const say = speakerOf(view.input.machine, view.words);
+  const heading = `**${String(finding.finding.number)}. ${titleOf(finding, say)}**`;
+  const parts = findingParts(view, finding, say);
+  const trace = view.words.trace(codeSpan(inlineText(finding.finding.id)), codeSpan(shortRunId(view.state.id)));
+  const body = blocks([heading], joinedParts(parts), [trace], [markerLine(findingMarker(view.state.id, finding.finding.id))]).join('\n');
+  const { location } = finding.placement;
   if (body.length > maxPostedLength) {
     const size = (lines: readonly string[]): number => lines.join('\n').length;
     return {
       kind: 'refused',
-      text: { kind: 'comment', finding: facts.finding.id, path: location.path, line: location.line },
+      text: { kind: 'comment', finding: finding.finding.id, path: location.path, line: location.line },
       size: body.length,
       limit: maxPostedLength,
-      parts: [{ part: 'explanation', size: size([heading, ...parts.explanation]) }, { part: 'decision', size: size(parts.decision) }, { part: 'evidence', size: size(parts.evidence) }],
+      parts: [{ part: 'explanation', size: size([heading, ...parts.explanation]) }, { part: 'decision', size: size(parts.decision) }, { part: 'checked', size: size(parts.checked) }, { part: 'code', size: size(parts.code) }],
     };
   }
-  return { comment: { finding: facts.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
-}
-
-/** The heading of a finding's block in the body, with its anchor, and the lines around it on a line of its own when it has a place. */
-function bodyBlockHead(context: FormContext, facts: FindingFacts, say: Speaker): string[] {
-  const { location } = facts.placement;
-  return [`<a id="${findingAnchor(facts.finding.number)}"></a>`, '', `#### ${String(facts.finding.number)}. ${titleOf(facts, say)}`, '', ...(location === null ? [] : [aroundUrl(context, location), ''])];
+  return { comment: { finding: finding.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
 }
 
 /** One section of the body, by the name a refusal gives its size with. */
@@ -440,283 +551,238 @@ interface Section {
   readonly lines: readonly string[];
 }
 
-/** The engine's line of what the pull request needs, then the writer's conclusion: its why, the actions the engine lists in rank order, each with its number, severity and verdict, and its diagram (R9, R18, PD13). */
-function conclusionSection(context: FormContext, say: Speaker): Section {
-  const { words, brief } = context;
-  const fixes = brief.findings.filter((finding) => finding.status === 'planned' || finding.status === 'planned-against-rule').length;
-  const questions = brief.findings.filter((finding) => finding.status === 'question').length;
-  const conclusion = context.answer?.conclusion ?? null;
-  const actions = context.findings.filter(acts).map((facts) => {
-    const given = conclusion?.actions.find((action) => action.id === facts.finding.id);
-    const sentence = given === undefined ? fallbackAction(context, facts, say) : sentenceText(say.prose(given.sentence));
-    const grade = [facts.finding.severity, facts.finding.verdict, ...verdictMarks(context, facts), ...statusMarks(context, facts)].join(', ');
-    return `- [${words.findingName(facts.finding.number)}](${hrefOf(context, facts)}), ${grade}: ${sentence}`;
+/** The heading and the line on what the run reviewed and that it changed no file (R1). */
+function headingSection(view: FormView): Section {
+  const { words, scope } = view;
+  return { part: 'heading', lines: [words.heading, '', words.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
+}
+
+/** The summary (R1): the counts of the findings with the writer's sentence on the areas, then what deep-review decided and what happens next. */
+function summarySection(view: FormView, say: Speaker): Section {
+  const { words, findings } = view;
+  const why = view.conclusion === null ? [] : say.paragraphs(view.conclusion.why);
+  const decided = {
+    fixes: findings.filter((finding) => finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule').length,
+    questions: findings.filter((finding) => finding.finding.status === 'question').length,
+    left: findings.filter((finding) => finding.finding.status === 'left').length,
+  };
+  const next = findings.length === 0 ? [] : [[words.summaryNext(decided, fixCommand(view))]];
+  return { part: 'summary', lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(' ')], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
+}
+
+/** What needs a person (R2, R8, R9): each question, each fix against a written rule and each finding left for the author, with a link to where it is read, then the one command that answers; or that nothing does. */
+function needsSection(view: FormView, say: Speaker): Section {
+  const { words } = view;
+  const sentence = (text: string): string => sentenceText(say.words(text));
+  const questions = view.findings.flatMap((finding) => {
+    const { question } = finding;
+    if (finding.decision?.decision !== 'ask' || question === null) return [];
+    const given = question.answer;
+    const tail = given !== null && given.option !== null
+      ? words.answeredOption(given.option, given.at)
+      : words.standing(question.choice, question.default, question.options[question.default - 1]!.edits, say.sentence(question.options[question.choice - 1]!.option));
+    return [`- ${words.needsQuestion(finding.finding.number, hrefOf(view, finding), say.sentence(question.question), tail)}`];
   });
+  const departures = view.findings.flatMap((finding) => {
+    const { departure } = finding;
+    if (departure === null) return [];
+    const given = departure.review;
+    const tail = given === null ? words.departureStands : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
+    return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence(departure.rule), tail)}`];
+  });
+  const authors = view.findings.filter(forAuthor).map((finding) => `- ${words.needsAuthor(finding.finding.number, hrefOf(view, finding), say.sentence(finding.authorChoice!))}`);
+  const items = [...questions, ...departures, ...authors];
+  if (items.length === 0) return { part: 'needs', lines: [words.needsHeading, '', words.needsNothing] };
+  const flags = [...(questions.length === 0 ? [] : ['--option <k>']), ...(departures.length === 0 ? [] : ['--accept', '--reject'])].map(codeSpan);
+  const answer = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, '<n>', '').trimEnd()}`), flags)]];
+  return { part: 'needs', lines: blocks([words.needsHeading], items, ...answer) };
+}
+
+/** How the review worked (R3): the roles and the counts of the run, the fixed diagram, and what the verdicts and the severities mean. */
+function howSection(view: FormView): Section {
+  const { words, counts } = view;
+  const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings].join(' ');
+  return { part: 'how', lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced(words.howDiagram(view.pullRequest.number))], [meanings]) };
+}
+
+/** The major findings that ask a person to act, in rank order. */
+const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
+
+/** The areas the body gives: the writer's, or, for an older run, one named by the engine with the conclusion's diagram (R16). */
+function areasOf(view: FormView, say: Speaker): { readonly title: string; readonly intro: string | null; readonly diagram: string | null; readonly findings: readonly FindingView[] }[] {
+  const major = majorActing(view);
+  if (view.areas === null) return [{ title: view.words.findingsArea, intro: null, diagram: view.conclusion?.diagram ?? null, findings: major }];
+  return view.areas.map((area) => ({ title: say.prose(area.title), intro: say.prose(area.intro), diagram: area.diagram, findings: major.filter((finding) => area.findings.includes(finding.finding.id)) }));
+}
+
+/** The major findings by area (R4): each area's title, intro and diagram, less what a cut takes, and one line for each of its findings. */
+function areasSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+  const { words } = view;
+  if (majorActing(view).length === 0) return { part: 'areas', lines: [words.areasHeading, '', words.noMajor] };
+  const diagrams = !cuts.has('area-diagrams');
+  const areas = areasOf(view, say).flatMap((area) => {
+    const lines = area.findings.map((finding) => `- **[${String(finding.finding.number)}. ${titleOf(finding, say)}](${hrefOf(view, finding)}).** ${verdictText(view, finding)}. ${actionTail(view, finding, say)}`);
+    const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;
+    return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
+  });
+  const cut = !diagrams && areasOf(view, say).some((area) => area.diagram !== null);
+  return { part: 'areas', lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
+}
+
+/** Each finding with no comment that asks a person to act or is left for the author, in full, in the form of its comment (R1). */
+function inFullSection(view: FormView, say: Speaker): Section {
+  const full = view.findings.filter(inFull);
   return {
-    part: 'conclusion',
-    lines: [
-      words.needsLine(fixes, questions),
-      ...(conclusion === null ? [] : say.paragraphs(conclusion.why).flatMap((paragraph) => ['', paragraph])),
-      ...(actions.length === 0 ? [] : ['', ...actions]),
-      ...(conclusion?.diagram === null || conclusion === null ? [] : ['', say.diagram(conclusion.diagram)]),
-    ],
+    part: 'findings in full',
+    lines: full.flatMap((finding, index) => [
+      ...(index === 0 ? [] : ['']),
+      `<a id="${findingAnchor(finding.finding.number)}"></a>`,
+      '',
+      view.words.inFullHeading(finding.finding.number, titleOf(finding, say)),
+      '',
+      ...joinedParts(findingParts(view, finding, say)),
+    ]),
   };
 }
 
-/** An action in the engine's own words, for a finding the writer's conclusion gives no sentence for. */
-function fallbackAction(context: FormContext, facts: FindingFacts, say: Speaker): string {
-  const { words } = context;
-  const { decision } = facts;
-  if (decision?.decision === 'ask') return words.actionAsk(sentenceText(say.words(decision.ask.question)));
-  if (decision?.decision === 'fix') return (decision.departure === null ? words.actionFix : words.actionDeparture)(sentenceText(say.words(decision.fix.approach)));
-  return '';
+/** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
+const minorActing = (view: FormView): FindingView[] => {
+  const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
+  return [...minor.filter((finding) => finding.kind === 'user'), ...minor.filter((finding) => finding.kind !== 'user')];
+};
+
+/** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
+function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+  const { words } = view;
+  const minor = minorActing(view);
+  if (minor.length === 0) return { part: 'minor', lines: [] };
+  const user = minor.filter((finding) => finding.kind === 'user').length;
+  const lead = words.minorLead({ total: minor.length, user, code: minor.length - user, onLine: minor.filter((finding) => finding.placement.place === 'line').length });
+  const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
+  const intro = [lead, ...(needing.length === 0 ? [] : [words.minorNeeds(words.findingList(needing), needing.length)])].join(' ');
+  if (cuts.has('minor-table')) return { part: 'minor', lines: blocks([words.minorHeading], [intro], [words.minorCut]) };
+  const rows = minor.map((finding) => `| ${[String(finding.finding.number), `[${titleOf(finding, say)}](${hrefOf(view, finding)})`, verdictText(view, finding), actionTail(view, finding, say)].map(tableCell).join(' | ')} |`);
+  const order = user > 0 && user < minor.length ? [[words.minorOrder(user)]] : [];
+  const table = [`| ${words.minorColumns.join(' | ')} |`, `|${words.minorColumns.map(() => '---').join('|')}|`, ...rows];
+  return { part: 'minor', lines: blocks([words.minorHeading], [intro], [`<details><summary>${words.minorSummary(minor.length)}</summary>`], ...order, table, ['</details>']) };
 }
 
-/** A judgment of the triage's: what, and the files that show it. */
-const judgedDetail = (condition: { readonly what: string | null; readonly files: readonly string[] }, say: Speaker): string =>
-  `${condition.what === null ? '' : `: ${say.words(condition.what).replace(/[.]+$/, '')}`}${condition.files.length === 0 ? '' : ` (${condition.files.map((file) => say.code(file)).join(', ')})`}`;
-
-/** "What this pull request does": the title and the core of the change as the brief gives them, and the writer's account folded under them, less what a cut takes (R9, R12, R18, PD13). */
-function changeSection(context: FormContext, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
-  const { words, brief } = context;
-  const { change } = brief;
-  const core = change.state !== 'given' ? [words.missingAccount[change.state]] : [
-    paragraphText(say.words(change.what)),
-    '',
-    paragraphText(change.why === null ? words.noWhy : words.why(say.words(change.why))),
-    '',
-    [
-      ...(change.publicInterface.holds ? [words.publicInterface(judgedDetail(change.publicInterface, say))] : []),
-      ...(change.wideEffect.holds ? [words.wideEffect(judgedDetail(change.wideEffect, say))] : []),
-      ...(!change.publicInterface.holds && !change.wideEffect.holds ? [words.noJudgment] : []),
-      words.accountWhose,
-    ].join(' '),
-  ];
-  const account = context.answer?.account ?? null;
-  // The brief titles a change the triage gave no account of in English, so the form titles it from the table.
-  const title = change.state === 'given' ? say.words(brief.title) : words.changeTitle(codeSpan(shortCommit(context.scope.base)), codeSpan(shortCommit(context.scope.head)));
-  return { part: 'change', lines: [words.changeHeading, '', `**${title}**`, '', ...core, ...accountLines(context, account, say, cuts)] };
-}
-
-/** The writer's account, folded, with the note of a cut that took its diagrams or the account itself; none when the run has no account. */
-function accountLines(context: FormContext, account: Account | null, say: Speaker, cuts: ReadonlySet<BodyCut>): string[] {
-  const { words } = context;
-  if (account === null) return [];
-  if (cuts.has('account')) return ['', words.accountCut];
-  const diagrams = !cuts.has('account-diagrams');
-  const told = (heading: string, part: Account['problem']): string[] => [
-    '',
-    `**${heading}**`,
-    ...say.paragraphs(part.text).flatMap((paragraph) => ['', paragraph]),
-    ...(part.diagram === null || !diagrams ? [] : ['', say.diagram(part.diagram)]),
-  ];
-  const cut = !diagrams && (account.problem.diagram !== null || account.change.diagram !== null);
-  return [
-    '',
-    `<details><summary>${words.accountSummary}</summary>`,
-    ...(account.terms.length === 0 ? [] : ['', `**${words.termsHeading}**`, '', ...account.terms.map((term) => `- ${say.prose(term.term)}: ${say.prose(term.meaning)}`)]),
-    ...told(words.problemHeading, account.problem),
-    ...told(words.changeTextHeading, account.change),
-    '',
-    '</details>',
-    ...(cut ? ['', words.accountDiagramsCut] : []),
-  ];
-}
-
-/** The line that says deep-review reviewed the pull request at its head, with the counts of its findings (R9). */
-function statusSection(context: FormContext): Section {
-  return { part: 'status', lines: [context.words.statusLine(codeSpan(shortCommit(context.scope.head)), context.brief.status)] };
+/** The findings left as is that need no person, folded, each with why and its line; or, cut, the note in their place. */
+function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+  const { words } = view;
+  const left = view.findings.filter((finding) => !acts(finding) && !forAuthor(finding));
+  if (left.length === 0) return { part: 'left as is', lines: [] };
+  if (cuts.has('left')) return { part: 'left as is', lines: [words.leftHeading, '', words.leftCut(left.length)] };
+  const block = (finding: FindingView): string[] => {
+    const leave = finding.decision?.decision === 'leave' ? finding.decision : null;
+    const { location } = finding.placement;
+    return blocks(
+      [`<a id="${findingAnchor(finding.finding.number)}"></a>`],
+      [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
+      [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
+      leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
+      location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`],
+    );
+  };
+  return { part: 'left as is', lines: blocks([words.leftHeading], [`<details><summary>${words.leftSummary(left.length)}</summary>`], ...left.map(block), ['</details>']) };
 }
 
 /**
- * "What to know before the merge": that no check ran, each gap of the
- * brief as its English text (R20), or that the run examined everything;
- * then the notes of the explanation, each part the checks dropped, a run
- * with no explanation, and the findings whose answers the explanation
- * predates (R18). A gap is cleaned as a worker's words are, since it
- * quotes the patterns of the settings and the paths of the change as they
- * are, and a pattern such as `**` or a path such as `@org-team.json` would
- * otherwise be read as Markdown or notify.
+ * What the review did not examine (R11): that no check ran; the patterns
+ * of `scope.exclude` that left paths out, cleaned as code, with the count
+ * and the layer that set them; each other gap of the brief, cleaned as a
+ * worker's words are, since it quotes the paths of the change as they
+ * are; or that the run examined everything; then the refuted candidates,
+ * folded, each with its line, its claim and why it was refuted, or, cut,
+ * the note in their place.
  */
-function gapsSection(context: FormContext, say: Speaker): Section {
-  const { words, brief, recorded } = context;
-  const gaps = brief.notExamined;
+function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+  const { words, scope } = view;
+  const gaps = view.brief.notExamined.filter((gap) => gap.kind !== 'excluded');
+  const layer = view.review.configuration.settings?.layers['scope.exclude'] ?? null;
+  const excluded = scope.excluded.count === 0 ? [] : [words.excluded(scope.request.exclude.map((pattern) => say.code(pattern)), scope.excluded.count, layer === null ? null : words.layers[layer])];
+  const cut = cuts.has('refuted');
+  const count = view.refuted.length;
+  const refutedLine = count === 0 ? [] : [cut ? words.refutedCut(count) : words.refutedLine(count)];
+  const items = [words.noCheck, ...excluded, ...(gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text)))), ...refutedLine].map((item) => `- ${item}`);
+  if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], items) };
+  const entries = view.refuted.map(({ candidate, claim, why }) => {
+    const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
+    const place = location === null ? words.noPlace : locationLink(view, location);
+    return `- ${place}: ${words.refutedItem(sentenceText(claim === null ? say.words(candidate.summary) : say.prose(claim)), why === null ? words.refutedInReport : sentenceText(say.prose(why)))}`;
+  });
+  return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, [`<details><summary>${words.refutedSummary(count)}</summary>`], entries, ['</details>']) };
+}
+
+/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote, then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
+function trustSection(view: FormView): Section {
+  const { words, brief, recorded } = view;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
   const notes: string[] = [];
   if (recorded === null) notes.push(words.noExplanation);
   else {
-    const dropped = recorded.dropped;
-    if (dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
-    if (dropped.some((part) => part.part === 'account')) notes.push(words.accountDropped);
-    const findings = dropped.flatMap((part) => (part.part === 'finding' ? [numberOf(part.finding)] : []));
+    if (recorded.dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
+    const findings = recorded.dropped.flatMap((part) => (part.part === 'finding' ? [numberOf(part.finding)] : []));
     if (findings.length > 0) notes.push(words.findingsDropped(words.findingList(findings), findings.length));
     // An answer is recorded on a complete run, and the explanation before the report, so every standing answer of an explained run came after it.
-    const answered = [...standingAnswers(context.review).keys()].map(numberOf);
+    const answered = [...standingAnswers(view.review).keys()].map(numberOf);
     if (answered.length > 0) notes.push(words.predates(words.findingList(answered)));
   }
-  return {
-    part: 'before the merge',
-    lines: [
-      words.gapsHeading,
-      '',
-      gaps.length === 0 ? `${words.noCheck} ${words.allExamined}` : words.noCheck,
-      ...(gaps.length === 0 ? [] : ['', words.gapsLead, '', ...gaps.map((gap) => `- ${say.words(gap.text)}`)]),
-      ...notes.flatMap((note) => ['', note]),
-    ],
-  };
-}
-
-/** The table of the findings: each with its number linked to where it is read, unless a cut left its block out, severity, verdict, status, summary and place (R9). */
-function tableSection(context: FormContext, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
-  const { words } = context;
-  if (context.findings.length === 0) return { part: 'table', lines: [words.tableHeading, '', words.noFindings] };
-  const rows = context.findings.map((facts) => {
-    const { finding, placement } = facts;
-    const { location } = placement;
-    const place = location === null ? words.noPlace : `[${locationText(location)}](${placement.place === 'line' ? lineUrl(context.pullRequest, location) : aroundUrl(context, location)})`;
-    const cells = [
-      cuts.has('left') && !acts(facts) ? String(finding.number) : `[${String(finding.number)}](${hrefOf(context, facts)})`,
-      finding.severity,
-      [finding.verdict, ...verdictMarks(context, facts)].join(', '),
-      [words.statuses[finding.status], ...statusMarks(context, facts)].join(', '),
-      say.words(finding.summary),
-      place,
-    ];
-    return `| ${cells.map(tableCell).join(' | ')} |`;
-  });
-  return { part: 'table', lines: [words.tableHeading, '', `| ${words.columns.join(' | ')} |`, `|${words.columns.map(() => '---').join('|')}|`, ...rows] };
-}
-
-/** Each fix and question with no line in the diff, in full, in the form of its comment (R9, R10). */
-function inFullSection(context: FormContext, say: Speaker): Section {
-  const blocks = context.findings.filter((facts) => acts(facts) && facts.placement.place === 'body');
-  if (blocks.length === 0) return { part: 'findings in full', lines: [] };
-  return { part: 'findings in full', lines: [context.words.inFullHeading, ...blocks.flatMap((facts) => ['', ...bodyBlockHead(context, facts, say), ...joinedParts(findingParts(context, facts, say))])] };
-}
-
-/** The findings left as is, folded, each with why and its evidence; or, cut, the note that the table holds their rows (R9, R12). */
-function leftSection(context: FormContext, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
-  const { words, brief } = context;
-  const left = context.findings.filter((facts) => !acts(facts));
-  if (left.length === 0) return { part: 'left as is', lines: [] };
-  if (cuts.has('left')) return { part: 'left as is', lines: [words.leftCut] };
-  const block = (facts: FindingFacts): string[] => {
-    const leave = facts.decision?.decision === 'leave' ? facts.decision : null;
-    const by = leave?.leave.supersededBy ?? null;
-    const why = leave === null ? null : words.leftBecause(words.leaveReasons[leave.leave.reason], by === null ? null : words.findingName(brief.numbers.get(by)!));
-    return [
-      ...bodyBlockHead(context, facts, say),
-      statusParagraph(context, facts, why),
-      '',
-      ...(leave === null ? [] : [`- ${words.groundsLabel}: ${say.words(leave.grounds)}`]),
-      ...evidenceItems(context, facts.entry, say),
-    ];
-  };
-  return { part: 'left as is', lines: [`<details><summary>${words.leftHeading(left.length)}</summary>`, ...left.flatMap((facts) => ['', ...block(facts)]), '', '</details>'] };
-}
-
-/** The candidates verification refuted, folded, each with its place, summary and the evidence that refuted it; or, cut, without the evidence (R9, R12, PD14). */
-function refutedSection(context: FormContext, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
-  const { words } = context;
-  if (context.refuted.length === 0) return { part: 'refuted', lines: [] };
-  const cut = cuts.has('refuted');
-  const entries = context.refuted.flatMap(({ candidate, evidence }) => {
-    const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
-    const place = location === null ? words.noPlace : `[${locationText(location)}](${aroundUrl(context, location)})`;
-    const lead = `- ${candidate.id} (${candidate.angle}), ${place}: ${say.words(candidate.summary)}`;
-    if (cut) return [lead];
-    const runs = candidate.verdict?.basis === null || candidate.verdict === null
-      ? []
-      : [[words.basis(words.basisWords[candidate.verdict.basis]), ...candidate.verdict.runs.map((run) => words.citedRun(say.code(run.command), run.printed.map((line) => `"${say.words(line)}"`).join(' / '), words.exitCode(run.exitCode)))].join(' ')];
-    return [lead, `  - ${words.evidenceLabel}: ${say.words(evidence)}`, ...runs.map((line) => `  - ${line}`)];
-  });
-  return { part: 'refuted', lines: [`<details><summary>${words.refutedHeading(context.refuted.length)}</summary>`, '', cut ? words.refutedCut : words.refutedLead, '', ...entries, '', '</details>'] };
-}
-
-/** The patterns of `scope.exclude` that left paths out of the run, cleaned as code, with the count of those paths and the layer that set them, as the run recorded them (R11, R12). */
-function excludedSection(context: FormContext, say: Speaker): Section {
-  const { words, scope } = context;
-  if (scope.excluded.count === 0) return { part: 'excluded', lines: [] };
-  const layer = context.review.configuration.settings?.layers['scope.exclude'] ?? null;
-  return { part: 'excluded', lines: [words.excludedHeading, '', words.excluded(scope.request.exclude.map((pattern) => say.code(pattern)).join(', '), scope.excluded.count, layer === null ? null : words.layers[layer])] };
-}
-
-/** The legend, folded: each verdict and severity, each status the findings have, the two marks, and the line on what a model wrote, with the README (R9, R20). */
-function legendSection(context: FormContext): Section {
-  const { words } = context;
-  const statuses = [...new Set(context.findings.map((facts) => facts.finding.status))] as FindingStatus[];
-  return {
-    part: 'legend',
-    lines: [
-      `<details><summary>${words.legendHeading}</summary>`,
-      '',
-      ...(Object.entries(words.verdicts) as [string, string][]).map(([verdict, meaning]) => `- ${verdict}: ${meaning}`),
-      ...(Object.entries(words.severities) as [string, string][]).map(([severity, meaning]) => `- ${severity}: ${meaning}`),
-      ...statuses.map((status) => `- ${words.statuses[status]}: ${words.statusLegend[status]}`),
-      `- ${words.unverifiedMark}: ${words.unverifiedLegend}`,
-      `- ${words.unexplainedMark}: ${words.unexplainedLegend}`,
-      '',
-      words.modelLine(readmeUrl),
-      '',
-      '</details>',
-    ],
-  };
+  return { part: 'trust', lines: blocks([words.trustHeading], [`${words.trust(view.counts)} ${words.modelLine}`], ...notes.map((note) => [note])) };
 }
 
 /** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, then the marker of the publication (R9, R13). The version the runtime gave and the models the settings name are no text of the engine's, so they are cleaned. */
-function lastSection(context: FormContext, say: Speaker): Section {
-  const { configuration } = context.review;
+function lastSection(view: FormView, say: Speaker): Section {
+  const { configuration } = view.review;
   return {
     part: 'last line',
     lines: [
-      context.words.lastLine({
-        engine: inlineText(context.input.engine),
+      view.words.lastLine({
+        engine: inlineText(view.input.engine),
         runtime: configuration.runtime,
         version: say.words(configuration.version),
         strong: say.words(configuration.models.strong),
         fast: say.words(configuration.models.fast),
-        run: codeSpan(shortRunId(context.state.id)),
-        base: shortCommit(context.scope.base),
-        head: shortCommit(context.scope.head),
+        run: codeSpan(shortRunId(view.state.id)),
+        base: shortCommit(view.scope.base),
+        head: shortCommit(view.scope.head),
       }),
       '',
-      markerLine(publicationMarker(context.state.id, context.input.serial)),
+      markerLine(publicationMarker(view.state.id, view.input.serial)),
     ],
   };
 }
 
-/** The body with the cuts given, in the order of R9, and the secrets its cleaning replaced. */
-function renderBody(context: FormContext, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
-  const say = speakerOf(context.input.machine, context.words);
+/** The body with the cuts given, in the order of R1, and the secrets its cleaning replaced. */
+function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
+  const say = speakerOf(view.input.machine, view.words);
   const sections = [
-    { part: 'heading', lines: [context.words.heading(codeSpan(shortRunId(context.state.id)), codeSpan(shortCommit(context.scope.head)))] },
-    conclusionSection(context, say),
-    changeSection(context, say, cuts),
-    statusSection(context),
-    gapsSection(context, say),
-    tableSection(context, say, cuts),
-    inFullSection(context, say),
-    leftSection(context, say, cuts),
-    refutedSection(context, say, cuts),
-    excludedSection(context, say),
-    legendSection(context),
-    lastSection(context, say),
+    headingSection(view),
+    summarySection(view, say),
+    needsSection(view, say),
+    howSection(view),
+    areasSection(view, say, cuts),
+    inFullSection(view, say),
+    minorSection(view, say, cuts),
+    leftSection(view, say, cuts),
+    notExaminedSection(view, say, cuts),
+    trustSection(view),
+    lastSection(view, say),
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
 }
 
 /** Whether a cut takes anything from this run's body, so a cut that changes nothing is neither made nor named. */
-function cutApplies(context: FormContext, cut: BodyCut): boolean {
-  const account = context.answer?.account ?? null;
+function cutApplies(view: FormView, cut: BodyCut): boolean {
   switch (cut) {
-    case 'account-diagrams':
-      return account !== null && (account.problem.diagram !== null || account.change.diagram !== null);
-    case 'account':
-      return account !== null;
     case 'refuted':
-      return context.refuted.length > 0;
+      return view.refuted.length > 0;
     case 'left':
-      return context.findings.some((facts) => !acts(facts));
+      return view.findings.some((finding) => !acts(finding) && !forAuthor(finding));
+    case 'minor-table':
+      return minorActing(view).length > 0;
+    case 'area-diagrams':
+      return majorActing(view).length > 0 && (view.areas === null ? (view.conclusion?.diagram ?? null) !== null : view.areas.some((area) => area.diagram !== null));
   }
 }
 
@@ -729,17 +795,44 @@ function explainedOf(recorded: ExplanationRecorded | null, answer: WriterAnswer 
   return given.unexplained ? { kind: 'unexplained', reason: given.reason } : { kind: 'explained', value: given };
 }
 
+/** The counts of the run that the body states (R3, R12, TD3), from its state: the candidates through each step, and the verdicts and bases of the ranked findings. */
+function reviewCountsOf(review: ReviewState): ReviewCounts {
+  const candidates = Object.values(review.candidates);
+  const ranked = rankedFindings(review);
+  const major = ranked.filter((entry) => entry.finding.severity !== 'minor');
+  const majorConfirmed = major.filter((entry) => entry.resolution.verdict === 'CONFIRMED');
+  const bases = Object.fromEntries(verdictBases.map((basis) => [basis, ranked.filter((entry) => entry.resolution.basis === basis).length])) as Record<VerdictBasis, number>;
+  return {
+    candidates: candidates.length,
+    groups: candidates.filter((candidate) => candidate.duplicateOf === null).length,
+    refuted: refuted(review).length,
+    kept: mergeRankInput(review).length,
+    merged: ranked.reduce((sum, entry) => sum + entry.members.length, 0),
+    findings: ranked.length,
+    major: major.length,
+    critical: ranked.filter((entry) => entry.finding.severity === 'critical').length,
+    minor: ranked.length - major.length,
+    confirmed: ranked.filter((entry) => entry.resolution.verdict === 'CONFIRMED').length,
+    plausible: ranked.filter((entry) => entry.resolution.verdict === 'PLAUSIBLE').length,
+    unverified: ranked.filter((entry) => entry.resolution.unverified).length,
+    majorConfirmed: majorConfirmed.length,
+    majorConfirmedRan: majorConfirmed.filter((entry) => entry.resolution.basis === 'ran').length,
+    bases,
+    noBasis: ranked.filter((entry) => entry.resolution.basis === null).length,
+  };
+}
+
 /**
- * The review of a read-only run of a pull request, as `publish` posts it
- * (R9, R10, R12): the body, cut as R12 orders when it does not fit, with
- * the marker of the publication as its last line; a comment on its line
- * for each fix and each question that has one, with the marker of its
- * finding as its last line; the place of each finding as the ledger
- * records it; the count of the secrets the cleaning replaced in what is
- * posted; and the cuts made. A comment over the limit, or a body over it
- * after every cut, is refused with its size and parts.
+ * The view of the run that the form renders, built once: each ranked
+ * finding with its decision, place, explanation, question and departure;
+ * the counts of the run; the refuted candidates; and the writer's
+ * conclusion. The parts that only a newer writer's or verifier's answer
+ * holds (the areas, how each finding was checked, the kind of a minor
+ * finding, why a verdict is PLAUSIBLE, the choice for the author, and the
+ * sentences of a refuted candidate) are null here, and the form gives the
+ * engine's words for each (R16).
  */
-export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | FormRefusal {
+function formViewOf(input: PullRequestFormInput): FormView {
   const { state } = input;
   const review = state.review;
   const scope = state.scope;
@@ -749,7 +842,8 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | 
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
   const recorded = state.explanation;
-  const findings = brief.findings.map((finding): FindingFacts => {
+  const conclusion = input.answer?.conclusion ?? null;
+  const findings = brief.findings.map((finding): FindingView => {
     const placement = placements.get(finding.id);
     if (placement === undefined) throw new Error(`Finding ${finding.id} of run ${state.id} has no place`);
     return {
@@ -760,24 +854,57 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | 
       explained: explainedOf(recorded, input.answer, finding.id),
       question: brief.questions.find((question) => question.id === finding.id) ?? null,
       departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
+      action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
+      checked: null,
+      kind: null,
+      unconfirmed: null,
+      authorChoice: null,
     };
   });
-  const context: FormContext = { state, review, scope, pullRequest: scope.pullRequest, brief, words: pullRequestWords(reviewLanguage(review)), findings, answer: input.answer, recorded, refuted: refuted(review), input };
+  return {
+    state,
+    review,
+    scope,
+    pullRequest: scope.pullRequest,
+    brief,
+    words: pullRequestWords(reviewLanguage(review)),
+    findings,
+    areas: null,
+    refuted: refuted(review).map(({ candidate }) => ({ candidate, claim: null, why: null })),
+    counts: reviewCountsOf(review),
+    conclusion: conclusion === null ? null : { why: conclusion.why, diagram: conclusion.diagram },
+    recorded,
+    input,
+  };
+}
+
+/**
+ * The review of a read-only run of a pull request, as `publish` posts it
+ * (R9, R10, R12): the body, cut as `bodyCuts` orders when it does not fit,
+ * with the marker of the publication as its last line; a comment on its
+ * line for each fix and each question that has one, with the marker of its
+ * finding as its last line; the place of each finding as the ledger
+ * records it; the count of the secrets the cleaning replaced in what is
+ * posted; and the cuts made. A comment over the limit, or a body over it
+ * after every cut, is refused with its size and parts.
+ */
+export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | FormRefusal {
+  const view = formViewOf(input);
   const comments: FormComment[] = [];
   let secrets = 0;
-  for (const facts of findings) {
-    if (facts.placement.place !== 'line') continue;
-    const rendered = commentOf(context, { ...facts, placement: facts.placement });
+  for (const finding of view.findings) {
+    if (finding.placement.place !== 'line') continue;
+    const rendered = commentOf(view, { ...finding, placement: finding.placement });
     if ('kind' in rendered) return rendered;
     comments.push(rendered.comment);
     secrets += rendered.secrets;
   }
-  const applicable = bodyCuts.filter((cut) => cutApplies(context, cut));
-  let body = renderBody(context, new Set());
+  const applicable = bodyCuts.filter((cut) => cutApplies(view, cut));
+  let body = renderBody(view, new Set());
   let made = 0;
   while (body.text.length > maxPostedLength && made < applicable.length) {
     made += 1;
-    body = renderBody(context, new Set(applicable.slice(0, made)));
+    body = renderBody(view, new Set(applicable.slice(0, made)));
   }
   if (body.text.length > maxPostedLength) {
     return { kind: 'refused', text: { kind: 'body' }, size: body.text.length, limit: maxPostedLength, parts: body.sections.map((section) => ({ part: section.part, size: section.lines.join('\n').length })) };

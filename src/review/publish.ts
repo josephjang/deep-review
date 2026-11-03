@@ -20,12 +20,12 @@ import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
 import { closedState, listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readCurrentMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
 import { briefOf, cutAtWord } from './brief.ts';
 import { PublicationOpenError, ReviewRefusedError } from './errors.ts';
-import { gitLineCounts, recordedAnswerOf } from './explanation.ts';
+import { recordedAnswerOf } from './explanation.ts';
 import { acquireRunLock, acquireStartLock, type ReleaseLock } from './lock.ts';
 import { counted } from './markdown.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
-import { formRefusalWords, lineCountPaths, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
+import { formRefusalWords, placeFindings, pullRequestForm, type BodyCut, type FindingPlacement, type PullRequestForm } from './pull-request-form.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
 import { runIdOf } from './runs.ts';
 import { hasCurrentReport } from './state.ts';
@@ -214,10 +214,10 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
 
 /** A cut of the body as a dry run names it (R12). */
 const cutWords: Readonly<Record<BodyCut, string>> = {
-  'account-diagrams': 'the diagrams of the account of the pull request',
-  account: 'the account of the pull request',
-  refuted: 'the evidence of the refuted candidates',
-  left: 'the findings left as is, down to their rows in the table',
+  refuted: 'the refuted candidates',
+  left: 'the findings left as is',
+  'minor-table': 'the table of the minor findings',
+  'area-diagrams': 'the diagrams of the areas',
 };
 
 /** Where a finding goes, as a dry run names it. */
@@ -350,13 +350,11 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const scope = run.scope!;
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
   const placements = placeFindings(run.review!, files);
-  const lines = gitLineCounts(options.worktree, scope, { head: lineCountPaths(run.review!, placements) });
   const serial = run.publications.length + 1;
   const form = pullRequestForm({
     state: run,
     answer: run.explanation === null ? null : recordedAnswerOf(run.explanation, checkpoint.evidence),
     places: placements,
-    lineCount: (path) => lines('head', path),
     machine: machineContextOf({ worktree: run.worktree, checkpoint: checkpoint.root, gitCommon: options.gitCommon, engine: dirname(options.engineEntry), workers: run.workers, environment: options.environment, platform: options.platform ?? process.platform }),
     engine: checkpoint.engine,
     serial,
