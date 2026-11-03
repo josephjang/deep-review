@@ -201,9 +201,6 @@ export interface PullRequestWords {
   readonly lastLine: (facts: LastLineFacts) => string;
 }
 
-/** A sentence's first word in lower case, to follow "deep-review would", unless the word is a name: one with a capital past its first letter, or none at its start. */
-const lowerFirstWord = (sentence: string): string => (/^[A-Z][a-z]*\b/.test(sentence) && !/^[A-Z][a-z]*[A-Z]/.test(sentence) ? `${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}` : sentence);
-
 /** Words in a list, the last two joined by `or`. */
 const listedOr = (words: readonly string[]): string => (words.length <= 2 ? words.join(' or ') : `${words.slice(0, -1).join(', ')} or ${words.at(-1)!}`);
 
@@ -268,7 +265,7 @@ const english: PullRequestWords = {
   areasHeading: '### The major findings',
   findingsArea: 'The major findings that deep-review would fix or asks about',
   noMajor: 'No major finding asks for a fix or a question.',
-  wouldDo: (sentence) => `deep-review would ${lowerFirstWord(sentence)}`,
+  wouldDo: (sentence) => `Fix: ${sentence}`,
   recommends: (option, text) => `A question for the author; deep-review recommends option ${String(option)}: ${text}`,
   againstRule: 'Against a written rule.',
 

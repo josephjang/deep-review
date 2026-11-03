@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import { diagramFailures, type ExplainedFinding, type RecordedAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
 import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
-import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
+import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea } from '../helpers/pull-request-review.ts';
 import { answer, answerableDecisions, askDecision, decisions, departure, explanation, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
@@ -127,15 +128,13 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     for (const words of Object.values(pullRequestWordTables)) assert.deepEqual(diagramFailures(words.howDiagram(42)), []);
   });
 
-  it('gives each major finding that acts as one line in an area: for an older run, one area named by the engine with the conclusion\'s diagram', () => {
+  it('gives each major finding that acts as one line in an area: for an older run, one area named by the engine with no diagram, since its conclusion\'s diagram names findings by id', () => {
     assert.equal(section(body, '### The major findings'), [
       '### The major findings',
       '',
       '**The major findings that deep-review would fix or asks about.**',
       '',
-      '```mermaid\nflowchart LR\n  A["empty input"] --> B["parse()"]\n```',
-      '',
-      `- **[1. parse() reads the null before any guard.](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. deep-review would guard the null before parse reads it. Against a written rule.`,
+      `- **[1. parse() reads the null before any guard.](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. Fix: Guard the null before parse reads it. Against a written rule.`,
       '',
     ].join('\n'));
   });
@@ -222,7 +221,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   it('falls back to the engine\'s words for each part the writer dropped, names it, and for a run with no explanation', () => {
     const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
     const fallback = formOf(dropped, { conclusion: null, account: null, findings: [writerAnswer().findings[1]!] });
-    includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. deep-review would guard the null once, before parse reads it. Against a written rule.`);
+    includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. Fix: Guard the null once, before parse reads it. Against a written rule.`);
     excludes(fallback.body, '```mermaid\nflowchart LR');
     includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
     const none = formOf(runBeforeExplanation().fold(), null);
@@ -236,6 +235,44 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     includes(answered.body, 'The person who ran this review answered it with option 2, on ');
     includes(answered.comments[0]!.body, 'The person who ran this review rejected the departure, so the fix follows the rule, on ');
     excludes(answered.body, '--option <k>`, where');
+  });
+});
+
+describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)', () => {
+  /** The state with the verdict of candidate `id` changed as `change` says. */
+  const withVerdict = (state: RunState, id: string, change: Record<string, unknown>): RunState => {
+    const candidate = state.review!.candidates[id]!;
+    return { ...state, review: { ...state.review!, candidates: { ...state.review!.candidates, [id]: { ...candidate, verdict: { ...candidate.verdict!, ...change } } } } };
+  };
+
+  it('gives each area of the writer with its title, intro and diagram', () => {
+    const body = formOf(run().fold(), answerWithArea('flowchart LR\n  E["empty file"] --> P["parse()"]')).body;
+    includes(section(body, '### The major findings'), '**Parsing an empty input.** What parse() does with an empty file.\n\n```mermaid\nflowchart LR\n  E["empty file"] --> P["parse()"]\n```');
+    excludes(body, 'The major findings that deep-review would fix or asks about.');
+  });
+
+  it('says how the verifier checked a finding in the writer\'s line, not in the words of its basis', () => {
+    const said = writerAnswer();
+    said.findings[0] = { ...(said.findings[0] as ExplainedFinding), checked: 'A probe passed an empty file and parse() threw.' };
+    const comment = formOf(run().fold(), said).comments[0]!.body;
+    includes(comment, '<details><summary>How the verifier checked it</summary>\n\nA probe passed an empty file and parse() threw.\n\n</details>');
+  });
+
+  it('gives a refuted candidate the writer\'s claim and why it was refuted', () => {
+    const body = formOf(run().fold(), { ...writerAnswer(), refuted: [{ id: 'RIPPLE-2', claim: 'A cache entry outlives a logout.', why: 'Logout clears the cache first.' }] }).body;
+    includes(body, 'A cache entry outlives a logout. Refuted: Logout clears the cache first.');
+    excludes(body, 'The evidence that refuted it is in the report of the run.');
+  });
+
+  it('says why a verdict is PLAUSIBLE as its verifier gave it', () => {
+    const state = withVerdict(run().fold(), 'RIPPLE-1', { verdict: 'PLAUSIBLE', unconfirmed: { kind: 'choice', text: 'which of the two guards to keep' } });
+    includes(formOf(state).comments[0]!.body, 'which of the two guards to keep');
+  });
+
+  it('lists a finding left as is whose verifier leaves a choice to the author in what needs a person', () => {
+    const left = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
+    const state = withVerdict(run([left, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: 'Whether parse should throw or return null on an empty file.' });
+    includes(section(formOf(state).body, '### What needs a person'), '**[Finding 1](#finding-1) is left as is, but its verifier leaves a choice to the author.** Whether parse should throw or return null on an empty file.');
   });
 });
 
@@ -280,7 +317,7 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
   it('gives a minor fix its problem and action in one paragraph, its departure, the folded fix and one line of code, and no folded check', () => {
     const minor = formOf(reranked(run(), (finding) => (finding.id === 'RIPPLE-1' ? { ...finding, severity: 'minor' } : finding)).fold()).comments[0]!.body;
     inOrder(minor, [
-      '**1. parse() reads the null before any guard.**\n\nMinor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\nA caller that passes an empty file meets a crash. deep-review would guard the null before parse reads it.\n\n**This fix goes against a written rule.**',
+      '**1. parse() reads the null before any guard.**\n\nMinor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\nA caller that passes an empty file meets a crash. Fix: Guard the null before parse reads it.\n\n**This fix goes against a written rule.**',
       '<details><summary>The fix as decided</summary>',
       `Code at the reviewed head: [\`src/a.ts:4\`](${blob(head, 'src/a.ts', '4')}).\n\n<sub>Finding \`RIPPLE-1\` of run \`run-1\`.</sub>`,
     ]);
@@ -360,22 +397,18 @@ describe('the cleaning of what the review posts (R11)', () => {
   });
 
   it('checks each diagram again once cleaned, and leaves out with a line one that its cleaning broke (R11, R19)', () => {
-    const broken = writerAnswer();
-    broken.conclusion.diagram = 'flowchart LR\n  A["x"] --> /tmp/x';
+    const broken = answerWithArea('flowchart LR\n  A["x"] --> /tmp/x');
     const left = formOf(run().fold(), broken).body;
     includes(left, '\n\nA diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.\n');
     assert.ok(!left.includes('--> <local path>') && !left.includes('/tmp/x'), 'the broken diagram is not posted');
-    const edge = writerAnswer();
-    edge.conclusion.diagram = 'flowchart LR\n  A["x"] -- /tmp/x --> B["b"]';
+    const edge = answerWithArea('flowchart LR\n  A["x"] -- /tmp/x --> B["b"]');
     includes(formOf(run().fold(), edge).body, '```mermaid\nflowchart LR\n  A["x"] -- <local path> --> B["b"]\n```');
-    const secret = writerAnswer();
-    secret.conclusion.diagram = `flowchart LR\n  A["x"] -- ghp_${'a1B2'.repeat(9)} --> B["b"]`;
+    const secret = answerWithArea(`flowchart LR\n  A["x"] -- ghp_${'a1B2'.repeat(9)} --> B["b"]`);
     assert.equal(formOf(run().fold(), secret).secrets - formOf(run().fold()).secrets, 1, 'a secret of a diagram left out is still counted');
   });
 
   it('fences each diagram longer than any run of backticks in it, so no diagram ends its fence (R19)', () => {
-    const said = writerAnswer();
-    said.conclusion.diagram = 'flowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading';
+    const said = answerWithArea('flowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading');
     includes(formOf(run().fold(), said).body, '````mermaid\nflowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading\n````');
   });
 
@@ -414,8 +447,7 @@ describe('the cleaning of what the review posts (R11)', () => {
     });
 
     it('a diagram whose cleaned places join two runs of backticks into a line that would close a fence chosen before', () => {
-      const said = writerAnswer();
-      said.conclusion.diagram = 'flowchart LR\n  A["a"]\n``/w/``\n  B["@octocat"]';
+      const said = answerWithArea('flowchart LR\n  A["a"]\n``/w/``\n  B["@octocat"]');
       const form = formOf(run().fold(), said);
       includes(form.body, '\n\n`````mermaid\nflowchart LR\n  A["a"]\n````\n  B["@octocat"]\n`````\n\n');
       markedLast(form);
@@ -442,10 +474,9 @@ describe('the fit of the review (TD5)', () => {
   const state = threeFindings().fold();
   /** The files of the pull request with lines 4 and 7 of `src/a.ts` added, or, `outside`, line 7 alone, so the fix on line 4 is in full in the body and does not grow its comment. */
   const filesOf = (outside: boolean): PullRequestFile[] => [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: outside ? '@@ -7,1 +7,1 @@\n-old 7\n+new 7' : '@@ -4,4 +4,4 @@\n-old 4\n+new 4\n line 5\n line 6\n-old 7\n+new 7' }];
-  /** The writer's answer with a long conclusion diagram, or none, and the fix's problem padded with `pad` characters. */
+  /** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
   const answerOf = (pad: number, diagram = true): RecordedAnswer => {
-    const said = writerAnswer();
-    said.conclusion.diagram = diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null;
+    const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
     const fix = said.findings[0] as ExplainedFinding;
     return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
   };

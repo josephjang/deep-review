@@ -22,7 +22,7 @@
  * parts, before anything is recorded.
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
-import type { ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState } from '../checkpoint/events.ts';
+import type { ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState, Unconfirmed } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
@@ -37,7 +37,7 @@ import { publicCode, publicProse, publicWords, type MachineContext } from './pub
 import { pullRequestWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { asksToAct, verdictBases, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
+import { asksToAct, verdictBases, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
@@ -179,15 +179,6 @@ type Explained =
   | { readonly kind: 'unexplained'; readonly reason: string | null }
   | { readonly kind: 'none' };
 
-/** Why a verdict is PLAUSIBLE and not CONFIRMED, as its verifier gave it (R7): a fact it could not settle, or a choice that remains. */
-export interface Unconfirmed {
-  readonly kind: 'fact' | 'choice';
-  readonly text: string;
-}
-
-/** What a minor finding reaches, as the writer gives it (R13): what a user sees, or the code. */
-export type FindingKind = 'user' | 'code';
-
 /**
  * A ranked finding with all the form reads of it: the ledger's facts, and
  * the parts that the writer's and the verifier's answers give, each null
@@ -242,8 +233,8 @@ interface FormView {
   readonly areas: readonly AreaView[] | null;
   readonly refuted: readonly RefutedView[];
   readonly counts: ReviewCounts;
-  /** The writer's sentence that names the areas, and its diagram, which an older run's single area takes. */
-  readonly conclusion: { readonly why: string; readonly diagram: string | null } | null;
+  /** The writer's sentence that names the areas. */
+  readonly conclusion: { readonly why: string } | null;
   readonly recorded: ExplanationRecorded | null;
   readonly input: PullRequestFormInput;
 }
@@ -608,10 +599,10 @@ function howSection(view: FormView): Section {
 /** The major findings that ask a person to act, in rank order. */
 const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
 
-/** The areas the body gives: the writer's, or, for an older run, one named by the engine with the conclusion's diagram (R16). */
+/** The areas the body gives: the writer's, or, for an older run, one named by the engine with no diagram, since an older conclusion's diagram names findings by their ids (R16). */
 function areasOf(view: FormView, say: Speaker): { readonly title: string; readonly intro: string | null; readonly diagram: string | null; readonly findings: readonly FindingView[] }[] {
   const major = majorActing(view);
-  if (view.areas === null) return [{ title: view.words.findingsArea, intro: null, diagram: view.conclusion?.diagram ?? null, findings: major }];
+  if (view.areas === null) return [{ title: view.words.findingsArea, intro: null, diagram: null, findings: major }];
   return view.areas.map((area) => ({ title: say.prose(area.title), intro: say.prose(area.intro), diagram: area.diagram, findings: major.filter((finding) => area.findings.includes(finding.finding.id)) }));
 }
 
@@ -782,7 +773,7 @@ function cutApplies(view: FormView, cut: BodyCut): boolean {
     case 'minor-table':
       return minorActing(view).length > 0;
     case 'area-diagrams':
-      return majorActing(view).length > 0 && (view.areas === null ? (view.conclusion?.diagram ?? null) !== null : view.areas.some((area) => area.diagram !== null));
+      return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
   }
 }
 
@@ -829,8 +820,8 @@ function reviewCountsOf(review: ReviewState): ReviewCounts {
  * conclusion. The parts that only a newer writer's or verifier's answer
  * holds (the areas, how each finding was checked, the kind of a minor
  * finding, why a verdict is PLAUSIBLE, the choice for the author, and the
- * sentences of a refuted candidate) are null here, and the form gives the
- * engine's words for each (R16).
+ * sentences of a refuted candidate) are null for an older run, and the
+ * form gives the engine's words for each (R16).
  */
 function formViewOf(input: PullRequestFormInput): FormView {
   const { state } = input;
@@ -846,19 +837,21 @@ function formViewOf(input: PullRequestFormInput): FormView {
   const findings = brief.findings.map((finding): FindingView => {
     const placement = placements.get(finding.id);
     if (placement === undefined) throw new Error(`Finding ${finding.id} of run ${state.id} has no place`);
+    const entry = entries.get(finding.id)!;
+    const explained = explainedOf(recorded, input.answer, finding.id);
     return {
       finding,
-      entry: entries.get(finding.id)!,
+      entry,
       decision: decided.get(finding.id) ?? null,
       placement,
-      explained: explainedOf(recorded, input.answer, finding.id),
+      explained,
       question: brief.questions.find((question) => question.id === finding.id) ?? null,
       departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
       action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
-      checked: null,
-      kind: null,
-      unconfirmed: null,
-      authorChoice: null,
+      checked: explained.kind === 'explained' ? (explained.value.checked ?? null) : null,
+      kind: explained.kind === 'explained' ? (explained.value.kind ?? null) : null,
+      unconfirmed: entry.resolution.unconfirmed,
+      authorChoice: entry.resolution.authorChoice,
     };
   });
   return {
@@ -869,10 +862,13 @@ function formViewOf(input: PullRequestFormInput): FormView {
     brief,
     words: pullRequestWords(reviewLanguage(review)),
     findings,
-    areas: null,
-    refuted: refuted(review).map(({ candidate }) => ({ candidate, claim: null, why: null })),
+    areas: input.answer?.areas ?? null,
+    refuted: refuted(review).map(({ candidate }) => {
+      const line = input.answer?.refuted?.find((given) => given.id === candidate.id);
+      return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
+    }),
     counts: reviewCountsOf(review),
-    conclusion: conclusion === null ? null : { why: conclusion.why, diagram: conclusion.diagram },
+    conclusion: conclusion === null ? null : { why: conclusion.why },
     recorded,
     input,
   };
