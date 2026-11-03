@@ -44,6 +44,20 @@ acting on a real candidate would mean choosing between two behaviors the
 code and its tests leave open, add `Needs the author:` and the choice.
 That note never changes the grade.
 
+**The two notes.** When your answer has the fields `unconfirmed` and
+`authorChoice`, give in them, each in one sentence, what the two notes of
+the evidence line say, and keep the notes in the line as well. In
+`unconfirmed`, for a PLAUSIBLE verdict and no other, give what keeps it
+from CONFIRMED: `fact` for a condition you could not settle here, named
+with what would settle it, or `choice` for a defect or problem that is
+there with a choice that remains, such as a scope outside the patch or
+a decision the code does not settle. In `authorChoice`, give the choice
+between two behaviors that `Needs the author:` names, on a verdict of
+any grade, or null when you add no such note.
+*Why: the review writes the two fields beside the verdict for a reader
+who does not read the evidence line, and an empty field is refused
+where an empty note would pass.*
+
 ### Rubric for the correctness & cost angles
 
 Angles `SCAN`, `REMOVALS`, `RIPPLE`, `FOOTGUNS`, `WRAPPERS` and
