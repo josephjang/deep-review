@@ -141,7 +141,7 @@ describe('the review fold', () => {
     assert.equal(review.candidates['RIPPLE-1']?.duplicateOf, null);
     assert.deepEqual(review.deduplications.deduplication, [{ members: ['SCAN-1', 'RIPPLE-1'], keep: 'RIPPLE-1', reason: 'one defect at one line' }]);
     assert.deepEqual(review.plans.verification, [{ id: 'g1', candidateIds: ['RIPPLE-1'] }]);
-    assert.deepEqual(review.candidates['RIPPLE-1']?.verdict, { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [] });
+    assert.deepEqual(review.candidates['RIPPLE-1']?.verdict, { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [], unconfirmed: null, authorChoice: null });
     assert.deepEqual(review.units.verification, { g1: { answeredBy: worker(21), failures: [] } });
     assert.deepEqual(review.units.deduplication, { deduplication: { answeredBy: worker(20), failures: [] } });
   });
@@ -288,11 +288,11 @@ describe('the review fold', () => {
       for (const history of [atBase(), withDocumentationStep(decidedOf(verified(), null), null), verified()]) assert.equal(history.review().citedRuns, false);
     });
 
-    it('fold a verdict of version 2 with its basis and its runs, and one of version 1 with no basis and no run', () => {
+    it('fold a verdict of version 2 with its basis and its runs, and one of version 1 with no basis and no run, each with neither note of version 3', () => {
       const run = verdictRun(3);
-      assert.deepEqual(ripple(withCitedRuns(atBase(), { basis: 'ran', runs: [run] })), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'ran', runs: [run] });
-      assert.deepEqual(ripple(withCitedRuns(atBase())), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'traced', runs: [] });
-      assert.deepEqual(ripple(atBase()), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [] });
+      assert.deepEqual(ripple(withCitedRuns(atBase(), { basis: 'ran', runs: [run] })), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'ran', runs: [run], unconfirmed: null, authorChoice: null });
+      assert.deepEqual(ripple(withCitedRuns(atBase())), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: 'traced', runs: [], unconfirmed: null, authorChoice: null });
+      assert.deepEqual(ripple(atBase()), { verdict: 'CONFIRMED', evidence: 'line 4 dereferences null', basis: null, runs: [], unconfirmed: null, authorChoice: null });
     });
 
     it('never mix the two answers in one run: version 2 is refused in a run configured before version 9, and version 1 in one configured at it', () => {

@@ -897,6 +897,31 @@ export function withPullRequest(history: History, explain: ((history: History) =
   return result;
 }
 
+/** What keeps the PLAUSIBLE verdicts of these histories from CONFIRMED, as `verdicts.recorded@3` records it. */
+export const unconfirmedFact = { kind: 'fact', text: 'whether a caller outside the change passes an empty input is not settled here' } as const;
+
+/**
+ * The same run of a pull request as one whose review reads as a report
+ * (TD1, TD2 of the review that reads as a report): configured at version
+ * 11, each verdict recorded at version 3 with `notes` over it, by default
+ * `unconfirmedFact` for a PLAUSIBLE verdict and no choice left to the
+ * author, and its explanation recorded at version 2.
+ */
+export function withReportForm(history: History, notes: (verdict: Record<string, unknown>) => Record<string, unknown> = (verdict) => ({ unconfirmed: verdict.verdict === 'PLAUSIBLE' ? unconfirmedFact : null, authorChoice: null })): History {
+  const result = new History();
+  for (const event of history.events) {
+    if (event.kind === 'review.configured') assert.equal(event.version, 10, 'a run whose review reads as a report explains its review');
+    if (event.kind === 'verdicts.recorded') {
+      const payload = event.payload as { readonly verdicts: readonly Record<string, unknown>[] };
+      result.add(event.kind, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, ...notes(verdict) })) }, 3);
+      continue;
+    }
+    const version = event.kind === 'review.configured' ? 11 : event.kind === 'explanation.recorded' ? 2 : event.version;
+    result.add(event.kind, event.payload, version);
+  }
+  return result;
+}
+
 /** The writer's explanation as `explanation.recorded@1` records it, the worker's answer frozen, with `change` over it. */
 export const explanation = (workerId: string | null, change: Record<string, unknown> = {}): Record<string, unknown> => ({ workerId, answer: reference('8', 300), dropped: [], unexplained: [], ...change });
 

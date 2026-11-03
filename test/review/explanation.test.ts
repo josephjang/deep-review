@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { explanationRecordedV1, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
+import { explanationRecordedV1, type ExplanationRecordedV1 } from '../../src/checkpoint/events.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
 import { checkAnswer, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput } from '../../src/review/explanation.ts';
@@ -393,7 +393,7 @@ const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt,
   contributionOf(writerUnit, answer, { state: history.fold(), worktree: fixture.repo, evidence: fixture.evidence, match: () => { throw new Error('the writer compares no file'); }, claims: null, survey: () => { throw new Error('the writer has no survey'); }, claimsLost: false, log: (line) => logged.push(line) });
 
 /** The explanation an event records, held to its schema. */
-const recorded = (event: NewEvent | undefined): ExplanationRecorded => {
+const recorded = (event: NewEvent | undefined): ExplanationRecordedV1 => {
   assert.equal(event?.kind, 'explanation.recorded', JSON.stringify(event));
   return explanationRecordedV1.parse(event.payload);
 };

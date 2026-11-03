@@ -15,7 +15,9 @@ import {
   settingsBlockV2,
   withBaseChecks,
   withCitedRuns,
+  unconfirmedFact,
   withDocumentationStep,
+  withReportForm,
   worker,
 } from '../helpers/review-history.ts';
 
@@ -141,7 +143,7 @@ describe('explanation.recorded@1', () => {
     assert.equal(pullRequestDecided().fold().explanation, null);
     assert.equal(pullRequestDecided().start('explanation').fold().explanation, null);
     const state = explained({ dropped: [{ part: 'conclusion', failures: ['the conclusion has no sentence for SWEEP-1'] }], unexplained: ['SWEEP-1'] }).fold();
-    assert.deepEqual(state.explanation, explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['the conclusion has no sentence for SWEEP-1'] }], unexplained: ['SWEEP-1'] }));
+    assert.deepEqual(state.explanation, { ...explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['the conclusion has no sentence for SWEEP-1'] }], unexplained: ['SWEEP-1'] }), version: 1 }, 'held with the version it was recorded at');
     assert.equal(state.review!.units.explanation.explanation?.answeredBy, worker(60));
     assert.equal(state.review!.phases.explanation.status, 'completed');
   });
@@ -171,6 +173,82 @@ describe('explanation.recorded@1', () => {
     assert.throws(() => pullRequestReported().add('explanation.recorded', explanation(null)).fold(), /records its explanation twice/);
     assert.throws(() => explained({ unexplained: ['SCAN-1'] }).fold(), /explains SCAN-1, which is not a finding of the run/);
     assert.throws(() => explained({ dropped: [{ part: 'finding', finding: 'SCAN-9', failures: ['f'] }] }).fold(), /explains SCAN-9, which is not a finding of the run/);
+  });
+});
+
+// R7, R9, TD1, TD2 of the review that reads as a report.
+describe('review.configured@11, verdicts.recorded@3 and explanation.recorded@2', () => {
+  /** The run of a pull request whose review reads as a report, its writer answering with `change` over the explanation, its verdicts with `notes` over them. */
+  const asReport = (change: Record<string, unknown> = {}, notes?: (verdict: Record<string, unknown>) => Record<string, unknown>): History =>
+    withReportForm(pullRequestReported((history) => history.worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60), change))), notes);
+  /** The notes of a verdict made PLAUSIBLE, with `unconfirmed` and `authorChoice` as given. */
+  const plausible = (unconfirmed: unknown, authorChoice: unknown = null) => (): Record<string, unknown> => ({ verdict: 'PLAUSIBLE', unconfirmed, authorChoice });
+  /** The history with each verdict recorded at `version`, `change` over it. */
+  const verdictsAt = (history: History, version: number, change: (verdict: Record<string, unknown>) => Record<string, unknown>): History => {
+    const result = new History();
+    for (const event of history.events) {
+      if (event.kind !== 'verdicts.recorded') result.add(event.kind, event.payload, event.version);
+      else result.add(event.kind, { ...(event.payload as object), verdicts: (event.payload as { verdicts: Record<string, unknown>[] }).verdicts.map(change) }, version);
+    }
+    return result;
+  };
+
+  it('folds a run configured at version 11 as one whose review reads as a report, under the rules of version 10, and every older run as one whose review does not', () => {
+    const review = asReport().review();
+    assert.equal(review.reportForm, true);
+    assert.equal(review.explanationStep, true);
+    assert.deepEqual(review.phases.explanation, { status: 'completed', attempt: 1 });
+    for (const history of [pullRequestReported(), atVersion9(), readOnlyReported()]) assert.equal(history.review().reportForm, false);
+    const fixing = new History();
+    for (const event of asReport().events) fixing.add(event.kind, event.kind === 'review.configured' ? { ...(event.payload as object), fix: true, checks: { timeoutMs: 600_000 }, fixes: { batchSize: 4 }, settings: settingsBlockV2({ values: { ...(settingsBlockV2().values as object), 'checks.build': null, 'checks.typecheck': null, 'checks.lint': null, 'checks.test': null } }) } : event.payload, event.version);
+    assert.throws(() => fixing.fold(), /is configured to explain its review in a run that fixes/);
+  });
+
+  it('holds each verdict at version 3 with what keeps it from CONFIRMED and the choice left to the author, and each verdict of versions 1 and 2 with neither', () => {
+    const choice = 'return an empty result, or refuse the empty input';
+    const unsettled = { kind: 'choice', text: 'the defect is there, and what an empty input should give remains' };
+    const verdict = asReport({}, plausible(unsettled, choice)).review().candidates['RIPPLE-1']?.verdict;
+    assert.deepEqual([verdict?.verdict, verdict?.unconfirmed, verdict?.authorChoice], ['PLAUSIBLE', unsettled, choice]);
+    const confirmed = asReport().review().candidates['RIPPLE-1']?.verdict;
+    assert.deepEqual([confirmed?.verdict, confirmed?.unconfirmed, confirmed?.authorChoice], ['CONFIRMED', null, null]);
+    for (const history of [pullRequestReported(), readOnlyReported()]) {
+      const older = history.review().candidates['RIPPLE-1']?.verdict;
+      assert.deepEqual([older?.unconfirmed, older?.authorChoice], [null, null], 'a verdict recorded before version 3 has neither note');
+    }
+  });
+
+  it('refuses a PLAUSIBLE verdict with nothing that keeps it from CONFIRMED, and any other verdict with it, at version 3', () => {
+    assert.throws(() => asReport({}, plausible(null)).fold(), /records the verdict of RIPPLE-1 as PLAUSIBLE without what keeps it from CONFIRMED, which a verdict gives exactly when it is PLAUSIBLE/);
+    assert.throws(() => asReport({}, () => ({ unconfirmed: unconfirmedFact, authorChoice: null })).fold(), /records the verdict of RIPPLE-1 as CONFIRMED with what keeps it from CONFIRMED/);
+    assert.equal(asReport({}, () => ({ unconfirmed: null, authorChoice: 'keep the old error, or return null' })).review().candidates['RIPPLE-1']?.verdict?.authorChoice, 'keep the old error, or return null', 'a CONFIRMED verdict may leave a choice to the author');
+    for (const [notes, what] of [[plausible({ kind: 'fact', text: '' }), 'a note says something'], [plausible({ kind: 'hunch', text: 'a guess' }), 'a fact or a choice'], [plausible(unconfirmedFact, 'x'.repeat(401)), 'a choice of at most 400 characters']] as const) {
+      assert.throws(() => asReport({}, notes).fold(), /verdicts\.recorded@3\) has a payload its schema rejects/, what);
+    }
+  });
+
+  it('refuses verdicts at a version the run\'s configuration does not ask for', () => {
+    assert.throws(() => verdictsAt(pullRequestReported(), 3, (verdict) => ({ ...verdict, unconfirmed: null, authorChoice: null })).fold(), /records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review\.configured@11 does/);
+    const withoutNotes = ({ unconfirmed: _unconfirmed, authorChoice: _choice, ...verdict }: Record<string, unknown>): Record<string, unknown> => verdict;
+    assert.throws(() => verdictsAt(asReport(), 2, withoutNotes).fold(), /records verdicts with their bases and runs, which a run configured before runs on the record does not/);
+  });
+
+  it('holds the explanation with the version it was recorded at, 2 in a run configured at version 11 and 1 in one at version 10, and refuses the other', () => {
+    const dropped = [{ part: 'areas', failures: ['the areas leave out RIPPLE-1'] }, { part: 'refuted', failures: ['no line for SCAN-1'] }];
+    const state = asReport({ dropped }).fold();
+    assert.deepEqual(state.explanation, { ...explanation(worker(60), { dropped }), version: 2 });
+    assert.equal(state.review!.explanationDegraded, true, 'a part dropped degrades the explanation');
+    assert.equal(explained().fold().explanation?.version, 1);
+    const atVersion1 = new History();
+    for (const event of asReport().events) atVersion1.add(event.kind, event.payload, event.kind === 'explanation.recorded' ? 1 : event.version);
+    assert.throws(() => atVersion1.fold(), /records an explanation at version 1, which a run configured at review\.configured@11 records at version 2/);
+    assert.throws(() => pullRequestDecided().start('explanation').worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60)), 2).fold(), /records an explanation at version 2, which only a run configured at review\.configured@11 does/);
+  });
+
+  it('names the parts of version 2 by the areas and the refuted lines, never the account, and drops each of them when no answer passed', () => {
+    assert.throws(() => asReport({ dropped: [{ part: 'account', failures: ['f'] }] }).fold(), /explanation\.recorded@2\) has a payload its schema rejects/);
+    const unanswered = (parts: readonly string[]): History => asReport({ workerId: null, answer: null, dropped: parts.map((part) => ({ part, failures: ['f'] })) });
+    assert.throws(() => unanswered(['conclusion', 'areas']).fold(), /explanation\.recorded@2\) has a payload its schema rejects/, 'no answer drops the refuted lines too');
+    assert.equal(unanswered(['conclusion', 'areas', 'refuted']).fold().explanation?.answer, null);
   });
 });
 

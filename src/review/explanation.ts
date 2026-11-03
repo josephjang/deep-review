@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedTextLengthV1, type DroppedPart, type ExplanationRecorded, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
+import { recordedTextLengthV1, type DroppedPartV1 as DroppedPart, type ExplanationRecordedV1, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState, UnitFailure, UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
@@ -61,7 +61,7 @@ export const recordedAnswerSchema = z.strictObject({
 export type RecordedAnswer = z.infer<typeof recordedAnswerSchema>;
 
 /** The recorded answer of an explanation, as the form reads it, or null when no answer passed any part. */
-export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer'>, evidence: Pick<EvidenceStore, 'read'>): RecordedAnswer | null {
+export function recordedAnswerOf(recorded: Pick<ExplanationRecordedV1, 'answer'>, evidence: Pick<EvidenceStore, 'read'>): RecordedAnswer | null {
   return recorded.answer === null ? null : recordedAnswerSchema.parse(JSON.parse(evidence.read(recorded.answer).toString('utf8')));
 }
 
@@ -510,7 +510,7 @@ const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `
  * completed the unit and otherwise when it keeps any part; each part
  * dropped with its failures; and the findings marked unexplained.
  */
-export function explanationRecord(workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationRecorded {
+export function explanationRecord(workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationRecordedV1 {
   const answer: ArtifactReference | null = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(merged.answer)}\n`) : null;
   return {
     workerId,
@@ -578,7 +578,7 @@ function droppedWords(dropped: readonly DroppedPart[]): string {
  * attempts, as every unit is, so an interruption never drops a part.
  * Throws `StructuralCheckError` for an answer refused.
  */
-export function writerContribution(state: RunState, receipt: { readonly workerId: string; readonly output: unknown }, context: ExplanationContext & { readonly log: (line: string) => void }): { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecorded } {
+export function writerContribution(state: RunState, receipt: { readonly workerId: string; readonly output: unknown }, context: ExplanationContext & { readonly log: (line: string) => void }): { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecordedV1 } {
   const review = requireReview(state);
   const ids = findingsToExplain(review);
   const answers = checkedAnswers(state, review, context, ids, receipt.output as WriterOutput);

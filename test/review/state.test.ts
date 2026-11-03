@@ -10,8 +10,8 @@ import { baselined, configured, ranked, reported, swept, triaged, verified, work
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
   id, angle, file: 'a.ts', line: 1, located: true, inScope: true, rawFile: 'a.ts', rawLine: 1, summary: 's', detail: 'd', phase: 'finders', workerId: worker(1), duplicateOf: null, verdict: null, unverified: false, ...change,
 });
-const confirmed = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { verdict: 'CONFIRMED', evidence: `${id} evidence`, basis: null, runs: [] } });
-const plausible = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { verdict: 'PLAUSIBLE', evidence: `${id} evidence`, basis: null, runs: [] } });
+const confirmed = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { unconfirmed: null, authorChoice: null, verdict: 'CONFIRMED', evidence: `${id} evidence`, basis: null, runs: [] } });
+const plausible = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { verdict: { unconfirmed: null, authorChoice: null, verdict: 'PLAUSIBLE', evidence: `${id} evidence`, basis: null, runs: [] } });
 const unverifiedOne = (id: string, angle: CandidateState['angle']): CandidateState => candidate(id, angle, { unverified: true });
 
 describe('reviewStatus', () => {
@@ -128,8 +128,8 @@ describe('mergedResolution and the ranking order', () => {
 
   it('takes the basis and the runs of the candidate whose evidence it shows, never another\'s (R5 of runs on the record)', () => {
     const run = (at: number): VerdictRun => ({ command: `node probe-${String(at)}.mjs`, printed: ['threw'], probe: null, at, exitCode: 1 });
-    const ran = (id: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', at: number): CandidateState => candidate(id, 'SCAN', { verdict: { verdict, evidence: `${id} evidence`, basis: 'ran', runs: [run(at)] } });
-    const traced = candidate('A-2', 'SCAN', { verdict: { verdict: 'CONFIRMED', evidence: 'A-2 evidence', basis: 'traced', runs: [] } });
+    const ran = (id: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', at: number): CandidateState => candidate(id, 'SCAN', { verdict: { unconfirmed: null, authorChoice: null, verdict, evidence: `${id} evidence`, basis: 'ran', runs: [run(at)] } });
+    const traced = candidate('A-2', 'SCAN', { verdict: { unconfirmed: null, authorChoice: null, verdict: 'CONFIRMED', evidence: 'A-2 evidence', basis: 'traced', runs: [] } });
     assert.deepEqual(mergedResolution([ran('A-1', 'PLAUSIBLE', 4), traced, ran('A-3', 'CONFIRMED', 9)]), { verdict: 'CONFIRMED', unverified: false, evidence: 'A-2 evidence', basis: 'traced', runs: [] });
     assert.deepEqual(mergedResolution([ran('A-1', 'PLAUSIBLE', 4), ran('A-3', 'CONFIRMED', 9)]), { verdict: 'CONFIRMED', unverified: false, evidence: 'A-3 evidence', basis: 'ran', runs: [run(9)] });
     assert.deepEqual(resolutionOf(ran('A-1', 'PLAUSIBLE', 4)), { verdict: 'PLAUSIBLE', unverified: false, evidence: 'A-1 evidence', basis: 'ran', runs: [run(4)] });

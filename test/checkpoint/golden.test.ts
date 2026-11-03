@@ -325,7 +325,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, the cited run of every fixture from schema-1-17 on, and the run of a pull request of every fixture from schema-1-18 on, record that its triage gave none; every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, the cited run of every fixture from schema-1-17 on, the run of a pull request of every fixture from schema-1-18 on, and the run whose review reads as a report of every fixture from schema-1-19 on, record that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -339,7 +339,7 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited', '/fixture/pull-request'].includes(candidate.worktree));
+      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited', '/fixture/pull-request', '/fixture/report-form'].includes(candidate.worktree));
       for (const run of gaveNone) assert.deepEqual(run.review?.change, { kind: 'none' }, run.worktree);
       for (const run of runs.filter((candidate) => candidate !== resumed && !gaveNone.includes(candidate) && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
@@ -436,6 +436,31 @@ describe('golden checkpoints', () => {
       assert.ok(posted?.status === 'posted');
       assert.deepEqual(posted.posted.comments.map((comment) => comment.finding), ['SCAN-1']);
       assert.equal(posted.prepared.marker, `deep-review publication ${run.id} 2`);
+    });
+  }
+
+  // The run whose review reads as a report, which every fixture from schema-1-19 on holds (R7, R9, TD1, TD2 of the review that reads as a report).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 19)) {
+    it(`folds ${name}'s run whose review reads as a report: verdicts with what keeps them from CONFIRMED and the choice left to the author, and an explanation at version 2`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const run = runs.find((candidate) => candidate.worktree === '/fixture/report-form');
+      assert.ok(run?.review !== null && run?.review !== undefined, 'the fixture holds the run whose review reads as a report');
+      const { review } = run;
+      assert.equal(review.reportForm, true);
+      assert.equal(review.explanationStep, true);
+      const design = review.candidates['DESIGN-1']?.verdict;
+      assert.deepEqual([design?.verdict, design?.unconfirmed?.kind, design?.authorChoice], ['PLAUSIBLE', 'choice', 'export the helper for callers, or keep it private to the module']);
+      assert.deepEqual(['SCAN-1', 'SCAN-2'].map((id) => [review.candidates[id]?.verdict?.verdict, review.candidates[id]?.verdict?.unconfirmed, review.candidates[id]?.verdict?.authorChoice]), [['CONFIRMED', null, null], ['REFUTED', null, null]]);
+      assert.deepEqual([run.explanation?.version, run.explanation?.dropped.map((part) => part.part)], [2, ['refuted']]);
+      assert.deepEqual(review.phases.explanation, { status: 'degraded', attempt: 1 });
+      const older = runs.find((candidate) => candidate.worktree === '/fixture/pull-request');
+      assert.equal(older?.review?.reportForm, false, 'a run configured at version 10 keeps its answers');
+      assert.equal(older?.explanation?.version, 1);
+      assert.deepEqual([older?.review?.candidates['DESIGN-1']?.verdict?.unconfirmed, older?.review?.candidates['DESIGN-1']?.verdict?.authorChoice], [null, null], 'its PLAUSIBLE verdict has neither note');
     });
   }
 

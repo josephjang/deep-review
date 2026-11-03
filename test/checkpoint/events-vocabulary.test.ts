@@ -34,6 +34,7 @@ import {
   decisionsRecordedV1,
   documentationPlannedV1,
   explanationRecordedV1,
+  explanationRecordedV2,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
@@ -80,6 +81,7 @@ import {
   reviewConfiguredV8,
   reviewConfiguredV9,
   reviewConfiguredV10,
+  reviewConfiguredV11,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -93,6 +95,7 @@ import {
   reviewVocabularyV9,
   reviewVocabularyV10,
   reviewVocabularyV11,
+  reviewVocabularyV12,
   scopeCapturedV2,
   scopeCapturedV3,
   surveyFailedV1,
@@ -104,6 +107,7 @@ import {
   unitUnattemptedV2,
   verdictsRecordedV1,
   verdictsRecordedV2,
+  verdictsRecordedV3,
   workerLostV1,
   workerLostV2,
   workerLostV3,
@@ -158,6 +162,7 @@ import {
   repairUnitKey,
   severities,
   suiteResults,
+  unconfirmedKinds,
   unitKeySchema,
   userRulesSettings,
   validationMethods,
@@ -955,7 +960,7 @@ describe('the review vocabulary frozen by the v11 events', () => {
   const item = (id: number): Record<string, unknown> => ({ id, url: `https://github.com/octo/parse/pull/42#discussion_r${String(id)}` });
 
   it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV11, { phases, explanationParts, findingPlaces, placeReasons, publicationDropReasons });
+    assert.deepEqual(reviewVocabularyV11, { phases, explanationParts: ['conclusion', 'account', 'finding'], findingPlaces, placeReasons, publicationDropReasons });
   });
 
   it('refuses the explanation in the last version of each of the six kinds that name it, and accepts it in the new one', () => {
@@ -1075,6 +1080,46 @@ describe('the review vocabulary frozen by the v11 events', () => {
     assert.equal(publishDroppedV1.safeParse({ marker, reason: 'refused', status: 403 }).success, false, 'a refusal has its message');
     assert.equal(publishDroppedV1.safeParse({ marker, reason: 'not-found', status: 404, message: 'Not Found' }).success, false, 'not found has no status');
     assert.equal(publishDroppedV1.safeParse({ marker, reason: 'timeout' }).success, false, 'a reason of the two');
+  });
+});
+
+// Version 12 of the review events records the words the review that reads
+// as a report added; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v12 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = { sha256: 'a'.repeat(64), bytes: 120 };
+  const verdict = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ id: 'SCAN-1', verdict: 'PLAUSIBLE', evidence: 'Not CONFIRMED: one caller', basis: 'read', runs: [], unconfirmed: { kind: 'fact', text: 'whether a caller passes null' }, authorChoice: null, ...change });
+  const verdicts = (...given: Record<string, unknown>[]): boolean => verdictsRecordedV3.safeParse({ phase: 'verification', groupId: 'g1', workerId, verdicts: given }).success;
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV12, { unconfirmedKinds, explanationParts });
+  });
+
+  it('records a review.configured@11 exactly as version 10 records it: the version alone says the review reads as a report', () => {
+    assert.equal(reviewConfiguredV11, reviewConfiguredV10);
+  });
+
+  it('records what keeps a verdict from CONFIRMED and the choice left to the author only from version 3 of verdicts.recorded, which names both on every verdict', () => {
+    for (const kind of unconfirmedKinds) assert.equal(verdicts(verdict({ unconfirmed: { kind, text: 'one sentence' } })), true, kind);
+    assert.equal(verdicts(verdict({ verdict: 'CONFIRMED', unconfirmed: null, authorChoice: 'keep the error, or return null' })), true);
+    assert.equal(verdicts(verdict({ unconfirmed: undefined })), false, 'version 3 names unconfirmed, or null');
+    assert.equal(verdicts(verdict({ authorChoice: undefined })), false, 'and the choice, or null');
+    assert.equal(verdicts(verdict({ unconfirmed: { kind: 'doubt', text: 't' } })), false, 'a fact or a choice');
+    assert.equal(verdicts(verdict({ unconfirmed: { kind: 'fact', text: 'x'.repeat(401) } })), false, 'at most 400 characters');
+    assert.equal(verdicts(verdict({ authorChoice: '' })), false, 'a choice says something');
+    assert.equal(verdictsRecordedV2.safeParse({ phase: 'verification', groupId: 'g1', workerId, verdicts: [verdict()] }).success, false, 'version 2 has neither note');
+  });
+
+  it('names the dropped parts of explanation.recorded@2 by the areas and the refuted lines, and holds it to the rules of version 1', () => {
+    const accepts = (change: Record<string, unknown>): boolean => explanationRecordedV2.safeParse({ workerId, answer: blob, dropped: [], unexplained: [], ...change }).success;
+    const parts = (...names: string[]) => names.map((part) => (part === 'finding' ? { part, finding: 'RIPPLE-1', failures: ['f'] } : { part, failures: ['f'] }));
+    assert.equal(accepts({ dropped: parts(...explanationParts) }), true);
+    assert.equal(accepts({ dropped: parts('account') }), false, 'version 2 has no account');
+    assert.equal(explanationRecordedV1.safeParse({ workerId, answer: blob, dropped: parts('areas'), unexplained: [] }).success, false, 'version 1 has no areas');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted') }), true, 'a phase that degraded with no answer that passed');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas') }), false, 'with no answer, every part but the findings is dropped');
+    assert.equal(accepts({ dropped: parts('areas', 'areas') }), false, 'each part once');
+    assert.equal(accepts({ dropped: parts('finding'), unexplained: ['RIPPLE-1'] }), false, 'dropped or unexplained, not both');
   });
 });
 

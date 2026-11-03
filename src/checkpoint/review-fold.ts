@@ -35,7 +35,8 @@ import type {
   ChangeReading,
   DecisionsRecorded,
   DeduplicationRecorded,
-  ExplanationRecorded,
+  ExplanationRecordedV1,
+  ExplanationRecordedV2,
   FrozenFile,
   GroupUnverified,
   Lead,
@@ -57,10 +58,13 @@ import type {
   ReviewConfigurationV8,
   ReviewConfigurationV9,
   ReviewConfigurationV10,
+  ReviewConfigurationV11,
   ReviewLimits,
+  Unconfirmed,
   VerdictRun,
   VerdictsRecorded,
   VerdictsRecordedV2,
+  VerdictsRecordedV3,
   VerificationPlanned,
   WorktreeCheckV1,
   WorktreeCheckV9,
@@ -151,14 +155,21 @@ export function changeReadingOf(account: TriageAccount): ChangeReading | null {
 /**
  * A verdict as the fold holds it: the verdict, its evidence line, how the
  * verifier established it and the runs it cites, each found in the
- * verifier's record (R2, R5 of runs on the record). A verdict of a run
- * configured before runs on the record has no basis and cites no run.
+ * verifier's record (R2, R5 of runs on the record), and what keeps it from
+ * CONFIRMED and the choice its verifier leaves to the author (R7, R9 of
+ * the review that reads as a report). A verdict of a run configured
+ * before runs on the record has no basis and cites no run, and one of a
+ * run configured before the review read as a report has neither note.
  */
 export interface RecordedVerdict {
   readonly verdict: Verdict;
   readonly evidence: string;
   readonly basis: VerdictBasis | null;
   readonly runs: readonly VerdictRun[];
+  /** What keeps a PLAUSIBLE verdict from CONFIRMED, a fact not settled or a choice that remains; null for every other verdict, and for each verdict recorded before `verdicts.recorded@3`. */
+  readonly unconfirmed: Unconfirmed | null;
+  /** The choice between two behaviors that the verifier leaves to the author, or null when it names none or recorded its verdict before `verdicts.recorded@3`. */
+  readonly authorChoice: string | null;
 }
 
 /** A candidate as recorded, with the phase and worker it came from and what later phases decided about it. */
@@ -217,6 +228,8 @@ export interface ReviewState extends AnswerState {
   readonly citedRuns: boolean;
   /** Whether the run explains its review for the readers of its pull request, the phase `explanation` (TD8 of the review on the pull request): configured at `review.configured@10`, which only a read-only run of a pull request records; false for every other run, whose `explanation` is skipped. */
   readonly explanationStep: boolean;
+  /** Whether the run's review reads as a report (TD1, TD2 of the review that reads as a report): configured at `review.configured@11`, which only a read-only run of a pull request records; its verifiers say why a verdict is PLAUSIBLE and the choice they leave to the author, and its writer gives the areas, the kinds, how each finding was checked and the refuted lines. False for every other run, which keeps its answers as they were also when this engine resumes it. */
+  readonly reportForm: boolean;
   /** Whether the run recorded its explanation (`explanation.recorded`) degraded: with no answer that completed the writer's unit, which this settles, or with a part dropped (R18 of the review on the pull request); false until then, for an explanation an answer passed whole, and for good in every run that does not explain its review. */
   readonly explanationDegraded: boolean;
   /** The concurrency and the run budget in force: the configuration's, until a `limits.changed` replaces them. */
@@ -368,7 +381,7 @@ export function withFailure(review: ReviewState, drafts: FoldDrafts, { phase, ke
   return { ...review, units };
 }
 
-/** What a version of the configuration says the run has beside its payload: the survey, the decision step, the documentation step, the checks on the base, the cited runs and the explanation. */
+/** What a version of the configuration says the run has beside its payload: the survey, the decision step, the documentation step, the checks on the base, the cited runs, the explanation and the review that reads as a report. */
 interface ConfiguredSteps {
   readonly surveyed: boolean;
   readonly decided: boolean;
@@ -376,6 +389,7 @@ interface ConfiguredSteps {
   readonly compared: boolean;
   readonly cited: boolean;
   readonly explained: boolean;
+  readonly reportForm: boolean;
 }
 
 /**
@@ -391,7 +405,7 @@ interface ConfiguredSteps {
  * review on the pull request); a run with the fix pass or the survey
  * starts its state of it empty, and every run starts with no answer.
  */
-function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, { surveyed, decided, documented, compared, cited, explained }: ConfiguredSteps): RunState {
+function configure(state: RunState | undefined, payload: ReviewConfiguration, event: DecodedEvent, { surveyed, decided, documented, compared, cited, explained, reportForm }: ConfiguredSteps): RunState {
   const current = requireRun(state, event);
   if (current.scope === null) throw invalid(event, 'is configured for review before its scope is captured');
   if (current.review !== null) throw invalid(event, 'is configured for review twice');
@@ -402,6 +416,7 @@ function configure(state: RunState | undefined, payload: ReviewConfiguration, ev
     baseChecksStep: compared,
     citedRuns: cited,
     explanationStep: explained,
+    reportForm,
     explanationDegraded: false,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? 'skipped' : 'pending', attempt: 0 }])) as Record<Phase, PhaseState>,
@@ -452,44 +467,54 @@ const unsurveyed = { survey: { userRules: 'apply' as const } };
 const unpinnedCodex = (runtime: string, worktree: string): Pick<ReviewConfiguration, 'codex'> => ({ codex: runtime === 'codex' && !worktree.startsWith('/') ? { windowsSandbox: 'unelevated' } : null });
 
 /**
+ * Version 11 of the configuration: version 10's payload, on a read-only
+ * run of a pull request whose review reads as a report (TD1, TD2 of the
+ * review that reads as a report), held to the rules of version 10.
+ */
+const configured: Reducer<ReviewConfigurationV11> = (state, payload, event) => explainedConfiguration(state, payload, event, true);
+
+/**
  * Version 10 of the configuration: version 9's payload with its settings
  * at version 2 of the record, on a read-only run of a pull request, which
  * explains its review (TD8 of the review on the pull request). A run that
  * fixes, or whose scope names no pull request, records version 9; one
  * continued into the fix pass later keeps its explanation.
  */
-const configured: Reducer<ReviewConfigurationV10> = (state, payload, event) => {
+const configuredV10: Reducer<ReviewConfigurationV10> = (state, payload, event) => explainedConfiguration(state, payload, event, false);
+
+/** A configuration that explains its review, at version 10 or 11: refused on a run that fixes, or whose scope names no pull request. */
+function explainedConfiguration(state: RunState | undefined, payload: ReviewConfigurationV10, event: DecodedEvent, reportForm: boolean): RunState {
   if (payload.fix) throw invalid(event, 'is configured to explain its review in a run that fixes, which records version 9');
   if (state !== undefined && state.scope !== null && state.scope.pullRequest === null) throw invalid(event, 'is configured to explain its review for a pull request, but its scope names none');
-  return configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: true });
-};
+  return configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: true, reportForm });
+}
 
 /** Version 9 of the configuration: version 8's payload, on a run whose verdicts give their basis and cite their runs (TD6 of runs on the record). */
-const configuredV9: Reducer<ReviewConfigurationV9> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: false });
+const configuredV9: Reducer<ReviewConfigurationV9> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: false, reportForm: false });
 
 /** Version 8 of the configuration, recorded before runs on the record: version 7's payload, on a run that has the checks on the base (TD8 of the facts before a merge), whose verdicts cite no run. */
-const configuredV8: Reducer<ReviewConfigurationV8> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: false, explained: false });
+const configuredV8: Reducer<ReviewConfigurationV8> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: false, explained: false, reportForm: false });
 
 /** Version 7 of the configuration, recorded before the checks on the base existed: version 6's payload, on a run that has the documentation step (TD4 of the documentation step), whose `base-checks` is skipped. */
-const configuredV7: Reducer<ReviewConfigurationV7> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false, cited: false, explained: false });
+const configuredV7: Reducer<ReviewConfigurationV7> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 6 of the configuration, recorded before the documentation step existed: a run that records where each setting came from (R6 of the configuration), surveyed, pinning its Codex Windows sandbox and deciding its findings, whose documentation is skipped. */
-const configuredV6: Reducer<ReviewConfigurationV6> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false });
+const configuredV6: Reducer<ReviewConfigurationV6> = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 5 of the configuration, recorded before the settings existed: a run whose values came from the defaults and its flags, which the ledger does not tell apart (R17 of the configuration). */
-const configuredV5: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false });
+const configuredV5: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 4 of the configuration, recorded before the decision step existed: a run that is surveyed and pins its Codex Windows sandbox, whose decision is skipped. */
-const configuredV4: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false });
+const configuredV4: Reducer<ReviewConfigurationV5> = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 3 of the configuration, recorded before the Codex Windows sandbox was pinned: a run that is surveyed. */
-const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false });
+const configuredV3: Reducer<ReviewConfigurationV3> = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 2 of the configuration, recorded before the survey existed: a run whose survey is skipped. */
-const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false });
+const configuredV2: Reducer<ReviewConfigurationV2> = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** Version 1 of the configuration, recorded before the fix pass existed: a run without it, and without the survey. */
-const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false });
+const configuredV1: Reducer<ReviewConfigurationV1> = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ''), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
 
 /** The limits in force change; a run whose report is written runs nothing more, so it has no limits to change. */
 const limitsChanged: Reducer<ReviewLimits> = (state, payload, event) => {
@@ -696,21 +721,35 @@ function requireOpenGroup(review: ReviewState, event: DecodedEvent, phase: Verif
   return group.candidateIds;
 }
 
-/** Verdicts as the fold reads them from either version: version 1's with no basis and no run. */
+/** Verdicts as the fold reads them from any version: version 1's with no basis and no run, and versions 1 and 2 with neither note. */
 type HeldVerdicts = Omit<VerdictsRecorded, 'verdicts'> & { readonly verdicts: readonly (RecordedVerdict & { readonly id: string })[] };
 
+/** The version of `verdicts.recorded` a run records its verdicts at: 3 in a run configured at `review.configured@11`, 2 in one with runs on the record, and 1 before. */
+const verdictsVersionOf = (review: ReviewState): 1 | 2 | 3 => (review.reportForm ? 3 : review.citedRuns ? 2 : 1);
+
+/** Why a version of `verdicts.recorded` is not the one a run records, by the version it is. */
+const verdictsVersionWords: Readonly<Record<1 | 2 | 3, string>> = {
+  1: 'records verdicts without their bases and runs, which its configuration asks for',
+  2: 'records verdicts with their bases and runs, which a run configured before runs on the record does not',
+  3: 'records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review.configured@11 does',
+};
+
 /**
- * A verifier's verdicts, one per candidate of its group. A run configured
- * at `review.configured@9` records them at version 2 and no other, each
- * with its basis and runs, and one configured before it at version 1
- * (`cited` false), so a run never mixes the two answers (R9 of runs on
- * the record). A verdict whose basis is `ran` cites at least one run, one
- * of another basis none, and each run's place in the record is from 1, as
- * `checkVerdicts` and the lookup hold the answer.
+ * A verifier's verdicts, one per candidate of its group. A run records
+ * them at one version and no other (`verdictsVersionOf`), so a run never
+ * mixes two answers (R9 of runs on the record): at version 3 in a run
+ * configured at `review.configured@11`, each with its basis, its runs and
+ * its two notes; at version 2 in one configured at `review.configured@9`
+ * or 10, with its basis and runs; and at version 1 before. A verdict
+ * whose basis is `ran` cites at least one run, one of another basis none,
+ * and each run's place in the record is from 1, as `checkVerdicts` and the
+ * lookup hold the answer. At version 3, a PLAUSIBLE verdict says what
+ * keeps it from CONFIRMED and no other verdict does (R7 of the review that
+ * reads as a report).
  */
-function recordVerdicts(state: RunState | undefined, payload: HeldVerdicts, event: DecodedEvent, drafts: FoldDrafts, cited: boolean): RunState {
+function recordVerdicts(state: RunState | undefined, payload: HeldVerdicts, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2 | 3): RunState {
   const { current, review } = requireReview(state, event);
-  if (review.citedRuns !== cited) throw invalid(event, cited ? 'records verdicts with their bases and runs, which a run configured before runs on the record does not' : 'records verdicts without their bases and runs, which its configuration asks for');
+  if (verdictsVersionOf(review) !== version) throw invalid(event, verdictsVersionWords[version]);
   requireRunning(review, event, payload.phase);
   const expected = requireOpenGroup(review, event, payload.phase, payload.groupId);
   const given = payload.verdicts.map((verdict) => verdict.id);
@@ -718,21 +757,26 @@ function recordVerdicts(state: RunState | undefined, payload: HeldVerdicts, even
   if (given.length !== expected.length || !expected.every((id) => given.includes(id))) {
     throw invalid(event, `records verdicts for [${given.join(', ')}] in group ${payload.groupId}, which holds [${expected.join(', ')}]`);
   }
-  for (const { id, basis, runs } of payload.verdicts) {
+  for (const { id, verdict, basis, runs, unconfirmed } of payload.verdicts) {
     if ((basis === 'ran') !== (runs.length > 0)) throw invalid(event, `records the verdict of ${id} with the basis ${String(basis)} and ${String(runs.length)} runs, but a verdict cites runs exactly when it rests on one`);
     if (runs.some((run) => run.at < 1)) throw invalid(event, `records a run of the verdict of ${id} before the first place of its record`);
+    if (version === 3 && (verdict === 'PLAUSIBLE') !== (unconfirmed !== null)) throw invalid(event, `records the verdict of ${id} as ${verdict} ${unconfirmed === null ? 'without' : 'with'} what keeps it from CONFIRMED, which a verdict gives exactly when it is PLAUSIBLE`);
   }
   const candidates = drafts.writable(review.candidates);
-  for (const { id, verdict, evidence, basis, runs } of payload.verdicts) candidates[id] = { ...candidates[id]!, verdict: { verdict, evidence, basis, runs } };
+  for (const { id, ...verdict } of payload.verdicts) candidates[id] = { ...candidates[id]!, verdict };
   return withReview(current, { ...review, candidates, units: answered(review, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
 }
 
-/** Version 2: each verdict with its basis and its runs (R5 of runs on the record). */
-const verdictsRecorded: Reducer<VerdictsRecordedV2> = (state, payload, event, drafts) => recordVerdicts(state, payload, event, drafts, true);
+/** Version 3: each verdict with its basis, its runs, what keeps it from CONFIRMED and the choice left to the author (R7, R9 of the review that reads as a report). */
+const verdictsRecorded: Reducer<VerdictsRecordedV3> = (state, payload, event, drafts) => recordVerdicts(state, payload, event, drafts, 3);
 
-/** Version 1, recorded by a run configured before runs on the record: verdicts with no basis and no run. */
+/** Version 2, recorded by a run with runs on the record configured before the review read as a report: each verdict with its basis and its runs (R5 of runs on the record), and neither note. */
+const verdictsRecordedV2: Reducer<VerdictsRecordedV2> = (state, payload, event, drafts) =>
+  recordVerdicts(state, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, unconfirmed: null, authorChoice: null })) }, event, drafts, 2);
+
+/** Version 1, recorded by a run configured before runs on the record: verdicts with no basis, no run and neither note. */
 const verdictsRecordedV1: Reducer<VerdictsRecorded> = (state, payload, event, drafts) =>
-  recordVerdicts(state, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, basis: null, runs: [] })) }, event, drafts, false);
+  recordVerdicts(state, { ...payload, verdicts: payload.verdicts.map((verdict) => ({ ...verdict, basis: null, runs: [], unconfirmed: null, authorChoice: null })) }, event, drafts, 1);
 
 const groupUnverified: Reducer<GroupUnverified> = (state, payload, event, drafts) => {
   const { current, review } = requireReview(state, event);
@@ -790,14 +834,19 @@ const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, dr
 
 /**
  * The writer's explanation (R18, R19 of the review on the pull request),
- * once, in a run configured at `review.configured@10` while its
- * `explanation` runs, naming only findings the run ranked. The writer
- * whose answer completed the unit answers it; an explanation recorded as
- * its phase degrades answers none.
+ * once, in a run that explains its review while its `explanation` runs,
+ * naming only findings the run ranked, at the version its configuration
+ * asks for: 2 in a run configured at `review.configured@11`, whose writer
+ * answers in the form of the review that reads as a report, and 1 in one
+ * configured at version 10. The writer whose answer completed the unit
+ * answers it; an explanation recorded as its phase degrades answers none.
+ * The fold holds it with its version, which says the shape of its frozen
+ * answer.
  */
-const explanationRecorded: Reducer<ExplanationRecorded> = (state, payload, event, drafts) => {
+function recordExplanation(state: RunState | undefined, payload: ExplanationRecordedV1 | ExplanationRecordedV2, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2): RunState {
   const { current, review } = requireReview(state, event);
   if (!review.explanationStep) throw invalid(event, 'records an explanation, which only a run configured at review.configured@10 has');
+  if (review.reportForm !== (version === 2)) throw invalid(event, version === 2 ? 'records an explanation at version 2, which only a run configured at review.configured@11 does' : 'records an explanation at version 1, which a run configured at review.configured@11 records at version 2');
   if (current.explanation !== null) throw invalid(event, 'records its explanation twice');
   requireRunning(review, event, 'explanation');
   const ranked = new Set((review.ranking ?? []).map((finding) => finding.id));
@@ -805,8 +854,14 @@ const explanationRecorded: Reducer<ExplanationRecorded> = (state, payload, event
   const stray = named.find((id) => !ranked.has(id));
   if (stray !== undefined) throw invalid(event, `explains ${stray}, which is not a finding of the run`);
   const units = payload.workerId === null ? review.units : answered(review, drafts, { phase: 'explanation', key: singleUnitKey('explanation') }, payload.workerId);
-  return { ...withReview(current, { ...review, units, explanationDegraded: payload.workerId === null || payload.dropped.length > 0 }, event), explanation: payload };
-};
+  return { ...withReview(current, { ...review, units, explanationDegraded: payload.workerId === null || payload.dropped.length > 0 }, event), explanation: { ...payload, version } };
+}
+
+/** Version 2, in a run configured at `review.configured@11`: the answer with the areas and the refuted lines, and no account (TD2 of the review that reads as a report). */
+const explanationRecorded: Reducer<ExplanationRecordedV2> = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 2);
+
+/** Version 1, in a run configured at `review.configured@10`: the answer with the account. */
+const explanationRecordedV1: Reducer<ExplanationRecordedV1> = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 1);
 
 const reportWritten: Reducer<ReportWritten> = (state, payload, event) => {
   const { current, review } = requireReview(state, event);
@@ -832,7 +887,8 @@ export const reviewReducers = {
   'review.configured@7': configuredV7,
   'review.configured@8': configuredV8,
   'review.configured@9': configuredV9,
-  'review.configured@10': configured,
+  'review.configured@10': configuredV10,
+  'review.configured@11': configured,
   'limits.changed@1': limitsChanged,
   'phase.started@1': phaseStarted,
   'phase.started@2': phaseStarted,
@@ -875,7 +931,8 @@ export const reviewReducers = {
   'deduplication.recorded@1': deduplicationRecorded,
   'verification.planned@1': verificationPlanned,
   'verdicts.recorded@1': verdictsRecordedV1,
-  'verdicts.recorded@2': verdictsRecorded,
+  'verdicts.recorded@2': verdictsRecordedV2,
+  'verdicts.recorded@3': verdictsRecorded,
   'group.unverified@1': groupUnverified,
   'ranking.recorded@1': rankingRecorded,
   'decisions.recorded@1': decisionsRecorded,
@@ -887,7 +944,8 @@ export const reviewReducers = {
   'report.written@6': reportWritten,
   'report.written@7': reportWritten,
   'report.written@8': reportWritten,
-  'explanation.recorded@1': explanationRecorded,
+  'explanation.recorded@1': explanationRecordedV1,
+  'explanation.recorded@2': explanationRecorded,
 } as const;
 
 /** Whether the unit `key` of `phase` has contributed: a worker's answer is recorded for it. */

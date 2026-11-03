@@ -2647,10 +2647,34 @@ const droppedPartSchemaV1 = z.discriminatedUnion('part', [
   z.strictObject({ part: z.literal(vocabularyV11.explanationParts[1]), failures: partFailuresSchemaV1 }),
   z.strictObject({ part: z.literal(vocabularyV11.explanationParts[2]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
 ]);
-export type DroppedPart = z.infer<typeof droppedPartSchemaV1>;
+export type DroppedPartV1 = z.infer<typeof droppedPartSchemaV1>;
+
+/** What an explanation records beside its dropped parts, whichever version records it. */
+interface ExplanationFields {
+  readonly workerId: string | null;
+  readonly answer: z.infer<typeof artifactReferenceSchema> | null;
+  readonly dropped: readonly { readonly part: string; readonly finding?: string }[];
+  readonly unexplained: readonly string[];
+}
 
 /** A dropped part as one word: its kind, or `finding <id>` for the explanation of a finding. */
-const partName = (part: DroppedPart): string => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
+const partName = (part: ExplanationFields['dropped'][number]): string => (part.part === 'finding' ? `finding ${String(part.finding)}` : part.part);
+
+/**
+ * The rules every version of an explanation keeps: each part dropped
+ * once, each finding marked unexplained once and not dropped too, an
+ * explanation with no answer dropping each part of `unanswered`, which
+ * `words` names, and a writer that completed the unit with its answer
+ * frozen.
+ */
+const refineExplanation = (unanswered: readonly string[], words: string) => (recorded: ExplanationFields, context: z.RefinementCtx): void => {
+  const dropped = recorded.dropped.map(partName);
+  if (new Set(dropped).size !== dropped.length) context.addIssue({ code: 'custom', message: 'each part is dropped once', path: ['dropped'] });
+  if (new Set(recorded.unexplained).size !== recorded.unexplained.length) context.addIssue({ code: 'custom', message: 'each finding is marked unexplained once', path: ['unexplained'] });
+  if (recorded.unexplained.some((id) => dropped.includes(`finding ${id}`))) context.addIssue({ code: 'custom', message: 'a finding is dropped or marked unexplained, not both', path: ['unexplained'] });
+  if (recorded.answer === null && !unanswered.every((part) => dropped.includes(part))) context.addIssue({ code: 'custom', message: `an explanation with no answer drops ${words}`, path: ['dropped'] });
+  if (recorded.workerId !== null && recorded.answer === null) context.addIssue({ code: 'custom', message: 'a writer that completed the unit has its answer frozen', path: ['answer'] });
+};
 
 /**
  * The writer's explanation (R18, R19, TD9 of the review on the pull
@@ -2667,15 +2691,110 @@ export const explanationRecordedV1 = z.strictObject({
   answer: artifactReferenceSchema.nullable(),
   dropped: z.array(droppedPartSchemaV1).max(2002),
   unexplained: z.array(candidateIdSchema).max(2000),
-}).superRefine((recorded, context) => {
-  const dropped = recorded.dropped.map(partName);
-  if (new Set(dropped).size !== dropped.length) context.addIssue({ code: 'custom', message: 'each part is dropped once', path: ['dropped'] });
-  if (new Set(recorded.unexplained).size !== recorded.unexplained.length) context.addIssue({ code: 'custom', message: 'each finding is marked unexplained once', path: ['unexplained'] });
-  if (recorded.unexplained.some((id) => dropped.includes(`finding ${id}`))) context.addIssue({ code: 'custom', message: 'a finding is dropped or marked unexplained, not both', path: ['unexplained'] });
-  if (recorded.answer === null && !(dropped.includes('conclusion') && dropped.includes('account'))) context.addIssue({ code: 'custom', message: 'an explanation with no answer drops its conclusion and its account', path: ['dropped'] });
-  if (recorded.workerId !== null && recorded.answer === null) context.addIssue({ code: 'custom', message: 'a writer that completed the unit has its answer frozen', path: ['answer'] });
+}).superRefine(refineExplanation(['conclusion', 'account'], 'its conclusion and its account'));
+export type ExplanationRecordedV1 = z.infer<typeof explanationRecordedV1>;
+
+/**
+ * The vocabulary version 12 of the review events records (R7, R13, TD1,
+ * TD2 of the review that reads as a report): what keeps a verdict from
+ * CONFIRMED, a fact its verifier could not settle or a choice that
+ * remains; and the parts of the writer's answer the engine can drop,
+ * which lose the account of the pull request and gain the areas of the
+ * major findings and the lines of the refuted candidates. Frozen here for
+ * the reason `reviewVocabularyV1` is: a test holds it equal to today's
+ * vocabulary.
+ */
+export const reviewVocabularyV12 = {
+  unconfirmedKinds: ['fact', 'choice'],
+  explanationParts: ['conclusion', 'areas', 'refuted', 'finding'],
+} as const;
+
+const vocabularyV12 = reviewVocabularyV12;
+
+/**
+ * `review.configured` of a read-only run of a pull request whose review
+ * reads as a report (TD1, TD2 of the review that reads as a report):
+ * version 10 unchanged. The version alone says that the run's verifiers
+ * give why a verdict is PLAUSIBLE and the choice they leave to the author
+ * (`verdicts.recorded@3`), and that its writer gives the areas, a kind
+ * for each minor finding, how each finding was checked and a line for
+ * each refuted candidate, and no account (`explanation.recorded@2`). A
+ * run of a pull request an earlier engine configured at version 10 keeps
+ * its answers as they were, also when this engine resumes it.
+ */
+export const reviewConfiguredV11 = reviewConfiguredV10;
+export type ReviewConfigurationV11 = ReviewConfigurationV10;
+
+/** The longest note a verifier gives beside its evidence line: what is not settled, or the choice it leaves to the author. */
+export const verifierNoteLengthV1 = 400;
+
+const verifierNoteSchemaV1 = z.string().min(1).max(verifierNoteLengthV1);
+
+/** What keeps a PLAUSIBLE verdict from CONFIRMED, as its verifier names it in a sentence (R7 of the review that reads as a report): a fact it could not settle, or a choice that remains. */
+const unconfirmedSchemaV1 = z.strictObject({ kind: z.enum(vocabularyV12.unconfirmedKinds), text: verifierNoteSchemaV1 });
+export type Unconfirmed = z.infer<typeof unconfirmedSchemaV1>;
+
+/**
+ * `verdicts.recorded` with why a verdict is PLAUSIBLE and the choice its
+ * verifier leaves to the author (R7, R9, TD1 of the review that reads as a
+ * report): version 2 with, on each verdict, `unconfirmed`, and
+ * `authorChoice`, the choice between two behaviors that the code leaves
+ * open, or null. Written for each answer of a verification unit of a run
+ * configured at `review.configured@11`, and for no other. The fold holds a
+ * PLAUSIBLE verdict to an `unconfirmed` and every other verdict to none,
+ * as `checkVerdicts` holds the answer.
+ */
+export const verdictsRecordedV3 = z.strictObject({
+  ...verdictsRecordedV2.shape,
+  verdicts: z.array(z.strictObject({
+    ...verdictsRecordedV2.shape.verdicts.element.shape,
+    unconfirmed: unconfirmedSchemaV1.nullable(),
+    authorChoice: verifierNoteSchemaV1.nullable(),
+  })).min(1),
 });
-export type ExplanationRecorded = z.infer<typeof explanationRecordedV1>;
+export type VerdictsRecordedV3 = z.infer<typeof verdictsRecordedV3>;
+
+/**
+ * A part of the writer's answer that no answer passed, as version 2 of
+ * the explanation names it (R4, R11, TD2 of the review that reads as a
+ * report): the conclusion, the areas of the major findings, the lines of
+ * the refuted candidates, or the explanation of one finding.
+ */
+const droppedPartSchemaV2 = z.discriminatedUnion('part', [
+  z.strictObject({ part: z.literal(vocabularyV12.explanationParts[0]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV12.explanationParts[1]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV12.explanationParts[2]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV12.explanationParts[3]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
+]);
+export type DroppedPartV2 = z.infer<typeof droppedPartSchemaV2>;
+/** A dropped part as the fold holds it, of either version: version 1 can drop the account, version 2 the areas and the refuted lines. */
+export type DroppedPart = DroppedPartV1 | DroppedPartV2;
+
+/**
+ * The writer's explanation of a run configured at `review.configured@11`
+ * (R4, R10, R11, R13, TD2 of the review that reads as a report): version
+ * 1's fields, its answer frozen in the shape of the writer's second
+ * answer, which has the areas and the refuted lines and no account, and
+ * its dropped parts named by version 2. The fold holds it to such a run,
+ * once, and every run configured before it to version 1.
+ */
+export const explanationRecordedV2 = z.strictObject({
+  workerId: z.uuid().nullable(),
+  answer: artifactReferenceSchema.nullable(),
+  dropped: z.array(droppedPartSchemaV2).max(2003),
+  unexplained: z.array(candidateIdSchema).max(2000),
+}).superRefine(refineExplanation(['conclusion', 'areas', 'refuted'], 'its conclusion, its areas and its refuted lines'));
+export type ExplanationRecordedV2 = z.infer<typeof explanationRecordedV2>;
+
+/**
+ * The explanation as the fold holds it: the payload of either version,
+ * with the version its event was written at, which says the shape of its
+ * frozen answer (`recordedAnswerOf`).
+ */
+export interface ExplanationRecorded extends Omit<ExplanationRecordedV2, 'dropped'> {
+  readonly version: 1 | 2;
+  readonly dropped: readonly DroppedPart[];
+}
 
 /**
  * The marker of a publication (TD5 of the review on the pull request):
@@ -2753,7 +2872,7 @@ export const eventRegistry = defineRegistry({
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 }, 7: { schema: workerLostV7 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 }, 11: { schema: reviewConfiguredV11 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 }, 8: { schema: phaseStartedV8 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 }, 9: { schema: phaseFinishedV9 } },
@@ -2763,7 +2882,7 @@ export const eventRegistry = defineRegistry({
   'angle.failed': { 1: { schema: angleFailedV1 } },
   'deduplication.recorded': { 1: { schema: deduplicationRecordedV1 } },
   'verification.planned': { 1: { schema: verificationPlannedV1 } },
-  'verdicts.recorded': { 1: { schema: verdictsRecordedV1 }, 2: { schema: verdictsRecordedV2 } },
+  'verdicts.recorded': { 1: { schema: verdictsRecordedV1 }, 2: { schema: verdictsRecordedV2 }, 3: { schema: verdictsRecordedV3 } },
   'group.unverified': { 1: { schema: groupUnverifiedV1 } },
   'ranking.recorded': { 1: { schema: rankingRecordedV1 } },
   'report.written': { 1: { schema: reportWrittenV1 }, 2: { schema: reportWrittenV2 }, 3: { schema: reportWrittenV3 }, 4: { schema: reportWrittenV4 }, 5: { schema: reportWrittenV5 }, 6: { schema: reportWrittenV6 }, 7: { schema: reportWrittenV7 }, 8: { schema: reportWrittenV8 } },
@@ -2789,7 +2908,7 @@ export const eventRegistry = defineRegistry({
   'documentation.planned': { 1: { schema: documentationPlannedV1 } },
   'answer.recorded': { 1: { schema: answerRecordedV1 } },
   'answer.pass': { 1: { schema: answerPassV1 } },
-  'explanation.recorded': { 1: { schema: explanationRecordedV1 } },
+  'explanation.recorded': { 1: { schema: explanationRecordedV1 }, 2: { schema: explanationRecordedV2 } },
   'publish.prepared': { 1: { schema: publishPreparedV1 } },
   'publish.posted': { 1: { schema: publishPostedV1 } },
   'publish.dropped': { 1: { schema: publishDroppedV1 } },
