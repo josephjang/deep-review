@@ -5,7 +5,7 @@
  * merge and rank pass works on, and in what order the report lists the
  * findings.
  */
-import type { RankedFinding, VerdictRun } from '../checkpoint/events.ts';
+import type { RankedFinding, Unconfirmed, VerdictRun } from '../checkpoint/events.ts';
 import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -66,11 +66,18 @@ export interface Resolution {
   readonly basis: VerdictBasis | null;
   /** The runs the verdict cites, each found in its verifier's record; none for a verdict of another basis than `ran`. */
   readonly runs: readonly VerdictRun[];
+  /** What keeps a PLAUSIBLE verdict from CONFIRMED, as its verifier named it; null for another verdict, an unverified candidate, and a verdict recorded before the review read as a report (R7 of the review that reads as a report). */
+  readonly unconfirmed: Unconfirmed | null;
+  /** The choice the verifier leaves to the author, or null when it names none, for an unverified candidate, and for a verdict recorded before the review read as a report (R9). */
+  readonly authorChoice: string | null;
 }
 
 export function resolutionOf(candidate: CandidateState): Resolution | null {
-  if (candidate.verdict !== null) return { verdict: candidate.verdict.verdict, unverified: false, evidence: candidate.verdict.evidence, basis: candidate.verdict.basis, runs: candidate.verdict.runs };
-  if (candidate.unverified) return { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null, runs: [] };
+  if (candidate.verdict !== null) {
+    const { verdict, evidence, basis, runs, unconfirmed, authorChoice } = candidate.verdict;
+    return { verdict, unverified: false, evidence, basis, runs, unconfirmed, authorChoice };
+  }
+  if (candidate.unverified) return { verdict: 'PLAUSIBLE', unverified: true, evidence: null, basis: null, runs: [], unconfirmed: null, authorChoice: null };
   return null;
 }
 
@@ -117,15 +124,15 @@ export interface ReportFinding {
  * The merged resolution of a finding: CONFIRMED when any candidate is, unverified only when every candidate is;
  * the evidence of the first candidate, primary first, that carries the merged verdict, so a CONFIRMED finding
  * never shows a PLAUSIBLE member's 'Not CONFIRMED' line and keeps the confirming member's narrowed claim.
- * Its basis and runs are that same candidate's, so a finding never shows the evidence of one candidate with
- * the runs of another (R5 of runs on the record).
+ * Its basis, runs and notes are that same candidate's, so a finding never shows the evidence of one candidate with
+ * the runs or the reason of another (R5 of runs on the record; R7 of the review that reads as a report).
  */
 export function mergedResolution(candidates: readonly CandidateState[]): Resolution {
   const resolutions = candidates.map(resolutionOf).filter((resolution): resolution is Resolution => resolution !== null);
   const verdict: Verdict = resolutions.some((resolution) => resolution.verdict === 'CONFIRMED') ? 'CONFIRMED' : 'PLAUSIBLE';
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
   const shown = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null);
-  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [] };
+  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [], unconfirmed: shown?.unconfirmed ?? null, authorChoice: shown?.authorChoice ?? null };
 }
 
 /** The number in a candidate id, for an order that puts `RIPPLE-2` before `RIPPLE-10`. */

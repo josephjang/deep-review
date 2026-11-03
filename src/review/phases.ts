@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type ExplanationRecordedV1, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2 } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type ExplanationRecordedV1, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2, type VerdictsRecordedV3 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -43,7 +43,7 @@ import {
   outputSchemaOf,
   repairOutputSchema,
   repairOutputSchemaV2,
-  verifierOutputSchemaV2,
+  verifierOutputSchemaFor,
   type CandidateOutput,
   type DeciderOutput,
   type DeduplicationOutput,
@@ -54,6 +54,7 @@ import {
   type TriageOutput,
   type VerifierOutput,
   type VerifierOutputV2,
+  type VerifierOutputV3,
 } from './schemas.ts';
 import { settledKinds, unsettledKinds } from './checks/discover.ts';
 import { checkSurveyAnswer, offeredUserFiles, type SurveyInputs } from './survey.ts';
@@ -600,7 +601,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       const group = groupCandidates(review, unit.phase, unit.key);
       if (!review.citedRuns) return verifierTask(unit.key, group);
       if (options.readerScratch === undefined || options.readerScratch === null) throw new Error('The verifier\'s task of a run with runs on the record says where to write a probe, and needs to know whether it has a scratch directory');
-      return verifierTask(unit.key, group, { scratch: options.readerScratch });
+      return verifierTask(unit.key, group, { scratch: options.readerScratch, notes: review.reportForm });
     }
     case 'sweep':
       return sweepTask({
@@ -695,14 +696,16 @@ function writerLaunchOf(context: PhaseContext): WriterLaunch {
  * (TD6 of the facts before a merge); and in a run with runs on the record
  * a verifier answers in its own, which gives each verdict's basis and
  * runs, and an editing unit in one whose validation entries cite their
- * runs (TD5 of runs on the record). A run configured before either keeps
- * the schema it was configured with, also when this engine resumes it.
+ * runs (TD5 of runs on the record); a verifier of a run whose review
+ * reads as a report also gives each verdict's notes (TD1 of the review
+ * that reads as a report). A run configured before any of them keeps the
+ * schema it was configured with, also when this engine resumes it.
  */
 function unitOutputSchema(unit: Unit, review: ReviewState): InvocationInput['outputSchema'] {
   const cited = review.citedRuns;
   if (comparesWithBase(review, unit.phase)) return cited ? repairOutputSchemaV2 : repairOutputSchema;
   if (!cited) return outputSchemaOf(unit.role);
-  if (unit.role === 'verifier') return verifierOutputSchemaV2;
+  if (unit.role === 'verifier') return verifierOutputSchemaFor(review);
   return isEditingPhase(unit.phase) ? fixerOutputSchemaV2 : outputSchemaOf(unit.role);
 }
 
@@ -814,6 +817,7 @@ type ContributionEvent =
   | { readonly kind: 'deduplication.recorded'; readonly version: 1; readonly payload: DeduplicationRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 1; readonly payload: VerdictsRecorded }
   | { readonly kind: 'verdicts.recorded'; readonly version: 2; readonly payload: VerdictsRecordedV2 }
+  | { readonly kind: 'verdicts.recorded'; readonly version: 3; readonly payload: VerdictsRecordedV3 }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
   | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded }
   | { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecordedV1 };
@@ -862,11 +866,15 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     case 'sweep-verification': {
       const group = groupCandidates(review, unit.phase, unit.key);
       if (review.citedRuns) {
-        // The launcher held the answer of a verifier of such a run to `verifierOutputSchemaV2` (`unitOutputSchema`).
-        const output = receipt.output as VerifierOutputV2;
+        // The launcher held the answer of a verifier of such a run to `verifierOutputSchemaV2`, or `verifierOutputSchemaV3` in a run whose review reads as a report (`verifierOutputSchemaFor`).
+        const output = receipt.output as VerifierOutputV2 | VerifierOutputV3;
         checkVerdicts(output, group.length);
         const runs = checkCitedVerdicts(output.verdicts, receipt.runs ?? [], state.workers[receipt.workerId]?.launch.scratch ?? null, context.evidence);
         const verdicts = output.verdicts.map((verdict, position) => ({ id: group[verdict.index]!.id, verdict: verdict.verdict, evidence: verdict.evidence, basis: verdict.basis, runs: runs[position]! }));
+        if (review.reportForm) {
+          const notes = (output as VerifierOutputV3).verdicts;
+          return { kind: 'verdicts.recorded', version: 3, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts: verdicts.map((verdict, position) => ({ ...verdict, unconfirmed: notes[position]!.unconfirmed, authorChoice: notes[position]!.authorChoice })) } };
+        }
         return { kind: 'verdicts.recorded', version: 2, payload: { phase: unit.phase, groupId: unit.key, workerId: receipt.workerId, verdicts } };
       }
       const output = receipt.output as VerifierOutput;

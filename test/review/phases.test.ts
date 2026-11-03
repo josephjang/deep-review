@@ -11,7 +11,7 @@ import { flagCheckSettings, noCheckSettings } from '../../src/review/checks/disc
 import { lastSurvey } from '../../src/checkpoint/survey-state.ts';
 import { contributionOf, groupCandidates, invocationFor, standingSurvey, taskFor, type PhaseContext } from '../../src/review/phases.ts';
 import type { SurveyInputs } from '../../src/review/survey.ts';
-import { fixerOutputSchema, outputSchemaOf, repairOutputSchema, verifierOutputSchemaV2 } from '../../src/review/schemas.ts';
+import { fixerOutputSchema, outputSchemaOf, repairOutputSchema, verifierOutputSchemaV2, verifierOutputSchemaV3 } from '../../src/review/schemas.ts';
 import { fixPlanOf, type Unit } from '../../src/review/steps.ts';
 import { reviewRoles, type ReviewRole } from '../../src/review/vocabulary.ts';
 import type { ShellRun } from '../../src/runtime/adapter.ts';
@@ -21,7 +21,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { deciderAnswer, fixerAnswer } from '../helpers/fake-runtime.ts';
 import { LauncherSandbox } from '../helpers/launcher.ts';
-import { answer, askDecision, baselined, checkRun, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withCitedRuns, withDocumentationStep, type History, finish, launch, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
+import { answer, askDecision, baselined, checkRun, decidedFixRun, documentationAnswer, documentationAnswered, documentationItems, endCheck, fixAnswer, fixRevision, noSecondRound, passToReport, ranOnBase, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, withReportForm, type History, finish, launch, checksPhase, configuration, configured, continuedRun, continuedSurvey, decidedOf, decisions, fixPlan, fixRun, found, mergeRanked, pin, ranked, ranking, readOnlyReported, reported, surveyConfigured, surveyConfiguredFix, swept, triaged, verified, withDecisions, withFixPass, withSurvey, worker } from '../helpers/review-history.ts';
 import { markerHash } from '../../src/review/claims.ts';
 
 const reference = { sha256: 'a'.repeat(64), bytes: 1 };
@@ -718,6 +718,50 @@ describe('the verifier of a run with runs on the record', () => {
       const [event] = events({ verdicts: [{ index: 0, verdict: 'REFUTED', evidence: 'e' }] }, planned(false, scratch));
       assert.equal(event?.version, 1);
       assert.deepEqual((event!.payload as { verdicts: unknown[] }).verdicts, [{ id: 'RIPPLE-1', verdict: 'REFUTED', evidence: 'e' }]);
+    });
+  });
+
+  // R7, R9, TD1 of the review that reads as a report.
+  describe('in a run whose review reads as a report', () => {
+    /** The same planned run, of a pull request configured at version 11. */
+    const reporting = (): History => withReportForm(withPullRequest(planned(true)));
+    const unconfirmed = { kind: 'fact', text: 'whether a caller outside the change passes null is not settled here' };
+    const noted = (verdict: string, notes: Record<string, unknown>): unknown => ({ verdicts: [{ index: 0, verdict, evidence: 'line 4 reads the value. Not CONFIRMED: one caller.', basis: 'read', runs: [], ...notes }] });
+    const events = (output: unknown, history: History): NewEvent[] =>
+      contributionOf(verifier, receipt(output, { runs: [] }), { state: history.fold(), worktree: '/w', evidence: { put: () => { throw new Error('no probe is frozen'); }, read: () => Buffer.alloc(0), pathOf: () => '/evidence' } as unknown as EvidenceStore, match: () => false, claims: null, survey: () => noSurveyInputs, claimsLost: false, log: () => {} });
+    const reasonOf = (output: unknown): string => {
+      const [event] = events(output, reporting());
+      assert.equal(event?.kind, 'attempt.failed', JSON.stringify(event));
+      return (event!.payload as { reason: string }).reason;
+    };
+
+    it('answers in the schema with the two notes, and its task asks for them and says what refuses an answer', () => {
+      const invocation = invocationFor(verifier, context(reporting().fold()));
+      assert.equal(invocation.outputSchema, verifierOutputSchemaV3);
+      assert.match(invocation.prompt, /Give each verdict `unconfirmed` and `authorChoice`\. A PLAUSIBLE verdict gives in `unconfirmed` what keeps it from CONFIRMED/);
+      assert.match(invocation.prompt, /An answer that gives a PLAUSIBLE verdict no `unconfirmed`, or another verdict one, is discarded whole and the group is run again\./);
+      const older = invocationFor(verifier, context(withPullRequest(planned(true)).fold()));
+      assert.equal(older.outputSchema, verifierOutputSchemaV2, 'a run of a pull request configured at version 10 keeps its schema, also when this engine resumes it');
+      assert.doesNotMatch(older.prompt, /authorChoice/);
+    });
+
+    it('records each verdict at version 3 with its notes, which the fold takes', () => {
+      const output = noted('PLAUSIBLE', { unconfirmed, authorChoice: 'return null, or throw a named error' });
+      const [event] = events(output, reporting());
+      assert.deepEqual([event?.kind, event?.version], ['verdicts.recorded', 3]);
+      assert.deepEqual((event!.payload as { verdicts: unknown[] }).verdicts, [{ id: 'RIPPLE-1', verdict: 'PLAUSIBLE', evidence: 'line 4 reads the value. Not CONFIRMED: one caller.', basis: 'read', runs: [], unconfirmed, authorChoice: 'return null, or throw a named error' }]);
+      const verdict = reporting().add('worker.finished', finish(verifierId)).add(event!.kind, event!.payload, event!.version).review().candidates['RIPPLE-1']!.verdict;
+      assert.deepEqual([verdict?.unconfirmed, verdict?.authorChoice], [unconfirmed, 'return null, or throw a named error']);
+      const [confirmed] = events(noted('CONFIRMED', { unconfirmed: null, authorChoice: null }), reporting());
+      assert.deepEqual((confirmed!.payload as { verdicts: { unconfirmed: unknown; authorChoice: unknown }[] }).verdicts.map((entry) => [entry.unconfirmed, entry.authorChoice]), [[null, null]]);
+    });
+
+    it('fails the attempt of a PLAUSIBLE verdict that says nothing of what keeps it from CONFIRMED, of another verdict that does, and of a blank note', () => {
+      assert.equal(reasonOf(noted('PLAUSIBLE', { unconfirmed: null, authorChoice: null })), 'structural check: The verdict for index 0 is PLAUSIBLE and gives no unconfirmed, the fact not settled or the choice that keeps it from CONFIRMED');
+      assert.equal(reasonOf(noted('CONFIRMED', { unconfirmed, authorChoice: null })), 'structural check: The verdict for index 0 is CONFIRMED and gives unconfirmed, which only a PLAUSIBLE verdict does');
+      assert.equal(reasonOf(noted('REFUTED', { unconfirmed: { kind: 'choice', text: 'which caller' }, authorChoice: null })), 'structural check: The verdict for index 0 is REFUTED and gives unconfirmed, which only a PLAUSIBLE verdict does');
+      assert.equal(reasonOf(noted('PLAUSIBLE', { unconfirmed: { kind: 'fact', text: '   ' }, authorChoice: null })), 'structural check: The verdict for index 0 gives a blank unconfirmed');
+      assert.equal(reasonOf(noted('CONFIRMED', { unconfirmed: null, authorChoice: ' ' })), 'structural check: The verdict for index 0 gives a blank authorChoice; give null when the code leaves the author no choice');
     });
   });
 });
