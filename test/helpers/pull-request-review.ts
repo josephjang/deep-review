@@ -95,9 +95,9 @@ export const writerAnswer = (): WholeAnswer => ({
 /** The machine of the histories here, whose worktree is `/w`. */
 export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };
 
-/** The form of a state against the files given, refused or not; `src/a.ts` holds 6 lines at the head. */
+/** The form of a state against the files given, refused or not. */
 export function renderedOf(state: RunState, answer: RecordedAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm | FormRefusal {
-  return pullRequestForm({ state, answer, places: placeFindings(state.review!, files), lineCount: (path) => (path === 'src/a.ts' ? 6 : null), machine, engine: '0.0.0+dev', serial: 1, ...change });
+  return pullRequestForm({ state, answer, places: placeFindings(state.review!, files), machine, engine: '0.0.0+dev', serial: 1, ...change });
 }
 
 /** The same, which must be rendered. */

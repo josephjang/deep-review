@@ -1,19 +1,41 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
-import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
+import { diagramFailures, type ExplainedFinding, type RecordedAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
-import { bodyCuts, formRefusalWords, lineCountPaths, maxPostedLength, placeFindings, readmeUrl, type FindingPlacement, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
-import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withAccount, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
-import { answer, answerableDecisions, askDecision, decisions, explanation, pullRequestFacts, worker } from '../helpers/review-history.ts';
+import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
+import type { History } from '../helpers/review-history.ts';
+import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
+import { answer, answerableDecisions, askDecision, decisions, departure, explanation, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
 const base = '1'.repeat(40);
+const blob = (commit: string, path: string, lines: string): string => `https://github.com/octo/parse/blob/${commit}/${path}#L${lines}`;
 
 const lastLine = (text: string): string => text.split('\n').at(-1)!;
-const diffAnchor = (path: string, line: number): string => `${pullRequestFacts.url}/files#diff-${createHash('sha256').update(path).digest('hex')}R${String(line)}`;
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
+const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
+/** That each part is in the text, in the order given. */
+const inOrder = (text: string, parts: readonly string[]): void => {
+  const at = parts.map((part) => text.indexOf(part));
+  assert.deepEqual(parts.filter((_, index) => at[index] === -1), [], text);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, `in order:\n${text}`);
+};
+/** The section of the body under a heading, up to the next heading of its level, the next block in full or the last line. */
+const section = (body: string, heading: string): string => {
+  const from = body.indexOf(`${heading}\n`);
+  assert.ok(from !== -1, `${heading} in:\n${body}`);
+  const ends = ['\n### ', '\n<a id="', '\nReviewed by deep-review '].map((end) => body.indexOf(end, from + heading.length)).filter((at) => at !== -1);
+  return body.slice(from, ends.length === 0 ? undefined : Math.min(...ends));
+};
+
+/** The history with the ranking's findings and verdicts changed: `ranked` gives each finding of the ranking anew, `verdicts` each verdict of the first verification. */
+const reranked = (history: History, ranked: (finding: Record<string, unknown>) => Record<string, unknown>, verdicts: (verdict: Record<string, unknown>) => Record<string, unknown> = (verdict) => verdict): History => rewritten(history, (kind, payload) => {
+  if (kind === 'ranking.recorded') return { ...payload, findings: (payload.findings as Record<string, unknown>[]).map(ranked) };
+  if (kind === 'verdicts.recorded' && payload.phase === 'verification') return { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map(verdicts) };
+  return undefined;
+});
 
 describe('the place of a finding (R10, TD4)', () => {
   const placesOf = (decided: readonly unknown[], files: PullRequestFile[]) => placeFindings(run(decided).review(), files);
@@ -36,81 +58,256 @@ describe('the place of a finding (R10, TD4)', () => {
     const leftOnTheDiff = placesOf([{ ...decisions[0], decision: 'leave', fix: null, leave: { reason: 'intended', supersededBy: null } }, decisions[1]], filesWith())[0];
     assert.deepEqual(leftOnTheDiff, { finding: 'RIPPLE-1', place: 'body', reason: 'left', location: { path: 'src/a.ts', line: 4 }, diff: 'added' });
   });
+});
 
-  it('lists each path the form asks the count of lines of, each once: of each finding with a place and of each refuted candidate', () => {
-    const state = run().fold();
-    const places: FindingPlacement[] = [
-      { finding: 'RIPPLE-1', place: 'body', reason: 'no-patch', location: { path: 'src/b.ts', line: 2 }, diff: 'no-patch' },
-      { finding: 'SWEEP-1', place: 'body', reason: 'left', location: null, diff: null },
-    ];
-    // RIPPLE-2, refuted, points at src/a.ts:9.
-    assert.deepEqual(lineCountPaths(state.review!, places), ['src/b.ts', 'src/a.ts']);
-    const asked: string[] = [];
-    formOf(state, writerAnswer(), filesWith(), { places, lineCount: (path) => (asked.push(path), 6) });
-    assert.deepEqual([...new Set(asked)].sort(), ['src/a.ts', 'src/b.ts'], 'the form asks no other path');
+// The default run: RIPPLE-1, major and CONFIRMED by tracing, a fix against a written rule on src/a.ts:4 with SWEEP-2 merged in; SWEEP-1, minor and unverified, a question with no place; RIPPLE-2 refuted.
+describe('the body of the review (R1 to R4, R11 to R13)', () => {
+  const form = formOf(run().fold());
+  const { body } = form;
+
+  it('puts first what a person must know and do, then how the review worked, the findings, what it did not examine and how far to trust it, the marker last', () => {
+    inOrder(body, [
+      '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`, and changed no file.',
+      '### Summary',
+      '### What needs a person',
+      '### How the review worked',
+      '### The major findings',
+      '### Finding 2: extract the helper',
+      '### The minor findings',
+      '### What this review did not examine',
+      '### How far to trust this review',
+      'Reviewed by deep-review 0.0.0+dev on claude 2.1.283 with opus and sonnet, run `run-1`, commits 11111111..22222222.',
+    ]);
+    assert.equal(lastLine(body), `<!-- ${publicationMarker('run-1', 1)} -->`, 'the marker of the publication is the very last line');
+  });
+
+  it('posts none of the sections the report form replaced: no core of the change, no table of every finding, no legend, no evidence', () => {
+    for (const gone of ['What this pull request does', 'For a reader new to this change', '### Findings\n', 'Before the merge:', 'The words of this review', 'Evidence that', '- Summary:', '- Reason:', '- Evidence:', '/files#diff-']) excludes(body, gone);
+  });
+
+  it('sums up the counts, the writer\'s sentence on the areas, what deep-review decided and that nothing changes before `--fix`', () => {
+    includes(section(body, '### Summary'), '### Summary\n\nThe review keeps 2 findings. The major one is what matters before the merge; the minor one is smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 1 finding and asks the author 1 question. Nothing on this branch changes until the person who ran the review runs `deep-review review --pr 42 --fix`, which applies the fixes and the answers given by then in their clone, and pushes the result.');
+  });
+
+  it('lists what needs a person: a question with the option recommended and the one that stands, a fix against a written rule, then the one command that answers', () => {
+    assert.equal(section(body, '### What needs a person'), [
+      '### What needs a person',
+      '',
+      '- **[Question on finding 2](#finding-2).** Should parse accept an empty input? deep-review recommends option 2: Accept it and return an empty result. Until someone answers, option 1 stands, the easiest to take back: the code stays as it is.',
+      `- **[Finding 1](${blob(head, 'src/a.ts', '4')}) is a fix against a written rule.** The rule: "parse throws on a null input." \`--fix\` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.`,
+      '',
+      'The person who ran the review answers with `deep-review answer --run run-1 --finding <n>` and one of `--option <k>`, `--accept` or `--reject`. A reply on this pull request is not read yet.',
+      '',
+    ].join('\n'));
+  });
+
+  it('says in one sentence when nothing needs a person', () => {
+    const quiet = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!] });
+    assert.equal(section(quiet.body, '### What needs a person'), '### What needs a person\n\nNothing here needs a person: deep-review asks no question, and no fix goes against a written rule.\n');
+  });
+
+  it('gives the answered question and departure as answered, and the recommended option that stands as one option', () => {
+    const answered = formOf(run().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold());
+    const needs = section(answered.body, '### What needs a person');
+    includes(needs, 'Should parse accept an empty input? The person who ran this review answered it with option 2, on ');
+    includes(needs, 'The rule: "parse throws on a null input." The person who ran this review rejected the departure, so the fix follows the rule, on ');
+    const same = askDecision('SWEEP-1', true) as { ask: Record<string, unknown> };
+    const standing = formOf(run([{ ...decisions[0], departure }, { ...same, ask: { ...same.ask, recommended: 0 } }]).fold());
+    includes(section(standing.body, '### What needs a person'), 'deep-review recommends option 1: Reject it with an error. It also stands until someone answers: `--fix` applies it.');
+  });
+
+  it('says how the review worked with the counts the state gives, a diagram that passes the checks, and what each verdict and severity means', () => {
+    const how = section(body, '### How the review worked');
+    // Five candidates: RIPPLE-1 and RIPPLE-2 of the finders, a duplicate of the finders, SWEEP-1 and SWEEP-2 of the sweep; RIPPLE-2 refuted, SWEEP-2 merged into RIPPLE-1.
+    includes(how, 'Here 5 candidates became 4 after merging duplicates; the verifiers refuted 1 and kept 3, and 1 of those joined another finding, which leaves 2.');
+    includes(how, '```mermaid\nflowchart TD\n  subgraph RV["review --pr 42, read-only: done"]');
+    includes(how, '  A --> X["review --pr 42 --fix: fixers apply and test each fix"]\n```');
+    includes(how, 'CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means');
+    includes(how, 'A PLAUSIBLE finding marked unverified is one that no verifier examined');
+    for (const words of Object.values(pullRequestWordTables)) assert.deepEqual(diagramFailures(words.howDiagram(42)), []);
+  });
+
+  it('gives each major finding that acts as one line in an area: for an older run, one area named by the engine with the conclusion\'s diagram', () => {
+    assert.equal(section(body, '### The major findings'), [
+      '### The major findings',
+      '',
+      '**The major findings that deep-review would fix or asks about.**',
+      '',
+      '```mermaid\nflowchart LR\n  A["empty input"] --> B["parse()"]\n```',
+      '',
+      `- **[1. parse() reads the null before any guard.](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. deep-review would guard the null before parse reads it. Against a written rule.`,
+      '',
+    ].join('\n'));
+  });
+
+  it('gives a major question\'s line with what it recommends, and says when no major finding acts', () => {
+    const asked = formOf(run([askDecision('RIPPLE-1', false), decisions[1]]).fold());
+    includes(section(asked.body, '### The major findings'), `- **[1. parse() reads the null before any guard.](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. A question for the author; deep-review recommends option 2: Accept it and return an empty result.`);
+    const left = formOf(run([{ ...decisions[0], decision: 'leave', fix: null, leave: { reason: 'intended', supersededBy: null } }, decisions[1]]).fold(), null);
+    assert.equal(section(left.body, '### The major findings'), '### The major findings\n\nNo major finding asks for a fix or a question.\n');
+  });
+
+  it('gives in full a finding that acts and has no line in the diff, with its anchor, and links it by the anchor', () => {
+    includes(body, '<a id="finding-2"></a>\n\n### Finding 2: extract the helper\n\nMinor. PLAUSIBLE, unverified. deep-review asks the author. This finding names no place that the repository holds.');
+    const outside = formOf(run().fold(), writerAnswer(), filesWith('@@ -1,1 +1,1 @@\n-a\n+b'));
+    assert.deepEqual(outside.comments, []);
+    includes(outside.body, '<a id="finding-1"></a>\n\n### Finding 1: parse() reads the null before any guard.\n\nMajor. CONFIRMED, traced through the code. deep-review would fix this against a written rule. This pull request does not change this line.');
+    includes(section(outside.body, '### The major findings'), '- **[1. parse() reads the null before any guard.](#finding-1).**');
+    includes(formOf(run().fold(), writerAnswer(), []).body, 'Major. CONFIRMED, traced through the code. deep-review would fix this against a written rule. This pull request does not change this file.');
+    includes(formOf(run().fold(), writerAnswer(), filesWith(null)).body, 'deep-review would fix this against a written rule. GitHub shows no diff of this file, so this finding has no comment on its line.');
+  });
+
+  it('folds the minor findings in a table after their counts and which of them need a person', () => {
+    assert.equal(section(body, '### The minor findings'), [
+      '### The minor findings',
+      '',
+      '1 minor finding, in full above. Finding 2 among them needs a person, as "What needs a person" says.',
+      '',
+      '<details><summary>The minor finding</summary>',
+      '',
+      '| # | Finding | Verdict | What deep-review would do |',
+      '|---|---|---|---|',
+      '| 2 | [extract the helper](#finding-2) | PLAUSIBLE, unverified | A question for the author; deep-review recommends option 2: Accept it and return an empty result. |',
+      '',
+      '</details>',
+      '',
+    ].join('\n'));
+  });
+
+  it('folds the findings left as is, each with why and its grounds', () => {
+    const left = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!] });
+    includes(left.body, '### The findings left as is\n\n<details><summary>The finding left as is</summary>\n\n<a id="finding-2"></a>\n\n**2. extract the helper**\n\nMinor. PLAUSIBLE, unverified. deep-review leaves this as is: outside the change, and not a regression.\n\nWhy: The helper would edit only lines the change does not touch.\n\n</details>');
+    excludes(left.body, '### The minor findings');
+  });
+
+  it('says what the run did not examine: no check, each gap, and the refuted candidates folded, each with its line and the engine\'s words where the writer gave none', () => {
+    assert.equal(section(body, '### What this review did not examine'), [
+      '### What this review did not examine',
+      '',
+      '- No check ran: this run only reviewed, so no test ran against the change.',
+      '- The footguns review pass did not run, and a later pass looked for what it would have found.',
+      '- No verifier examined finding 2 and a candidate merged into finding 1; it counts as plausible.',
+      '- The candidate that the verifiers refuted is listed below, so a point raised again can be answered from it.',
+      '',
+      '<details><summary>The refuted candidate</summary>',
+      '',
+      `- [\`src/a.ts:9\`](${blob(head, 'src/a.ts', '9')}): a stale cache entry after logout. Refuted: The evidence that refuted it is in the report of the run.`,
+      '',
+      '</details>',
+      '',
+    ].join('\n'));
+  });
+
+  it('names the patterns that left paths out, with their count and the layer that set them', () => {
+    const history = rewritten(withSettings(run(), { 'scope.exclude': ['*.lock', 'vendor/**'] }, { 'scope.exclude': 'repository' }), (kind, payload) => (kind === 'scope.captured'
+      ? { ...payload, request: { ...(payload.request as object), exclude: ['*.lock', 'vendor/**'] }, excluded: { paths: ['a.lock', 'vendor/x.js', 'vendor/y.js'], count: 3 } }
+      : undefined));
+    const notExamined = section(formOf(history.fold()).body, '### What this review did not examine');
+    includes(notExamined, '\n- 3 changed paths under `*.lock` and `vendor/**` were left out, as the repository\'s file sets `scope.exclude`, and no worker read them.\n');
+    excludes(notExamined, 'which the settings leave out');
+  });
+
+  it('says how far to trust the review in counts, and what a model wrote', () => {
+    assert.equal(section(body, '### How far to trust this review'), '### How far to trust this review\n\n1 of the 2 findings is CONFIRMED and 1 PLAUSIBLE, 1 of them unverified; the major one is CONFIRMED. Across all 2, 1 was checked by tracing it, and 1 has no basis on record. The verifiers refuted 1 of 5 candidates, so the finders\' claims did not pass unchecked. A model wrote the explanations from the evidence beneath each finding, and only that evidence was verified.\n');
+  });
+
+  it('links every piece of code at the reviewed head, or at the merge base for removed lines, and never into the diff', () => {
+    const text = [body, ...form.comments.map((comment) => comment.body)].join('\n');
+    const links = [...text.matchAll(/\]\((https?:[^)]+)\)/g)].map((match) => match[1]!);
+    assert.ok(links.length >= 4, links.join('\n'));
+    for (const link of links) assert.match(link, new RegExp(`^https://github\\.com/octo/parse/blob/(?:${head}|${base})/`), link);
+    assert.deepEqual(links.filter((link) => link.includes(`/blob/${base}/`)), [blob(base, 'src/gone.ts', '2')], 'only the case on removed lines is at the merge base');
+  });
+
+  it('falls back to the engine\'s words for each part the writer dropped, names it, and for a run with no explanation', () => {
+    const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
+    const fallback = formOf(dropped, { conclusion: null, account: null, findings: [writerAnswer().findings[1]!] });
+    includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. deep-review would guard the null once, before parse reads it. Against a written rule.`);
+    excludes(fallback.body, '```mermaid\nflowchart LR');
+    includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
+    const none = formOf(runBeforeExplanation().fold(), null);
+    includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
+    excludes(none.comments[0]!.body, 'did not explain this finding');
+  });
+
+  it('names the findings whose answers the explanation predates', () => {
+    const answered = formOf(run().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold());
+    includes(answered.body, 'The writer explained this review before the answers to findings 1 and 2 were recorded; deep-review\'s own words give each answer.');
+    includes(answered.body, 'The person who ran this review answered it with option 2, on ');
+    includes(answered.comments[0]!.body, 'The person who ran this review rejected the departure, so the fix follows the rule, on ');
+    excludes(answered.body, '--option <k>`, where');
   });
 });
 
-describe('the body and the comments of the review (R9, R10, PD13, PD14)', () => {
-  const state = withAccount(run().fold());
-  const form = formOf(state);
-  const { body } = form;
-  const comment = form.comments[0]!.body;
+describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
+  const comment = formOf(run().fold()).comments[0]!.body;
 
-  it('orders the body as R9 says: the conclusion first, the core with the account folded under it, the status line, what to know, the table, the findings in full, the refuted candidates, the legend and the last line', () => {
-    const order = [
-      '## deep-review\'s review of this pull request (run `run-1`, head `22222222`)',
-      '**Before the merge: 1 fix and 1 question**',
-      'An empty input still crashes parse()',
-      '### What this pull request does',
-      '**Parse an empty input**',
-      'The parser returns no value for an empty input',
-      'Why, in the change\'s own words: An empty file is a valid input, as the commit says.',
-      '<details><summary>For a reader new to this change</summary>',
-      'deep-review reviewed this pull request at its head `22222222`, and changed no file. It has 2 findings: it would fix 1 (1 against a written rule) and asks 1 question.',
-      '### What to know before the merge',
-      '### Findings',
-      '### Fixes and questions with no line in the diff',
-      '<details><summary>Refuted at verification (1)</summary>',
-      '<details><summary>The words of this review</summary>',
-      'Reviewed by deep-review 0.0.0+dev on claude 2.1.283 with opus and sonnet, run `run-1`, commits 11111111..22222222.',
-    ];
-    const at = order.map((text) => body.indexOf(text));
-    assert.deepEqual(order.filter((_, index) => at[index] === -1), [], body);
-    assert.deepEqual([...at].sort((a, b) => a - b), at, 'in the order of R9');
-    assert.equal(lastLine(body), `<!-- ${publicationMarker('run-1', 1)} -->`, 'the marker of the publication is the very last line');
+  it('says each part of a major fix against a written rule once, in order, and ends with the id and the marker', () => {
+    inOrder(comment, [
+      '**1. parse() reads the null before any guard.**\n\nMajor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.',
+      '**What goes wrong.** A caller that passes an empty file meets a crash.',
+      '```mermaid\nsequenceDiagram\n  Caller->>parse: an empty file\n  parse-->>Caller: crash\n```',
+      '**What deep-review would do.** Guard the null before parse reads it.',
+      '**This fix goes against a written rule.** The rule: "parse throws on a null input." Its source: docs/parse.md. The fact against it: Every caller passes the null on an empty input. The person who ran this review accepts the departure with `deep-review answer --run run-1 --finding 1 --accept` or rejects it with `deep-review answer --run run-1 --finding 1 --reject`, on the machine that holds the run; `deep-review review --pr 42 --fix` makes the fix as decided unless it is rejected first.',
+      '<details><summary>The fix as decided</summary>\n\nGuard the null once, before parse reads it.\n\n- Rejected: Catch the throw in each caller. Leaves the null in parse.\n\n</details>',
+      '<details><summary>How the verifier checked it</summary>\n\nThe verifier traced the code to the result; the report of the run holds its evidence.\n\n</details>',
+      `Code at the reviewed head:\n- [\`src/a.ts:3-4\`](${blob(head, 'src/a.ts', '3-L4')}) An empty file reaches the read on line 4.\n- [\`src/gone.ts:2\`](${blob(base, 'src/gone.ts', '2')}) (at the merge base) The removed guard stood here.`,
+      '<sub>Finding `RIPPLE-1` of run `run-1`.</sub>',
+    ]);
     assert.equal(lastLine(comment), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`, 'the marker of a finding is the last line of its comment');
   });
 
-  it('lists the actions in rank order, whatever order the writer gives, each with its number, severity, verdict and a link to where it is read', () => {
-    assert.deepEqual(body.split('\n').filter((line) => line.startsWith('- [Finding ')), [
-      `- [Finding 1](${diffAnchor('src/a.ts', 4)}), major, CONFIRMED: Guard the null before parse reads it.`,
-      '- [Finding 2](#finding-2), minor, PLAUSIBLE, unverified, not explained: Choose whether parse accepts an empty input.',
+  it('posts neither the verifier\'s summary, reason, evidence and runs nor the writer\'s words on the decision', () => {
+    for (const gone of ['Evidence that', 'null dereference', 'same root cause at lines 4 and 7', 'line 4 dereferences null', 'How the verifier established it', 'deep-review would guard the null once, so every caller is safe.']) excludes(comment, gone);
+  });
+
+  it('gives a question with why it is one, its options and their costs, the option recommended and the one that stands, and the command that answers', () => {
+    const asked = formOf(run([askDecision('RIPPLE-1', false), decisions[1]]).fold()).comments[0]!.body;
+    inOrder(asked, [
+      'Major. CONFIRMED, traced through the code. deep-review asks the author.',
+      '**What goes wrong.** A caller that passes an empty file meets a crash.',
+      '**Why it is a question.** Nothing in the repository states which behavior is meant.',
+      '**The question.** Should parse accept an empty input?',
+      '1. **Keep accepting it.** Callers that pass one now see the change.\n2. **Accept it and return an empty result.** An empty input passes silently.',
+      'deep-review recommends option 2. Until someone answers, option 1 stands, the easiest to take back: the code stays as it is.',
+      '**How to answer.** The person who ran this review answers on the machine that holds the run, with `deep-review answer --run run-1 --finding 1 --option <k>`, where `<k>` is the number of the option. `deep-review review --pr 42 --fix` then applies the answer. A reply on this pull request is not read yet.',
+      '<details><summary>How the verifier checked it</summary>',
+      'Code at the reviewed head:',
     ]);
+    excludes(asked, 'The fix as decided');
   });
 
-  it('puts a fix on its line, and a question with no line in full in the body, each in full once with who answers it and how', () => {
-    assert.deepEqual(form.comments.map(({ finding, path, line }) => ({ finding, path, line })), [{ finding: 'RIPPLE-1', path: 'src/a.ts', line: 4 }]);
-    assert.match(comment, /^\*\*1\. parse\(\) reads the null before any guard\.\*\*\n\ndeep-review would fix this against a written rule\. Major, CONFIRMED\.\n/);
-    includes(comment, 'This fix goes against a written rule: parse throws on a null input (docs/parse.md). Why deep-review departs from it: every caller passes the null on an empty input.');
-    const accept = '`deep-review answer --run run-1 --finding 1 --accept`';
-    includes(comment, `The person who ran this review accepts or rejects the departure, on the machine that holds the run: ${accept} keeps the fix and changes the rule, and \`deep-review answer --run run-1 --finding 1 --reject\` follows the rule. A reply on this pull request is not read yet.`);
-    assert.ok(!body.includes(accept), 'the departure is in full once, in its comment');
-    const ask = '`deep-review answer --run run-1 --finding 2 --option <k>`';
-    assert.equal(body.split(ask).length, 2, 'the question is in full once, in the body');
-    assert.ok(!comment.includes(ask));
-    includes(body, '<a id="finding-2"></a>\n\n#### 2. extract the helper\n\ndeep-review asks a question about this. Minor, PLAUSIBLE, unverified. This finding names no place that the repository holds.');
-    includes(body, 'deep-review asks: Should parse accept an empty input?\n\ndeep-review would apply option 2. Until someone answers, the default is option 1, the easiest to take back.\n\n- Option 1: keep accepting it. Cost: callers that pass one now see the change. The rule it makes: parse rejects an empty input.\n- Option 2: accept it and return an empty result.');
-    includes(body, `The person who ran this review answers it, on the machine that holds the run, with ${ask}, where \`<k>\` is the number of the option. A reply on this pull request is not read yet.`);
+  it('gives a minor fix its problem and action in one paragraph, its departure, the folded fix and one line of code, and no folded check', () => {
+    const minor = formOf(reranked(run(), (finding) => (finding.id === 'RIPPLE-1' ? { ...finding, severity: 'minor' } : finding)).fold()).comments[0]!.body;
+    inOrder(minor, [
+      '**1. parse() reads the null before any guard.**\n\nMinor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\nA caller that passes an empty file meets a crash. deep-review would guard the null before parse reads it.\n\n**This fix goes against a written rule.**',
+      '<details><summary>The fix as decided</summary>',
+      `Code at the reviewed head: [\`src/a.ts:4\`](${blob(head, 'src/a.ts', '4')}).\n\n<sub>Finding \`RIPPLE-1\` of run \`run-1\`.</sub>`,
+    ]);
+    for (const gone of ['**What goes wrong.**', 'How the verifier checked it', 'sequenceDiagram', 'An empty file reaches the read']) excludes(minor, gone);
   });
 
-  it('gives the writer\'s explanation of a finding with each case linked at the commit of its side, its diagram fenced, the decision, and the evidence the verifier checked folded under it', () => {
-    includes(comment, `A caller that passes an empty file meets a crash.\n\n- An empty file reaches the read on line 4. ([\`src/a.ts:3-4\`](https://github.com/octo/parse/blob/${head}/src/a.ts#L3-L4))`);
-    includes(comment, `- The removed guard stood here. ([\`src/gone.ts:2\`](https://github.com/octo/parse/blob/${base}/src/gone.ts#L2))`);
-    includes(comment, '```mermaid\nsequenceDiagram\n  Caller->>parse: an empty file\n  parse-->>Caller: crash\n```');
-    includes(comment, 'The fix deep-review decided: guard the null once, before parse reads it. Rejected: catch the throw in each caller (leaves the null in parse).\n\nThis fix goes against');
-    includes(comment, '\n\ndeep-review would guard the null once, so every caller is safe.\n\nThe person who ran this review');
-    includes(comment, '<details><summary>Evidence that the verifier checked</summary>\n\n- Summary: null dereference\n- Reason: same root cause at lines 4 and 7\n- Evidence: line 4 dereferences null\n- How the verifier established it: it traced the lines.\n\n</details>');
+  it('says why a PLAUSIBLE verdict is not CONFIRMED: no reason from the verifier, or no verifier at all', () => {
+    const plausible = formOf(reranked(run(), (finding) => finding, (verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, verdict: 'PLAUSIBLE' } : verdict)).fold());
+    includes(plausible.comments[0]!.body, 'Major. PLAUSIBLE, traced through the code.');
+    includes(plausible.comments[0]!.body, '**What goes wrong.** A caller that passes an empty file meets a crash. Why PLAUSIBLE: the verifier gave no reason.');
+    includes(formOf(run().fold()).body, 'SWEEP-1 detail Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.');
+  });
+
+  it('gives how the verifier checked it from the basis of the verdict', () => {
+    const ran = formOf(rewritten(run(), (kind, payload) => (kind === 'verdicts.recorded' && payload.phase === 'verification'
+      ? { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map((verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, basis: 'ran', runs: [{ command: 'node /tmp/x/probe.mjs', printed: ['TypeError: null'], probe: null, at: 3, exitCode: 1 }] } : verdict)) }
+      : undefined)).fold()).comments[0]!.body;
+    includes(ran, 'Major. CONFIRMED, reproduced by running it.');
+    includes(ran, '<details><summary>How the verifier checked it</summary>\n\nThe verifier ran code to check it; the report of the run holds what it ran and what it saw.\n\n</details>');
+    excludes(ran, 'probe.mjs');
+  });
+
+  it('gives a finding the writer did not explain the mark, then the finder\'s own account', () => {
+    const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
+    const fallback = formOf(dropped, { ...writerAnswer(), findings: [writerAnswer().findings[1]!] }).comments[0]!.body;
+    includes(fallback, '**1. null dereference**\n\nMajor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\ndeep-review\'s writer did not explain this finding, so it is given in deep-review\'s own words: look at it yourself.\n\n**What goes wrong.** RIPPLE-1 detail\n\n**What deep-review would do.** Guard the null before parse reads it.');
+    includes(fallback, `Code at the reviewed head: [\`src/a.ts:4\`](${blob(head, 'src/a.ts', '4')}).`);
   });
 
   it('keeps on one line the text of a link to a path that holds a line break, a cited case\'s and a refuted candidate\'s, so neither opens a block of its own', () => {
@@ -121,120 +318,30 @@ describe('the body and the comments of the review (R9, R10, PD13, PD14)', () => 
       : undefined));
     const broken = formOf(history.fold(), said);
     const text = [broken.body, ...broken.comments.map((entry) => entry.body)].join('\n');
-    includes(text, '- An empty file reaches the read on line 4. ([`src/a.ts # x:3-4`](');
-    includes(broken.body, '- RIPPLE-2 (RIPPLE), [`src/a.ts - y:9`](');
+    includes(text, '- [`src/a.ts # x:3-4`](');
+    includes(broken.body, '- [`src/a.ts - y:9`](');
     assert.ok(!/^# x/m.test(text) && !/^- y/m.test(text), 'no line of a path starts a block');
-  });
-
-  it('fences each diagram longer than any run of backticks in it, so no diagram ends its fence (R19)', () => {
-    const said = writerAnswer();
-    said.conclusion.diagram = 'flowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading';
-    includes(formOf(state, said).body, '````mermaid\nflowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading\n````');
-  });
-
-  it('checks each diagram again once cleaned, and leaves out with a line one that its cleaning broke (R11, R19)', () => {
-    const broken = writerAnswer();
-    broken.conclusion.diagram = 'flowchart LR\n  A["x"] --> /tmp/x';
-    const left = formOf(state, broken).body;
-    includes(left, '\n\nA diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.\n');
-    assert.ok(!left.includes('--> <local path>') && !left.includes('/tmp/x'), 'the broken diagram is not posted');
-    const edge = writerAnswer();
-    edge.conclusion.diagram = 'flowchart LR\n  A["x"] -- /tmp/x --> B["b"]';
-    includes(formOf(state, edge).body, '```mermaid\nflowchart LR\n  A["x"] -- <local path> --> B["b"]\n```');
-    const cleaned = writerAnswer();
-    cleaned.conclusion.diagram = 'flowchart LR\n  A["reads /tmp/x"] --> B["b"]';
-    const kept = formOf(state, cleaned).body;
-    includes(kept, '```mermaid\nflowchart LR\n  A["reads <local path>"] --> B["b"]\n```');
-    assert.ok(!kept.includes('A diagram is left out here'));
-    const secret = writerAnswer();
-    secret.conclusion.diagram = `flowchart LR\n  A["x"] -- ghp_${'a1B2'.repeat(9)} --> B["b"]`;
-    assert.equal(formOf(state, secret).secrets - formOf(state).secrets, 1, 'a secret of a diagram left out is still counted');
-  });
-
-  it('gives the cited runs of a verdict as the verifier\'s own words, the command as code', () => {
-    const cited = formOf(withAccount(rewritten(run(), (kind, payload) => (kind === 'verdicts.recorded' && payload.phase === 'verification'
-      ? { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map((verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, basis: 'ran', runs: [{ command: 'node /tmp/x/probe.mjs', printed: ['TypeError: null'], probe: null, at: 3, exitCode: 1 }] } : verdict)) }
-      : undefined)).fold()));
-    includes(cited.comments[0]!.body, '- How the verifier established it: it ran code. The run `node <local path>` printed "TypeError: null", exit 1.');
-  });
-
-  it('gives a finding the writer did not explain in deep-review\'s own words with the mark, and its evidence as no verifier checked it', () => {
-    const block = body.slice(body.indexOf('#### 2.'), body.indexOf('<details><summary>Refuted'));
-    includes(block, 'deep-review\'s writer did not explain this finding, so it is given in deep-review\'s own words: look at it yourself. The writer\'s reason: Its evidence names no line of the head.\n\nSWEEP-1 detail\n');
-    includes(block, '<details><summary>Evidence that no verifier checked</summary>\n\n- Summary: extract the helper\n- Reason: one improvement\n- Evidence: none; the verifier of this group failed twice');
-    assert.ok(!body.includes('elsewhere'), 'the spelling of an unlocated finding is not posted');
-  });
-
-  it('gives the table of the findings with each place, each gap, the refuted candidates with their evidence, and the legend', () => {
-    includes(body, `| [1](${diffAnchor('src/a.ts', 4)}) | major | CONFIRMED | to fix against a written rule | null dereference | [\`src/a.ts:4\`](${diffAnchor('src/a.ts', 4)}) |`);
-    includes(body, '| [2](#finding-2) | minor | PLAUSIBLE, unverified | a question, not explained | extract the helper | no place in the repository |');
-    includes(body, '### What to know before the merge\n\nNo check ran: this run only reviewed.\n\nWhat this run did not examine:\n\n- The footguns review pass did not run, and a later pass looked for what it would have found.\n- No verifier examined finding 2');
-    includes(body, `<details><summary>Refuted at verification (1)</summary>\n\nThe candidates a verifier refuted, each with the evidence that refuted it.\n\n- RIPPLE-2 (RIPPLE), [\`src/a.ts:9\`](https://github.com/octo/parse/blob/${head}/src/a.ts#L7-L9): a stale cache entry after logout\n  - Evidence: a guard on line 2 clears the entry first\n  - How the verifier established it: it traced the lines.`);
-    for (const word of ['CONFIRMED', 'PLAUSIBLE', 'REFUTED', 'critical', 'major', 'minor', 'to fix against a written rule', 'a question', 'unverified', 'not explained']) assert.match(body, new RegExp(`^- ${word}: `, 'm'), word);
-    includes(body, `\n\nA model wrote the explanations in this review from the evidence beneath each of them, and only that evidence was verified, except where the mark unverified says that no verifier examined it. [How deep-review works](${readmeUrl})\n\n</details>`);
-  });
-
-  it('links a fix outside the diff to its lines at the head, two on each side within its file, on a line of its own, and says the pull request does not change its line or its file', () => {
-    const outside = formOf(state, writerAnswer(), filesWith('@@ -1,1 +1,1 @@\n-a\n+b'));
-    assert.deepEqual(outside.comments, []);
-    includes(outside.body, `<a id="finding-1"></a>\n\n#### 1. parse() reads the null before any guard.\n\nhttps://github.com/octo/parse/blob/${head}/src/a.ts#L2-L6\n\ndeep-review would fix this against a written rule. Major, CONFIRMED. This pull request does not change this line.`);
-    includes(outside.body, '- [Finding 1](#finding-1), major, CONFIRMED: ');
-    includes(formOf(state, writerAnswer(), []).body, 'Major, CONFIRMED. This pull request does not change this file.');
-    includes(formOf(state, writerAnswer(), filesWith(null)).body, 'Major, CONFIRMED. GitHub shows no diff of this file, so this finding has no comment on its line.');
-    includes(formOf(state, writerAnswer(), filesWith('@@ -4,1 +4,1 @@\n line 4')).comments[0]!.body, 'Major, CONFIRMED. This pull request does not change this line.');
-  });
-
-  it('folds the findings left as is, each with why and its evidence', () => {
-    const left = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!] });
-    includes(left.body, '<details><summary>Findings left as is (1)</summary>\n\n<a id="finding-2"></a>\n\n#### 2. extract the helper\n\ndeep-review leaves this as is: outside the change, and not a regression. Minor, PLAUSIBLE, unverified.\n\n- Why: the helper would edit only lines the change does not touch\n- Summary: extract the helper\n- Reason: one improvement\n- Evidence: none; the verifier of this group failed twice\n\n</details>');
-    assert.ok(!left.body.includes('### Fixes and questions with no line in the diff'), 'the fix has its line, so no fix or question is in full in the body');
-  });
-
-  it('names the findings whose answers the explanation predates, and gives each answer in the engine\'s words', () => {
-    const answered = formOf(run().add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'reject')).fold());
-    includes(answered.body, 'The writer explained this review before the answers to findings 1 and 2 were recorded; deep-review\'s own words give each answer.');
-    includes(answered.body, 'The person who ran this review answered it with option 2, on ');
-    includes(answered.comments[0]!.body, 'The person who ran this review rejected the departure, so the fix follows the rule, on ');
-    assert.ok(!answered.body.includes('--option <k>'));
-  });
-
-  it('falls back to the ledger\'s words for each dropped part and names it, and for a run with no explanation', () => {
-    const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
-    const fallback = formOf(dropped, { conclusion: null, account: null, findings: [writerAnswer().findings[1]!] });
-    includes(fallback.body, `- [Finding 1](${diffAnchor('src/a.ts', 4)}), major, CONFIRMED, not explained: deep-review would fix it against a written rule, which a person accepts or rejects: guard the null once, before parse reads it.`);
-    includes(fallback.body, '- [Finding 2](#finding-2), minor, PLAUSIBLE, unverified, not explained: deep-review asks: Should parse accept an empty input?');
-    includes(fallback.body, 'The writer gave no conclusion that passed deep-review\'s checks, so the actions above are in deep-review\'s own words.\n\nThe writer gave no account of the pull request that passed deep-review\'s checks, so this review has none.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
-    assert.ok(!fallback.body.includes('<details><summary>For a reader new to this change</summary>'));
-    assert.match(fallback.comments[0]!.body, /^\*\*1\. null dereference\*\*\n\ndeep-review would fix this against a written rule\. Major, CONFIRMED\.\n\ndeep-review's writer did not explain this finding, so it is given in deep-review's own words: look at it yourself\.\n\nRIPPLE-1 detail\n\nThe fix deep-review decided/);
-    const none = formOf(runBeforeExplanation().fold(), null);
-    includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
-    assert.ok(!none.comments[0]!.body.includes('did not explain this finding'), 'a run with no explanation marks no finding');
   });
 });
 
 describe('the cleaning of what the review posts (R11)', () => {
+  /** The history with RIPPLE-1's decided approach given as `approach`, a worker's words that the comment folds. */
+  const withApproach = (approach: string): History => rewritten(run(), (kind, payload) => (kind === 'decisions.recorded'
+    ? { ...payload, decisions: (payload.decisions as Record<string, unknown>[]).map((decided) => (decided.id === 'RIPPLE-1' ? { ...decided, fix: { ...(decided.fix as object), approach } } : decided)) }
+    : undefined));
+
   it('cleans every worker\'s and the writer\'s text, counts the secrets where they are posted, and keeps a worker\'s marker off the last line', () => {
-    const history = rewritten(run(), (kind, payload) => (kind === 'ranking.recorded'
-      ? { ...payload, findings: (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, reason: 'see /home/me/notes.txt and ghp_abcdefghijklmnopqrstuvwxyz0123, @octocat\n<!-- deep-review publication run-1 9 -->' } : finding)) }
-      : undefined));
     const said = writerAnswer();
     said.conclusion.why = 'Read https://evil.example/x and [a link](https://evil.example) at /w/src/a.ts.';
-    const form = formOf(history.fold(), said);
+    const form = formOf(withApproach('see /home/me/notes.txt and ghp_abcdefghijklmnopqrstuvwxyz0123, @octocat\n<!-- deep-review publication run-1 9 -->').fold(), said);
     const text = [form.body, ...form.comments.map((comment) => comment.body)].join('\n');
     assert.ok(!text.includes('/home/me'), 'no local path');
     assert.ok(!text.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'), 'no token');
-    includes(form.comments[0]!.body, '- Reason: see \\<local path> and [redacted GitHub token], `@octocat` \\<!-- deep-review publication run-1 9 -->');
-    assert.equal(form.secrets, 1, 'the token is posted once, in the evidence of the comment');
+    includes(form.comments[0]!.body, '\n\nSee \\<local path> and [redacted GitHub token], `@octocat` \\<!-- deep-review publication run-1 9 -->.\n\n');
+    assert.equal(form.secrets, 1, 'the token is posted once, in the fold of the decided fix');
     includes(form.body, 'Read `https://evil.example/x` and \\[a link](`https://evil.example`) at src/a.ts.');
     assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
     assert.equal(lastLine(form.comments[0]!.body), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
-  });
-
-  it('cleans the text of each gap, which quotes patterns and paths as they are', () => {
-    const history = rewritten(run(), (kind, payload) => (kind === 'scope.captured'
-      ? { ...payload, request: { ...(payload.request as object), exclude: ['**/__snapshots__/**', '@org-team.json'] }, excluded: { paths: ['a/__snapshots__/x.snap'], count: 1 } }
-      : undefined));
-    includes(formOf(history.fold()).body, '\n- 1 changed path under \\*\\*/\\_\\_snapshots\\_\\_/\\*\\*, `@org-team`.json, which the settings leave out.\n');
   });
 
   it('cleans the runtime\'s version, the models and the excluded patterns that the settings name, and counts their secrets', () => {
@@ -247,21 +354,32 @@ describe('the cleaning of what the review posts (R11)', () => {
     const plain = formOf(run().fold());
     const form = formOf(history.fold());
     includes(form.body, '\nReviewed by deep-review 0.0.0+dev on claude 2.1.283 `@octocat` with \\<local path>[redacted GitHub token] and `@octocat`, run `run-1`, commits 11111111..22222222.\n');
-    includes(form.body, '`x/[redacted GitHub token]`, `vendor/**` left out 1 changed path');
+    includes(form.body, '1 changed path under `x/[redacted GitHub token]` and `vendor/**` was left out');
     assert.ok(!form.body.includes(token), 'no token');
-    assert.equal(form.secrets - plain.secrets, 3, 'the token in the path of the model, in the excluded pattern, and in the gap that quotes the pattern');
+    assert.equal(form.secrets - plain.secrets, 2, 'the token in the path of the model and in the excluded pattern');
+  });
+
+  it('checks each diagram again once cleaned, and leaves out with a line one that its cleaning broke (R11, R19)', () => {
+    const broken = writerAnswer();
+    broken.conclusion.diagram = 'flowchart LR\n  A["x"] --> /tmp/x';
+    const left = formOf(run().fold(), broken).body;
+    includes(left, '\n\nA diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.\n');
+    assert.ok(!left.includes('--> <local path>') && !left.includes('/tmp/x'), 'the broken diagram is not posted');
+    const edge = writerAnswer();
+    edge.conclusion.diagram = 'flowchart LR\n  A["x"] -- /tmp/x --> B["b"]';
+    includes(formOf(run().fold(), edge).body, '```mermaid\nflowchart LR\n  A["x"] -- <local path> --> B["b"]\n```');
+    const secret = writerAnswer();
+    secret.conclusion.diagram = `flowchart LR\n  A["x"] -- ghp_${'a1B2'.repeat(9)} --> B["b"]`;
+    assert.equal(formOf(run().fold(), secret).secrets - formOf(run().fold()).secrets, 1, 'a secret of a diagram left out is still counted');
+  });
+
+  it('fences each diagram longer than any run of backticks in it, so no diagram ends its fence (R19)', () => {
+    const said = writerAnswer();
+    said.conclusion.diagram = 'flowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading';
+    includes(formOf(run().fold(), said).body, '````mermaid\nflowchart LR\n  A["```js"] --> B["code"]\n```\n# a heading\n````');
   });
 
   describe('keeps code that the form puts on one line or splits into paragraphs from turning into live text', () => {
-    /** The form of a run whose fix's reason, a worker's words, is `reason`, and whose writer's answer `said` changes. */
-    const formWith = (reason: string, say: (said: ReturnType<typeof writerAnswer>) => void = () => undefined): PullRequestForm => {
-      const history = rewritten(run(), (kind, payload) => (kind === 'ranking.recorded'
-        ? { ...payload, findings: (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, reason } : finding)) }
-        : undefined));
-      const said = writerAnswer();
-      say(said);
-      return formOf(history.fold(), said);
-    };
     /** Each `<!--` that a backslash does not escape, which hides what follows it up to the next `-->`. */
     const commentOpeners = (text: string): number => text.match(/(?<!\\)<!--/g)?.length ?? 0;
     const markedLast = (form: PullRequestForm): void => {
@@ -272,67 +390,71 @@ describe('the cleaning of what the review posts (R11)', () => {
     };
 
     it('a worker\'s fenced block, which the form joins onto one line', () => {
-      const form = formWith('~~~\n@octocat #12 <img src=x>\n~~~');
-      includes(form.comments[0]!.body, '- Reason: ~~~ `@octocat` `#12` \\<img src=x> ~~~\n');
-      markedLast(form);
-    });
-
-    it('a worker\'s fence of three backticks that four close', () => {
-      const form = formWith('```\n@octocat\n````');
-      includes(form.comments[0]!.body, '- Reason: \\`\\`\\` `@octocat` \\`\\`\\`\\`\n');
+      const form = formOf(withApproach('~~~\n@octocat #12 <img src=x>\n~~~').fold());
+      includes(form.comments[0]!.body, '\n\n\\~~~ `@octocat` `#12` \\<img src=x> ~~~.\n\n');
       markedLast(form);
     });
 
     it('a writer\'s code block at the start of a paragraph, which stays code on its one line', () => {
-      const form = formWith('r', (said) => {
-        (said.findings[0] as ExplainedFinding).problem = '```ts\n@Injectable() class X {} // see #12\n```';
-      });
-      includes(form.comments[0]!.body, '\n\n```ts @Injectable() class X {} // see #12 ```\n\n');
+      const said = writerAnswer();
+      (said.findings[0] as ExplainedFinding).problem = '```ts\n@Injectable() class X {} // see #12\n```';
+      const form = formOf(run().fold(), said);
+      includes(form.comments[0]!.body, '\n\n**What goes wrong.** ```ts @Injectable() class X {} // see #12 ```\n\n');
       markedLast(form);
     });
 
     it('a fence split at a blank line, whose second paragraph would open an HTML comment that hides the rest of the review', () => {
-      const form = formWith('~~~\nx\n\n<!--\n~~~', (said) => {
-        said.conclusion.why = '~~~\nx\n\n<!--\n~~~';
-        (said.findings[0] as ExplainedFinding).problem = '~~~\nx\n\n<!--\n~~~';
-      });
-      includes(form.body, '\n\n\\~~~ x\n\n\\<!-- ~~~\n\n');
-      includes(form.comments[0]!.body, '\n\n\\~~~ x\n\n\\<!-- ~~~\n\n');
-      includes(form.comments[0]!.body, '- Reason: ~~~ x \\<!-- ~~~\n');
+      const said = writerAnswer();
+      said.conclusion.why = '~~~\nx\n\n<!--\n~~~';
+      (said.findings[0] as ExplainedFinding).problem = '~~~\nx\n\n<!--\n~~~';
+      const form = formOf(withApproach('~~~\nx\n\n<!--\n~~~').fold(), said);
+      includes(form.body, '\\~~~ x\n\n\\<!-- ~~~\n\n');
+      includes(form.comments[0]!.body, '\n\n**What goes wrong.** \\~~~ x\n\n\\<!-- ~~~\n\n');
       markedLast(form);
     });
 
     it('a diagram whose cleaned places join two runs of backticks into a line that would close a fence chosen before', () => {
-      const form = formWith('r', (said) => {
-        said.conclusion.diagram = 'flowchart LR\n  A["a"]\n``/w/``\n  B["@octocat"]';
-      });
+      const said = writerAnswer();
+      said.conclusion.diagram = 'flowchart LR\n  A["a"]\n``/w/``\n  B["@octocat"]';
+      const form = formOf(run().fold(), said);
       includes(form.body, '\n\n`````mermaid\nflowchart LR\n  A["a"]\n````\n  B["@octocat"]\n`````\n\n');
       markedLast(form);
     });
   });
 });
 
-describe('the fit of the review (R12)', () => {
-  /** A run whose fix, RIPPLE-1, has no patch and so is in full in the body, whose refuted candidate's evidence and whose left finding's reason are long. */
-  const state = withAccount(rewritten(run(decisions), (kind, payload) => {
-    if (kind === 'verdicts.recorded' && payload.phase === 'verification') return { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map((verdict) => (verdict.id === 'RIPPLE-2' ? { ...verdict, evidence: 'e'.repeat(1000) } : verdict)) };
-    if (kind === 'ranking.recorded') return { ...payload, findings: (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'SWEEP-1' ? { ...finding, reason: 'r'.repeat(2000) } : finding)) };
+describe('the fit of the review (TD5)', () => {
+  /**
+   * A run of three findings, each long where a cut takes it: RIPPLE-1, a
+   * major fix with no patch and so in full in the body, under a long
+   * conclusion diagram; SWEEP-1, left as is on long grounds; SWEEP-2, a
+   * minor fix on its line with a long summary; and RIPPLE-2, refuted, with
+   * a long summary.
+   */
+  const threeFindings = (): History => rewritten(run([decisions[0], { ...decisions[1], grounds: 'g'.repeat(1000) }, { ...decisions[0], id: 'SWEEP-2' }]), (kind, payload) => {
+    if (kind === 'ranking.recorded') {
+      const findings = (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, members: [] } : finding));
+      return { ...payload, findings: [...findings, { id: 'SWEEP-2', members: [], severity: 'minor', summary: 's'.repeat(400), reason: 'r' }] };
+    }
+    if (kind === 'candidates.recorded' && payload.key === 'RIPPLE') return { ...payload, candidates: (payload.candidates as Record<string, unknown>[]).map((entry) => (entry.id === 'RIPPLE-2' ? { ...entry, summary: 'c'.repeat(400) } : entry)) };
     return undefined;
-  }).fold());
-  const files = filesWith(null);
-  /** The writer's answer with an account of long texts and diagrams, or none, and the fix's problem padded with `pad` characters. */
-  const answerOf = (pad: number, account = true): RecordedAnswer => {
+  });
+  const state = threeFindings().fold();
+  /** The files of the pull request with lines 4 and 7 of `src/a.ts` added, or, `outside`, line 7 alone, so the fix on line 4 is in full in the body and does not grow its comment. */
+  const filesOf = (outside: boolean): PullRequestFile[] => [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: outside ? '@@ -7,1 +7,1 @@\n-old 7\n+new 7' : '@@ -4,4 +4,4 @@\n-old 4\n+new 4\n line 5\n line 6\n-old 7\n+new 7' }];
+  /** The writer's answer with a long conclusion diagram, or none, and the fix's problem padded with `pad` characters. */
+  const answerOf = (pad: number, diagram = true): RecordedAnswer => {
     const said = writerAnswer();
-    said.account.problem = { text: 'p'.repeat(1000), diagram: `flowchart LR\n  A["${'d'.repeat(1000)}"]` };
+    said.conclusion.diagram = diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null;
     const fix = said.findings[0] as ExplainedFinding;
-    return { ...said, account: account ? said.account : null, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
+    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
   };
   /** Each list of cuts the form makes as the fix's problem grows, in the order they come, and the last form, refused or not. */
-  const sweep = (account: boolean): { readonly cuts: string[][]; readonly forms: PullRequestForm[]; readonly last: PullRequestForm | FormRefusal } => {
+  const sweep = (diagram: boolean): { readonly cuts: string[][]; readonly forms: PullRequestForm[]; readonly last: PullRequestForm | FormRefusal } => {
     const cuts: string[][] = [];
     const forms: PullRequestForm[] = [];
     for (let pad = 0; ; pad += 200) {
-      const form = renderedOf(state, answerOf(pad, account), files);
+      const form = renderedOf(state, answerOf(pad, diagram), filesOf(true));
       if (form.kind === 'refused') return { cuts, forms, last: form };
       forms.push(form);
       if (JSON.stringify(cuts.at(-1)) !== JSON.stringify(form.cuts)) cuts.push([...form.cuts]);
@@ -340,50 +462,47 @@ describe('the fit of the review (R12)', () => {
   };
   const { cuts, forms, last } = sweep(true);
 
-  it('cuts a body that does not fit in the order of R12, one cut more at a time, and posts each under the limit', () => {
-    assert.deepEqual([...bodyCuts], ['account-diagrams', 'account', 'refuted', 'left']);
-    assert.deepEqual(cuts, [[], ['account-diagrams'], ['account-diagrams', 'account'], ['account-diagrams', 'account', 'refuted'], ['account-diagrams', 'account', 'refuted', 'left']]);
+  it('cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit', () => {
+    assert.deepEqual([...bodyCuts], ['refuted', 'left', 'minor-table', 'area-diagrams']);
+    assert.deepEqual(cuts, [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']]);
     for (const form of forms) assert.ok(form.body.length <= maxPostedLength, String(form.body.length));
   });
 
-  it('names each cut where it is made, and that the report of the run holds what a cut leaves out', () => {
+  it('names each cut where it is made, and never cuts what needs a person, the areas or the findings in full', () => {
     const cutTo = (count: number): string => forms.find((form) => form.cuts.length === count)!.body;
-    includes(cutTo(1), '</details>\n\nThe diagrams of this account are left out, so that the review fits the length GitHub takes.');
-    includes(cutTo(2), 'deep-review wrote this account of the change as submitted, and no verifier examined it.\n\ndeep-review\'s account for a reader new to this change is left out, so that the review fits the length GitHub takes; the core of the change above stays.');
-    assert.ok(!cutTo(2).includes('The diagrams of this account are left out'), 'a cut account names no cut of its diagrams');
-    includes(cutTo(3), `To fit the length GitHub takes, each refuted candidate is given by its summary and place; the report of the run holds its evidence.\n\n- RIPPLE-2 (RIPPLE), [\`src/a.ts:9\`](https://github.com/octo/parse/blob/${head}/src/a.ts#L7-L9): a stale cache entry after logout\n\n</details>`);
-    includes(cutTo(4), 'To fit the length GitHub takes, the findings left as is are given only by their rows in the table above; the report of the run holds each in full.');
-    includes(cutTo(4), '| 2 | minor | PLAUSIBLE, unverified | left as is | extract the helper | no place in the repository |');
-    for (const form of forms) includes(form.body, '<details><summary>Evidence that the verifier checked</summary>\n\n- Summary: null dereference\n- Reason: same root cause at lines 4 and 7\n- Evidence: line 4 dereferences null');
+    includes(cutTo(1), '- To fit the length GitHub takes, the candidate that the verifiers refuted is not listed here; the report of the run holds each with its evidence.');
+    excludes(cutTo(1), '<details><summary>The refuted candidate</summary>');
+    includes(cutTo(2), '### The findings left as is\n\nTo fit the length GitHub takes, the finding left as is is not listed here; the report of the run holds it.');
+    includes(cutTo(3), 'To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.');
+    includes(cutTo(4), 'To fit the length GitHub takes, the diagrams of the areas are left out.');
+    excludes(cutTo(4), `A["${'d'.repeat(1000)}"]`);
+    for (const form of forms) {
+      includes(form.body, '### What needs a person');
+      includes(form.body, '- **[1. parse() reads the null before any guard.](#finding-1).**');
+      includes(form.body, '### Finding 1: parse() reads the null before any guard.');
+    }
   });
 
   it('makes and names no cut that takes nothing from the body', () => {
-    assert.deepEqual(sweep(false).cuts, [[], ['refuted'], ['refuted', 'left']]);
+    assert.deepEqual(sweep(false).cuts, [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table']]);
   });
 
-  it('refuses a body that does not fit after every cut, with its size and parts, and never cuts a fix or a question in full', () => {
+  it('refuses a body that does not fit after every cut, with its size and parts', () => {
     assert.equal(last.kind, 'refused');
     const { text, size, limit, parts } = last as FormRefusal;
     assert.deepEqual(text, { kind: 'body' });
     assert.ok(size > maxPostedLength);
     assert.equal(limit, maxPostedLength);
-    assert.deepEqual(parts.map((part) => part.part), ['heading', 'conclusion', 'change', 'status', 'before the merge', 'table', 'findings in full', 'left as is', 'refuted', 'legend', 'last line']);
+    assert.deepEqual(parts.map((part) => part.part), ['heading', 'summary', 'needs', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'not examined', 'trust', 'last line']);
     assert.equal(parts.reduce((sum, part) => sum + part.size, 0) + 2 * (parts.length - 1), size, 'the parts and the blank lines between them make the body');
-    assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, conclusion \d+, change \d+/);
+    assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, summary \d+, needs \d+/);
   });
 
   it('refuses a comment over the limit, with its size and parts', () => {
-    const refused = renderedOf(state, answerOf(maxPostedLength), filesWith()) as FormRefusal;
+    const refused = renderedOf(state, answerOf(maxPostedLength), filesOf(false)) as FormRefusal;
     assert.equal(refused.kind, 'refused');
     assert.deepEqual(refused.text, { kind: 'comment', finding: 'RIPPLE-1', path: 'src/a.ts', line: 4 });
-    assert.deepEqual(refused.parts.map((part) => part.part), ['explanation', 'decision', 'evidence']);
-    assert.match(formRefusalWords(refused), /^the comment of RIPPLE-1 on src\/a\.ts:4 is \d+ characters, over the 60000 a review posts: explanation \d+, decision \d+, evidence \d+$/);
-  });
-
-  it('names the patterns that left paths out, with their count and the layer that set them', () => {
-    const history = rewritten(withSettings(run(), { 'scope.exclude': ['*.lock', 'vendor/**'] }, { 'scope.exclude': 'repository' }), (kind, payload) => (kind === 'scope.captured'
-      ? { ...payload, request: { ...(payload.request as object), exclude: ['*.lock', 'vendor/**'] }, excluded: { paths: ['a.lock', 'vendor/x.js', 'vendor/y.js'], count: 3 } }
-      : undefined));
-    includes(formOf(history.fold()).body, '### Paths this review left out\n\n`*.lock`, `vendor/**` left out 3 changed paths, which no worker reviewed; the repository\'s file set scope.exclude.');
+    assert.deepEqual(refused.parts.map((part) => part.part), ['explanation', 'decision', 'checked', 'code']);
+    assert.match(formRefusalWords(refused), /^the comment of RIPPLE-1 on src\/a\.ts:4 is \d+ characters, over the 60000 a review posts: explanation \d+, decision \d+, checked \d+, code \d+$/);
   });
 });
