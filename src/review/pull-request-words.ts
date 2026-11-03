@@ -234,7 +234,7 @@ const english: PullRequestWords = {
     ];
     const left = counts.left === 0 ? '' : `${String(counts.left)} ${counts.left === 1 ? 'is' : 'are'} left as is`;
     if (acting.length === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
-    return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}. Nothing on this branch changes until the person who ran the review runs ${fix}, which applies the fixes and the answers given by then in their clone, and pushes the result.`;
+    return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
   },
 
   needsHeading: '### What needs a person',

@@ -87,7 +87,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   });
 
   it('sums up the counts, the writer\'s sentence on the areas, what deep-review decided and that nothing changes before `--fix`', () => {
-    includes(section(body, '### Summary'), '### Summary\n\nThe review keeps 2 findings. The major one is what matters before the merge; the minor one is smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 1 finding and asks the author 1 question. Nothing on this branch changes until the person who ran the review runs `deep-review review --pr 42 --fix`, which applies the fixes and the answers given by then in their clone, and pushes the result.');
+    includes(section(body, '### Summary'), '### Summary\n\nThe review keeps 2 findings. The major one is what matters before the merge; the minor one is smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 1 finding and asks the author 1 question. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with `deep-review review --pr 42 --fix` in their clone and pushes them.');
   });
 
   it('lists what needs a person: a question with the option recommended and the one that stands, a fix against a written rule, then the one command that answers', () => {
