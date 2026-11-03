@@ -10,6 +10,7 @@ import { checkpointIdentity, type CheckpointIdentity } from '../../src/checkpoin
 import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { ArtifactReference } from '../../src/evidence/store.ts';
+import { recordedAnswerOf } from '../../src/review/explanation.ts';
 import { answerPhases, fixPhases } from '../../src/review/vocabulary.ts';
 
 const fixturesRoot = resolve(import.meta.dirname, '../fixtures/checkpoints');
@@ -456,6 +457,9 @@ describe('golden checkpoints', () => {
       assert.deepEqual([design?.verdict, design?.unconfirmed?.kind, design?.authorChoice], ['PLAUSIBLE', 'choice', 'export the helper for callers, or keep it private to the module']);
       assert.deepEqual(['SCAN-1', 'SCAN-2'].map((id) => [review.candidates[id]?.verdict?.verdict, review.candidates[id]?.verdict?.unconfirmed, review.candidates[id]?.verdict?.authorChoice]), [['CONFIRMED', null, null], ['REFUTED', null, null]]);
       assert.deepEqual([run.explanation?.version, run.explanation?.dropped.map((part) => part.part)], [2, ['refuted']]);
+      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence);
+      assert.deepEqual([answer?.account, answer?.refuted, answer?.areas?.map((area) => area.findings)], [null, null, [['SCAN-1']]], 'the frozen answer reads as version 2');
+      assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.id, finding.kind])), [['SCAN-1', null], ['DESIGN-1', 'code']]);
       assert.deepEqual(review.phases.explanation, { status: 'degraded', attempt: 1 });
       const older = runs.find((candidate) => candidate.worktree === '/fixture/pull-request');
       assert.equal(older?.review?.reportForm, false, 'a run configured at version 10 keeps its answers');
