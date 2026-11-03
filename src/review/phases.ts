@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type ExplanationRecordedV1, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2, type VerdictsRecordedV3 } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2, type VerdictsRecordedV3 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -24,7 +24,7 @@ import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError } from './errors.ts';
 import { writtenVersion } from './event-versions.ts';
-import { writerContribution, writerTask } from './explanation.ts';
+import { writerContribution, writerTask, type ExplanationEvent } from './explanation.ts';
 import { attemptRevisionEvents, comparesWithBase, fixAnswerEvents, type AnswerContext, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
@@ -44,6 +44,7 @@ import {
   repairOutputSchema,
   repairOutputSchemaV2,
   verifierOutputSchemaFor,
+  writerOutputSchemaFor,
   type CandidateOutput,
   type DeciderOutput,
   type DeduplicationOutput,
@@ -706,6 +707,7 @@ function unitOutputSchema(unit: Unit, review: ReviewState): InvocationInput['out
   if (comparesWithBase(review, unit.phase)) return cited ? repairOutputSchemaV2 : repairOutputSchema;
   if (!cited) return outputSchemaOf(unit.role);
   if (unit.role === 'verifier') return verifierOutputSchemaFor(review);
+  if (unit.role === 'writer') return writerOutputSchemaFor(review);
   return isEditingPhase(unit.phase) ? fixerOutputSchemaV2 : outputSchemaOf(unit.role);
 }
 
@@ -820,7 +822,7 @@ type ContributionEvent =
   | { readonly kind: 'verdicts.recorded'; readonly version: 3; readonly payload: VerdictsRecordedV3 }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
   | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded }
-  | { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecordedV1 };
+  | ExplanationEvent;
 
 /**
  * The contribution event of a completed unit whose answer passes its

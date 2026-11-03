@@ -11,7 +11,7 @@ import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, 
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError } from './errors.ts';
-import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -282,6 +282,44 @@ export const writerOutputSchema = z.strictObject({
   })).max(200),
 });
 export type WriterOutput = z.infer<typeof writerOutputSchema>;
+
+/**
+ * What the writer returns in a run whose review reads as a report (R4,
+ * R6, R10, R11, R13, TD2 of the review that reads as a report): the
+ * conclusion, as before; the areas of the major findings that ask a
+ * person to act, each with a title, an intro, a diagram and the ids of
+ * its findings; for each finding the task lists, its explanation, which
+ * also gives one line of how its verifier checked it and, for a minor
+ * finding, its kind, or the reason it is unexplained; and one line for
+ * each refuted candidate, by its id, with its claim and why it was
+ * refuted. It has no account of the pull request. `checkAnswer` holds
+ * each part to the run, as it holds the first answer's.
+ */
+export const writerOutputSchemaV2 = z.strictObject({
+  conclusion: writerOutputSchema.shape.conclusion,
+  areas: z.array(z.strictObject({
+    title: writerText(200),
+    intro: writerText(600),
+    diagram: writerDiagram,
+    findings: z.array(writerText(200)).max(200),
+  })).max(12),
+  findings: z.array(z.strictObject({
+    id: writerText(200),
+    explanation: z.strictObject({
+      ...writerOutputSchema.shape.findings.element.shape.explanation.unwrap().shape,
+      checked: writerText(400),
+      kind: z.enum(findingKinds).nullable(),
+    }).nullable(),
+    unexplained: writerText(1000).nullable(),
+  })).max(200),
+  refuted: z.array(z.strictObject({ id: writerText(200), claim: writerText(300), why: writerText(300) })).max(200),
+});
+export type WriterOutputV2 = z.infer<typeof writerOutputSchemaV2>;
+
+/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: version 2 in a run whose review reads as a report, version 1 before. */
+export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm'>): typeof writerOutputSchema | typeof writerOutputSchemaV2 {
+  return review.reportForm ? writerOutputSchemaV2 : writerOutputSchema;
+}
 
 /** A repository path as a fixer reports it; the engine resolves it against the worktree. */
 const reportedPath = z.string().min(1).max(1000);

@@ -4,20 +4,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { explanationRecordedV1, type ExplanationRecordedV1 } from '../../src/checkpoint/events.ts';
+import { explanationRecordedV1, explanationRecordedV2, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { checkAnswer, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput } from '../../src/review/explanation.ts';
+import { checkAnswer, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput, type WriterTaskInput } from '../../src/review/explanation.ts';
 import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
-import type { WriterOutput } from '../../src/review/schemas.ts';
+import { writerOutputSchemaV2, type WriterOutput, type WriterOutputV2 } from '../../src/review/schemas.ts';
 import { nextStep, type Live, type Step } from '../../src/review/steps.ts';
 import { reviewRoles } from '../../src/review/vocabulary.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { claudeTools } from '../../src/runtime/claude.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
-import { askDecision, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from '../helpers/review-history.ts';
+import { askDecision, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, withReportForm, worker } from '../helpers/review-history.ts';
 import { commitAll, createRepository, remove, write } from '../helpers/repository.ts';
 
 /** Ten numbered lines, as the base's `src/a.ts` holds them. */
@@ -56,7 +56,7 @@ const check = (output: WriterOutput, ids: readonly string[] = ['RIPPLE-1']) => c
 /** The failures of every part of a checked answer, by part. */
 const failuresOf = (output: WriterOutput, ids: readonly string[] = ['RIPPLE-1']): Record<string, readonly string[]> => {
   const checked = check(output, ids);
-  return { conclusion: checked.conclusion.failures, account: checked.account.failures, ...Object.fromEntries([...checked.findings].map(([id, part]) => [`finding ${id}`, part.failures])) };
+  return { conclusion: checked.conclusion.failures, account: checked.account?.failures ?? [], ...Object.fromEntries([...checked.findings].map(([id, part]) => [`finding ${id}`, part.failures])) };
 };
 const withFinding = (change: (finding: NonNullable<WriterOutput['findings'][number]['explanation']>) => void): WriterOutput => {
   const answer = goodAnswer();
@@ -256,11 +256,11 @@ describe('the merge of a first and a second answer (R19)', () => {
     const second = goodAnswer();
     second.conclusion.why = 'The second conclusion.';
     second.account.problem.text = 'REFUTED';
-    const merged = mergeAnswers([check(first), check(second)], ['RIPPLE-1']);
+    const merged = mergeAnswers(1, [check(first), check(second)], ['RIPPLE-1']);
     assert.deepEqual(merged.dropped, []);
     assert.equal(merged.answer.conclusion?.why, first.conclusion.why, 'the conclusion that passed the first time is kept');
     assert.deepEqual(merged.answer.account, first.account, 'the account the second answer broke is the first one\'s');
-    assert.deepEqual(merged.answer.findings, [{ id: 'RIPPLE-1', unexplained: false, ...second.findings[0]!.explanation! }], 'the finding the first answer failed is the second one\'s');
+    assert.deepEqual(merged.answer.findings, [{ id: 'RIPPLE-1', unexplained: false, ...second.findings[0]!.explanation!, checked: null, kind: null }], 'the finding the first answer failed is the second one\'s');
   });
 
   it('drops a part that fails again, with the second answer\'s failures and any extra reason, and keeps every part that passed once', () => {
@@ -271,16 +271,16 @@ describe('the merge of a first and a second answer (R19)', () => {
     second.account.change.text = 'CONFIRMED';
     second.findings[0]!.explanation!.cases[0]!.lines.from = 40;
     second.findings[0]!.explanation!.cases[0]!.lines.to = 41;
-    const merged = mergeAnswers([check(first), check(second)], ['RIPPLE-1'], ['the run budget stopped the writer']);
+    const merged = mergeAnswers(1, [check(first), check(second)], ['RIPPLE-1'], ['the run budget stopped the writer']);
     assert.deepEqual(merged.dropped, [
       { part: 'account', failures: ['the account holds the verdict CONFIRMED, which the engine writes beside the finding', 'the run budget stopped the writer'] },
       { part: 'finding', finding: 'RIPPLE-1', failures: ['case 1 of RIPPLE-1 cites src/a.ts:40-41, which has 12 lines at the head', 'the run budget stopped the writer'] },
     ]);
-    assert.deepEqual(merged.answer, { conclusion: first.conclusion, account: null, findings: [] });
+    assert.deepEqual(merged.answer, { conclusion: first.conclusion, account: null, areas: null, refuted: null, findings: [] });
   });
 
   it('drops every part, each with the reason, when no answer came', () => {
-    assert.deepEqual(mergeAnswers([], ['RIPPLE-1', 'SWEEP-1'], ['2 attempts did not complete']).dropped.map((part) => [part.part, part.part === 'finding' ? part.finding : null, part.failures]), [
+    assert.deepEqual(mergeAnswers(1, [], ['RIPPLE-1', 'SWEEP-1'], ['2 attempts did not complete']).dropped.map((part) => [part.part, part.part === 'finding' ? part.finding : null, part.failures]), [
       ['conclusion', null, ['2 attempts did not complete']],
       ['account', null, ['2 attempts did not complete']],
       ['finding', 'RIPPLE-1', ['2 attempts did not complete']],
@@ -392,11 +392,16 @@ const writerUnit = { phase: 'explanation', key: 'explanation', role: 'writer' } 
 const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt, logged: string[] = []): NewEvent[] =>
   contributionOf(writerUnit, answer, { state: history.fold(), worktree: fixture.repo, evidence: fixture.evidence, match: () => { throw new Error('the writer compares no file'); }, claims: null, survey: () => { throw new Error('the writer has no survey'); }, claimsLost: false, log: (line) => logged.push(line) });
 
-/** The explanation an event records, held to its schema. */
-const recorded = (event: NewEvent | undefined): ExplanationRecordedV1 => {
+/** The explanation an event records, held to the schema of its version, as the fold holds it. */
+const recorded = (event: NewEvent | undefined): ExplanationRecorded => {
   assert.equal(event?.kind, 'explanation.recorded', JSON.stringify(event));
-  return explanationRecordedV1.parse(event.payload);
+  if (event.version === 2) return { ...explanationRecordedV2.parse(event.payload), version: 2 };
+  assert.equal(event.version, 1);
+  return { ...explanationRecordedV1.parse(event.payload), version: 1 };
 };
+
+/** The payload an explanation was recorded with, as the ledger holds it, without the version the fold adds. */
+const payloadOf = ({ version: _version, ...payload }: ExplanationRecorded): Omit<ExplanationRecorded, 'version'> => payload;
 
 /** The history after a writer, `n`, answered `answer` and its attempt failed the checks. */
 const failedOnce = (history: History, fixture: Fixture, answer: WriterOutput, n = 61): History =>
@@ -455,7 +460,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const answer = recordedAnswerOf(explanation, fixture.evidence);
     assert.deepEqual(answer?.conclusion, goodAnswer().conclusion);
     assert.deepEqual(answer?.findings.map((finding) => [finding.id, finding.unexplained]), [['RIPPLE-1', false]]);
-    const after = decided(fixture).start('explanation').worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodAnswer())) }).add('explanation.recorded', explanation);
+    const after = decided(fixture).start('explanation').worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodAnswer())) }).add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'completed', blocker: null }, 'an explanation no part of which was dropped does not degrade the phase');
   });
 
@@ -500,7 +505,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     // A case on removed code cites the merge base, which holds it.
     const removed = goodAnswer();
     removed.findings[0]!.explanation!.cases[0]!.lines = { side: 'base', path: 'src/gone.ts', from: 1, to: 3 };
-    const after = history.worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(second)) }).add('explanation.recorded', explanation);
+    const after = history.worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(second)) }).add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 'a part dropped degrades the phase');
     assert.deepEqual(recorded(contribution(history, fixture, receipt(removed))[0]).dropped, []);
   });
@@ -528,7 +533,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.equal(explanation.workerId, null, 'the phase degraded without an answer that completed it');
     assert.deepEqual(explanation.dropped, [{ part: 'account', failures: ['the account says no problem before the change', reason] }]);
     assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence)?.findings.map((finding) => finding.id), ['RIPPLE-1']);
-    const after = history.add('explanation.recorded', explanation);
+    const after = history.add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null });
     assert.deepEqual(nextStep(after.finish('explanation', 'degraded').review(), idle), { kind: 'start-phase', phase: 'report', attempt: 1 }, 'the run writes its report');
   });
@@ -542,7 +547,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.equal(explanation.answer, null);
     assert.deepEqual(explanation.dropped.map((part) => (part.part === 'finding' ? `finding ${part.finding}` : part.part)), ['conclusion', 'account', 'finding RIPPLE-1']);
     for (const part of explanation.dropped) assert.deepEqual(part.failures, [reason]);
-    const after = history.add('explanation.recorded', explanation);
+    const after = history.add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), { ...idle, spend: counted(runBudgetUsd) }), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null });
     assert.deepEqual(after.review().fix, null, 'no fix state, so no unit is left not attempted for the budget');
   });
@@ -623,5 +628,189 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.equal(codex.shell, true, 'a runtime that gives every worker a shell');
     assert.equal(codex.access, 'read-only', 'the read-only sandbox of a verifier');
     assert.throws(() => invocationFor(writerUnit, context(null)), /The writer is launched with the machine its task is cleaned of/);
+  });
+});
+
+/** An answer in the form of the review that reads as a report that passes every check: RIPPLE-1, major, in an area, SWEEP-1 minor with a kind, and a line for SCAN-1, refuted. */
+function goodReport(ids: readonly string[] = ['RIPPLE-1', 'SWEEP-1']): WriterOutputV2 {
+  const first = goodAnswer(ids);
+  return {
+    conclusion: first.conclusion,
+    areas: [{ title: 'A caller that passes an empty file meets a crash', intro: 'parse() reads the value an empty file gives before any guard.', diagram: 'flowchart LR\n  A["empty file"] --> B["crash"]', findings: ids.filter((id) => id === 'RIPPLE-1') }],
+    findings: first.findings.map((entry) => ({ ...entry, explanation: { ...entry.explanation!, checked: 'The verifier traced an empty file from the caller to the read on line 4.', kind: entry.id === 'RIPPLE-1' ? null : 'code' } })),
+    refuted: [{ id: 'SCAN-1', claim: 'parse() never closes the file it opens.', why: 'The caller closes it on the next line.' }],
+  };
+}
+
+/** What the run of these tests holds an answer of version 2 to: RIPPLE-1 major, SWEEP-1 minor, SCAN-1 refuted. */
+const report = { major: ['RIPPLE-1'], refuted: ['SCAN-1'] };
+const checkReport = (output: WriterOutputV2, ids: readonly string[] = ['RIPPLE-1', 'SWEEP-1']) => checkAnswer(output, { ids, lineCount: fakeLines, report });
+/** The failures of every part of a checked answer of version 2, by part. */
+const reportFailures = (output: WriterOutputV2): Record<string, readonly string[]> => {
+  const checked = checkReport(output);
+  assert.equal(checked.account, null, 'an answer of version 2 has no account');
+  return { conclusion: checked.conclusion.failures, areas: checked.areas!.failures, refuted: checked.refuted!.failures, ...Object.fromEntries([...checked.findings].map(([id, part]) => [`finding ${id}`, part.failures])) };
+};
+
+// R4, R10, R11, R13, TD2 of the review that reads as a report.
+describe('the checks of the writer\'s answer in the form of the review that reads as a report', () => {
+  it('passes an answer whose every part keeps the rules, and keeps how each finding was checked and its kind', () => {
+    for (const [part, failures] of Object.entries(reportFailures(goodReport()))) assert.deepEqual(failures, [], part);
+    const sweep = checkReport(goodReport()).findings.get('SWEEP-1')?.value;
+    assert.ok(sweep !== null && sweep !== undefined && !sweep.unexplained);
+    assert.deepEqual([sweep.checked, sweep.kind], ['The verifier traced an empty file from the caller to the read on line 4.', 'code']);
+  });
+
+  it('refuses areas that leave a major finding out, put it in two, hold a minor finding or an id of no finding, or say nothing', () => {
+    const answer = (areas: WriterOutputV2['areas']): WriterOutputV2 => ({ ...goodReport(), areas });
+    const area = (findings: string[], change: Partial<WriterOutputV2['areas'][number]> = {}): WriterOutputV2['areas'][number] => ({ title: 'A caller meets a crash', intro: 'One sentence.', diagram: null, findings, ...change });
+    assert.deepEqual(reportFailures(answer([])).areas, ['the areas leave out RIPPLE-1, a major finding that asks a person to act']);
+    assert.deepEqual(reportFailures(answer([area(['RIPPLE-1']), area(['RIPPLE-1'])])).areas, ['RIPPLE-1 is in 2 areas, and a finding is in one']);
+    assert.deepEqual(reportFailures(answer([area(['RIPPLE-1', 'SWEEP-1', 'NOPE-9'])])).areas, ['the areas name SWEEP-1, a minor finding, which no area holds', 'the areas name "NOPE-9", which is no major finding of the run that asks a person to act']);
+    assert.deepEqual(reportFailures(answer([area(['RIPPLE-1'], { title: ' ', intro: '' }), area([])])).areas, ['area 1 has no title', 'area 1 has no intro', 'area 2 names no finding']);
+    assert.deepEqual(reportFailures(answer([area(['RIPPLE-1'], { intro: 'It is CONFIRMED.', diagram: 'pie\n  "a" : 1' })])).areas, [
+      'area 1 holds the verdict CONFIRMED, which the engine writes beside the finding',
+      'the diagram of area 1 is no diagram GitHub draws: it starts with "pie", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws',
+    ]);
+    assert.deepEqual(checkAnswer({ ...goodReport(['SWEEP-1']), areas: [] }, { ids: ['SWEEP-1'], lineCount: fakeLines, report: { major: [], refuted: ['SCAN-1'] } }).areas?.failures, [], 'a run with no major finding to explain has no area');
+  });
+
+  it('refuses refuted lines that leave a refuted candidate out, give it two, name another id, or say nothing', () => {
+    const answer = (refuted: WriterOutputV2['refuted']): WriterOutputV2 => ({ ...goodReport(), refuted });
+    const line = goodReport().refuted[0]!;
+    assert.deepEqual(reportFailures(answer([])).refuted, ['the refuted lines have no line for SCAN-1']);
+    assert.deepEqual(reportFailures(answer([line, line, { ...line, id: 'RIPPLE-1' }])).refuted, ['the refuted lines have 2 lines for SCAN-1, and a candidate has one', 'the refuted lines name "RIPPLE-1", which is no refuted candidate of the run']);
+    assert.deepEqual(reportFailures(answer([{ ...line, claim: '', why: 'It was REFUTED.' }])).refuted, ['the refuted line for SCAN-1 says no claim', 'the refuted line for SCAN-1 holds the verdict REFUTED, which the engine writes beside the finding']);
+  });
+
+  it('refuses a minor finding with no kind, a major one with a kind, and an explanation that says nothing of how it was checked or holds a verdict there', () => {
+    const answer = goodReport();
+    answer.findings[0]!.explanation!.kind = 'user';
+    answer.findings[1]!.explanation!.kind = null;
+    answer.findings[1]!.explanation!.checked = ' ';
+    const failures = reportFailures(answer);
+    assert.deepEqual(failures['finding RIPPLE-1'], ['RIPPLE-1 is a major finding and has the kind user, which only a minor finding has']);
+    assert.deepEqual(failures['finding SWEEP-1'], ['SWEEP-1 says nothing of how its verifier checked it', 'SWEEP-1 is a minor finding and has no kind']);
+    const verdict = goodReport();
+    verdict.findings[0]!.explanation!.checked = 'The run left it PLAUSIBLE.';
+    assert.deepEqual(reportFailures(verdict)['finding RIPPLE-1'], ['the explanation of RIPPLE-1 holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
+  });
+
+  it('drops the areas or the refuted lines that fail twice, alone, and every part when no answer came', () => {
+    const first = goodReport();
+    first.areas = [];
+    const second = goodReport();
+    second.areas = [];
+    second.refuted = [];
+    const merged = mergeAnswers(2, [checkReport(first), checkReport(second)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(merged.dropped, [{ part: 'areas', failures: ['the areas leave out RIPPLE-1, a major finding that asks a person to act'] }]);
+    assert.deepEqual([merged.answer.areas, merged.answer.refuted, merged.answer.account], [null, first.refuted, null], 'the refuted lines the first answer passed are kept');
+    assert.deepEqual(mergeAnswers(2, [], ['RIPPLE-1'], ['the run budget stopped the writer']).dropped.map((part) => (part.part === 'finding' ? `finding ${part.finding}` : part.part)), ['conclusion', 'areas', 'refuted', 'finding RIPPLE-1']);
+  });
+});
+
+describe('the explanation phase of a run whose review reads as a report (R4, R10, R11, R13, TD2)', () => {
+  let directory = '';
+  let fixture: Fixture;
+  before(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-report-form-')));
+    const repo = createRepository(join(directory, 'repo'));
+    write(repo, 'src/a.ts', numbered(10));
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(12));
+    const head = commitAll(repo, 'head');
+    fixture = { repo, base, head, evidence: new EvidenceStore(join(directory, 'evidence')) };
+  });
+  after(() => rmSync(directory, { recursive: true, force: true }));
+
+  /**
+   * A decided run of a pull request configured at version 11: SCAN-1 is no
+   * longer merged into RIPPLE-1 but verified on its own and refuted;
+   * RIPPLE-1's verifier leaves the author a choice; SWEEP-1 asks.
+   */
+  const reporting = (): History => {
+    const verified = new History();
+    for (const event of decided(fixture, askDecision('SWEEP-1', true)).events) {
+      const payload = event.payload as { phase?: string; verdicts?: Record<string, unknown>[] };
+      if (event.kind === 'deduplication.recorded' && payload.phase === 'deduplication') verified.add(event.kind, { ...payload, groups: [] }, event.version);
+      else if (event.kind === 'verification.planned' && payload.phase === 'verification') verified.add(event.kind, { ...payload, groups: [{ id: 'g1', candidateIds: ['RIPPLE-1', 'SCAN-1'] }] }, event.version);
+      else if (event.kind === 'verdicts.recorded') verified.add(event.kind, { ...payload, verdicts: [...payload.verdicts!, { id: 'SCAN-1', verdict: 'REFUTED', evidence: 'the caller at /home/me/x.ts closes it first', basis: 'read', runs: [] }] }, event.version);
+      else verified.add(event.kind, event.payload, event.version);
+    }
+    return withReportForm(verified, (verdict) => ({ unconfirmed: null, authorChoice: verdict.id === 'RIPPLE-1' ? 'return null for an empty file, or throw a named error' : null }));
+  };
+  const input = (): WriterTaskInput => ({ worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
+
+  it('asks for the areas, the kinds and the refuted lines, gives the refuted candidates and the notes of each verdict, and asks for no account', () => {
+    const task = writerTask(reporting().start('explanation').fold(), input());
+    assert.match(task, /^Explain these 2 findings, each by its id, [^\n]*: RIPPLE-1, SWEEP-1\./m);
+    assert.match(task, /^Put each of these 1 major finding in exactly one area of `areas`, and no other finding in any: RIPPLE-1\.$/m);
+    assert.match(task, /^Give each of these 1 minor finding a `kind`, and every other finding none: SWEEP-1\.$/m);
+    assert.match(task, /^Give one line in `refuted` for each of these 1 refuted candidate, by its id, and for no other: SCAN-1\.$/m);
+    assert.match(task, /^#### 1\. RIPPLE-1: explain it, in an area$/m);
+    assert.match(task, /^#### 2\. SWEEP-1: explain it, with a kind$/m);
+    assert.match(task, /^ {8}the choice its verifier leaves to the author: return null for an empty file, or throw a named error$/m);
+    assert.match(task, /^### The refuted candidates\n\nThe 1 candidate the verifiers refuted, [^\n]*\n\n {4}- SCAN-1 \(SCAN\) at [^\n]*: REFUTED\n {8}summary: [^\n]*\n {8}detail: [^\n]*\n {8}evidence: the caller at \\<local path> closes it first$/m, 'the evidence of a refuted candidate, cleaned');
+    assert.match(task, /^Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them\.$/m);
+    assert.doesNotMatch(task, /`account`/);
+    const older = writerTask(decided(fixture).start('explanation').fold(), input());
+    assert.match(older, /^Return `conclusion`, `account` and `findings`\. /m, 'a run configured at version 10 keeps its answer, which has the account');
+    assert.doesNotMatch(older, /`areas`|### The refuted candidates/);
+  });
+
+  it('gives the note of a PLAUSIBLE verdict that is not settled', () => {
+    const plausible = new History();
+    for (const event of reporting().events) {
+      const payload = event.payload as { verdicts?: Record<string, unknown>[] };
+      plausible.add(event.kind, event.kind === 'verdicts.recorded' ? { ...payload, verdicts: payload.verdicts!.map((verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, verdict: 'PLAUSIBLE', unconfirmed: { kind: 'fact', text: 'whether a caller passes an empty file' } } : verdict)) } : event.payload, event.version);
+    }
+    assert.match(writerTask(plausible.start('explanation').fold(), input()), /^ {8}not CONFIRMED, a fact not settled: whether a caller passes an empty file$/m);
+  });
+
+  it('answers in the schema of the second form, and records the answer at version 2, frozen as the form reads it', () => {
+    const history = reporting().start('explanation');
+    const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+    const context: PhaseContext = {
+      state: history.fold(), worktree: fixture.repo, roles,
+      configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 1_800_000 })) },
+      scopeBlock: () => '## Scope', survey: () => { throw new Error('no survey'); }, commitMessages: () => { throw new Error('no commit message'); }, evidence: fixture.evidence,
+      newScratch: () => { throw new Error('the writer has no scratch'); }, snapshotCommand: () => 'snapshot', unelevatedEditors: false, readerScratch: true,
+      claims: { directoryOf: () => '/claims', command: () => 'claim', live: () => null, caseInsensitive: () => false }, documentation: () => ({ patches: [], exclude: [] }),
+      writer: () => ({ machine: machine(fixture.repo), withholdShell: true }),
+    };
+    assert.equal(invocationFor(writerUnit, context).outputSchema, writerOutputSchemaV2);
+    const [event] = contribution(history, fixture, receipt(goodReport()));
+    assert.deepEqual([event?.kind, event?.version], ['explanation.recorded', 2]);
+    const explanation = recorded(event);
+    assert.deepEqual(explanation.dropped, []);
+    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    assert.deepEqual([answer?.account, answer?.areas, answer?.refuted], [null, goodReport().areas, goodReport().refuted]);
+    const checked = 'The verifier traced an empty file from the caller to the read on line 4.';
+    assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.id, finding.checked, finding.kind])), [['RIPPLE-1', checked, null], ['SWEEP-1', checked, 'code']]);
+    const after = history.worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodReport())) }).add('explanation.recorded', payloadOf(explanation), explanation.version);
+    assert.equal(after.fold().explanation?.version, 2);
+  });
+
+  it('refuses an answer whose areas fail on the first attempt, and drops them alone on the last, recorded at version 2', () => {
+    const bad = goodReport();
+    bad.areas = [];
+    const history = reporting().start('explanation');
+    const [failure] = contribution(history, fixture, receipt(bad));
+    assert.equal(failure?.kind, 'attempt.failed');
+    assert.match((failure?.payload as { reason: string }).reason, /^structural check: the answer fails the engine's checks: areas: the areas leave out RIPPLE-1, a major finding that asks a person to act$/);
+    const retried = failedOnce(history, fixture, bad as unknown as WriterOutput);
+    assert.match(writerTask(retried.fold(), input()), /^- areas: the areas leave out RIPPLE-1, a major finding that asks a person to act$/m);
+    const explanation = recorded(contribution(retried, fixture, receipt(bad))[0]);
+    assert.equal(explanation.version, 2);
+    assert.deepEqual(explanation.dropped, [{ part: 'areas', failures: ['the areas leave out RIPPLE-1, a major finding that asks a person to act'] }]);
+    assert.equal(recordedAnswerOf(explanation, fixture.evidence)?.areas, null);
+  });
+
+  it('reads an answer of version 1 with no areas, no refuted lines, and no note on a finding', () => {
+    const v1 = recorded(contribution(decided(fixture).start('explanation'), fixture, receipt(goodAnswer()))[0]);
+    assert.equal(v1.version, 1);
+    const answer = recordedAnswerOf(v1, fixture.evidence);
+    assert.deepEqual([answer?.areas, answer?.refuted, answer?.account], [null, null, goodAnswer().account]);
+    assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.checked, finding.kind])), [[null, null]]);
   });
 });

@@ -28,7 +28,7 @@ const namedByRecordV2 = (name: SettingName): name is RecordedNameV2 => (recorded
 /** The settings version 2 of the record adds, which only a read-only run of a pull request records (R15, R20 of the review on the pull request). */
 const recordV2Names: readonly SettingName[] = ['review.language', 'github.executable', 'github.args'];
 
-/** The version of the record of the settings a configuration holds: 2 at `review.configured@10`, which records the language of the review, else 1. */
+/** The version of the record of the settings a configuration holds: 2 at `review.configured@10` and 11, which record the language of the review, else 1. */
 export const settingsRecordVersion = (configuration: Pick<ReviewConfiguration, 'settings'>): 1 | 2 => (configuration.settings !== null && 'review.language' in configuration.settings.values ? 2 : 1);
 
 /** A setting as a run recorded it: its value, and its layer, or null for a run configured before the settings existed, whose values came from the defaults or its flags, which the ledger does not tell apart. */
