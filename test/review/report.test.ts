@@ -170,7 +170,7 @@ describe('renderReport', () => {
         candidates: {
           ...review.candidates,
           'SWEEP-1': { ...review.candidates['SWEEP-1']!, rawFile: 'C:\\x.ts\n## Heading from a path' },
-          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted <stdin>\n# Heading', verdict: { verdict: 'REFUTED' as const, evidence: 'line 3 *x*\n\n## is a comment', basis: null, runs: [] }, duplicateOf: null },
+          'SCAN-1': { ...review.candidates['SCAN-1']!, summary: 'refuted <stdin>\n# Heading', verdict: { unconfirmed: null, authorChoice: null, verdict: 'REFUTED' as const, evidence: 'line 3 *x*\n\n## is a comment', basis: null, runs: [] }, duplicateOf: null },
         },
         anglesNotRun: { FOOTGUNS: 'timeout\n## Limitation heading' },
         unverifiedGroups: { ...review.unverifiedGroups, 'sweep-verification': { g1: 'failed\n# Group heading' } },
@@ -546,7 +546,7 @@ describe('the runs on the record in the report', () => {
   it('shows a merged finding with the runs of the candidate whose evidence it shows', () => {
     const state = cited(ran);
     const review = state.review!;
-    const member = { ...review.candidates['SWEEP-2']!, unverified: false, verdict: { verdict: 'PLAUSIBLE' as const, evidence: 'Not CONFIRMED: one caller', basis: 'ran' as const, runs: [verdictRun(9) as unknown as VerdictRun] } };
+    const member = { ...review.candidates['SWEEP-2']!, unverified: false, verdict: { unconfirmed: null, authorChoice: null, verdict: 'PLAUSIBLE' as const, evidence: 'Not CONFIRMED: one caller', basis: 'ran' as const, runs: [verdictRun(9) as unknown as VerdictRun] } };
     const report = render({ ...state, review: { ...review, candidates: { ...review.candidates, 'SWEEP-2': member } } });
     assert.match(report, /^- Shell run 3 of its record/m);
     assert.doesNotMatch(report, /Shell run 9/, 'the PLAUSIBLE member\'s run stays with its evidence, which the CONFIRMED finding does not show');
@@ -555,7 +555,7 @@ describe('the runs on the record in the report', () => {
   it('gives a refuted candidate\'s basis and runs under its evidence in Refuted at verification', () => {
     const state = cited();
     const review = state.review!;
-    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2) as unknown as VerdictRun] } };
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { unconfirmed: null, authorChoice: null, verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2) as unknown as VerdictRun] } };
     const report = render({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } });
     assert.match(report, /^- SCAN-1 \(SCAN\) [^\n]+\n {2}Evidence: the caller checks first\n {2}How the verifier established it: it ran code\.\n {2}Shell run 2 of its record printed "TypeError: Cannot read properties of null", exit 1\. The verifier gives its command as node probe-1\.mjs\. The probe is artifacts\/9{64}, named probe-1\.mjs\.$/m);
   });
@@ -590,7 +590,7 @@ describe('the runs on the record in the report', () => {
     for (const [n, scratch] of [[90, verifier], [91, fixer]] as const) history.add('worker.launched', { ...launch(worker(n), 'a worker'), scratch }).add('worker.finished', finish(worker(n)));
     const state = history.fold();
     const review = state.review!;
-    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2, { command: `node ${fixer}\\p.mjs`, printed: ['ok'], probe: null }) as unknown as VerdictRun] } };
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { unconfirmed: null, authorChoice: null, verdict: 'REFUTED' as const, evidence: 'the caller checks first', basis: 'ran' as const, runs: [verdictRun(2, { command: `node ${fixer}\\p.mjs`, printed: ['ok'], probe: null }) as unknown as VerdictRun] } };
     const report = render(validated({ ...state, review: { ...review, candidates: { ...review.candidates, 'SCAN-1': refutedOne } } }, [{ command: `node ${verifier}`, printed: ['passes'], probe: null, found: null }]));
     assert.match(report, new RegExp(`^- Shell run 3 of its record printed "wrote \\\\<scratch>/out\\.txt" / "kept \\\\<scratch>/${worker(90)}-old/p\\.mjs" / "at file://\\\\<scratch>/p\\.mjs:3", exit 1\\. The verifier gives its command as node \\\\<scratch>/p\\.mjs\\.`, 'm'));
     assert.match(report, /^ {2}Shell run 2 of its record printed "ok", exit 1\. The verifier gives its command as node \\<scratch>\\p\.mjs\.$/m);
@@ -613,7 +613,7 @@ describe('the runs on the record in the report', () => {
     const state = validated(history.fold(), [], `the probe ${directory}/p.mjs passes`);
     const review = state.review!;
     const candidates = Object.fromEntries(Object.entries(review.candidates).map(([id, candidate]) => [id, candidate.verdict === null ? candidate : { ...candidate, verdict: { ...candidate.verdict, evidence: `the probe ${directory}/p.mjs threw` } }]));
-    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { verdict: 'REFUTED' as const, evidence: `\`node ${directory}/q.mjs\` printed 0`, basis: 'read' as const, runs: [] } };
+    const refutedOne = { ...review.candidates['SCAN-1']!, duplicateOf: null, verdict: { unconfirmed: null, authorChoice: null, verdict: 'REFUTED' as const, evidence: `\`node ${directory}/q.mjs\` printed 0`, basis: 'read' as const, runs: [] } };
     const fix = review.fix!;
     const answer = fix.answers.fixes['c1-1']!;
     const findings = answer.findings.map((finding) => ({ ...finding, note: `copied the probe to ${directory}/RIPPLE-1/p.mjs`, corrections: [{ file: 'src/a.ts', anchor: 'parse', claim: 'at line 4', fact: 'at line 6', evidence: `ran ${directory}/p.mjs` }] }));

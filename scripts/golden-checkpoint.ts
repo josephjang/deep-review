@@ -2421,6 +2421,157 @@ try {
     review: { id: 2_400_000_001, url: 'https://github.com/fixture/changed/pull/42#pullrequestreview-2400000001' },
     comments: [{ finding: 'SCAN-1', comment: { id: 1_900_000_001, url: 'https://github.com/fixture/changed/pull/42#discussion_r1900000001' } }],
   });
+
+  // A read-only run of the same pull request whose review reads as a
+  // report (TD1, TD2 of the review that reads as a report): configured at
+  // version 11, its verifier records version 3 of its verdicts, one
+  // PLAUSIBLE with the choice that keeps it from CONFIRMED and the choice it
+  // leaves to the author, one CONFIRMED and one REFUTED; it ranks a major
+  // finding to fix and a minor one to ask about, and its writer answers
+  // once with an area, a kind for the minor finding and how each finding
+  // was checked; the explanation, at version 2, drops the refuted lines.
+  const reportRun = checkpoint.createRun({ worktree: '/fixture/report-form' });
+  const reported = new ReviewHistory(checkpoint, reportRun.id, checkpoint.append(reportRun.id, reportRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: { ...pullRequestScope, pullRequest: { ...pullRequestScope.pullRequest, body: null } } }]).lastSequence);
+  reported.add('review.configured', {
+    ...documentedConfiguration,
+    roles: [...documentedConfiguration.roles, { role: 'writer', model: 'opus', effort: 'high', budgetUsd: 8, timeoutMs: 1_800_000 }],
+    fix: false,
+    checks: null,
+    fixes: null,
+    settings: {
+      files: [],
+      repository: { state: 'absent', commit: fixScope.base, edited: false },
+      values: { 'review.base': null, 'scope.default': 'auto', 'scope.exclude': [], 'tools.path': [], 'review.language': 'en', 'github.executable': 'gh', 'github.args': [] },
+      layers: {
+        'review.base': 'default', 'review.language': 'default', 'scope.default': 'default', 'scope.exclude': 'default', 'tools.path': 'default', 'conventions.user_rules': 'default', 'budget.usd': 'default', 'run.concurrency': 'default',
+        'runtimes.claude.strong': 'default', 'runtimes.claude.fast': 'default', 'runtimes.claude.executable': 'default', 'runtimes.claude.args': 'default',
+        'github.executable': 'default', 'github.args': 'default',
+      },
+      notFollowed: [],
+      ignored: [],
+    },
+  }, 11);
+  reported.phaseV6('survey', () => {
+    reported.launch('f01', 'surveyor survey:survey');
+    reported.finishWorker('f01');
+    reported.add('survey.recorded', { workerId: reported.id('f01'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  reported.phaseV6('triage', () => {
+    reported.launch('f02', 'triage triage:SCAN');
+    reported.finishWorker('f02');
+    reported.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: reported.id('f02'), candidates: [reported.candidate('SCAN-1', 'SCAN', 1), reported.candidate('SCAN-2', 'SCAN', 1)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+  });
+  reported.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `f${String(10 + finderAngles.indexOf(angle))}`;
+      reported.launch(tag, `finder-${angle} finders:${angle}`);
+      reported.finishWorker(tag);
+      reported.add('candidates.recorded', { phase: 'finders', key: angle, workerId: reported.id(tag), candidates: angle === 'DESIGN' ? [reported.candidate('DESIGN-1', 'DESIGN', 1)] : [], leads: null, change: null }, 2);
+    }
+  });
+  reported.phaseV6('deduplication', () => {
+    reported.launch('f20', 'deduplication deduplication:deduplication');
+    reported.finishWorker('f20');
+    reported.add('deduplication.recorded', { phase: 'deduplication', workerId: reported.id('f20'), groups: [] });
+  });
+  reported.phaseV6('verification', () => {
+    reported.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'SCAN-1', 'SCAN-2'] }] });
+    reported.launch('f21', 'verifier verification:g1');
+    reported.finishWorker('f21');
+    reported.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: reported.id('f21'), verdicts: [
+      {
+        id: 'DESIGN-1', verdict: 'PLAUSIBLE', evidence: 'the two copies repeat the guard. Not CONFIRMED: whether callers may see the helper. Needs the author: export it or keep it private.', basis: 'read', runs: [],
+        unconfirmed: { kind: 'choice', text: 'the two copies are there, and whether the helper is part of the public interface remains' },
+        authorChoice: 'export the helper for callers, or keep it private to the module',
+      },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [], unconfirmed: null, authorChoice: null },
+      { id: 'SCAN-2', verdict: 'REFUTED', evidence: 'the caller checks the guard on the line before', basis: 'read', runs: [], unconfirmed: null, authorChoice: null },
+    ] }, 3);
+  });
+  reported.phaseV6('sweep', () => {
+    reported.launch('f30', 'sweep sweep:sweep');
+    reported.finishWorker('f30');
+    reported.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: reported.id('f30'), candidates: [], leads: null, change: null }, 2);
+  });
+  reported.phaseV6('sweep-deduplication', () => {});
+  reported.phaseV6('sweep-verification', () => reported.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  reported.phaseV6('merge-rank', () => {
+    reported.launch('f31', 'merge-rank merge-rank:merge-rank');
+    reported.finishWorker('f31');
+    reported.add('ranking.recorded', { workerId: reported.id('f31'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+    ] });
+  });
+  reported.phaseV6('decision', () => {
+    reported.launch('f32', 'decider decision:decision');
+    reported.finishWorker('f32');
+    reported.add('decisions.recorded', { workerId: reported.id('f32'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null },
+      {
+        id: 'DESIGN-1', decision: 'ask', grounds: 'nothing in the repository says whether the helper is public', fix: null, leave: null, departure: null,
+        ask: {
+          question: 'Should the extracted helper be exported?',
+          options: [
+            { option: 'keep the code as it is', cost: 'the two copies stay', rule: 'helpers stay inline until a third caller needs one', edits: false },
+            { option: 'extract a private helper', cost: 'one more function to read', rule: 'shared code moves to a private helper', edits: true },
+          ],
+          recommended: 1,
+          applied: 0,
+          searched: ['CONTRIBUTING.md'],
+        },
+      },
+    ] });
+  });
+  reported.add('phase.started', { phase: 'explanation', attempt: 1 }, 8);
+  reported.add('worktree.checked', { phase: 'explanation', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 9);
+  reported.launch('f40', 'writer explanation:explanation');
+  reported.finishWorker('f40');
+  const reportAnswer = {
+    conclusion: {
+      why: 'An empty input crashes changed(), so the pull request needs a guard before a merge.',
+      actions: [{ id: 'SCAN-1', sentence: 'deep-review would guard the null before changed() reads it.' }, { id: 'DESIGN-1', sentence: 'deep-review asks whether the helper is exported, and keeps the code as it is until someone answers.' }],
+      diagram: null,
+    },
+    areas: [{ title: 'An empty input crashes the caller of changed()', intro: 'A caller that passes an empty input meets a crash instead of an empty result.', diagram: 'flowchart LR\n  A["empty input"] --> B["changed() reads null"]', findings: ['SCAN-1'] }],
+    refuted: null,
+    findings: [
+      {
+        id: 'SCAN-1', unexplained: false,
+        title: 'An empty input crashes the caller of changed()',
+        problem: 'A caller that passes an empty input meets a crash.',
+        cases: [{ sentence: 'An empty input reaches the read on line 1.', lines: { side: 'head', path: 'src/changed.ts', from: 1, to: 1 } }],
+        diagram: null,
+        decision: 'deep-review would guard the null once, before changed() reads it.',
+        checked: 'The verifier traced an empty input from the caller to the read on line 1.',
+        kind: null,
+      },
+      {
+        id: 'DESIGN-1', unexplained: false,
+        title: 'A maintainer has two copies of the guard to keep in step',
+        problem: 'A maintainer who changes one copy of the guard can miss the other.',
+        cases: [{ sentence: 'The guard is written out again on line 1.', lines: { side: 'head', path: 'src/changed.ts', from: 1, to: 1 } }],
+        diagram: null,
+        decision: 'deep-review asks whether the helper is exported.',
+        checked: 'The verifier read both copies of the guard.',
+        kind: 'code',
+      },
+    ],
+  };
+  reported.add('explanation.recorded', {
+    workerId: reported.id('f40'),
+    answer: checkpoint.evidence.put(`${JSON.stringify(reportAnswer)}\n`),
+    dropped: [{ part: 'refuted', failures: ['the refuted lines have no line for SCAN-2'] }],
+    unexplained: [],
+  }, 2);
+  reported.add('phase.finished', { phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 9);
+  reported.phaseV6('report', () => {
+    reported.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run whose review reads as a report\n'),
+      statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(17), budgetApplied: true },
+      patches: [],
+    }, 8);
+  });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

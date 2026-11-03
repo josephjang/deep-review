@@ -447,12 +447,32 @@ export const verdictBasisWords: Readonly<Record<VerdictBasis, string>> = {
 
 /**
  * The parts of the writer's answer that the engine can drop when no
- * answer passes its checks (R18, R19 of the review on the pull request):
- * the conclusion, the account of the pull request, or the explanation of
- * one finding. A dropped part takes the ledger's own words.
+ * answer passes its checks (R18, R19 of the review on the pull request;
+ * R4, R11 of the review that reads as a report): the conclusion, the
+ * areas of the major findings, the lines of the refuted candidates, or
+ * the explanation of one finding. A dropped part takes the ledger's own
+ * words. A run configured before the review read as a report could drop
+ * the account of the pull request instead of the areas and the refuted
+ * lines, which `reviewVocabularyV11` keeps.
  */
-export const explanationParts = ['conclusion', 'account', 'finding'] as const;
+export const explanationParts = ['conclusion', 'areas', 'refuted', 'finding'] as const;
 export type ExplanationPart = (typeof explanationParts)[number];
+
+/**
+ * What keeps a PLAUSIBLE verdict from CONFIRMED, as its verifier names it
+ * (R7 of the review that reads as a report): a fact it could not settle
+ * here, or a choice that remains once the defect is there.
+ */
+export const unconfirmedKinds = ['fact', 'choice'] as const;
+export type UnconfirmedKind = (typeof unconfirmedKinds)[number];
+
+/**
+ * What a minor finding that asks a person to act is about, as the writer
+ * gives it (R13 of the review that reads as a report): what a user sees,
+ * or the code alone.
+ */
+export const findingKinds = ['user', 'code'] as const;
+export type FindingKind = (typeof findingKinds)[number];
 
 /**
  * Where a posted review puts a finding (R10, TD4 of the review on the
