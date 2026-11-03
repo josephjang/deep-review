@@ -104,6 +104,38 @@ function numberedCount(prompt: string): number {
 /** The words a verifier's task holds when its answer gives each verdict a basis and cites its runs (R2 of runs on the record). */
 const citingWords = 'Give each verdict a `basis`';
 
+/** The words a verifier's task holds when its answer gives each verdict its two notes (R7, R9 of the review that reads as a report). */
+const notesWords = 'Give each verdict `unconfirmed` and `authorChoice`';
+
+/** The words a writer's task ends with when it answers in the form of the review that reads as a report (TD2). */
+const reportFormWords = 'Return `conclusion`, `areas`, `findings` and `refuted`';
+
+/** The ids a writer's task lists after `pattern`, none when it lists none. */
+const listedIds = (prompt: string, pattern: RegExp): string[] => pattern.exec(prompt)?.[1]?.split(', ') ?? [];
+
+/**
+ * A writer's answer in the form of the review that reads as a report,
+ * from one scripted in the first form: no account; one area that holds
+ * every major finding the task lists, unless the script gives the areas;
+ * on each explanation one line of how it was checked and, for a minor
+ * finding the task lists, the kind `code`, unless the script gives them;
+ * and a line for each refuted candidate the task lists, unless the script
+ * gives the lines.
+ */
+function reportFormAnswer({ account: _account, ...rest }: Record<string, unknown>, prompt: string): Record<string, unknown> {
+  const major = listedIds(prompt, /^Put each of these \d+ major findings? in exactly one area of `areas`, and no other finding in any: (.+)\.$/m);
+  const minor = listedIds(prompt, /^Give each of these \d+ minor findings? a `kind`, and every other finding none: (.+)\.$/m);
+  const refuted = listedIds(prompt, /^Give one line in `refuted` for each of these \d+ refuted candidates?, by its id, and for no other: (.+)\.$/m);
+  const findings = (rest.findings as readonly { readonly id: string; readonly explanation: Record<string, unknown> | null }[]).map((entry) =>
+    entry.explanation === null || Object.hasOwn(entry.explanation, 'checked') ? entry : { ...entry, explanation: { ...entry.explanation, checked: `fake: the verifier read the lines of ${entry.id}.`, kind: minor.includes(entry.id) ? 'code' : null } });
+  return {
+    ...rest,
+    areas: rest.areas ?? (major.length === 0 ? [] : [{ title: 'fake: what goes wrong for a caller', intro: 'fake: the findings of one area.', diagram: null, findings: major }]),
+    findings,
+    refuted: rest.refuted ?? refuted.map((id) => ({ id, claim: `fake: the claim of ${id}.`, why: `fake: why ${id} was refuted.` })),
+  };
+}
+
 /** The scratch directory the prompt names, or null when it names none. */
 function scratchOf(prompt: string): string | null {
   return /^Your scratch directory is (.+)\. Write temporary files there/m.exec(prompt)?.[1] ?? null;
@@ -361,11 +393,19 @@ export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], p
  * `comparisons` only when it compares. Likewise a verifier of a run with
  * runs on the record gives each verdict a basis and its runs, so a
  * scripted verdict that names no basis is one that traced the lines and
- * cites no run.
+ * cites no run; and a verifier of a run whose review reads as a report
+ * gives each verdict its notes, so a scripted verdict that names none is
+ * PLAUSIBLE for a fact not settled, or has no note, and leaves the author
+ * no choice. A writer of such a run answers in its form
+ * (`reportFormAnswer`).
  */
 function answerFor(output: unknown, prompt: string): unknown {
   if (typeof output !== 'object' || output === null) return output;
-  if (prompt.includes(citingWords) && Object.hasOwn(output, 'verdicts')) return { ...output, verdicts: (output as { readonly verdicts: readonly object[] }).verdicts.map((verdict) => ('basis' in verdict ? verdict : { ...verdict, basis: 'traced', runs: [] })) };
+  if (prompt.includes(citingWords) && Object.hasOwn(output, 'verdicts')) {
+    const noted = (verdict: Record<string, unknown>): object => (!prompt.includes(notesWords) || 'unconfirmed' in verdict ? verdict : { ...verdict, unconfirmed: verdict.verdict === 'PLAUSIBLE' ? { kind: 'fact', text: 'fake: one condition is not settled here.' } : null, authorChoice: null });
+    return { ...output, verdicts: (output as { readonly verdicts: readonly Record<string, unknown>[] }).verdicts.map((verdict) => noted('basis' in verdict ? verdict : { ...verdict, basis: 'traced', runs: [] })) };
+  }
+  if (prompt.includes(reportFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return reportFormAnswer(output as Record<string, unknown>, prompt);
   if (!prompt.includes('Return `comparisons`') || Object.hasOwn(output, 'comparisons')) return output;
   return { ...output, comparisons: [] };
 }
