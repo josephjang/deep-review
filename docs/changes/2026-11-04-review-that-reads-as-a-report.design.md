@@ -164,4 +164,26 @@ Recorded in Verification.
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The work is in pull request #114, after the proposal, in two lanes and a last step. The ledger, the verifier and the writer came first: `review.configured@11`, `verdicts.recorded@3` and `explanation.recorded@2` with the golden fixture `schema-1-19`; the verifier's answer with its two fields; the writer's answer in the report form; and the two prompts, each in a commit of its own. The form came beside them, built from one view of the run whose newer parts it filled with the engine's words, with the language tables in English and Korean and the README. The last step read the newer parts into that view.
+
+### Changes of the proposal during the work
+
+The gate is the version of `review.configured`, as the features of earlier runs are: a read-only run of a pull request is configured at version 11, whose payload is version 10's, and only such a run asks for the verifier's two fields and the writer's report form. Every other run, and a run configured at version 10 that the new engine resumes, keeps the answers it had. The fold takes `verdicts.recorded@3` and `explanation.recorded@2` only in a run at version 11.
+
+The prompts of the verifier and the writer are shared by every run of their role. The rubric's new paragraph applies when the answer has the fields, and the task of a run at version 11 states the contract. A run at version 10 resumed inside its explanation gets the new writer prompt, which no longer defines the account, while its task and schema still ask for one; the task now defines the account itself. The risk is accepted: such a run exists only across the upgrade.
+
+The summary says that `--fix` applies the fixes and the answers in the clone of the person who ran the review, who pushes the result, since a fix run commits on the machine and posts nothing. The body calls a severity a worker's judgment, as no prompt defines major and minor. Each fix against a written rule is its own item of what needs a person, with the decider's rule. The single area of an older run takes no diagram, since the conclusion's diagram of the first writer names findings by their ids (#106). The line of a finding in an area names its fix as "Fix:" and the writer's sentence, instead of lowering its first word after "deep-review would", which read wrongly for a sentence that began with a phrase.
+
+The writer's answer keeps the conclusion's diagram, which the form no longer posts.
+
+### Checks
+
+At the head of the work, `npm run check` passed (3426 tests: 3413 passed, 0 failed, 13 skipped, against 3362 passed before the work), and `npm run test:contract` passed 104 of 104 at the head of the ledger lane.
+
+The form rendered the ledger of the read-only run that reviewed #96, run `b856cf6f`, cut to the events before its first post, through the engine at the head. The run is at version 10, so it took every fallback of R16. The body held 23,003 characters and the 29 comments 61,459, against 49,848 and 113,038 in the first post and 19,388 and 54,823 in the template; no id of a finding stood in the body, and no em dash, middle dot or ellipsis in either. The template's "89 files" was the count at an earlier head; the scope of the run holds 91, which the form gives.
+
+### The gate (R17)
+
+Not run yet. It needs a real read-only review of a pull request at version 11, in English and in Korean.
