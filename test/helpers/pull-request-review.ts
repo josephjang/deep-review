@@ -92,6 +92,11 @@ export const writerAnswer = (): WholeAnswer => ({
   ],
 });
 
+/** The writer's answer with one area for RIPPLE-1, the major fix, drawn by `diagram`. */
+export function answerWithArea(diagram: string | null): WholeAnswer {
+  return { ...writerAnswer(), areas: [{ title: 'Parsing an empty input', intro: 'What parse() does with an empty file.', diagram, findings: ['RIPPLE-1'] }] };
+}
+
 /** The machine of the histories here, whose worktree is `/w`. */
 export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };
 
