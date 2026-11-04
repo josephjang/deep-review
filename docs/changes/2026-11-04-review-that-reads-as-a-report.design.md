@@ -176,7 +176,7 @@ The prompts of the verifier and the writer are shared by every run of their role
 
 The summary says that `--fix` applies the fixes and the answers in the clone of the person who ran the review, who pushes the result, since a fix run commits on the machine and posts nothing. The body calls a severity a worker's judgment, as no prompt defines major and minor. Each fix against a written rule is its own item of what needs a person, with the decider's rule. The single area of an older run takes no diagram, since the conclusion's diagram of the first writer names findings by their ids (#106). The line of a finding in an area names its fix as "Fix:" and the writer's sentence, instead of lowering its first word after "deep-review would", which read wrongly for a sentence that began with a phrase.
 
-The writer's answer keeps the conclusion's diagram, which the form no longer posts.
+The writer's answer keeps the conclusion's diagram and each finding's `decision`, which the form no longer posts. An answer of version 2 is not checked on them, so neither drops a part whose posted words passed, and the prompt asks for the conclusion's diagram as null.
 
 ### Checks
 

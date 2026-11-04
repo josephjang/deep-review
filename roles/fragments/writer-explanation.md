@@ -15,7 +15,7 @@ recommends, in plain words. Give a sentence for each listed finding and
 for no other. The engine writes each action beside its finding's
 number, severity and verdict, in the rank of the findings, so the order
 you give them in is not kept and a sentence needs none of those words.
-Add a diagram of where the findings arise when it helps, else null.
+Give its `diagram` null: the review posts no diagram of the conclusion.
 
 **The areas** are for a reader who wants to know what the review found
 before reading any finding. Put each major finding your task lists in
@@ -46,9 +46,9 @@ lists, give its `id` and, in `explanation`:
   show it;
 - a `diagram` where the flow takes long to say, else null;
 - the `decision`: the fix the review decided, or the question it asks,
-  in plain words. The engine writes the decision itself, its options and
-  who answers, beside your words; yours say what it means for the
-  reader;
+  in plain words. The engine keeps your words with the answer and does
+  not post them: the review writes the decision itself, its options and
+  who answers;
 - `checked`, one line of what the verifier did and saw, from its
   evidence and its runs: what it fed and what it got back for a run, or
   what it traced or read. Name no path of the machine, such as a scratch
