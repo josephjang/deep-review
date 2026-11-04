@@ -727,12 +727,17 @@ type HeldVerdicts = Omit<VerdictsRecorded, 'verdicts'> & { readonly verdicts: re
 /** The version of `verdicts.recorded` a run records its verdicts at: 3 in a run configured at `review.configured@11`, 2 in one with runs on the record, and 1 before. */
 const verdictsVersionOf = (review: ReviewState): 1 | 2 | 3 => (review.reportForm ? 3 : review.citedRuns ? 2 : 1);
 
-/** Why a version of `verdicts.recorded` is not the one a run records, by the version it is. */
-const verdictsVersionWords: Readonly<Record<1 | 2 | 3, string>> = {
-  1: 'records verdicts without their bases and runs, which its configuration asks for',
-  2: 'records verdicts with their bases and runs, which a run configured before runs on the record does not',
-  3: 'records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review.configured@11 does',
-};
+/**
+ * Why the `given` version of `verdicts.recorded` is not the `expected` one
+ * a run records: a run configured at `review.configured@11` lacks the two
+ * notes in any older version, and every other run is told by the version
+ * given.
+ */
+function verdictsVersionWords(given: 1 | 2 | 3, expected: 1 | 2 | 3): string {
+  if (expected === 3) return `records verdicts at version ${String(given)}, which a run configured at review.configured@11 records at version 3, with why each is PLAUSIBLE and the choice left to the author`;
+  if (given === 3) return 'records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review.configured@11 does';
+  return given === 2 ? 'records verdicts with their bases and runs, which a run configured before runs on the record does not' : 'records verdicts without their bases and runs, which its configuration asks for';
+}
 
 /**
  * A verifier's verdicts, one per candidate of its group. A run records
@@ -749,7 +754,8 @@ const verdictsVersionWords: Readonly<Record<1 | 2 | 3, string>> = {
  */
 function recordVerdicts(state: RunState | undefined, payload: HeldVerdicts, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2 | 3): RunState {
   const { current, review } = requireReview(state, event);
-  if (verdictsVersionOf(review) !== version) throw invalid(event, verdictsVersionWords[version]);
+  const asked = verdictsVersionOf(review);
+  if (asked !== version) throw invalid(event, verdictsVersionWords(version, asked));
   requireRunning(review, event, payload.phase);
   const expected = requireOpenGroup(review, event, payload.phase, payload.groupId);
   const given = payload.verdicts.map((verdict) => verdict.id);
