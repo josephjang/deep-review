@@ -124,15 +124,18 @@ export interface ReportFinding {
  * The merged resolution of a finding: CONFIRMED when any candidate is, unverified only when every candidate is;
  * the evidence of the first candidate, primary first, that carries the merged verdict, so a CONFIRMED finding
  * never shows a PLAUSIBLE member's 'Not CONFIRMED' line and keeps the confirming member's narrowed claim.
- * Its basis, runs and notes are that same candidate's, so a finding never shows the evidence of one candidate with
- * the runs or the reason of another (R5 of runs on the record; R7 of the review that reads as a report).
+ * Its basis, runs and what keeps it from CONFIRMED are that same candidate's, so a finding never shows the evidence of
+ * one candidate with the runs or the reason of another (R5 of runs on the record; R7 of the review that reads as a report).
+ * The choice it leaves to the author is that candidate's or, when it names none, the first other candidate's, primary
+ * first, since it is shown beside no evidence and a question one verifier raised must still reach the author (R9).
  */
 export function mergedResolution(candidates: readonly CandidateState[]): Resolution {
   const resolutions = candidates.map(resolutionOf).filter((resolution): resolution is Resolution => resolution !== null);
   const verdict: Verdict = resolutions.some((resolution) => resolution.verdict === 'CONFIRMED') ? 'CONFIRMED' : 'PLAUSIBLE';
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
   const shown = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null);
-  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [], unconfirmed: shown?.unconfirmed ?? null, authorChoice: shown?.authorChoice ?? null };
+  const authorChoice = shown?.authorChoice ?? resolutions.find((resolution) => resolution.authorChoice !== null)?.authorChoice ?? null;
+  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [], unconfirmed: shown?.unconfirmed ?? null, authorChoice };
 }
 
 /** The number in a candidate id, for an order that puts `RIPPLE-2` before `RIPPLE-10`. */
