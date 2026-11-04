@@ -207,7 +207,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   });
 
   it('says how far to trust the review in counts, and what a model wrote', () => {
-    assert.equal(section(body, '### How far to trust this review'), '### How far to trust this review\n\n1 of the 2 findings is CONFIRMED and 1 PLAUSIBLE, 1 of them unverified; the major one is CONFIRMED. Across all 2, 1 was checked by tracing it, and 1 has no basis on record. The verifiers refuted 1 of 5 candidates, so the finders\' claims did not pass unchecked. A model wrote the explanations from the evidence beneath each finding, and only that evidence was verified.\n');
+    assert.equal(section(body, '### How far to trust this review'), '### How far to trust this review\n\n1 of the 2 findings is CONFIRMED and 1 PLAUSIBLE, 1 of them unverified; the major one is CONFIRMED. Across all 2, 1 was checked by tracing it, and 1 has no basis on record. The verifiers refuted 1 of 5 candidates, so the finders\' claims did not pass unchecked. A model wrote the explanations from the verifiers\' evidence, which the report of the run holds, and only that evidence was verified.\n');
   });
 
   it('links every piece of code at the reviewed head, or at the merge base for removed lines, and never into the diff', () => {

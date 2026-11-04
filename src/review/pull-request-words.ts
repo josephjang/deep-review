@@ -377,7 +377,7 @@ const english: PullRequestWords = {
     const major = counts.major === 0 ? '' : counts.major === 1 ? `; the major one is ${counts.majorConfirmed === 1 ? `CONFIRMED${counts.majorConfirmedRan === 1 ? ', reproduced by running it' : ''}` : 'PLAUSIBLE'}` : `; ${String(counts.majorConfirmed)} of the ${String(counts.major)} major ones ${counts.majorConfirmed === 1 ? 'is' : 'are'} CONFIRMED${ran}`;
     return `${String(counts.confirmed)} of the ${counted(counts.findings, 'finding', 'findings')} ${counts.confirmed === 1 ? 'is' : 'are'} CONFIRMED and ${String(counts.plausible)} PLAUSIBLE${unverified}${major}. Across all ${String(counts.findings)}, ${basesEnglish(counts)}. ${refuted}`;
   },
-  modelLine: 'A model wrote the explanations from the evidence beneath each finding, and only that evidence was verified.',
+  modelLine: 'A model wrote the explanations from the verifiers\' evidence, which the report of the run holds, and only that evidence was verified.',
   conclusionDropped: 'The writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.',
   areasDropped: 'The writer gave no areas that passed deep-review\'s checks, so the major findings are listed in one area in deep-review\'s own words.',
   refutedDropped: 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.',
@@ -556,7 +556,7 @@ const korean: PullRequestWords = {
     const major = counts.major === 0 ? '' : ` major ${String(counts.major)}건 중 ${String(counts.majorConfirmed)}건이 CONFIRMED입니다${counts.majorConfirmedRan === 0 ? '' : `. 그중 ${String(counts.majorConfirmedRan)}건은 실행해 재현했습니다`}.`;
     return `지적 사항 ${String(counts.findings)}건 중 ${String(counts.confirmed)}건이 CONFIRMED, ${String(counts.plausible)}건이 PLAUSIBLE입니다${unverified}.${major} 전체 ${String(counts.findings)}건 중 ${basesKorean(counts)} ${refuted}`;
   },
-  modelLine: '설명은 모델이 각 지적 사항 아래의 근거를 바탕으로 썼으며, 검증된 것은 그 근거뿐입니다.',
+  modelLine: '설명은 모델이 검증자의 근거를 바탕으로 썼으며, 그 근거는 실행 보고서에 있습니다. 검증된 것은 그 근거뿐입니다.',
   conclusionDropped: '설명 모델이 deep-review의 검사를 통과한 요약을 내지 못해, 요약과 조치는 deep-review가 직접 쓴 문장으로 적었습니다.',
   areasDropped: '설명 모델이 deep-review의 검사를 통과한 영역을 내지 못해, major 지적 사항은 deep-review가 직접 이름 붙인 한 영역에 모아 적었습니다.',
   refutedDropped: '설명 모델이 반박된 후보에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 각 후보는 찾는 작업자의 요약으로 적었습니다.',
