@@ -696,6 +696,26 @@ describe('the checks of the writer\'s answer in the form of the review that read
     assert.deepEqual(reportFailures(verdict)['finding RIPPLE-1'], ['the explanation of RIPPLE-1 holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
   });
 
+  it('keeps a conclusion and a finding whose posted words pass, whatever the conclusion\'s diagram and the decision say, which the form does not post', () => {
+    const answer = goodReport();
+    answer.conclusion.diagram = 'graph TD\n  A["CONFIRMED"] --> B';
+    answer.findings[0]!.explanation!.decision = ' ';
+    answer.findings[1]!.explanation!.decision = 'It is CONFIRMED, so fix it.';
+    for (const [part, failures] of Object.entries(reportFailures(answer))) assert.deepEqual(failures, [], part);
+    const merged = mergeAnswers(2, [checkReport(answer), checkReport(answer)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(merged.dropped, []);
+    assert.equal(merged.answer.conclusion?.why, answer.conclusion.why);
+    assert.deepEqual(merged.answer.findings.map((finding) => finding.id), ['RIPPLE-1', 'SWEEP-1']);
+    const older = goodAnswer();
+    older.conclusion.diagram = answer.conclusion.diagram;
+    older.findings[0]!.explanation!.decision = ' ';
+    assert.deepEqual(failuresOf(older), {
+      conclusion: ['the conclusion holds the verdict CONFIRMED, which the engine writes beside the finding', 'the conclusion\'s diagram is no diagram GitHub draws: it starts with "graph TD", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws'],
+      account: [],
+      'finding RIPPLE-1': ['RIPPLE-1 says nothing of its decision'],
+    }, 'an answer of version 1 keeps every check');
+  });
+
   it('drops the areas or the refuted lines that fail twice, alone, and every part when no answer came', () => {
     const first = goodReport();
     first.areas = [];

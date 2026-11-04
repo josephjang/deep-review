@@ -474,18 +474,24 @@ function linesFailures(what: string, lines: CitedLines, lineCount: AnswerCheckIn
   return [];
 }
 
-/** The conclusion checked: a why; a sentence for each finding to explain, by its id, and for no other; no verdict; and its diagram. */
-function checkConclusion(conclusion: Conclusion, ids: readonly string[]): string[] {
+/**
+ * The conclusion checked: a why; a sentence for each finding to explain,
+ * by its id, and for no other; no verdict; and, in an answer of version
+ * 1, its diagram. The form of the review that reads as a report posts no
+ * conclusion's diagram, so an answer of version 2 is not held to it.
+ */
+function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: AnswerVersion): string[] {
   const named = conclusion.actions.map((action) => action.id);
   const sentenceFor = (id: string): string => (named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : '');
+  const diagram = version === 1 ? conclusion.diagram : null;
   return [
     ...(blank(conclusion.why) ? ['the conclusion says no why'] : []),
     ...[...new Set(named)].filter((id) => !ids.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
     ...ids.map(sentenceFor).filter((failure) => failure !== ''),
     ...ids.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
     ...conclusion.actions.filter((action) => ids.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
-    ...verdictFailures('the conclusion', [conclusion.why, ...conclusion.actions.map((action) => action.sentence), conclusion.diagram ?? '']),
-    ...diagramFailuresOf('the conclusion\'s diagram', conclusion.diagram),
+    ...verdictFailures('the conclusion', [conclusion.why, ...conclusion.actions.map((action) => action.sentence), diagram ?? '']),
+    ...diagramFailuresOf('the conclusion\'s diagram', diagram),
   ];
 }
 
@@ -509,7 +515,9 @@ type FindingEntry = AnyWriterOutput['findings'][number];
  * for an explanation, its texts, at least one case, the lines of each, no
  * verdict, and its diagram. In an answer of version 2, `major` says
  * whether the finding is major: an explanation also says how its verifier
- * checked it, and has a kind exactly when the finding is minor.
+ * checked it, and has a kind exactly when the finding is minor; and its
+ * `decision`, which the form of the review that reads as a report does
+ * not post, is held to nothing.
  */
 function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: AnswerCheckInput['lineCount'], major: boolean | null): CheckedPart<FindingExplanation> {
   const refused = (failure: string): CheckedPart<FindingExplanation> => ({ value: null, failures: [failure] });
@@ -525,10 +533,11 @@ function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: A
   const { title, problem, cases, diagram, decision } = explanation!;
   const checked = 'checked' in explanation! ? explanation.checked : null;
   const kind = 'kind' in explanation! ? explanation.kind : null;
+  const checkedDecision = major === null ? decision : '';
   const failures = [
     ...(blank(title) ? [`${id} has no title`] : []),
     ...(blank(problem) ? [`${id} says no problem`] : []),
-    ...(blank(decision) ? [`${id} says nothing of its decision`] : []),
+    ...(major === null && blank(decision) ? [`${id} says nothing of its decision`] : []),
     ...(cases.length === 0 ? [`${id} has no case`] : []),
     ...cases.flatMap((cited, index) => {
       const what = `case ${String(index + 1)} of ${id}`;
@@ -537,7 +546,7 @@ function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: A
     ...(checked !== null && blank(checked) ? [`${id} says nothing of how its verifier checked it`] : []),
     ...(major === false && kind === null ? [`${id} is a minor finding and has no kind`] : []),
     ...(major === true && kind !== null ? [`${id} is a major finding and has the kind ${kind}, which only a minor finding has`] : []),
-    ...verdictFailures(`the explanation of ${id}`, [title, problem, decision, diagram ?? '', checked ?? '', ...cases.map((cited) => cited.sentence)]),
+    ...verdictFailures(`the explanation of ${id}`, [title, problem, checkedDecision, diagram ?? '', checked ?? '', ...cases.map((cited) => cited.sentence)]),
     ...diagramFailuresOf(`the diagram of ${id}`, diagram),
   ];
   return { value: { id, unexplained: false, title, problem, cases, diagram, decision, checked, kind }, failures };
@@ -603,7 +612,7 @@ export function checkAnswer(output: AnyWriterOutput, input: AnswerCheckInput): C
     if (of === undefined) strays.push(entry.id);
     else of.push(entry);
   }
-  const conclusion = { value: output.conclusion, failures: checkConclusion(output.conclusion, input.ids) };
+  const conclusion = { value: output.conclusion, failures: checkConclusion(output.conclusion, input.ids, 'account' in output ? 1 : 2) };
   if ('account' in output) {
     return { conclusion, account: { value: output.account, failures: checkAccount(output.account) }, areas: null, refuted: null, findings: new Map(input.ids.map((id) => [id, checkFinding(id, entries.get(id)!, input.lineCount, null)])), strays };
   }
