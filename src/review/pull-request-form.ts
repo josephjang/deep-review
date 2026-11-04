@@ -310,8 +310,8 @@ function fenced(diagram: string): string {
 /** Blocks of lines with one blank line between each two, an empty block left out. */
 const blocks = (...parts: readonly (readonly string[])[]): string[] => parts.filter((part) => part.length > 0).flatMap((part, index) => (index === 0 ? [...part] : ['', ...part]));
 
-/** A path from the root of the repository as a URL path, each name percent-encoded. */
-const urlPath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
+/** A path from the root of the repository as a URL path, each name percent-encoded, its parentheses too, so no `)` of a name closes the Markdown link the URL is put in. */
+const urlPath = (path: string): string => path.split('/').map((name) => encodeURIComponent(name).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
 
 /** The lines `from` to `to` of `path` at `commit`, as GitHub shows them in the repository of the pull request: a permalink, which no later push moves (R14). */
 function blobUrl(pullRequest: PullRequestFacts, commit: string, path: string, from: number, to: number): string {
