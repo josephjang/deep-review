@@ -548,10 +548,11 @@ function headingSection(view: FormView): Section {
   return { part: 'heading', lines: [words.heading, '', words.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 
-/** The summary (R1): the counts of the findings with the writer's sentence on the areas, then what deep-review decided and what happens next. */
+/** The summary (R1): the counts of the findings with the writer's sentence on the areas, left out when the checks dropped the writer's areas, which the body then does not show, then what deep-review decided and what happens next. */
 function summarySection(view: FormView, say: Speaker): Section {
   const { words, findings } = view;
-  const why = view.conclusion === null ? [] : say.paragraphs(view.conclusion.why);
+  const areasDropped = view.recorded?.dropped.some((part) => part.part === 'areas') ?? false;
+  const why = view.conclusion === null || areasDropped ? [] : say.paragraphs(view.conclusion.why);
   const decided = {
     fixes: findings.filter((finding) => finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule').length,
     questions: findings.filter((finding) => finding.finding.status === 'question').length,
