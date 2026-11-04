@@ -82,7 +82,7 @@ Both tables gain the keys of the new sections and lose those of the legend, the 
 
 ### An older run (R16)
 
-A run whose explanation is at version 1, or has none, is posted in the new form. The form puts its major acting findings in one area named by `words.findingsArea`; a minor finding with no kind is listed with the code; `checked` falls back to `words.basisSentence(basis)`; a refuted candidate falls back to its summary and `words.refutedInReport`; a verdict before version 3 has no `unconfirmed`, and `words.whyPlausible(null)` says the verifier gave no reason. The conclusion's sentences of version 1 serve as the actions. The account of version 1 is not posted.
+A run whose explanation is at version 1, or has none, is posted in the new form. The form puts its major acting findings in one area named by `words.findingsArea`; a minor finding with no kind is listed with the code; `checked` falls back to `words.basisSentence(basis)`; a refuted candidate falls back to its summary and `words.refutedInReport`; a verdict before version 3 has no `unconfirmed`, and `words.whyPlausible(null)` says that the verdict was recorded before verifiers gave their reason on its own and that the report of the run holds its evidence. The conclusion's sentences of version 1 serve as the actions. The account of version 1 is not posted.
 
 ### The golden fixture
 

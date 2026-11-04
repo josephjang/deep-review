@@ -110,7 +110,7 @@ The writer's title of a finding says what goes wrong for whom, not which code do
 
 ### R7: A `PLAUSIBLE` verdict says why
 
-The verifier gives, with each `PLAUSIBLE` verdict, whether a fact was not settled or a choice remains, and names it in one sentence. The review writes it beside the verdict: "Why PLAUSIBLE: one fact is not settled: ..." or "Why PLAUSIBLE: the defect is there, and a choice remains: ...". A verdict recorded before this change, with no such fact, says that the verifier gave no reason.
+The verifier gives, with each `PLAUSIBLE` verdict, whether a fact was not settled or a choice remains, and names it in one sentence. The review writes it beside the verdict: "Why PLAUSIBLE: one fact is not settled: ..." or "Why PLAUSIBLE: the defect is there, and a choice remains: ...". A verdict recorded before this change, with no such fact, says that it was recorded before verifiers gave their reason on its own, and that the report of the run holds its evidence, since most such verifiers gave a reason in the free text of their evidence.
 
 ### R8: A question and a departure say what stands
 
