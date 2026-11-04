@@ -845,7 +845,7 @@ const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, dr
  */
 function recordExplanation(state: RunState | undefined, payload: ExplanationRecordedV1 | ExplanationRecordedV2, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2): RunState {
   const { current, review } = requireReview(state, event);
-  if (!review.explanationStep) throw invalid(event, 'records an explanation, which only a run configured at review.configured@10 has');
+  if (!review.explanationStep) throw invalid(event, 'records an explanation, which only a run configured at review.configured@10 or later has');
   if (review.reportForm !== (version === 2)) throw invalid(event, version === 2 ? 'records an explanation at version 2, which only a run configured at review.configured@11 does' : 'records an explanation at version 1, which a run configured at review.configured@11 records at version 2');
   if (current.explanation !== null) throw invalid(event, 'records its explanation twice');
   requireRunning(review, event, 'explanation');

@@ -166,8 +166,8 @@ describe('explanation.recorded@1', () => {
     assert.equal(state.review!.phases.explanation.status, 'degraded');
   });
 
-  it('refuses one in a run not configured at version 10, a second one, one while its phase does not run, and one that names a finding the run did not rank', () => {
-    assert.throws(() => atVersion9().add('explanation.recorded', explanation(worker(60))).fold(), /records an explanation, which only a run configured at review\.configured@10 has/);
+  it('refuses one in a run configured before version 10, a second one, one while its phase does not run, and one that names a finding the run did not rank', () => {
+    assert.throws(() => atVersion9().add('explanation.recorded', explanation(worker(60))).fold(), /records an explanation, which only a run configured at review\.configured@10 or later has/);
     assert.throws(() => pullRequestReported((run) => run.worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60))).add('explanation.recorded', explanation(null))).fold(), /records its explanation twice/);
     assert.throws(() => pullRequestDecided().add('explanation.recorded', explanation(null)).fold(), /has explanation\.recorded for phase explanation while it is pending/);
     assert.throws(() => pullRequestReported().add('explanation.recorded', explanation(null)).fold(), /records its explanation twice/);
