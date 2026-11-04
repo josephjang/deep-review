@@ -130,7 +130,7 @@ The section on what the run did not examine says whether a check ran, which patt
 
 ### R12: How far to trust the review
 
-The section gives the counts of the verdicts, of the major findings `CONFIRMED`, of how the findings were checked (run, traced, read), and of the refuted candidates, and says that a model wrote the explanations from the evidence beneath each finding and that only that evidence was verified.
+The section gives the counts of the verdicts, of the major findings `CONFIRMED`, of how the findings were checked (run, traced, read), and of the refuted candidates, and says that a model wrote the explanations from the verifiers' evidence, which the report of the run holds, and that only that evidence was verified.
 
 ### R13: The minor findings are folded
 
