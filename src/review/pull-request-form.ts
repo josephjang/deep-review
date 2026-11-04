@@ -104,8 +104,9 @@ const shortCommit = (commit: string): string => commit.slice(0, 8);
  * What a body over the limit is cut of, in this order (TD5 of the review
  * that reads as a report): the refuted candidates, then the findings left
  * as is, then the table of the minor findings, each of which has its
- * comment, then the diagrams of the areas. What needs a person, the areas
- * and the findings in full are never cut.
+ * comment on its line or its text in full above, then the diagrams of the
+ * areas. What needs a person, the areas and the findings in full are never
+ * cut.
  */
 export const bodyCuts = ['refuted', 'left', 'minor-table', 'area-diagrams'] as const;
 export type BodyCut = (typeof bodyCuts)[number];
