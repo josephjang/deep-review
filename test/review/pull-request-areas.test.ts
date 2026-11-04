@@ -35,6 +35,14 @@ describe('the writer\'s areas in the body', () => {
     excludes(form.body, 'Parsing an empty input');
   });
 
+  it('counts no secret of an area\'s diagram that cleaning breaks, since the diagram is left out of what is posted', () => {
+    // The key's header passes the checks raw, and its replacement leaves the label's quote open.
+    const form = formOf(reported([]), answerWithArea('flowchart TD\n  A["reads -----BEGIN RSA PRIVATE KEY----- header"] --> B["parse"]\n  B --> C["done"]'));
+    includes(form.body, 'A diagram is left out here');
+    excludes(form.body, 'redacted');
+    assert.equal(form.secrets, 0);
+  });
+
   it('counts a secret of an area\'s title once, whether the body is cut of the diagrams of the areas or not', () => {
     // RIPPLE-1, the major fix, in full in the body; SWEEP-1, left as is on long grounds; SWEEP-2, a minor fix; and RIPPLE-2, refuted, with a long summary.
     const state = rewritten(run([decisions[0], { ...decisions[1], grounds: 'g'.repeat(1000) }, { ...decisions[0], id: 'SWEEP-2' }]), (kind, payload) => {

@@ -293,10 +293,11 @@ function speakerOf(machine: MachineContext, words: PullRequestWords): Speaker {
       const cleaned = counted(publicWords(inlineText(text).trim(), machine));
       return sentenceText(/^[a-z]+(?: |$)/.test(cleaned) ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}` : cleaned);
     },
+    // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text) => {
-      const body = counted(publicCode(text.replace(/\s+$/, ''), machine));
-      if (diagramFailures(body).length > 0) return words.diagramBroken;
-      return fenced(body);
+      const cleaned = publicCode(text.replace(/\s+$/, ''), machine);
+      if (diagramFailures(cleaned.text).length > 0) return words.diagramBroken;
+      return fenced(counted(cleaned));
     },
     secrets: () => secrets,
   };
