@@ -650,6 +650,9 @@ const minorActing = (view: FormView): FindingView[] => {
   return [...minor.filter((finding) => finding.kind === 'user'), ...minor.filter((finding) => finding.kind !== 'user')];
 };
 
+/** The findings left as is that need no person, in rank order. */
+const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding) && !forAuthor(finding));
+
 /** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
 function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
@@ -669,7 +672,7 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
 /** The findings left as is that need no person, folded, each with why and its line; or, cut, the note in their place. */
 function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
-  const left = view.findings.filter((finding) => !acts(finding) && !forAuthor(finding));
+  const left = leftAsIs(view);
   if (left.length === 0) return { part: 'left as is', lines: [] };
   if (cuts.has('left')) return { part: 'left as is', lines: [words.leftHeading, '', words.leftCut(left.length)] };
   const block = (finding: FindingView): string[] => {
@@ -777,7 +780,7 @@ function cutApplies(view: FormView, cut: BodyCut): boolean {
     case 'refuted':
       return view.refuted.length > 0;
     case 'left':
-      return view.findings.some((finding) => !acts(finding) && !forAuthor(finding));
+      return leftAsIs(view).length > 0;
     case 'minor-table':
       return minorActing(view).length > 0;
     case 'area-diagrams':
