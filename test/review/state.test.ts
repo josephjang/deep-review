@@ -135,12 +135,23 @@ describe('mergedResolution and the ranking order', () => {
     assert.deepEqual(resolutionOf(ran('A-1', 'PLAUSIBLE', 4)), { verdict: 'PLAUSIBLE', unverified: false, evidence: 'A-1 evidence', basis: 'ran', runs: [run(4)], unconfirmed: null, authorChoice: null });
   });
 
-  it('takes what keeps the verdict from CONFIRMED and the choice left to the author from the candidate whose evidence it shows (R7, R9 of the review that reads as a report)', () => {
+  it('takes what keeps the verdict from CONFIRMED from the candidate whose evidence it shows (R7 of the review that reads as a report)', () => {
     const noted = (id: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', authorChoice: string | null): CandidateState => candidate(id, 'SCAN', { verdict: { verdict, evidence: `${id} evidence`, basis: 'read', runs: [], unconfirmed: verdict === 'PLAUSIBLE' ? { kind: 'choice', text: `${id} leaves a choice` } : null, authorChoice } });
     const plausibleOnly = mergedResolution([noted('A-1', 'PLAUSIBLE', 'keep it, or drop it'), noted('A-2', 'PLAUSIBLE', null)]);
     assert.deepEqual([plausibleOnly.unconfirmed, plausibleOnly.authorChoice], [{ kind: 'choice', text: 'A-1 leaves a choice' }, 'keep it, or drop it']);
-    const escalated = mergedResolution([noted('A-1', 'PLAUSIBLE', 'keep it, or drop it'), noted('A-2', 'CONFIRMED', null)]);
-    assert.deepEqual([escalated.evidence, escalated.unconfirmed, escalated.authorChoice], ['A-2 evidence', null, null], 'a CONFIRMED finding shows no PLAUSIBLE member\'s reason');
+    const escalated = mergedResolution([noted('A-1', 'PLAUSIBLE', null), noted('A-2', 'CONFIRMED', null)]);
+    assert.deepEqual([escalated.evidence, escalated.unconfirmed], ['A-2 evidence', null], 'a CONFIRMED finding shows no PLAUSIBLE member\'s reason');
+  });
+
+  it('takes the choice left to the author from the candidate it shows, else from the first other that names one, primary first (R9)', () => {
+    const noted = (id: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', authorChoice: string | null): CandidateState => candidate(id, 'SCAN', { verdict: { verdict, evidence: `${id} evidence`, basis: 'read', runs: [], unconfirmed: verdict === 'PLAUSIBLE' ? { kind: 'choice', text: `${id} leaves a choice` } : null, authorChoice } });
+    const fromMember = mergedResolution([noted('A-1', 'CONFIRMED', null), noted('A-2', 'PLAUSIBLE', 'export the helper, or keep it private')]);
+    assert.deepEqual([fromMember.evidence, fromMember.unconfirmed, fromMember.authorChoice], ['A-1 evidence', null, 'export the helper, or keep it private'], 'a member\'s choice reaches the author');
+    const firstOther = mergedResolution([noted('A-1', 'PLAUSIBLE', 'keep it, or drop it'), noted('A-2', 'CONFIRMED', null), noted('A-3', 'PLAUSIBLE', 'throw, or return null')]);
+    assert.equal(firstOther.authorChoice, 'keep it, or drop it');
+    const shownFirst = mergedResolution([noted('A-1', 'PLAUSIBLE', 'keep it, or drop it'), noted('A-2', 'CONFIRMED', 'throw, or return null')]);
+    assert.equal(shownFirst.authorChoice, 'throw, or return null');
+    assert.equal(mergedResolution([noted('A-1', 'CONFIRMED', null), unverifiedOne('A-2', 'SCAN')]).authorChoice, null);
   });
 
   it('takes the evidence of a CONFIRMED member over a PLAUSIBLE primary, so the verdict and its evidence agree', () => {
