@@ -121,8 +121,8 @@ your task lists, the conclusion has a sentence for each of them and for
 no other, each major finding is in exactly one area and no other
 finding is in any, each minor finding has a kind and no major one has,
 each refuted candidate your task lists has exactly one line, each cited
-path and range is at its side, no part holds a verdict of the review,
-and each diagram keeps the rules above. An answer
+path and range of a major finding is at its side, no part holds a
+verdict of the review, and each diagram keeps the rules above. An answer
 that fails a check is given back to a fresh writer once, with what
 failed; the parts of the first answer that passed are kept. A part that
 fails again is dropped, and the review gives the engine's own words in
