@@ -229,7 +229,9 @@ describe('review.configured@11, verdicts.recorded@3 and explanation.recorded@2',
   it('refuses verdicts at a version the run\'s configuration does not ask for', () => {
     assert.throws(() => verdictsAt(pullRequestReported(), 3, (verdict) => ({ ...verdict, unconfirmed: null, authorChoice: null })).fold(), /records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review\.configured@11 does/);
     const withoutNotes = ({ unconfirmed: _unconfirmed, authorChoice: _choice, ...verdict }: Record<string, unknown>): Record<string, unknown> => verdict;
-    assert.throws(() => verdictsAt(asReport(), 2, withoutNotes).fold(), /records verdicts with their bases and runs, which a run configured before runs on the record does not/);
+    assert.throws(() => verdictsAt(asReport(), 2, withoutNotes).fold(), /records verdicts at version 2, which a run configured at review\.configured@11 records at version 3, with why each is PLAUSIBLE and the choice left to the author/);
+    const withoutBases = ({ basis: _basis, runs: _runs, ...verdict }: Record<string, unknown>): Record<string, unknown> => withoutNotes(verdict);
+    assert.throws(() => verdictsAt(asReport(), 1, withoutBases).fold(), /records verdicts at version 1, which a run configured at review\.configured@11 records at version 3, with why each is PLAUSIBLE and the choice left to the author/);
   });
 
   it('holds the explanation with the version it was recorded at, 2 in a run configured at version 11 and 1 in one at version 10, and refuses the other', () => {
