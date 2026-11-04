@@ -724,6 +724,8 @@ function trustSection(view: FormView): Section {
   if (recorded === null) notes.push(words.noExplanation);
   else {
     if (recorded.dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
+    if (recorded.dropped.some((part) => part.part === 'areas')) notes.push(words.areasDropped);
+    if (recorded.dropped.some((part) => part.part === 'refuted')) notes.push(words.refutedDropped);
     const findings = recorded.dropped.flatMap((part) => (part.part === 'finding' ? [numberOf(part.finding)] : []));
     if (findings.length > 0) notes.push(words.findingsDropped(words.findingList(findings), findings.length));
     // An answer is recorded on a complete run, and the explanation before the report, so every standing answer of an explained run came after it.
