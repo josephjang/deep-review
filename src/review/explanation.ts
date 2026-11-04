@@ -68,11 +68,10 @@ const explainedFindingSchemaV2 = z.strictObject({ id: z.string(), unexplained: z
  * diagram or none, and its words on the decision; and one line of how its
  * verifier checked it (R10) and, for a minor finding that asks a person to
  * act, its kind (R13), each null in an answer of version 1, and the kind
- * null for every other finding. `recordedAnswerOf` gives both; a reader
- * takes either one absent as null, so an answer built before them still
- * reads.
+ * null for every other finding. `recordedAnswerOf` gives both for an
+ * answer of either version.
  */
-export type ExplainedFinding = z.infer<typeof explainedFindingSchema> & { readonly checked?: string | null; readonly kind?: FindingKind | null };
+export type ExplainedFinding = z.infer<typeof explainedFindingSchema> & { readonly checked: string | null; readonly kind: FindingKind | null };
 /** A finding the writer could not explain from its evidence and the code, with the reason: the review gives it in the ledger's words with the mark (R19). */
 const unexplainedFindingSchema = z.strictObject({ id: z.string(), unexplained: z.literal(true), reason: z.string() });
 export type UnexplainedFinding = z.infer<typeof unexplainedFindingSchema>;
@@ -105,14 +104,13 @@ export const recordedAnswerSchemaV2 = z.strictObject({
  * version does not have. The account is an answer of version 1's alone;
  * the areas, the refuted lines and each finding's `checked` and `kind`
  * are an answer of version 2's alone. `recordedAnswerOf` gives every
- * part; a reader takes the areas or the refuted lines absent as null, so
- * an answer built before them still reads.
+ * part for an answer of either version.
  */
 export interface RecordedAnswer {
   readonly conclusion: Conclusion | null;
   readonly account: Account | null;
-  readonly areas?: Area[] | null;
-  readonly refuted?: RefutedLine[] | null;
+  readonly areas: Area[] | null;
+  readonly refuted: RefutedLine[] | null;
   readonly findings: FindingExplanation[];
 }
 
@@ -126,7 +124,7 @@ export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 
 }
 
 /** The answer as the evidence store freezes it at `version`: the parts that version has, each finding in its shape. */
-function frozenAnswer(version: AnswerVersion, { conclusion, account, areas = null, refuted: lines = null, findings }: RecordedAnswer): object {
+function frozenAnswer(version: AnswerVersion, { conclusion, account, areas, refuted: lines, findings }: RecordedAnswer): object {
   if (version === 2) return { conclusion, areas, refuted: lines, findings };
   return { conclusion, account, findings: findings.map((finding) => (finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest }) => rest)(finding))) };
 }
@@ -673,7 +671,7 @@ export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAn
 }
 
 /** Whether the merge kept any part. */
-const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || (answer.areas ?? null) !== null || (answer.refuted ?? null) !== null || answer.findings.length > 0;
+const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || answer.areas !== null || answer.refuted !== null || answer.findings.length > 0;
 
 /** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted` or `finding <id>`. */
 const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
