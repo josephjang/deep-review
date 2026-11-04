@@ -384,7 +384,7 @@ const english: PullRequestWords = {
   findingsDropped: (findings, count) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count === 1 ? 'it is' : 'each is'} given in deep-review's own words.`,
   noExplanation: 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.',
   predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
-  areaDiagramsCut: 'To fit the length GitHub takes, the diagrams of the areas are left out.',
+  areaDiagramsCut: 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.',
 
   lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`,
 };
@@ -563,7 +563,7 @@ const korean: PullRequestWords = {
   findingsDropped: (findings) => `설명 모델이 ${findings}에 대해 deep-review의 검사를 통과한 설명을 내지 못해, deep-review가 직접 쓴 문장으로 적었습니다.`,
   noExplanation: '이 실행에는 설명 모델의 설명이 기록되지 않아, 리뷰 전체를 deep-review가 직접 쓴 문장으로 적었습니다.',
   predates: (findings) => `설명 모델의 설명은 ${findings}에 대한 답이 기록되기 전에 쓰였습니다. 각 답은 deep-review가 직접 쓴 문장으로 적었습니다.`,
-  areaDiagramsCut: 'GitHub가 받는 길이에 맞추느라 영역의 다이어그램은 뺐습니다.',
+  areaDiagramsCut: 'GitHub가 받는 길이에 맞추느라 영역의 다이어그램은 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
 
   lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (모델 ${facts.strong}, ${facts.fast}), 실행 ${facts.run}, 리뷰한 커밋 ${facts.base}..${facts.head}.`,
 };

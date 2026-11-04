@@ -555,7 +555,7 @@ describe('the fit of the review (TD5)', () => {
     excludes(cutTo(1), '<details><summary>The refuted candidate</summary>');
     includes(cutTo(2), '### The findings left as is\n\nTo fit the length GitHub takes, the finding left as is is not listed here; the report of the run holds it.');
     includes(cutTo(3), 'To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.');
-    includes(cutTo(4), 'To fit the length GitHub takes, the diagrams of the areas are left out.');
+    includes(cutTo(4), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
     excludes(cutTo(4), `A["${'d'.repeat(1000)}"]`);
     for (const form of forms) {
       includes(form.body, '### What needs a person');
