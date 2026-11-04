@@ -613,12 +613,14 @@ function areasSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   const { words } = view;
   if (majorActing(view).length === 0) return { part: 'areas', lines: [words.areasHeading, '', words.noMajor] };
   const diagrams = !cuts.has('area-diagrams');
-  const areas = areasOf(view, say).flatMap((area) => {
+  // Once, since each call cleans the writer's titles and intros, and counts their secrets, again.
+  const given = areasOf(view, say);
+  const areas = given.flatMap((area) => {
     const lines = area.findings.map((finding) => `- **[${String(finding.finding.number)}. ${titleOf(finding, say)}](${hrefOf(view, finding)}).** ${verdictText(view, finding)}. ${actionTail(view, finding, say)}`);
     const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;
     return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
   });
-  const cut = !diagrams && areasOf(view, say).some((area) => area.diagram !== null);
+  const cut = !diagrams && given.some((area) => area.diagram !== null);
   return { part: 'areas', lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
 }
 

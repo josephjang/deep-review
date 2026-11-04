@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { answerWithArea, formOf, pullRequestRun as run } from '../helpers/pull-request-review.ts';
-import { answerableDecisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
+import type { PullRequestFile } from '../../src/github/pull-request.ts';
+import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
+import { answerWithArea, formOf, pullRequestRun as run, rewritten } from '../helpers/pull-request-review.ts';
+import { answerableDecisions, decisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
 const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
@@ -31,5 +33,34 @@ describe('the writer\'s areas in the body', () => {
     includes(summary, '2 findings');
     includes(summary, '--fix');
     excludes(form.body, 'Parsing an empty input');
+  });
+
+  it('counts a secret of an area\'s title once, whether the body is cut of the diagrams of the areas or not', () => {
+    // RIPPLE-1, the major fix, in full in the body; SWEEP-1, left as is on long grounds; SWEEP-2, a minor fix; and RIPPLE-2, refuted, with a long summary.
+    const state = rewritten(run([decisions[0], { ...decisions[1], grounds: 'g'.repeat(1000) }, { ...decisions[0], id: 'SWEEP-2' }]), (kind, payload) => {
+      if (kind === 'ranking.recorded') {
+        const findings = (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, members: [] } : finding));
+        return { ...payload, findings: [...findings, { id: 'SWEEP-2', members: [], severity: 'minor', summary: 's'.repeat(400), reason: 'r' }] };
+      }
+      if (kind === 'candidates.recorded' && payload.key === 'RIPPLE') return { ...payload, candidates: (payload.candidates as Record<string, unknown>[]).map((entry) => (entry.id === 'RIPPLE-2' ? { ...entry, summary: 'c'.repeat(400) } : entry)) };
+      return undefined;
+    }).fold();
+    const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: '@@ -7,1 +7,1 @@\n-old 7\n+new 7' }];
+    const token = `ghp_${'a1B2'.repeat(9)}`;
+    /** The writer's answer with a long area diagram, its title holding the token when `secret`, and the fix's problem padded with `pad` characters. */
+    const answerOf = (pad: number, secret: boolean): RecordedAnswer => {
+      const said = answerWithArea(`flowchart LR\n  A["${'d'.repeat(1000)}"]`);
+      const fix = said.findings[0] as ExplainedFinding;
+      return { ...said, areas: said.areas!.map((area) => ({ ...area, title: secret ? `Parsing ${token}` : area.title })), findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
+    };
+    const counted = new Map<string, number>();
+    for (let pad = 0; !counted.has('area-diagrams'); pad += 200) {
+      const plain = formOf(state, answerOf(pad, false), files);
+      const secret = formOf(state, answerOf(pad, true), files);
+      excludes(secret.body, token);
+      // The token and the words that replace it differ in length, so the two bodies may need different cuts near a limit.
+      if (JSON.stringify(secret.cuts) === JSON.stringify(plain.cuts)) counted.set(secret.cuts.at(-1) ?? 'none', secret.secrets - plain.secrets);
+    }
+    assert.deepEqual(Object.fromEntries(counted), { 'none': 1, 'refuted': 1, 'left': 1, 'minor-table': 1, 'area-diagrams': 1 });
   });
 });
