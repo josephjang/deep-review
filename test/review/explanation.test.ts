@@ -683,14 +683,14 @@ describe('the checks of the writer\'s answer in the form of the review that read
     assert.deepEqual(reportFailures(answer([{ ...line, claim: '', why: 'It was REFUTED.' }])).refuted, ['the refuted line for SCAN-1 says no claim', 'the refuted line for SCAN-1 holds the verdict REFUTED, which the engine writes beside the finding']);
   });
 
-  it('refuses a minor finding with no kind, a major one with a kind, and an explanation that says nothing of how it was checked or holds a verdict there', () => {
+  it('refuses a minor finding with no kind, a major one with a kind, and a major explanation that says nothing of how it was checked or holds a verdict there', () => {
     const answer = goodReport();
     answer.findings[0]!.explanation!.kind = 'user';
+    answer.findings[0]!.explanation!.checked = ' ';
     answer.findings[1]!.explanation!.kind = null;
-    answer.findings[1]!.explanation!.checked = ' ';
     const failures = reportFailures(answer);
-    assert.deepEqual(failures['finding RIPPLE-1'], ['RIPPLE-1 is a major finding and has the kind user, which only a minor finding has']);
-    assert.deepEqual(failures['finding SWEEP-1'], ['SWEEP-1 says nothing of how its verifier checked it', 'SWEEP-1 is a minor finding and has no kind']);
+    assert.deepEqual(failures['finding RIPPLE-1'], ['RIPPLE-1 says nothing of how its verifier checked it', 'RIPPLE-1 is a major finding and has the kind user, which only a minor finding has']);
+    assert.deepEqual(failures['finding SWEEP-1'], ['SWEEP-1 is a minor finding and has no kind']);
     const verdict = goodReport();
     verdict.findings[0]!.explanation!.checked = 'The run left it PLAUSIBLE.';
     assert.deepEqual(reportFailures(verdict)['finding RIPPLE-1'], ['the explanation of RIPPLE-1 holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
@@ -714,6 +714,36 @@ describe('the checks of the writer\'s answer in the form of the review that read
       account: [],
       'finding RIPPLE-1': ['RIPPLE-1 says nothing of its decision'],
     }, 'an answer of version 1 keeps every check');
+  });
+
+  it('keeps a minor finding whose title and problem pass, whatever its cases, diagram and check say, which its comment does not post', () => {
+    /** The answer with each finding given a case past the end of its file, a diagram GitHub does not draw, a blank check and a verdict in its case. */
+    const flawed = (): WriterOutputV2 => {
+      const answer = goodReport();
+      for (const entry of answer.findings) {
+        const explanation = entry.explanation!;
+        explanation.cases = [{ sentence: 'It is CONFIRMED.', lines: { side: 'head', path: 'src/a.ts', from: 40, to: 41 } }];
+        explanation.diagram = 'pie\n  "a" : 1';
+        explanation.checked = ' ';
+      }
+      return answer;
+    };
+    const failures = reportFailures(flawed());
+    assert.deepEqual(failures['finding SWEEP-1'], [], 'a minor finding');
+    assert.deepEqual(failures['finding RIPPLE-1'], [
+      'case 1 of RIPPLE-1 cites src/a.ts:40-41, which has 12 lines at the head',
+      'RIPPLE-1 says nothing of how its verifier checked it',
+      'the explanation of RIPPLE-1 holds the verdict CONFIRMED, which the engine writes beside the finding',
+      'the diagram of RIPPLE-1 is no diagram GitHub draws: it starts with "pie", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws',
+    ], 'a major finding keeps every check');
+    const noCase = goodReport();
+    noCase.findings[1]!.explanation!.cases = [];
+    assert.deepEqual(reportFailures(noCase)['finding SWEEP-1'], [], 'a minor finding with no case');
+    const merged = mergeAnswers(2, [checkReport(flawed()), checkReport(flawed())], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(merged.dropped.map((part) => (part.part === 'finding' ? part.finding : part.part)), ['RIPPLE-1'], 'only the major finding is dropped');
+    const sweep = merged.answer.findings.find((finding) => finding.id === 'SWEEP-1');
+    assert.ok(sweep !== undefined && !sweep.unexplained, 'the minor finding keeps its explanation');
+    assert.equal(sweep.title, goodReport().findings[1]!.explanation!.title);
   });
 
   it('drops the areas or the refuted lines that fail twice, alone, and every part when no answer came', () => {

@@ -516,8 +516,9 @@ type FindingEntry = AnyWriterOutput['findings'][number];
  * version 2 it is true or false, as the finding is major or not, and only
  * then do the checks of version 2 run: an explanation also says how its
  * verifier checked it, and has a kind exactly when the finding is minor;
- * and its `decision`, which the form of the review that reads as a report
- * does not post, is held to nothing.
+ * its `decision`, which the form of the review that reads as a report
+ * does not post, is held to nothing; and so are the cases, the diagram
+ * and the check of a minor finding, whose comment posts none of them.
  */
 function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: AnswerCheckInput['lineCount'], major: boolean | null): CheckedPart<FindingExplanation> {
   const refused = (failure: string): CheckedPart<FindingExplanation> => ({ value: null, failures: [failure] });
@@ -534,20 +535,25 @@ function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: A
   const checked = 'checked' in explanation! ? explanation.checked : null;
   const kind = 'kind' in explanation! ? explanation.kind : null;
   const checkedDecision = major === null ? decision : '';
+  // A minor finding's comment posts its title and problem alone, so its cases, diagram and check, posted nowhere, cannot drop it.
+  const posted = major !== false;
+  const postedCases = posted ? cases : [];
+  const postedChecked = posted ? checked : null;
+  const postedDiagram = posted ? diagram : null;
   const failures = [
     ...(blank(title) ? [`${id} has no title`] : []),
     ...(blank(problem) ? [`${id} says no problem`] : []),
     ...(major === null && blank(decision) ? [`${id} says nothing of its decision`] : []),
-    ...(cases.length === 0 ? [`${id} has no case`] : []),
-    ...cases.flatMap((cited, index) => {
+    ...(posted && cases.length === 0 ? [`${id} has no case`] : []),
+    ...postedCases.flatMap((cited, index) => {
       const what = `case ${String(index + 1)} of ${id}`;
       return [...(blank(cited.sentence) ? [`${what} has no sentence`] : []), ...linesFailures(what, cited.lines, lineCount)];
     }),
-    ...(checked !== null && blank(checked) ? [`${id} says nothing of how its verifier checked it`] : []),
+    ...(postedChecked !== null && blank(postedChecked) ? [`${id} says nothing of how its verifier checked it`] : []),
     ...(major === false && kind === null ? [`${id} is a minor finding and has no kind`] : []),
     ...(major === true && kind !== null ? [`${id} is a major finding and has the kind ${kind}, which only a minor finding has`] : []),
-    ...verdictFailures(`the explanation of ${id}`, [title, problem, checkedDecision, diagram ?? '', checked ?? '', ...cases.map((cited) => cited.sentence)]),
-    ...diagramFailuresOf(`the diagram of ${id}`, diagram),
+    ...verdictFailures(`the explanation of ${id}`, [title, problem, checkedDecision, postedDiagram ?? '', postedChecked ?? '', ...postedCases.map((cited) => cited.sentence)]),
+    ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram),
   ];
   return { value: { id, unexplained: false, title, problem, cases, diagram, decision, checked, kind }, failures };
 }
