@@ -22,7 +22,7 @@ import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
 import { StructuralCheckError } from './errors.ts';
-import { inlineText } from './markdown.ts';
+import { counted, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { writerOutputSchema, writerOutputSchemaV2, type CitedSide, type WriterOutput, type WriterOutputV2 } from './schemas.ts';
@@ -470,7 +470,7 @@ function linesFailures(what: string, lines: CitedLines, lineCount: AnswerCheckIn
   if (from < 1 || to < from) return [`${what} cites lines ${String(from)} to ${String(to)} of ${path}, which is no range of lines`];
   const count = lineCount(side, path);
   if (count === null) return [`${what} cites ${path} at ${sideWords[side]}, which holds no such file`];
-  if (to > count) return [`${what} cites ${path}:${from === to ? String(from) : `${String(from)}-${String(to)}`}, which has ${String(count)} line${count === 1 ? '' : 's'} at ${sideWords[side]}`];
+  if (to > count) return [`${what} cites ${path}:${from === to ? String(from) : `${String(from)}-${String(to)}`}, which has ${counted(count, 'line', 'lines')} at ${sideWords[side]}`];
   return [];
 }
 
@@ -906,11 +906,11 @@ function reportAsks(ids: readonly string[], report: ReportCheckInput): string[] 
   return [
     report.major.length === 0
       ? 'No finding you explain is major, so give `areas` empty.'
-      : `Put each of these ${String(report.major.length)} major finding${report.major.length === 1 ? '' : 's'} in exactly one area of \`areas\`, and no other finding in any: ${idList(report.major)}.`,
-    ...(minor.length === 0 ? [] : [`Give each of these ${String(minor.length)} minor finding${minor.length === 1 ? '' : 's'} a \`kind\`, and every other finding none: ${idList(minor)}.`]),
+      : `Put each of these ${counted(report.major.length, 'major finding', 'major findings')} in exactly one area of \`areas\`, and no other finding in any: ${idList(report.major)}.`,
+    ...(minor.length === 0 ? [] : [`Give each of these ${counted(minor.length, 'minor finding', 'minor findings')} a \`kind\`, and every other finding none: ${idList(minor)}.`]),
     report.refuted.length === 0
       ? 'No candidate of this review was refuted, so give `refuted` empty.'
-      : `Give one line in \`refuted\` for each of these ${String(report.refuted.length)} refuted candidate${report.refuted.length === 1 ? '' : 's'}, by its id, and for no other: ${idList(report.refuted)}.`,
+      : `Give one line in \`refuted\` for each of these ${counted(report.refuted.length, 'refuted candidate', 'refuted candidates')}, by its id, and for no other: ${idList(report.refuted)}.`,
   ];
 }
 
@@ -947,7 +947,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     '',
     ids.length === 0
       ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version === 1 ? 'the account' : 'no area'}, and no entry in \`findings\`.`
-      : `Explain these ${String(ids.length)} finding${ids.length === 1 ? '' : 's'}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
+      : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
     ...(report === null ? [] : ['', ...reportAsks(ids, report).flatMap((line, index) => (index === 0 ? [line] : ['', line]))]),
     '',
     '### The brief of the run',
@@ -958,13 +958,13 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     '',
     '### The findings',
     '',
-    `The review's ${String(ranked.length)} finding${ranked.length === 1 ? '' : 's'}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.`,
+    `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.`,
     '',
     ...ranked.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids.includes(entry.finding.id) ? explainWords(entry, version) : null, decided.get(entry.finding.id), clean, quote), '']),
     ...(report === null || refutedCandidates.length === 0 ? [] : [
       '### The refuted candidates',
       '',
-      `The ${String(refutedCandidates.length)} candidate${refutedCandidates.length === 1 ? '' : 's'} the verifiers refuted, each with its claim and its verifier's evidence.`,
+      `The ${counted(refutedCandidates.length, 'candidate', 'candidates')} the verifiers refuted, each with its claim and its verifier's evidence.`,
       '',
       ...refutedCandidates.flatMap(({ candidate }) => candidateLines(candidate, false, clean, quote)),
       '',
