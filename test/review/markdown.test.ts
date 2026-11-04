@@ -52,6 +52,13 @@ describe('listed', () => {
     assert.equal(listed(['a', 'b', 'c']), 'a, b and c');
     assert.equal(listed(['a', 'b', 'c', 'd']), 'a, b, c and d');
   });
+
+  it('joins the last two words by the conjunction it is given', () => {
+    assert.equal(listed([], 'or'), '');
+    assert.equal(listed(['a'], 'or'), 'a');
+    assert.equal(listed(['a', 'b'], 'or'), 'a or b');
+    assert.equal(listed(['a', 'b', 'c'], 'or'), 'a, b or c');
+  });
 });
 
 describe('capitalized', () => {

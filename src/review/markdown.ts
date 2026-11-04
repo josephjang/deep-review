@@ -18,8 +18,8 @@ export const inlineText = (text: string): string => text.replaceAll(/[ \t]*[\r\n
 /** A count and the noun it counts, singular for one. */
 export const counted = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
 
-/** Words in a list, the last two joined by `and` and any before them by commas. */
-export const listed = (words: readonly string[]): string => (words.length <= 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}`);
+/** Words in a list, the last two joined by the conjunction, `and` unless another is given, and any before them by commas. */
+export const listed = (words: readonly string[], conjunction = 'and'): string => (words.length <= 2 ? words.join(` ${conjunction} `) : `${words.slice(0, -1).join(', ')} ${conjunction} ${words.at(-1)!}`);
 
 /** Text with its first character in upper case, to start a sentence. */
 export const capitalized = (text: string): string => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;

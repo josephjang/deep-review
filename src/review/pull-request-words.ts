@@ -201,9 +201,6 @@ export interface PullRequestWords {
   readonly lastLine: (facts: LastLineFacts) => string;
 }
 
-/** Words in a list, the last two joined by `or`. */
-const listedOr = (words: readonly string[]): string => (words.length <= 2 ? words.join(' or ') : `${words.slice(0, -1).join(', ')} or ${words.at(-1)!}`);
-
 /** How the findings were checked, in English: each basis with its count, then the findings with none. */
 function basesEnglish(counts: ReviewCounts): string {
   const ways = ([['ran', 'by running code'], ['traced', 'by tracing it'], ['read', 'by reading it']] as const).filter(([basis]) => counts.bases[basis] > 0);
@@ -242,7 +239,7 @@ const english: PullRequestWords = {
   needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
   departureStands: '`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.',
   needsAuthor: (finding, href, choice) => `**[Finding ${String(finding)}](${href}) is left as is, but its verifier leaves a choice to the author.** ${choice}`,
-  needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0]! : `one of ${listedOr(flags)}`}. A reply on this pull request is not read yet.`,
+  needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0]! : `one of ${listed(flags, 'or')}`}. A reply on this pull request is not read yet.`,
   needsNothing: 'Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.',
 
   howHeading: '### How the review worked',
