@@ -1,13 +1,14 @@
 # Report: What the writer writes and what the engine writes
 
-This report was written on 2026-11-05, at `ddf8d62`. It reviews how the review on a pull request divides its text between the `writer`, the model worker of the explanation phase, and the engine, which renders the body and the comments from the ledger. It also asks the wider question of what a model decides and what code decides in a run. It rests on a read of the code, the role prompts, the two proposals of the review on the pull request, and issues #101 to #115. It ran no new review.
+This report was written on 2026-11-05, at `ddf8d62`. It looks at the review that `deep-review publish` posts on a pull request and asks three questions. Which components write it, and what does each read and give? Can a reader with little context understand, from the review, what the change does and what deep-review found? Is the work split well between models, which are good with language, and code, which is exact, deterministic and cheap, and what structure would split it better? It rests on a read of the code, the role prompts, the two proposals of the review on the pull request, and issues #101 to #115. It ran no new review.
 
 ## Summary
 
-- The principle of the split is right, and the report does not propose to move it. A model judges: whether a defect is real, how severe it is, what to do about it, how findings relate and how to name the problem. The engine states every fact from the ledger (numbers, verdicts, counts, decisions, places, links and commands) and checks of each answer only what it can count. This follows principle 1 of the vision note, evidence, not trust, and PD5 and PD6 of the review that reads as a report.
-- The faults sit where the principle is applied, in nine places, W1 to W9 below. In four of them the engine decides or states what only a judgment could settle (W1, W4, W5, W9). In two, a model is asked to do what code does better (W3) or what nobody reads (W7). In two, the boundary leaves the text a person most needs in the wrong hands (W2, W6). One is a defect of the retry (W8).
-- Most faults of form that the first posts showed came from the engine's own sentences, not from the writer. The engine writes 97 entries of words in each of two languages, 45 of which build sentences from parameters, and grammar that templating cannot follow reaches the post (W2).
-- Six changes follow, in the order of section "Ways to improve". The first four are small and independent. The last two change the writer's answer and need a proposal.
+- Eleven components write the review. Two are code alone, seven are model workers, and two pair a model's judgment with code that groups or orders. One of the model workers, the writer, exists only to explain the review for the pull request. The engine renders every fact from the ledger and checks what it can count. The writer adds titles, problems, cases, areas and one line of how each finding was checked. Figure 1 and the table in "The components that write the review" give the inputs and outputs of each.
+- A reader with little context can understand deep-review's result well: what needs a person comes first and can be decided from the item alone, each major finding says what goes wrong and cites its lines, and each verdict says how far to trust it. The same reader cannot learn from the review what the change does. The triage writes an account of the change, and the report on the machine opens with it, but the post leaves it out (PD3 of the review that reads as a report), together with the two conditions under which principle 8 of the vision note asks a person to look: a change to a public interface and a change that reaches many files. Six gaps, G1 to G6, are listed.
+- The principle of the split is right: a model judges, and the engine states facts and checks what it can count. Its application is off in nine places, W1 to W9. Most faults of form in #101 to #115 came from sentences the engine assembles by template, and from judgments the engine makes while it renders.
+- The report proposes a structure, S1 to S6, in which the line is drawn by kind of work instead of by part of the page. Every judgment is made and recorded before the form. The engine builds the plan of the review as data, with its facts and the slots for text. The writer fills every slot a person reads, naming facts by token. The engine checks each slot, renders each token, and falls back to labels and tables. Code keeps every fact and every check. A model writes every sentence.
+- Eight changes follow, in the order of section "Ways to improve". The first four are small and independent. The last four change what the review posts or what the writer answers, and need a proposal.
 
 ## Data and method
 
@@ -15,29 +16,67 @@ This report was written on 2026-11-05, at `ddf8d62`. It reviews how the review o
 
 All the sources are in this repository or its issues:
 
-- `src/review/explanation.ts`, which plans the writer's task, checks its answer part by part and merges the answers of a retry; `src/review/schemas.ts`, which holds the writer's output schemas and those of the other workers; and `src/review/phases.ts`, which builds each worker's task.
-- `src/review/pull-request-form.ts`, which renders the body and the comments, `src/review/pull-request-words.ts`, which holds the engine's words in English and Korean, and `src/review/public-text.ts`, which cleans the text the engine did not write.
-- The role prompts under `roles/fragments/`: `writer-brief.md`, `writer-explanation.md`, `phase4-list.md` and `rubrics.md`.
+- `src/github/pull-request.ts`, which reads the pull request, and the scope capture, which records it.
+- `src/review/schemas.ts`, which holds the output schema of each worker, `src/review/phases.ts` and `src/review/tasks.ts`, which build each worker's task, and `src/review/controller.ts`, which gives each worker the scope block.
+- `src/review/explanation.ts`, which plans the writer's task, checks its answer part by part and merges the answers of a retry.
+- `src/review/brief.ts`, which builds the brief of a run, including its account of the change.
+- `src/review/pull-request-form.ts`, which renders the body and the comments, `src/review/pull-request-words.ts`, which holds the engine's words in English and Korean, `src/review/public-text.ts`, which cleans the text the engine did not write, and `src/review/publish.ts`, which posts.
+- The role prompts under `roles/fragments/`: `phase1-finders.md`, `phase4-list.md`, `rubrics.md`, `writer-brief.md` and `writer-explanation.md`.
 - The proposals `2026-11-01-review-on-the-pull-request` and `2026-11-04-review-that-reads-as-a-report`, each a requirements and a design file, and the vision note `docs/2026-10-11-vision.md`.
 - Issues #101 to #113, the faults of form of the first post on #96; #114, the pull request that answered them; and #115, what the gate of #114 found and its fix pass did not address.
 
 ### Method
 
-Each part of the posted body and of a line comment was traced to the function that renders it and to the source of its words: the writer, the engine's table of words, the ledger, or another worker's text. Each check of the writer's answer was read for what it holds and what a failure does. Each issue was read for where its fault began. Where the code departs from what the design intends, the report says what the design intends first.
+Each part of the posted body and of a line comment was traced to the function that renders it and to the source of its words: the writer, the engine's table of words, the ledger, or another worker's text. Each worker's task and schema were read for what it is given and what it returns. Each check of the writer's answer was read for what it holds and what a failure does. Each issue was read for where its fault began. The reader of section "What a reader with little context gets" is the one the vision note's premise names: a person on GitHub who did not read the diff and does not know deep-review. Where the code departs from what the design intends, the report says what the design intends first.
 
 ### Limits
 
-The report reads one commit and runs nothing. Where an issue's fault began is a reading of the issue and of the code, not a measurement. The report does not count how often a case fails to follow from the lines it cites, since no run records it.
+The report reads one commit and runs nothing. Where an issue's fault began is a reading of the issue and of the code, not a measurement. What a reader with little context understands is judged from the form of the post and from the issues, not from a study of readers. The report does not count how often a case fails to follow from the lines it cites, since no run records it. The two figures pass the engine's own check of a diagram, `diagramFailures`, and were not drawn in a browser.
 
-## How the text is split today
+## The components that write the review
 
-The table gives the source of each part of the body, in the order the body posts them.
+A review of a pull request is two commands. `deep-review review --pr <number>` captures the change, runs the workers and records every answer on the ledger, and posts nothing. `deep-review publish` reads the run and the pull request again, renders the review and posts it. Figure 1 shows the path from the pull request to the post.
+
+```mermaid
+flowchart TD
+    PR["The pull request on GitHub and the clone"] --> CAP["Capture (code)"]
+    CAP --> FIND["Survey, triage and nine finders (models)"]
+    FIND --> VER["Deduplication, verification and the sweep (models, grouped and checked by code)"]
+    VER --> RANK["Merge and rank (model), then the order (code)"]
+    RANK --> DEC["Decision (model)"]
+    DEC --> WR["Explanation by the writer (model)"]
+    WR --> CHK["Checks of the answer (code)"]
+    CHK --> FORM["The form of the body and the comments (code)"]
+    FORM --> POST["Cleaning and the post through gh (code)"]
+```
+
+Figure 1. The components that write the review, in the order a run reaches them.
+
+The table gives what each component reads and what it gives. Every model worker also receives the scope block, which holds the patch and the conventions the survey named, and, after the triage, the triage's account of the change, marked as unverified. Every answer of a model passes its schema and a structural check before the ledger records it; a second failure degrades as each phase defines.
+
+| Component | Done by | Reads | Gives | Recorded as |
+|---|---|---|---|---|
+| Capture | Code | The pull request through `gh api`, the clone through git | The change from the merge base to the head, its files before and after, the pull request's number, base, title and body (frozen, and read by no worker) | `scope.captured` |
+| Survey | Model, the surveyor | The repository's files | The files that state the conventions | `survey.recorded` |
+| Triage | Model, the `SCAN` angle | The scope block, the commit messages | Up to 12 candidates, one lead for each other angle, and the account of the change: a title, what it does, why in its own words with the sources, and whether it changes a public interface or reaches many files | `candidates.recorded` |
+| Finders | Nine models, one per angle | The scope block and the triage's lead | Candidates, each with a summary, a detail and a place | `candidates.recorded` |
+| Deduplication | Model | The candidates | Groups of the same defect and the member to keep | `deduplication.recorded` |
+| Verification | Code groups up to 8 candidates of one file, a model judges each group | The candidates and the code, with a read-only shell | A verdict, its evidence and basis, the runs it cites, why a `PLAUSIBLE` verdict is not `CONFIRMED`, and the choice it leaves to the author | `verdicts.recorded` |
+| Sweep | Model, then its own deduplication and verification | What was found, refuted and not run | More candidates | as above |
+| Merge and rank | Model, then code orders | The verified candidates | Findings that merge one root cause, each with a severity, a summary and a reason | `ranking.recorded` |
+| Decision | Model, the decider | The ranked findings with their evidence | For each finding: fix, leave or ask, with the grounds, the fix's approach and the options it rejected, a departure from a written rule, or a question with two to four options, the cost of each and the option applied | `decisions.recorded` |
+| Explanation | Model, the writer | The brief, the findings with their decisions, evidence and runs, the refuted candidates, the scope block, and the code at the head and the merge base | Areas, a title, problem, cases, diagram and check line for each finding to explain, a sentence for each action, one line for each refuted candidate, and the findings it could not explain | `explanation.recorded` |
+| Form and post | Code | The run's state, the writer's answer, the pull request's files and patches | The body, a comment on its line for each fix and question on the diff, and the record of where each finding went | `publish.prepared`, `publish.posted` |
+
+In plain words: code captures what to review; models find, check, merge, rank and decide; one more model explains the result; and code puts the result on the page and posts it. A model never writes a number, a verdict, a severity, a status or a link into the post, and code never writes a judgment of the change. Code does write the sentences around those facts, and section "Where the split is off" returns to that.
+
+The next table gives the source of each part of the body, in the order the body posts them.
 
 | Part | Writer | Engine | Other workers |
 |---|---|---|---|
 | Heading and reviewed line | | Words, commits, file count | |
 | Summary | One paragraph naming the areas | Counts, what happens next | |
-| What needs a person | | Frame of each item, the answer command | The decider's question, options and rule; the verifier's `authorChoice` |
+| What needs a person | | Frame of each item, the answer command | The decider's question, options and rule; the verifier's choice for the author |
 | How the review worked | | All of it, with a fixed diagram | |
 | Areas | Title, introduction, diagram, finding titles, fix sentence | Numbers, verdicts, order, the line of a question | The decider's recommended option |
 | Findings in full | Title, problem, cases, diagram, check line | Grade line, labels, links | The decider's fix, question or grounds; the verifier's reason for `PLAUSIBLE` |
@@ -46,9 +85,55 @@ The table gives the source of each part of the body, in the order the body posts
 | Not examined | One line per refuted candidate | Settings, patterns | The brief's gaps, in English |
 | How far to trust | | All of it | |
 
-When the writer's part is missing or fails its check twice, the engine puts other text in its place. A title becomes the first sentence of merge-rank's summary, and a problem becomes the primary candidate's `detail`, which is the finder's text. Both are posted under a mark that calls them deep-review's own words.
+When the writer's part is missing or fails its check twice, the engine puts other text in its place. A title becomes the first sentence of merge-rank's summary, and a problem becomes the primary candidate's `detail`, which is the finder's text. Both are posted under a mark that calls them deep-review's own words. No part of the body comes from the triage's account of the change.
 
-## Findings
+## What a reader with little context gets
+
+The vision note's premise is a person who did not read the diff and decides from the review. On a pull request this is a reviewer or the author, often someone who has not touched this code for a long time. The reader needs two things: what the change does, and what deep-review found and how far to trust it. The review serves the second well and the first not at all.
+
+### E1: What needs a person comes first, and each item can be decided alone
+
+The body opens with a summary of counts and then one list of what needs a person: each question with its options, the cost of each, the option deep-review recommends and the one that stands until someone answers; each fix against a written rule, with the rule; and each finding left for the author. The list ends with the command that answers. This is the form principles 4 and 6 of the vision note ask for, and a reader does not have to open the code to decide.
+
+### E2: Each major finding says what goes wrong, for whom, and where
+
+The writer's title names the problem, not the code. The problem says who meets what. Each case cites the lines that show it, and the engine refuses a line that its commit does not hold. A diagram follows where the flow takes long to say. Each link is a permalink at the reviewed commit, so it does not move after a push. The major findings are grouped into areas with a sentence or two each, so a reader sees related defects together.
+
+### E3: Each statement says how far to trust it
+
+Each finding carries its verdict with plain words beside it, why a `PLAUSIBLE` verdict was not confirmed, and one line of how the verifier checked it. "How the review worked" gives the counts of the run, from candidates to findings, with a fixed diagram of the steps. "How far to trust the review" counts the verdicts and the bases and says that a model wrote the explanations and that only the evidence was verified. A reader can weigh each statement without knowing deep-review.
+
+### E4: The review says what it did not examine, and folds the rest
+
+The body says that no check ran, which paths the settings left out, which angles did not run and which candidates were refuted and why. The minor findings, the findings left as is and the refuted candidates are folded, so the first screen holds what a person must act on.
+
+### G1: The review does not say what the change does
+
+The triage writes an account of the change for "a person who did not read it": what it does, why in the change's own words with the sources, and whether it changes a public interface or reaches many files (`phase1-finders.md`, step 3). The brief records it, the report on the machine opens with it (`accountPart` in `src/review/brief.ts`), and every later worker, the writer included, reads it. The post leaves it out. PD3 of the review that reads as a report decided so, because "the pull request's own description says what it does", and the proposal names this as its departure from principle 5 of the vision note.
+
+PD3 holds when the description is right and complete. The vision note's premise is that agents write most changes and no person reads the diff, so the description is the author agent's claim and the one text of the pull request that nothing checks: no worker reads it (PD8 of the review on the pull request), and the angle that reads a change against its request is later work. A reader with little context then meets the findings with no account of the change they belong to, except the description that the review did not examine. deep-review holds an independent account, written from the code and the commit messages and marked as unverified. Posting it, short, would let the reader compare the two, which is the first thing principle 5 puts before the person.
+
+### G2: The conditions under which a person must look are not posted
+
+Principle 8 of the vision note names four conditions under which a person must look even when no finding asks: a departure from a rule, a fix whose verdict is only `PLAUSIBLE`, a change to a public interface, and a change that reaches many files. The post gives the first in what needs a person. The triage judges the last two with the files they rest on, and the report on the machine states them, but they belong to the account of G1 and are not posted. A fix whose verdict is `PLAUSIBLE` shows its verdict and why in its own comment, but it is not listed as a reason to look. A reader can therefore read "nothing needs a person" on a change that alters a public interface.
+
+### G3: A finding is explained, but the code around it is not
+
+The first form of the writer's answer held an account of the change with a short list of terms and their meanings. TD2 of the review that reads as a report removed the account, since it was folded and cost budget, and the terms went with it. The writer is told to use plain words, and each area has a sentence or two, but a reader who meets a name of the code's own domain in a title has no place where the review defines it. How much this costs a reader is a judgment, not a measurement.
+
+### G4: The evidence is one step away only on the runner's machine
+
+Principle 6 asks that the evidence for each statement be one step away. On the pull request each finding has one line of how it was checked (PD4), and the evidence, the runs it cites and the report stay in the checkpoint on the machine of the person who ran the review. The README says that a review a workflow posts loses its checkpoint when the job ends. A reader who doubts a verdict can only ask the person who ran the review, and in a workflow there is no one to ask.
+
+### G5: The text a person most needs is the text least shaped for the person
+
+The findings left for the author are in what needs a person and given in full, in the finder's words (W6). Internal ids reach the post (W3). In a review in Korean, the decider's questions and options, the verifiers' reasons and the brief's gaps stay in English (#111), since only the writer is told the language. Each of these lands in the part a reader with little context reads first.
+
+### G6: The person who must answer a question cannot answer it on the pull request
+
+A question ends with who answers: the person who ran the review, on the machine that holds the run, with `deep-review answer`. A reply on the pull request is not read (#103). For the author of the pull request, a question they can read but not answer is a question with no channel. The design accepts this for now.
+
+## Where the split is off
 
 ### W1: Severity decides the form, and no prompt defines it
 
@@ -98,24 +183,91 @@ The design stopped checking the conclusion's diagram and each finding's `decisio
 
 ## What works
 
-The engine places each finding, builds every link, counts, cuts the body to size and cleans the text of the workers. Each of these is mechanical, pure and tested, and none needs a model. PD5 is right: the verifier gives its two reasons as fields, and the engine never parses evidence. PD6 is right: grouping findings into areas is a judgment no recorded fact gives, and the engine checks only that each major finding that acts is in exactly one area.
+The engine places each finding, builds every link, counts, cuts the body to size and cleans the text of the workers. Each of these is mechanical and pure, and none needs a model. PD5 is right: the verifier gives its two reasons as fields, and the engine never parses evidence. PD6 is right: grouping findings into areas is a judgment no recorded fact gives, and the engine checks only that each major finding that acts is in exactly one area.
 
 The engine does not check whether a case follows from the lines it cites, and PD11 of the review on the pull request leaves that to the gate. The report agrees. A second model that checks the first is a recovery for a failure no run has measured, which principle 11 of the vision note does not permit yet.
 
+## A structure for the split
+
+Today the line runs through the page: the writer owns some parts of the body, the engine owns the others, and inside a part the engine's sentences hold the writer's text and the other workers' text. W2, W4, W7 and W9 come from that line, and G1 and G2 come from parts that no one owns. The structure below draws the line by kind of work instead. A model does two kinds of work: it judges, and it writes sentences. Code does three: it records, it computes facts and checks, and it lays out the page. Each kind has one owner wherever it appears on the page.
+
+The structure adds no worker and no model call. The writer already runs once per read-only run of a pull request, on the strong tier with a budget of 8 USD, and it already reads every fact the structure gives it. What changes is what it is asked to write, and what the engine writes around it. Figure 2 shows the flow.
+
+```mermaid
+flowchart TD
+    L["The ledger: the account of the change, findings, verdicts, decisions"] --> P["The plan (code): sections, items, facts and slots"]
+    P --> W["The writer (model): one text for each slot, facts named by token"]
+    W --> K["Checks (code): each slot, each token, each cited line"]
+    K --> R["Render (code): each token becomes its number, word or link"]
+    K -- "a slot that fails twice" --> F["Fallback (code): the slot's facts as a list or a table"]
+    F --> R
+    P --> R
+    R --> G["Cleaning and the post (code)"]
+```
+
+Figure 2. The proposed flow: code plans and checks, the writer writes, code renders.
+
+### S1: Every judgment is made and recorded before the form
+
+The form decides nothing. Each judgment that the form makes today moves to the worker that owns it, and reaches the ledger as part of that worker's answer. Merge-rank gets a rubric of the three severities (W1). The decider gets the verifier's choice for the author as a field, and decides whether it becomes a question (W4). A fix records whether it edits, as an option already does, and a fix that edits nothing is refused (W5). This is principle 2 of the vision note applied to the post: what a person reads follows from what was decided, and nothing decides while it renders.
+
+### S2: The engine builds the plan of the review as data
+
+A pure function of the run's state builds the plan: the sections in their order, the items of each section, and for each item its facts and its slots. A fact is typed: a count, a finding's number and link, a verdict, a severity, a decision, an option with its cost, a command, a place. A slot is a text that a person reads, with its purpose, its length limit, the facts it may name, and whether the post can do without it. The plan holds everything the body and the comments need. The form today computes most of it while it renders. The change is that it becomes one value before any text is written, which a test can read without rendering.
+
+The plan adds the parts that no one owns today. The account of the change is a slot at the top of the body, fed by the triage's account and marked as deep-review's reading of the change, which no verifier examined (G1). The conditions of principle 8 are facts of the plan: a change to a public interface and a change that reaches many files, from the triage's judgment with the files it names, and each fix whose verdict is `PLAUSIBLE`. Each condition that holds is an item of what needs a person, as a reason to look (G2).
+
+### S3: The writer fills every slot, and names facts only by token
+
+The writer receives the plan and returns one text for each slot. Wherever a text names a fact, it writes a token instead, such as `{finding:RIPPLE-2}`, `{count:major}` or `{option:RIPPLE-2:1}`, and the task tells it how each token renders, so that the sentence around it reads right in its language, a Korean particle included. The writer writes the summary, the introduction of each area, the line of each item of what needs a person, each finding's title, problem, cases and check line, the account of the change, and the lines of the refuted candidates. It writes no number, verdict, severity or link of its own. The decider's question and options stay the decider's words, since they are what the answer chooses between, and the writer frames them.
+
+Because every sentence a person reads comes from the writer, the language of the review is the writer's language throughout, and the findings left for the author are in its words (W6, G5). Because a finding is named by token, an id cannot reach the post (W3), and no code has to find ids in prose.
+
+### S4: The engine checks each slot and renders each token
+
+The checks are the ones the engine runs today, applied per slot: not blank, within its length, no verdict word, each cited line at its side, each diagram drawn. Two are new: each token names a fact the slot may name, and the text writes no number that a token of the slot gives. A slot that fails is asked again once, with its failures, and a slot that fails twice drops alone. Slots that depend on each other, such as the summary and the areas it names, are taken from the same answer (W8). A slot that is not posted is not asked for, so it cannot drop one that is (W7).
+
+### S5: The engine's own words are labels, not sentences
+
+What the engine writes shrinks to headings, the names of table columns, the grade of a finding, the labels of its parts and a few fixed lines that take no parameter. A slot that dropped is replaced by its facts as a list or a table under its label, which reads plainly but correctly in any language. A table of the engine's words then holds nouns and short phrases, and a new language costs a translation of labels, not of sentence grammar (W2). The trust section's notes become facts of the plan, so it cannot state that a model wrote what no model wrote (W9).
+
+### S6: What stays the same
+
+The ledger, the events of the run before the explanation, the placement of each finding, the links, the counts, the cleaning, the cuts to size and the record of the publication stay as they are. The report on the machine is not touched. The verifiers' evidence is not posted in full, so G4 stays a matter of keeping the checkpoint, which the README leaves to a later change. Answering on the pull request (G6) is a separate change.
+
+The table compares the two structures on what a reader and a maintainer notice.
+
+| Property | Today | S1 to S6 |
+|---|---|---|
+| Who writes a sentence a person reads | The engine's 45 sentence functions in two languages, the writer, and the other workers' text | The writer, around facts the engine gives |
+| Who states a fact | The engine | The engine, by token |
+| Who decides what needs a person | The decider, and the form for R9 | The decider and the plan, before the form |
+| What the change does | Not posted | One slot, marked as unverified |
+| When a writer's part fails | The finder's words under a mark | The slot's facts in a list or a table |
+| An internal id in the post | Possible, by prompt | Not representable |
+| The cost of a new language | Every sentence function, with its grammar | The labels |
+| Model calls per run | One writer | One writer |
+| What a change of it costs | Nothing | A new version of `explanation.recorded` and of the writer's schema, a golden fixture, the plan as a new pure module, and a proposal |
+
+The structure has costs that the table does not show. The writer's answer grows, so its budget and its timeout must be measured again on a real run, as principle 12 asks. A run whose writer fails entirely posts a page of labels and tables, plainer than today's engine sentences. And a newer engine must still render the two older forms of the writer's answer for a run that is posted after an upgrade, so the form keeps a path for each until no such run is unposted.
+
 ## Ways to improve
 
-The changes below are in the order the report recommends. The first four are each the size of one pull request and change no event. The last two change the writer's answer, so its recorded event takes a new version and a golden fixture, and each needs a proposal under `docs/changes/`.
+The changes below are in the order the report recommends. The first four are each the size of one pull request and change no event. The last four change what the review posts or what the writer answers, and each needs a proposal under `docs/changes/`.
 
-1. Define the three severities in `phase4-list.md` and in merge-rank's task, with one example each. This answers W1 and changes a role prompt, which changes merge-rank's hash.
+1. Define the three severities in `phase4-list.md` and in merge-rank's task, with one example each (W1, S1). This changes a role prompt, which changes merge-rank's hash.
 2. Give the decider the verifier's `authorChoice` as a field of its task, so that the decider asks or leaves with the choice in view and its decision records the outcome (W4). In the same change, refuse a `fix` that edits nothing, or record a fix's `edits` as an option already records it (W5). Whether R9's rendering rule then stays as a safety net or goes is a choice for the proposal.
 3. Give the writer the findings of R9, so that what needs a person is in the writer's words with its evidence (W6). The writer's task and its check change; the event does not.
-4. Stop checking the action sentence of a question, as the design stopped checking the diagram and the `decision` (W7). Take the conclusion and the areas from the same answer (W8). Leave `modelLine` out when no explanation was recorded (W9).
-5. Have the writer and the decider name a finding by a token that the engine replaces with its number and link, and refuse a token that names no finding (W3). This puts R14 in code instead of in a prompt. Until then, the form can apply `quoted` to the text it posts, which needs no proposal and could join step 4.
-6. Make the engine's words state facts as labels, tables and short fixed lines, and move the connecting sentences to the writer, with the engine's facts inside them by token as in step 5 (W2). A run whose writer fails then posts the labels and tables, which read plainly but correctly in any language. This is the largest change and the one that most reduces what each new language costs.
+4. Stop checking the action sentence of a question, as the design stopped checking the diagram and the `decision` (W7). Take the conclusion and the areas from the same answer (W8). Leave `modelLine` out when no explanation was recorded (W9). Apply `quoted` to the text the form posts, so that an id carries its number until step 7 removes ids from the writer's text (W3).
+5. Post the account of the change, short and marked as deep-review's reading of the change that no verifier examined, and list the conditions of principle 8 in what needs a person as reasons to look (G1, G2). This reverses PD3 of the review that reads as a report, and its proposal says why: the description that PD3 relies on is the one text of the pull request that no worker reads. It can post the triage's account in the engine's form first, before step 7 gives it a slot.
+6. Pass the language of the review to every worker whose text is posted, the decider and the verifiers among them, for the fields the post shows (G5, #111).
+7. Build the plan of the review as data and have the writer fill its slots, naming facts by token (S2, S3, S4). This is the change that removes W2 and W3 at their cause.
+8. Reduce the engine's words to labels, and replace a dropped slot with its facts (S5). This can land with step 7 or after it.
 
 ## Related
 
 - [The review on the pull request](../changes/2026-11-01-review-on-the-pull-request.requirements.md) and its [technical design](../changes/2026-11-01-review-on-the-pull-request.design.md).
 - [The review that reads as a report](../changes/2026-11-04-review-that-reads-as-a-report.requirements.md) and its [technical design](../changes/2026-11-04-review-that-reads-as-a-report.design.md).
-- [The vision note](../2026-10-11-vision.md), principles 1, 2, 4, 5, 6 and 11.
+- [The brief of a run](../changes/2026-10-20-run-brief.requirements.md), which defines the account of the change.
+- [The vision note](../2026-10-11-vision.md), principles 1, 2, 4, 5, 6, 8, 11 and 12.
 - Issues #101 to #113, pull request #114 and issue #115.
