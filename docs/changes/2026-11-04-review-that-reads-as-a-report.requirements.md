@@ -118,7 +118,7 @@ A question gives its question, its options with the cost of each, then one sente
 
 ### R9: A finding left as is that its verifier sends to the author
 
-The verifier gives, with each verdict, the choice that it leaves to the author, or none, as it writes `Needs the author:` today. The decider still treats it as a hint that the repository may answer. A finding that the decider leaves as is while its verifier named such a choice goes into what needs a person, and its text in the body gives both: why it is left as is, and the choice that the verifier named.
+The verifier gives, with each verdict, the choice that it leaves to the author, or none, as it writes `Needs the author:` today. The decider still treats it as a hint that the repository may answer. A finding that the decider leaves as is while its verifier named such a choice goes into what needs a person, and its text in the body gives both: why it is left as is, and the choice that the verifier named. The writer explains only the findings that ask a person to act, so the text of such a finding is in deep-review's own words, with the mark that tells the reader to look at it.
 
 ### R10: One line of how each finding was checked
 
