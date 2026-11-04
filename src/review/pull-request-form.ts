@@ -312,6 +312,9 @@ function fenced(diagram: string): string {
 /** Blocks of lines with one blank line between each two, an empty block left out. */
 const blocks = (...parts: readonly (readonly string[])[]): string[] => parts.filter((part) => part.length > 0).flatMap((part, index) => (index === 0 ? [...part] : ['', ...part]));
 
+/** A fold with its summary over blocks, the blank line after the summary that GitHub needs to read them as Markdown. */
+const details = (summary: string, ...parts: readonly (readonly string[])[]): string[] => blocks([`<details><summary>${summary}</summary>`], ...parts, ['</details>']);
+
 /** A path from the root of the repository as a URL path, each name percent-encoded, its parentheses too, so no `)` of a name closes the Markdown link the URL is put in. */
 const urlPath = (path: string): string => path.split('/').map((name) => encodeURIComponent(name).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
 
@@ -420,7 +423,7 @@ function minorBlocks(view: FormView, finding: FindingView, say: Speaker): string
 function decidedFixLines(view: FormView, decision: Extract<RecordedDecision, { decision: 'fix' }>, say: Speaker): string[] {
   const { words } = view;
   const rejected = decision.fix.rejected.map((option) => `- ${words.rejected(say.sentence(option.option), say.sentence(option.reason))}`);
-  return [`<details><summary>${words.asDecided}</summary>`, '', paragraphText(say.sentence(decision.fix.approach)), ...(rejected.length === 0 ? [] : ['', ...rejected]), '', '</details>'];
+  return details(words.asDecided, [paragraphText(say.sentence(decision.fix.approach))], rejected);
 }
 
 /** A fix against a written rule (R8): the rule, its source, the fact against it, and how its answer is given or was. */
@@ -477,7 +480,7 @@ function checkedLines(view: FormView, finding: FindingView, say: Speaker): strin
   const { words } = view;
   const { resolution } = finding.entry;
   const fallback = resolution.unverified ? words.notVerified : resolution.basis === null ? words.noBasis : words.basisSentences[resolution.basis];
-  return [`<details><summary>${words.howChecked}</summary>`, '', finding.checked === null ? fallback : paragraphText(sentenceText(say.prose(finding.checked))), '', '</details>'];
+  return details(words.howChecked, [finding.checked === null ? fallback : paragraphText(sentenceText(say.prose(finding.checked)))]);
 }
 
 /** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed (R14); its text is on one line whatever line break the path holds. */
@@ -660,7 +663,7 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   const rows = minor.map((finding) => `| ${[String(finding.finding.number), `[${titleOf(finding, say)}](${hrefOf(view, finding)})`, verdictText(view, finding), actionTail(view, finding, say)].map(tableCell).join(' | ')} |`);
   const order = user > 0 && user < minor.length ? [[words.minorOrder(user)]] : [];
   const table = [`| ${words.minorColumns.join(' | ')} |`, `|${words.minorColumns.map(() => '---').join('|')}|`, ...rows];
-  return { part: 'minor', lines: blocks([words.minorHeading], [intro], [`<details><summary>${words.minorSummary(minor.length)}</summary>`], ...order, table, ['</details>']) };
+  return { part: 'minor', lines: blocks([words.minorHeading], [intro], details(words.minorSummary(minor.length), ...order, table)) };
 }
 
 /** The findings left as is that need no person, folded, each with why and its line; or, cut, the note in their place. */
@@ -680,7 +683,7 @@ function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): 
       location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`],
     );
   };
-  return { part: 'left as is', lines: blocks([words.leftHeading], [`<details><summary>${words.leftSummary(left.length)}</summary>`], ...left.map(block), ['</details>']) };
+  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary(left.length), ...left.map(block))) };
 }
 
 /**
@@ -707,7 +710,7 @@ function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<Body
     const place = location === null ? words.noPlace : locationLink(view, location);
     return `- ${place}: ${words.refutedItem(sentenceText(claim === null ? say.words(candidate.summary) : say.prose(claim)), why === null ? words.refutedInReport : sentenceText(say.prose(why)))}`;
   });
-  return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, [`<details><summary>${words.refutedSummary(count)}</summary>`], entries, ['</details>']) };
+  return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, details(words.refutedSummary(count), entries)) };
 }
 
 /** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote, then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
