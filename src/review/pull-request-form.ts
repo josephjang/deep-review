@@ -174,7 +174,7 @@ export function formRefusalWords(refusal: FormRefusal): string {
   return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
 }
 
-/** How a finding is explained: by the writer, not explained (marked by the writer with its reason, or dropped by the checks), or by no explanation the run recorded. */
+/** How a finding is explained: by the writer, not explained (marked by the writer with its reason, dropped by the checks, or not asked of the writer), or by no explanation the run recorded. */
 type Explained =
   | { readonly kind: 'explained'; readonly value: ExplainedFinding }
   | { readonly kind: 'unexplained'; readonly reason: string | null }
@@ -791,12 +791,17 @@ function cutApplies(view: FormView, cut: BodyCut): boolean {
   }
 }
 
-/** How the writer explained a finding, from the recorded explanation and its frozen answer. */
+/**
+ * How the writer explained a finding, from the recorded explanation and its
+ * frozen answer. A finding the answer does not hold is one the writer was
+ * not asked about, such as one left for the author (R9), which the body
+ * still gives in full, so it is marked as given in deep-review's own words.
+ */
 function explainedOf(recorded: ExplanationRecorded | null, answer: WriterAnswer | null, id: string): Explained {
   if (recorded === null) return { kind: 'none' };
   if (recorded.dropped.some((part) => part.part === 'finding' && part.finding === id)) return { kind: 'unexplained', reason: null };
   const given = answer?.findings.find((finding) => finding.id === id);
-  if (given === undefined) return { kind: 'none' };
+  if (given === undefined) return { kind: 'unexplained', reason: null };
   return given.unexplained ? { kind: 'unexplained', reason: given.reason } : { kind: 'explained', value: given };
 }
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { diagramFailures, type ExplainedFinding, type RecordedAnswer } from '../../src/review/explanation.ts';
+import { diagramFailures, findingsToExplain, type ExplainedFinding, type RecordedAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
 import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
@@ -294,6 +294,16 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     const left = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
     const state = withVerdict(run([left, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: 'Whether parse should throw or return null on an empty file.' });
     includes(section(formOf(state).body, '### What needs a person'), '**[Finding 1](#finding-1) is left as is, but its verifier leaves a choice to the author.** Whether parse should throw or return null on an empty file.');
+  });
+
+  it('marks the text of a finding left for the author, which the writer is not asked to explain, as deep-review\'s own words', () => {
+    const left = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
+    const state = withVerdict(run([left, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: 'Whether parse should throw or return null on an empty file.' });
+    const full = writerAnswer();
+    const asked = findingsToExplain(state.review!);
+    assert.equal(asked.length, 0);
+    const body = formOf(state, { ...full, findings: full.findings.filter((finding) => asked.includes(finding.id)) }).body;
+    includes(section(body, '### Finding 1: null dereference'), 'deep-review\'s writer did not explain this finding, so it is given in deep-review\'s own words: look at it yourself.\n\n**What goes wrong.** RIPPLE-1 detail');
   });
 
   it('says in the summary that a finding left as is leaves a choice to the author, and that nothing needs to change only when none does', () => {
