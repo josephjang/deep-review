@@ -58,11 +58,12 @@ export interface ReviewCounts {
   readonly noBasis: number;
 }
 
-/** The findings by what deep-review decided, as the summary counts them. */
+/** The findings by what deep-review decided, as the summary counts them, and those left as is whose verifier leaves a choice to the author (R9), which what needs a person lists. */
 export interface DecisionCounts {
   readonly fixes: number;
   readonly questions: number;
   readonly left: number;
+  readonly authors: number;
 }
 
 /** Why a verdict is PLAUSIBLE and not CONFIRMED, as its verifier gave it (R7): a fact it could not settle, or a choice that remains; its text already cleaned. */
@@ -232,7 +233,11 @@ const english: PullRequestWords = {
       ...(counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, 'question', 'questions')}`]),
     ];
     const left = counts.left === 0 ? '' : `${String(counts.left)} ${counts.left === 1 ? 'is' : 'are'} left as is`;
-    if (acting.length === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
+    if (acting.length === 0 && counts.authors === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
+    if (acting.length === 0) {
+      const verifiers = counts.left === 1 ? 'its verifier leaves' : counts.authors === 1 ? 'the verifier of 1 of them leaves' : `the verifiers of ${String(counts.authors)} of them leave`;
+      return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is and changes nothing on this branch, but ${verifiers} a choice to the author, as "What needs a person" says.`;
+    }
     return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
   },
 
@@ -412,7 +417,8 @@ const korean: PullRequestWords = {
       ...(counts.left === 0 ? [] : [`그대로 둘 것 ${String(counts.left)}건`]),
     ];
     const decided = `deep-review의 결정은 ${parts.join(', ')}입니다.`;
-    if (counts.fixes + counts.questions === 0) return `${decided} 이 브랜치에서 바꿀 것은 없습니다.`;
+    if (counts.fixes + counts.questions === 0 && counts.authors === 0) return `${decided} 이 브랜치에서 바꿀 것은 없습니다.`;
+    if (counts.fixes + counts.questions === 0) return `${decided} 이 브랜치에서 바꾸는 것은 없지만, 그중 ${String(counts.authors)}건은 "사람이 해야 할 일"에 적었듯 검증자가 작성자가 정할 선택을 남겼습니다.`;
     return `${decided} 이 리뷰를 실행한 사람이 ${fix} 명령으로 수정과 그때까지 받은 답을 자신의 클론에 적용하고 그 결과를 푸시하기 전까지, 이 브랜치에서는 아무것도 바뀌지 않습니다.`;
   },
 

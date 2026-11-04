@@ -41,6 +41,19 @@ describe('the tables of the engine\'s words', () => {
     for (const language of pullRequestLanguages) assert.doesNotMatch(pullRequestWordTables[language].whyPlausible(null), /gave no reason|이유를 밝히지 않았/, language);
   });
 
+  it('say that nothing on the branch needs to change only when no finding left as is leaves a choice to the author (R1, R9)', () => {
+    const { en, ko } = pullRequestWordTables;
+    const fix = '`deep-review review --pr 42 --fix`';
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 0 }, fix), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 1 }, fix), 'deep-review leaves 2 findings as is and changes nothing on this branch, but the verifier of 1 of them leaves a choice to the author, as "What needs a person" says.');
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 3, authors: 2 }, fix), 'deep-review leaves 3 findings as is and changes nothing on this branch, but the verifiers of 2 of them leave a choice to the author, as "What needs a person" says.');
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 1, authors: 1 }, fix), 'deep-review leaves 1 finding as is and changes nothing on this branch, but its verifier leaves a choice to the author, as "What needs a person" says.');
+    assert.equal(ko.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 0 }, fix), 'deep-review의 결정은 그대로 둘 것 2건입니다. 이 브랜치에서 바꿀 것은 없습니다.');
+    assert.equal(ko.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 1 }, fix), 'deep-review의 결정은 그대로 둘 것 2건입니다. 이 브랜치에서 바꾸는 것은 없지만, 그중 1건은 "사람이 해야 할 일"에 적었듯 검증자가 작성자가 정할 선택을 남겼습니다.');
+    // A run that acts says what happens next with `--fix`, whatever its findings left for the author.
+    assert.equal(en.summaryNext({ fixes: 1, questions: 0, left: 1, authors: 1 }, fix), en.summaryNext({ fixes: 1, questions: 0, left: 1, authors: 0 }, fix));
+  });
+
   it('name the option recommended and the one that stands as two facts, and one option once (R8)', () => {
     const { standing } = pullRequestWordTables.en;
     assert.equal(standing(2, 1, false, null), 'deep-review recommends option 2. Until someone answers, option 1 stands, the easiest to take back: the code stays as it is.');
