@@ -78,6 +78,8 @@ export const writerAnswer = (): WholeAnswer => ({
     problem: { text: 'An empty file made parse() throw.', diagram: 'flowchart LR\n  E["empty file"] --> T["throw"]' },
     change: { text: 'parse() returns null for an empty file.', diagram: null },
   },
+  areas: null,
+  refuted: null,
   findings: [
     {
       id: 'RIPPLE-1',
@@ -87,6 +89,8 @@ export const writerAnswer = (): WholeAnswer => ({
       cases: [{ sentence: 'An empty file reaches the read on line 4', lines: { side: 'head', path: 'src/a.ts', from: 3, to: 4 } }, { sentence: 'The removed guard stood here', lines: { side: 'base', path: 'src/gone.ts', from: 2, to: 2 } }],
       diagram: 'sequenceDiagram\n  Caller->>parse: an empty file\n  parse-->>Caller: crash',
       decision: 'deep-review would guard the null once, so every caller is safe.',
+      checked: null,
+      kind: null,
     },
     { id: 'SWEEP-1', unexplained: true, reason: 'Its evidence names no line of the head.' },
   ],

@@ -220,7 +220,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
 
   it('falls back to the engine\'s words for each part the writer dropped, names it, and for a run with no explanation', () => {
     const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
-    const fallback = formOf(dropped, { conclusion: null, account: null, findings: [writerAnswer().findings[1]!] });
+    const fallback = formOf(dropped, { conclusion: null, account: null, areas: null, refuted: null, findings: [writerAnswer().findings[1]!] });
     includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. Fix: Guard the null once, before parse reads it. Against a written rule.`);
     excludes(fallback.body, '```mermaid\nflowchart LR');
     includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
