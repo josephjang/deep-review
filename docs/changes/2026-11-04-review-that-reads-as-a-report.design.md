@@ -186,4 +186,31 @@ The form rendered the ledger of the read-only run that reviewed #96, run `b856cf
 
 ### The gate (R17)
 
-Not run yet. It needs a real read-only review of a pull request at version 11, in English and in Korean.
+The gate ran twice on pull request #114 itself at its head, by the engine built from that head: a read-only run in English and one with `review.language = "ko"`, each in its own clone, each printed with `publish --dry-run`. R17 asks for a repository that reviews in Korean; none was at hand, so the Korean run reviewed the same pull request, which departs from R17 and lets the two languages be compared on one change. An independent reader for each run, given the dry run, the template, #101 to #113 and the run's evidence but not the author's view, judged it against the Metrics and the Risks. The dry runs and the two reads are kept by the author outside the repository; the numbers below are theirs.
+
+| | English run | Korean run | Template | First post of #96 |
+|---|---|---|---|---|
+| Findings | 33 (9 major) | 32 (11 major) | 30 | 30 |
+| Decisions | 27 fix, 1 ask, 5 leave | 26 fix, 2 ask, 4 leave | | |
+| Spent | 30.91 USD, 43 min | 33.87 USD, 48 min | | |
+| Body | 39,855 | 32,696 | 19,388 | 49,848 |
+| Comments | 52,921 in 27 | 39,616 in 25 | 54,823 in 29 | 113,038 in 29 |
+| End of what needs a person | rendered line 54 to 62 | about line 50 | line 30 to 36 | |
+
+In both runs the writer's answer in the report form passed its checks at its first attempt, and the verifier gave its two fields, so the review took no fallback of R16 except for the findings the writer is not asked about. The comments meet the template's form: each states its facts once, the check line lets a reader weigh the verdict where the writer wrote it, and every link is a permalink at the head. The body does not, and neither does the first screen. Both reads found the same faults of the engine's form:
+
+- A finding left as is whose verifier leaves a choice to the author (R9) is posted in full in the finder's raw words, unmarked, with its title naming code (#113): five in the English body (9,664 characters, a quarter of it) and three in the Korean. Each run filed this as its own finding, the question of whether the writer should explain them.
+- What needs a person lists each fix against a written rule as its own item that quotes the rule but not what the fix does, with the same closing sentence each time, and each finding of R9 as its own item with no action; in the English run the list has 11 items where the template has 4.
+- The trust section's sentence that the evidence stands beneath each finding is false now that the evidence stays in the report (R12); each run filed it.
+- The summary's count of minor findings includes the minor findings of R9 posted in full, which the minor section leaves out (24 against 21 in English, 21 against 19 in Korean).
+- Sentences of the engine's tables that read wrongly: the summary's next step, "as the repository's file sets", "one fact is not settled, Whether", the Korean particle after a number ("15은"), a label said twice in Korean, and a block in full that does not say why it is in the body. A link to a line of a Markdown file lacks `?plain=1`, so GitHub opens the rendered file instead of the line.
+
+And faults of the models' text that the engine passes through:
+
+- Internal ids: the writer names the two Korean questions by id in the summary, as its prompt tells it to ("Name a finding by its id"), and the decider's fix text names other findings by id in four English comments (#106).
+- A decided fix whose action is "Make no edit" (three English findings) is posted as "deep-review would fix this" and counted among the fixes.
+- The verifier gives "a choice remains" too readily: eight of nine PLAUSIBLE verdicts in English, three of them for the scope of a fix or a choice the design records as made; and "Needs the author" on 20 of 32 Korean findings. This is the risk the requirements name, shown the other way.
+
+Of #101 to #113, both reads find #102, #108, #110 and #112 fixed; #104, #105, #109 and #113 partly fixed; #101 and #103 not fixed, as non-goals. #106 is partly fixed in English and not fixed in Korean; #107 is fixed in English and partly fixed in Korean; #111 applies only to the Korean run, where it is partly fixed. The design's open questions stay open: the links of the body reach code, not the comment, and GitHub's markdown keeps an in-page anchor as `user-content-finding-<n>`, whose behavior in a posted review a dry run cannot show; the minor table renders inside `<details>`.
+
+The gate does not pass. The faults above are fixed before the pull request merges, and the gate runs again.
