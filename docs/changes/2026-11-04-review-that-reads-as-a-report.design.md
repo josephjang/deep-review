@@ -112,7 +112,7 @@ A diff anchor moves when the pull request moves (#112), and a permalink at the r
 
 ### TD5: The minor table is cut before the areas
 
-Each minor finding has its comment, so a cut table loses nothing that is not on the pull request, while the areas are the only place in the body where a major finding is named.
+Each minor finding has its comment on its line or its text in full in the body, so a cut table loses nothing that is not on the pull request, while the areas are the only place in the body where a major finding is named.
 
 ## Open Questions
 
