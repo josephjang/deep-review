@@ -296,6 +296,16 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     includes(section(formOf(state).body, '### What needs a person'), '**[Finding 1](#finding-1) is left as is, but its verifier leaves a choice to the author.** Whether parse should throw or return null on an empty file.');
   });
 
+  it('says in the summary that a finding left as is leaves a choice to the author, and that nothing needs to change only when none does', () => {
+    const left = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
+    const answer = { ...writerAnswer(), conclusion: { ...writerAnswer().conclusion, actions: [] } };
+    const choice = withVerdict(run([left, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: 'Whether parse should throw or return null on an empty file.' });
+    const summary = section(formOf(choice, answer).body, '### Summary');
+    includes(summary, 'deep-review leaves 2 findings as is and changes nothing on this branch, but the verifier of 1 of them leaves a choice to the author, as "What needs a person" says.');
+    excludes(summary, 'needs to change');
+    includes(section(formOf(run([left, decisions[1]]).fold(), answer).body, '### Summary'), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
+  });
+
   it('lists in what needs a person a finding left as is whose CONFIRMED primary names no choice and whose PLAUSIBLE member names one', () => {
     const left = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
     const folded = run([left, decisions[1]]).fold();
