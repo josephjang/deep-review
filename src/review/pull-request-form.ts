@@ -867,8 +867,8 @@ function formViewOf(input: PullRequestFormInput): FormView {
       question: brief.questions.find((question) => question.id === finding.id) ?? null,
       departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
       action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
-      checked: explained.kind === 'explained' ? (explained.value.checked ?? null) : null,
-      kind: explained.kind === 'explained' ? (explained.value.kind ?? null) : null,
+      checked: explained.kind === 'explained' ? explained.value.checked : null,
+      kind: explained.kind === 'explained' ? explained.value.kind : null,
       unconfirmed: entry.resolution.unconfirmed,
       authorChoice: entry.resolution.authorChoice,
     };
