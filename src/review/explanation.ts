@@ -511,11 +511,13 @@ type FindingEntry = AnyWriterOutput['findings'][number];
  * The explanation of one finding checked, from the entries the answer
  * gives for its id: one entry, explained or unexplained and not both; and
  * for an explanation, its texts, at least one case, the lines of each, no
- * verdict, and its diagram. In an answer of version 2, `major` says
- * whether the finding is major: an explanation also says how its verifier
- * checked it, and has a kind exactly when the finding is minor; and its
- * `decision`, which the form of the review that reads as a report does
- * not post, is held to nothing.
+ * verdict, and its diagram. `major` is null for an answer of version 1,
+ * whose explanation must say something of its decision. For an answer of
+ * version 2 it is true or false, as the finding is major or not, and only
+ * then do the checks of version 2 run: an explanation also says how its
+ * verifier checked it, and has a kind exactly when the finding is minor;
+ * and its `decision`, which the form of the review that reads as a report
+ * does not post, is held to nothing.
  */
 function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: AnswerCheckInput['lineCount'], major: boolean | null): CheckedPart<FindingExplanation> {
   const refused = (failure: string): CheckedPart<FindingExplanation> => ({ value: null, failures: [failure] });
