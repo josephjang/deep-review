@@ -290,7 +290,7 @@ const english: PullRequestWords = {
   problemLabel: '**What goes wrong.**',
   whyPlausible: (unconfirmed) => {
     if (unconfirmed === null) return 'Why PLAUSIBLE: the verifier gave no reason.';
-    return unconfirmed.kind === 'fact' ? `Why PLAUSIBLE: one fact is not settled, ${unconfirmed.text}` : `Why PLAUSIBLE: the defect is there, and a choice remains: ${unconfirmed.text}`;
+    return unconfirmed.kind === 'fact' ? `Why PLAUSIBLE: one fact is not settled: ${unconfirmed.text}` : `Why PLAUSIBLE: the defect is there, and a choice remains: ${unconfirmed.text}`;
   },
   whyUnverified: 'Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.',
   wouldDoLabel: '**What deep-review would do.**',

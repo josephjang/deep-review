@@ -34,7 +34,8 @@ describe('the tables of the engine\'s words', () => {
 
   it('say why a PLAUSIBLE verdict was not confirmed, as two facts: a fact not settled, or a choice that remains, and that the verifier gave no reason (R7)', () => {
     const { whyPlausible } = pullRequestWordTables.en;
-    assert.equal(whyPlausible({ kind: 'fact', text: 'how GitHub answers a 404 here.' }), 'Why PLAUSIBLE: one fact is not settled, how GitHub answers a 404 here.');
+    // The verifier gives its reason as a whole sentence, so it starts with a capital and follows a colon.
+    assert.equal(whyPlausible({ kind: 'fact', text: 'Whether two requests can interleave was not run here.' }), 'Why PLAUSIBLE: one fact is not settled: Whether two requests can interleave was not run here.');
     assert.equal(whyPlausible({ kind: 'choice', text: 'which module owns the type.' }), 'Why PLAUSIBLE: the defect is there, and a choice remains: which module owns the type.');
     assert.equal(whyPlausible(null), 'Why PLAUSIBLE: the verifier gave no reason.');
   });
