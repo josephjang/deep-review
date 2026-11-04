@@ -270,7 +270,7 @@ interface Speaker {
   readonly prose: (text: string) => string;
   readonly paragraphs: (text: string) => string[];
   readonly code: (text: string) => string;
-  /** A worker's text as a sentence, its first word capitalized when it is a plain lower-case word, as a decider's approach or option often starts. */
+  /** A worker's text as a sentence, its first word capitalized when it is a plain lower-case word, alone or followed by a space, as a decider's approach or option often starts. */
   readonly sentence: (text: string) => string;
   readonly diagram: (text: string) => string;
   readonly secrets: () => number;
@@ -290,7 +290,7 @@ function speakerOf(machine: MachineContext, words: PullRequestWords): Speaker {
     code: (text) => codeSpan(counted(publicCode(inlineText(text), machine))),
     sentence: (text) => {
       const cleaned = counted(publicWords(inlineText(text).trim(), machine));
-      return sentenceText(/^[a-z]+ /.test(cleaned) ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}` : cleaned);
+      return sentenceText(/^[a-z]+(?: |$)/.test(cleaned) ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}` : cleaned);
     },
     diagram: (text) => {
       const body = counted(publicCode(text.replace(/\s+$/, ''), machine));
