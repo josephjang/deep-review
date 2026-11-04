@@ -552,6 +552,27 @@ function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: A
   return { value: { id, unexplained: false, title, problem, cases, diagram, decision, checked, kind }, failures };
 }
 
+/** How a list of named ids covers the ids expected, one for each and none for another: each expected id named none, each named more than once with its count, and each named id not expected, once. */
+interface IdCoverage {
+  readonly missing: readonly string[];
+  readonly repeated: readonly (readonly [id: string, count: number])[];
+  readonly stray: readonly string[];
+}
+
+/** The coverage of `expected` by `named`, each list in the order of `expected` or, for the stray ids, of `named`. */
+function idCoverage(named: readonly string[], expected: readonly string[]): IdCoverage {
+  const counts = new Map<string, number>();
+  for (const id of named) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return {
+    missing: expected.filter((id) => !counts.has(id)),
+    repeated: expected.flatMap((id) => {
+      const count = counts.get(id) ?? 0;
+      return count > 1 ? [[id, count] as const] : [];
+    }),
+    stray: [...counts.keys()].filter((id) => !expected.includes(id)),
+  };
+}
+
 /**
  * The areas checked (R4, PD6 of the review that reads as a report): each
  * major finding to explain in exactly one area and no other id in any,
@@ -559,12 +580,11 @@ function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: A
  * diagram.
  */
 function checkAreas(areas: readonly Area[], ids: readonly string[], major: readonly string[]): string[] {
-  const named = areas.flatMap((area) => area.findings);
-  const count = (id: string): number => named.filter((name) => name === id).length;
+  const { missing, repeated, stray } = idCoverage(areas.flatMap((area) => area.findings), major);
   return [
-    ...major.filter((id) => count(id) === 0).map((id) => `the areas leave out ${id}, a major finding that asks a person to act`),
-    ...major.filter((id) => count(id) > 1).map((id) => `${id} is in ${String(count(id))} areas, and a finding is in one`),
-    ...[...new Set(named)].filter((id) => !major.includes(id)).map((id) => (ids.includes(id) ? `the areas name ${id}, a minor finding, which no area holds` : `the areas name ${JSON.stringify(id)}, which is no major finding of the run that asks a person to act`)),
+    ...missing.map((id) => `the areas leave out ${id}, a major finding that asks a person to act`),
+    ...repeated.map(([id, count]) => `${id} is in ${String(count)} areas, and a finding is in one`),
+    ...stray.map((id) => (ids.includes(id) ? `the areas name ${id}, a minor finding, which no area holds` : `the areas name ${JSON.stringify(id)}, which is no major finding of the run that asks a person to act`)),
     ...areas.flatMap((area, index) => {
       const what = `area ${String(index + 1)}`;
       return [
@@ -580,12 +600,11 @@ function checkAreas(areas: readonly Area[], ids: readonly string[], major: reado
 
 /** The refuted lines checked (R11 of the review that reads as a report): one line for each refuted candidate and for no other id, each with its claim and why, and no verdict. */
 function checkRefuted(lines: readonly RefutedLine[], refutedIds: readonly string[]): string[] {
-  const named = lines.map((line) => line.id);
-  const count = (id: string): number => named.filter((name) => name === id).length;
+  const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), refutedIds);
   return [
-    ...refutedIds.filter((id) => count(id) === 0).map((id) => `the refuted lines have no line for ${id}`),
-    ...refutedIds.filter((id) => count(id) > 1).map((id) => `the refuted lines have ${String(count(id))} lines for ${id}, and a candidate has one`),
-    ...[...new Set(named)].filter((id) => !refutedIds.includes(id)).map((id) => `the refuted lines name ${JSON.stringify(id)}, which is no refuted candidate of the run`),
+    ...missing.map((id) => `the refuted lines have no line for ${id}`),
+    ...repeated.map(([id, count]) => `the refuted lines have ${String(count)} lines for ${id}, and a candidate has one`),
+    ...stray.map((id) => `the refuted lines name ${JSON.stringify(id)}, which is no refuted candidate of the run`),
     ...lines.filter((line) => refutedIds.includes(line.id)).flatMap((line) => [
       ...(blank(line.claim) ? [`the refuted line for ${line.id} says no claim`] : []),
       ...(blank(line.why) ? [`the refuted line for ${line.id} says not why it was refuted`] : []),
