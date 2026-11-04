@@ -192,6 +192,8 @@ export interface PullRequestWords {
   readonly trust: (counts: ReviewCounts) => string;
   readonly modelLine: string;
   readonly conclusionDropped: string;
+  readonly areasDropped: string;
+  readonly refutedDropped: string;
   readonly findingsDropped: (findings: string, count: number) => string;
   readonly noExplanation: string;
   readonly predates: (findings: string) => string;
@@ -372,6 +374,8 @@ const english: PullRequestWords = {
   },
   modelLine: 'A model wrote the explanations from the evidence beneath each finding, and only that evidence was verified.',
   conclusionDropped: 'The writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.',
+  areasDropped: 'The writer gave no areas that passed deep-review\'s checks, so the major findings are listed in one area in deep-review\'s own words.',
+  refutedDropped: 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.',
   findingsDropped: (findings, count) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count === 1 ? 'it is' : 'each is'} given in deep-review's own words.`,
   noExplanation: 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.',
   predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
@@ -548,6 +552,8 @@ const korean: PullRequestWords = {
   },
   modelLine: '설명은 모델이 각 지적 사항 아래의 근거를 바탕으로 썼으며, 검증된 것은 그 근거뿐입니다.',
   conclusionDropped: '설명 모델이 deep-review의 검사를 통과한 요약을 내지 못해, 요약과 조치는 deep-review가 직접 쓴 문장으로 적었습니다.',
+  areasDropped: '설명 모델이 deep-review의 검사를 통과한 영역을 내지 못해, major 지적 사항은 deep-review가 직접 이름 붙인 한 영역에 모아 적었습니다.',
+  refutedDropped: '설명 모델이 반박된 후보에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 각 후보는 찾는 작업자의 요약으로 적었습니다.',
   findingsDropped: (findings) => `설명 모델이 ${findings}에 대해 deep-review의 검사를 통과한 설명을 내지 못해, deep-review가 직접 쓴 문장으로 적었습니다.`,
   noExplanation: '이 실행에는 설명 모델의 설명이 기록되지 않아, 리뷰 전체를 deep-review가 직접 쓴 문장으로 적었습니다.',
   predates: (findings) => `설명 모델의 설명은 ${findings}에 대한 답이 기록되기 전에 쓰였습니다. 각 답은 deep-review가 직접 쓴 문장으로 적었습니다.`,

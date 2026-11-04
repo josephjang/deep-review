@@ -8,7 +8,7 @@ import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRe
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
 import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea } from '../helpers/pull-request-review.ts';
-import { answer, answerableDecisions, askDecision, decisions, departure, explanation, worker } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, askDecision, decisions, departure, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
 const base = '1'.repeat(40);
@@ -227,6 +227,27 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     const none = formOf(runBeforeExplanation().fold(), null);
     includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
     excludes(none.comments[0]!.body, 'did not explain this finding');
+  });
+
+  it('names the writer\'s areas and refuted lines when the checks dropped them, in each language', () => {
+    /** The trust section of a run whose review reads as a report, in `language`, its explanation dropping the part named. */
+    const trustOf = (language: string, part: string): string => {
+      const history = withSettings(run(answerableDecisions(), explanation(worker(60), { dropped: [{ part, failures: ['x'] }], unexplained: ['SWEEP-1'] })), { 'review.language': language }, { 'review.language': 'repository' });
+      const words = pullRequestWordTables[language as keyof typeof pullRequestWordTables];
+      const body = formOf(withReportForm(history).fold(), { ...writerAnswer(), areas: null, refuted: null }).body;
+      return section(body, words.trustHeading);
+    };
+    for (const language of ['en', 'ko'] as const) {
+      const { areasDropped, refutedDropped, conclusionDropped } = pullRequestWordTables[language];
+      const areas = trustOf(language, 'areas');
+      includes(areas, `\n\n${areasDropped}\n`);
+      for (const other of [refutedDropped, conclusionDropped]) excludes(areas, other);
+      const refuted = trustOf(language, 'refuted');
+      includes(refuted, `\n\n${refutedDropped}\n`);
+      for (const other of [areasDropped, conclusionDropped]) excludes(refuted, other);
+    }
+    includes(trustOf('en', 'areas'), 'The writer gave no areas that passed deep-review\'s checks, so the major findings are listed in one area in deep-review\'s own words.');
+    includes(trustOf('en', 'refuted'), 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.');
   });
 
   it('names the findings whose answers the explanation predates', () => {
