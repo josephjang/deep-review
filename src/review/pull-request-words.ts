@@ -257,7 +257,7 @@ const english: PullRequestWords = {
     '  P --> A["The person who ran the review answers the questions"]',
     `  A --> X["review --pr ${String(pullRequest)} --fix: fixers apply and test each fix"]`,
   ].join('\n'),
-  verdictMeanings: 'CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verifier gave no reason.',
+  verdictMeanings: 'CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verdict was recorded before verifiers gave that reason on its own.',
   unverifiedMeaning: 'A PLAUSIBLE finding marked unverified is one that no verifier examined, since its verifier failed twice.',
   severityMeanings: 'The severity is a worker\'s judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a wrong message or repeated code that the next change can let drift.',
 
@@ -288,7 +288,7 @@ const english: PullRequestWords = {
   unexplained: (reason) => `deep-review's writer did not explain this finding, so it is given in deep-review's own words: look at it yourself.${reason === null ? '' : ` The writer's reason: ${reason}`}`,
   problemLabel: '**What goes wrong.**',
   whyPlausible: (unconfirmed) => {
-    if (unconfirmed === null) return 'Why PLAUSIBLE: the verifier gave no reason.';
+    if (unconfirmed === null) return 'Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.';
     return unconfirmed.kind === 'fact' ? `Why PLAUSIBLE: one fact is not settled: ${unconfirmed.text}` : `Why PLAUSIBLE: the defect is there, and a choice remains: ${unconfirmed.text}`;
   },
   whyUnverified: 'Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.',
@@ -437,7 +437,7 @@ const korean: PullRequestWords = {
     '  P --> A["리뷰를 실행한 사람이 질문에 답합니다"]',
     `  A --> X["review --pr ${String(pullRequest)} --fix: 수정 작업자가 각 수정을 적용하고 검사합니다"]`,
   ].join('\n'),
-  verdictMeanings: 'CONFIRMED는 검증자가 문제를 실행해 재현했거나, 코드 경로를 따라가 잘못된 결과에 이르는 것을 확인했다는 뜻입니다. PLAUSIBLE은 확인한 범위에서는 주장이 맞지만 확정하지는 못했다는 뜻이며, 사실 하나를 확인하지 못했거나 선택이 남았기 때문입니다. 그런 지적 사항마다 어느 쪽인지, 또는 검증자가 이유를 밝히지 않았는지 적었습니다.',
+  verdictMeanings: 'CONFIRMED는 검증자가 문제를 실행해 재현했거나, 코드 경로를 따라가 잘못된 결과에 이르는 것을 확인했다는 뜻입니다. PLAUSIBLE은 확인한 범위에서는 주장이 맞지만 확정하지는 못했다는 뜻이며, 사실 하나를 확인하지 못했거나 선택이 남았기 때문입니다. 그런 지적 사항마다 어느 쪽인지, 또는 그 판정이 검증자가 이유를 따로 밝히기 전에 기록되었는지 적었습니다.',
   unverifiedMeaning: '검증 안 됨 표시가 붙은 PLAUSIBLE 지적 사항은 검증자가 두 번 실패해 아무도 검토하지 않은 것입니다.',
   severityMeanings: '심각도는 작업자의 판단입니다. critical이나 major 지적 사항은 병합 전에 살펴야 할 것이고, minor 지적 사항은 잘못된 메시지나 다음 변경에서 서로 어긋날 수 있는 중복 코드처럼 그보다 가벼운 것입니다.',
 
@@ -468,7 +468,7 @@ const korean: PullRequestWords = {
   unexplained: (reason) => `deep-review의 설명 모델이 이 지적 사항을 설명하지 못해, deep-review가 직접 쓴 문장으로 적었습니다. 직접 확인해 주세요.${reason === null ? '' : ` 설명 모델이 밝힌 이유: ${reason}`}`,
   problemLabel: '**무엇이 잘못되나.**',
   whyPlausible: (unconfirmed) => {
-    if (unconfirmed === null) return 'PLAUSIBLE인 이유: 검증자가 이유를 밝히지 않았습니다.';
+    if (unconfirmed === null) return 'PLAUSIBLE인 이유: 이 판정은 검증자가 이유를 따로 밝히기 전에 기록되었습니다. 근거는 실행 보고서에 있습니다.';
     return unconfirmed.kind === 'fact' ? `PLAUSIBLE인 이유: 확인하지 못한 사실이 하나 있습니다. ${unconfirmed.text}` : `PLAUSIBLE인 이유: 결함은 있지만 선택이 남았습니다. ${unconfirmed.text}`;
   },
   whyUnverified: 'PLAUSIBLE인 이유: 검증자가 두 번 실패해 아무도 검토하지 않았습니다.',

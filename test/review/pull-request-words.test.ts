@@ -32,12 +32,13 @@ describe('the tables of the engine\'s words', () => {
     }
   });
 
-  it('say why a PLAUSIBLE verdict was not confirmed, as two facts: a fact not settled, or a choice that remains, and that the verifier gave no reason (R7)', () => {
+  it('say why a PLAUSIBLE verdict was not confirmed, as two facts: a fact not settled, or a choice that remains, and that an older verdict was recorded before verifiers gave one on its own (R7)', () => {
     const { whyPlausible } = pullRequestWordTables.en;
     // The verifier gives its reason as a whole sentence, so it starts with a capital and follows a colon.
     assert.equal(whyPlausible({ kind: 'fact', text: 'Whether two requests can interleave was not run here.' }), 'Why PLAUSIBLE: one fact is not settled: Whether two requests can interleave was not run here.');
     assert.equal(whyPlausible({ kind: 'choice', text: 'which module owns the type.' }), 'Why PLAUSIBLE: the defect is there, and a choice remains: which module owns the type.');
-    assert.equal(whyPlausible(null), 'Why PLAUSIBLE: the verifier gave no reason.');
+    assert.equal(whyPlausible(null), 'Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.');
+    for (const language of pullRequestLanguages) assert.doesNotMatch(pullRequestWordTables[language].whyPlausible(null), /gave no reason|이유를 밝히지 않았/, language);
   });
 
   it('name the option recommended and the one that stands as two facts, and one option once (R8)', () => {

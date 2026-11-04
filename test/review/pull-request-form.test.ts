@@ -354,10 +354,10 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
     for (const gone of ['**What goes wrong.**', 'How the verifier checked it', 'sequenceDiagram', 'An empty file reaches the read']) excludes(minor, gone);
   });
 
-  it('says why a PLAUSIBLE verdict is not CONFIRMED: no reason from the verifier, or no verifier at all', () => {
+  it('says why a PLAUSIBLE verdict is not CONFIRMED: a verdict recorded before verifiers gave a reason on its own, or no verifier at all', () => {
     const plausible = formOf(reranked(run(), (finding) => finding, (verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, verdict: 'PLAUSIBLE' } : verdict)).fold());
     includes(plausible.comments[0]!.body, 'Major. PLAUSIBLE, traced through the code.');
-    includes(plausible.comments[0]!.body, '**What goes wrong.** A caller that passes an empty file meets a crash. Why PLAUSIBLE: the verifier gave no reason.');
+    includes(plausible.comments[0]!.body, '**What goes wrong.** A caller that passes an empty file meets a crash. Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.');
     includes(formOf(run().fold()).body, 'SWEEP-1 detail Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.');
   });
 
