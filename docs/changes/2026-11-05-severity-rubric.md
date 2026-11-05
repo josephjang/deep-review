@@ -52,6 +52,10 @@ How the summary counts the findings and where a minor finding goes are the revie
 
 `npm run replay` reruns the verifiers of a recorded run, not merge-rank. A replay of merge-rank would measure a rubric against recorded working lists at low cost, and is later work; the gate here is a real run.
 
+### Whether the change introduced a defect decides the form
+
+A reviewer often lets a change through when it only finds a defect that was there before, and asks for a fix only of what the change made or made worse (V6 of the report). Letting the origin keep a finding out of what matters before the merge would change the line that the form draws, and is a proposal of its own. This proposal records the origin, so that proposal can count how often it would apply.
+
 ## Requirements
 
 ### R1: A severity is read from three values and a table
@@ -127,13 +131,15 @@ merge, and folds a `minor` one into a table.
 
 The role prompt says that a severity is not graded by how sure the verdict is, how large the fix would be, which angle found the finding, or how old the code is. The verdict already says how sure; `rubrics.md` already says that the size of a fix decides no grade; the engine already uses the angle as a tiebreak below the severity. A severity that rose with certainty or fell with the size of the fix would count one fact twice, or count the wrong fact.
 
+Nor is a severity graded by whether the change introduced the defect, made it worse or found it there: the severity grades the harm, and whether a harm that was already there should hold the merge is a decision about it (F5 of the report). The reason records the origin instead (R4). A ranker of the first gate lowered a grade because the change did not create the defect, which the first rubric already forbade by the age of the code; naming the origin as a fact to record, not a ground to grade by, gives that observation a place.
+
 ### R3: A convention violation takes its effect from its rule's reason
 
 A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong when it is broken, and its reach and recovery as any finding does. A rule that states no reason gives its violation the effect `none`, unless breaking it also has another effect of R1, which the violation then takes. This replaces "takes the severity of the rule it breaks" in the role prompt and in the task, which pointed at a value that no rule carries.
 
 ### R4: The reason names each value
 
-Merge-rank's `reason` for each finding names its effect, its reach and its recovery, each with the fact of the evidence that gives it, and for a finding with members, the root cause they share. Today the task asks for a `reason` and says nothing of what it holds. The field is a string of up to 2,000 characters, so its shape does not change.
+Merge-rank's `reason` for each finding names its effect, its reach and its recovery, each with the fact of the evidence that gives it; its origin, whether the change introduced the defect, made it worse or found it there; and for a finding with members, the root cause they share. Today the task asks for a `reason` and says nothing of what it holds. The field is a string of up to 2,000 characters, so its shape does not change.
 
 ### R5: One text, held to the engine's list
 
@@ -200,6 +206,10 @@ SonarQube gives a severity for each quality a rule affects, and IBM's Orthogonal
 ### PD13: Rejected: keep the tie question
 
 "Would a reviewer who knew of it hold the merge" asks the decision that the severity feeds as the test of the severity, and each ranker answers it from its own sense of a reviewer (G4 of the report). It also cannot reach `critical`, as the review of #121 found. With three values, a finding between two grades sits between two values of one axis, and the rule to take the lower value and name the other settles it on a fact the reason states.
+
+### PD14: The origin is recorded, not graded
+
+IBM's Orthogonal Defect Classification records the age of the code a defect sits in as an attribute that grades nothing (F4 of the report), and Bugzilla and SSVC keep the grade of a harm apart from what to do about it (F5). The origin of a defect is the reviewer's question of whether to hold the merge for it, not a part of how bad it is, so it goes in the reason beside the three values and moves no cell. Recording it costs one clause of a string that already exists, and gives the proposal that may let it decide the form a count to start from.
 
 ## Against the vision note
 
