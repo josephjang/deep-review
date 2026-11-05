@@ -343,6 +343,10 @@ describe('the repository\'s roles/', () => {
     assert.ok(cells.every((cell) => (severities as readonly string[]).includes(cell)), `every cell is a severity: ${cells.join(', ')}`);
     assert.deepEqual([...severities].filter((severity) => !cells.includes(severity)), [], 'every severity is in a cell');
     assert.doesNotMatch(list, /the severity of the rule it breaks/, 'a rule carries no severity');
+    assert.match(list, /How sure the verdict is, how large the fix would be, which angle found\s+the finding, how old the code is and whether the change introduced the\s+defect decide no severity\./, 'R2: what decides no severity');
+    assert.match(list, /A `CONVENTIONS` violation takes its effect\s+from what the rule's own reason says goes wrong when it is broken, or\s+`none` when the rule states no reason/, 'R3: a violation takes its effect from its rule\'s reason');
+    assert.match(list, /In each finding's\s+`reason`, name its effect, its reach and its recovery, each with the\s+fact of the evidence that gives it/, 'R4: the reason names each value with its fact');
+    assert.match(list, /whether the change\s+introduced the defect, made it worse or found it there/, 'R4: the reason names the defect\'s origin');
     assert.ok(roles.find((role) => role.key === 'merge-rank')!.fragments.some((fragment) => fragment.name === 'phase4-list.md'), 'merge-rank is given the rubric');
   });
 
