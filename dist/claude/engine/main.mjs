@@ -36822,7 +36822,7 @@ function mergeRankTask(inputs) {
     ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
   ).join("\n");
   return [
-    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor) as your role prompt defines it, a \`summary\` that names the other sites when there are any, and a \`reason\` that names the values your role prompt gives the severity from, each with its fact, and the defect's origin and, for a finding with members, the root cause they share. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
+    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor) as your role prompt defines it, a \`summary\` that names the other sites when there are any, and a \`reason\` as your role prompt defines it. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
     "",
     list
   ].join("\n");
@@ -38140,6 +38140,357 @@ var init_settings_report = __esm({
   }
 });
 
+// src/review/pull-request-words.ts
+function basesEnglish(counts) {
+  const ways = [["ran", "by running code"], ["traced", "by tracing it"], ["read", "by reading it"]].filter(([basis]) => counts.bases[basis] > 0);
+  const told = ways.map(([basis, how], index2) => index2 === 0 ? `${String(counts.bases[basis])} ${counts.bases[basis] === 1 ? "was" : "were"} checked ${how}` : `${String(counts.bases[basis])} ${how}`);
+  const none = counts.noBasis === 0 ? [] : [`${String(counts.noBasis)} ${counts.noBasis === 1 ? "has" : "have"} no basis on record`];
+  return told.length === 0 ? `no verdict records how it was checked` : `${listed(told)}${none.length === 0 ? "" : `, and ${none[0]}`}`;
+}
+function basesKorean(counts) {
+  const ways = [["ran", "\uCF54\uB4DC\uB97C \uC2E4\uD589\uD574"], ["traced", "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00"], ["read", "\uCF54\uB4DC\uB97C \uC77D\uC5B4"]].filter(([basis]) => counts.bases[basis] > 0);
+  const told = ways.length === 0 ? "\uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB41C \uD310\uC815\uC740 \uC5C6\uC2B5\uB2C8\uB2E4." : `${ways.map(([basis, how]) => `${String(counts.bases[basis])}\uAC74\uC740 ${how}`).join(", ")} \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`;
+  return `${told}${counts.noBasis === 0 ? "" : ` ${String(counts.noBasis)}\uAC74\uC740 \uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`}`;
+}
+function pullRequestWords(language) {
+  const primary = language.split("-")[0].toLowerCase();
+  return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
+}
+var english, korean, pullRequestLanguages, pullRequestWordTables;
+var init_pull_request_words = __esm({
+  "src/review/pull-request-words.ts"() {
+    "use strict";
+    init_markdown();
+    english = {
+      heading: "## deep-review's review of this pull request",
+      reviewed: (head2, files, base) => `deep-review reviewed this pull request at its head ${head2}, ${files === 1 ? "the 1 file" : `the ${String(files)} files`} changed from the merge base ${base}, and changed no file.`,
+      findingList: (numbers) => findingWords(numbers),
+      summaryHeading: "### Summary",
+      summaryCounts: (counts) => {
+        if (counts.findings === 0) return "The review keeps no finding: the verifiers refuted every candidate, or the finders proposed none.";
+        const critical = counts.critical === 0 ? "" : counts.major === 1 ? ", which is critical," : `, ${String(counts.critical)} of them critical,`;
+        const parts = [
+          ...counts.major === 0 ? [] : [`${counts.major === 1 ? "the major one" : `the ${String(counts.major)} major ones`}${critical} ${counts.major === 1 ? "is" : "are"} what matters before the merge`],
+          ...counts.minor === 0 ? [] : [counts.minor === 1 ? "the minor one is smaller" : `the ${String(counts.minor)} minor ones are smaller`]
+        ];
+        return `The review keeps ${counted(counts.findings, "finding", "findings")}. ${capitalized(parts.join("; "))}.`;
+      },
+      summaryNext: (counts, fix) => {
+        const acting = [
+          ...counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, "finding", "findings")}`],
+          ...counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, "question", "questions")}`]
+        ];
+        const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
+        if (acting.length === 0 && counts.authors === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
+        if (acting.length === 0) {
+          const verifiers = counts.left === 1 ? "its verifier leaves" : counts.authors === 1 ? "the verifier of 1 of them leaves" : `the verifiers of ${String(counts.authors)} of them leave`;
+          return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is and changes nothing on this branch, but ${verifiers} a choice to the author, as "What needs a person" says.`;
+        }
+        return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
+      },
+      needsHeading: "### What needs a person",
+      needsQuestion: (finding, href, question, tail) => `**[Question on finding ${String(finding)}](${href}).** ${question} ${tail}`,
+      needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
+      departureStands: "`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.",
+      needsAuthor: (finding, href, choice) => `**[Finding ${String(finding)}](${href}) is left as is, but its verifier leaves a choice to the author.** ${choice}`,
+      needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0] : `one of ${listed(flags, "or")}`}. A reply on this pull request is not read yet.`,
+      needsNothing: "Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.",
+      howHeading: "### How the review worked",
+      howWorked: (counts) => `deep-review runs model sessions, called workers, each in one role. Finders propose candidate defects from several angles, a verifier checks each candidate by reading the code or running it, and a decider chooses to fix, to ask the author, or to leave as is. Here ${counted(counts.candidates, "candidate", "candidates")} became ${String(counts.groups)} after merging duplicates; the verifiers refuted ${String(counts.refuted)} and kept ${String(counts.kept)}, and ${counts.merged === 0 ? "none" : String(counts.merged)} of those joined another finding, which leaves ${String(counts.findings)}.`,
+      howDiagram: (pullRequest) => [
+        "flowchart TD",
+        `  subgraph RV["review --pr ${String(pullRequest)}, read-only: done"]`,
+        '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
+        '    V --> D["A decider chooses: fix, ask or leave"]',
+        '    D --> W["The writer explains it in plain words"]',
+        "  end",
+        '  W --> P["publish cleans the text and posts this review"]',
+        '  P --> A["The person who ran the review answers the questions"]',
+        `  A --> X["review --pr ${String(pullRequest)} --fix: fixers apply and test each fix"]`
+      ].join("\n"),
+      verdictMeanings: "CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verdict was recorded before verifiers gave that reason on its own.",
+      unverifiedMeaning: "A PLAUSIBLE finding marked unverified is one that no verifier examined, since its verifier failed twice.",
+      severityMeanings: "The severity is a worker's judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a message that misleads its reader only a little or repeated code that the next change can let drift. A message that leads its reader into a serious mistake is graded by that mistake.",
+      severityValues: "A finding's severity is read from three values that its reason names, each with the fact that gives it. Its effect is `loss`, data lost or a secret exposed; `wrong`, a wrong result or a broken promise; `costly`, the right outcome reached at a cost; or `none`, a cost only to the next change. Its reach is `always`, every use; `common`, a use the documents or the code make; or `rare`, only an unusual input or a later change. Its recovery is `self-fixed`, the person who meets it sees it and can undo it; `needs-fix`, it is seen but needs a maintainer or a fix; or `unnoticed`, no one is told or it cannot be undone.",
+      areasHeading: "### The major findings",
+      findingsArea: "The major findings that deep-review would fix or asks about",
+      noMajor: "No major finding asks for a fix or a question.",
+      wouldDo: (sentence2) => `Fix: ${sentence2}`,
+      recommends: (option, text3) => `A question for the author; deep-review recommends option ${String(option)}: ${text3}`,
+      againstRule: "Against a written rule.",
+      inFullHeading: (finding, title) => `### Finding ${String(finding)}: ${title}`,
+      grade: (severity, verdict, basis, marks2) => `${capitalized(severity)}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
+      basisWords: { ran: "reproduced by running it", traced: "traced through the code", read: "read in the code" },
+      unverifiedMark: "unverified",
+      statusSentences: {
+        question: "deep-review asks the author.",
+        fixed: "deep-review fixed this.",
+        "fixed-against-rule": "deep-review fixed this against a written rule.",
+        "not-fixed": "deep-review decided to fix this, and did not fix it.",
+        left: "Left as is.",
+        planned: "deep-review would fix this.",
+        "planned-against-rule": "deep-review would fix this against a written rule."
+      },
+      lineNotChanged: "This pull request does not change this line.",
+      fileNotChanged: "This pull request does not change this file.",
+      noPatch: "GitHub shows no diff of this file, so this finding has no comment on its line.",
+      noPlaceNote: "This finding names no place that the repository holds.",
+      unexplained: (reason) => `deep-review's writer did not explain this finding, so it is given in deep-review's own words: look at it yourself.${reason === null ? "" : ` The writer's reason: ${reason}`}`,
+      problemLabel: "**What goes wrong.**",
+      whyPlausible: (unconfirmed) => {
+        if (unconfirmed === null) return "Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.";
+        return unconfirmed.kind === "fact" ? `Why PLAUSIBLE: one fact is not settled: ${unconfirmed.text}` : `Why PLAUSIBLE: the defect is there, and a choice remains: ${unconfirmed.text}`;
+      },
+      whyUnverified: "Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.",
+      wouldDoLabel: "**What deep-review would do.**",
+      asDecided: "The fix as decided",
+      rejected: (option, reason) => `Rejected: ${option} ${reason}`,
+      departure: (rule, source, fact, accept, reject, fix) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; ${fix} makes the fix as decided unless it is rejected first.`,
+      answeredAccept: (at) => `The person who ran this review accepted the departure, on ${at}.`,
+      answeredReject: (at) => `The person who ran this review rejected the departure, so the fix follows the rule, on ${at}.`,
+      whyAsked: "**Why it is a question.**",
+      question: (question) => `**The question.** ${question}`,
+      option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
+      standing: (recommended, applied, edits, option) => {
+        const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
+        const result = edits ? "`--fix` applies it" : "the code stays as it is";
+        return recommended === applied ? `${recommendation} It also stands until someone answers: ${result}.` : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
+      },
+      answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
+      answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
+      whyLeft: "**Why it is left as is.**",
+      whyLook: "**Why a person should look anyway.**",
+      authorChoice: (choice) => `Its verifier leaves a choice to the author: ${choice}`,
+      howChecked: "How the verifier checked it",
+      basisSentences: {
+        ran: "The verifier ran code to check it; the report of the run holds what it ran and what it saw.",
+        traced: "The verifier traced the code to the result; the report of the run holds its evidence.",
+        read: "The verifier read the lines, which alone settle it; the report of the run holds its evidence."
+      },
+      noBasis: "The verifier's record gives no basis; the report of the run holds its evidence.",
+      notVerified: "No verifier examined it, since its verifier failed twice.",
+      codeHeading: "Code at the reviewed head:",
+      atBase: (link) => `${link} (at the merge base)`,
+      trace: (id, run2) => `<sub>Finding ${id} of run ${run2}.</sub>`,
+      diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
+      minorHeading: "### The minor findings",
+      minorLead: (counts) => {
+        const each = counts.total === 1 ? "" : "each ";
+        const where = counts.onLine === counts.total ? `, ${each}in a comment on its line` : counts.onLine === 0 ? `, ${each}in full above` : `: ${String(counts.onLine)} in a comment on its line and the rest in full above`;
+        const kinds = counts.user === 0 ? "" : ` ${String(counts.user)} ${counts.user === 1 ? "reaches" : "reach"} what a user sees, and ${String(counts.code)} ${counts.code === 1 ? "is" : "are"} about the code.`;
+        return `${capitalized(counted(counts.total, "minor finding", "minor findings"))}${where}.${kinds}`;
+      },
+      minorNeeds: (findings, count3) => `${capitalized(findings)} among them ${count3 === 1 ? "needs" : "need"} a person, as "What needs a person" says.`,
+      minorSummary: (count3) => count3 === 1 ? "The minor finding" : `The ${String(count3)} minor findings`,
+      minorOrder: (user) => `The first ${user === 1 ? "one reaches" : `${String(user)} reach`} what a user sees; the rest are about the code.`,
+      minorColumns: ["#", "Finding", "Verdict", "What deep-review would do"],
+      minorCut: "To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.",
+      leftHeading: "### The findings left as is",
+      leftSummary: (count3) => count3 === 1 ? "The finding left as is" : `The ${String(count3)} findings left as is`,
+      leaveReasons: {
+        "outside-change-not-regression": "outside the change, and not a regression",
+        superseded: "superseded",
+        intended: "intended, as the repository states"
+      },
+      leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? "" : ` by ${by}`}.`,
+      groundsLabel: "Why:",
+      leftCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the finding left as is is" : `the ${String(count3)} findings left as is are`} not listed here; the report of the run holds ${count3 === 1 ? "it" : "each"}.`,
+      notExaminedHeading: "### What this review did not examine",
+      noCheck: "No check ran: this run only reviewed, so no test ran against the change.",
+      allExamined: "Every review pass ran, and a verifier examined each candidate.",
+      gap: (text3) => text3,
+      excluded: (patterns, count3, layer) => `${capitalized(counted(count3, "changed path", "changed paths"))} under ${listed(patterns)} ${count3 === 1 ? "was" : "were"} left out${layer === null ? "" : `, as ${layer} sets \`scope.exclude\``}, and no worker read ${count3 === 1 ? "it" : "them"}.`,
+      layers: { default: "the default", operator: "the operator's file", repository: "the repository's file", clone: "the clone's file", invocation: "the --config file", flag: "a flag" },
+      refutedLine: (count3) => `${count3 === 1 ? "The candidate that the verifiers refuted is" : `The ${String(count3)} candidates that the verifiers refuted are`} listed below, so a point raised again can be answered from ${count3 === 1 ? "it" : "them"}.`,
+      refutedSummary: (count3) => count3 === 1 ? "The refuted candidate" : `The ${String(count3)} refuted candidates`,
+      refutedItem: (claim3, why) => `${claim3} Refuted: ${why}`,
+      refutedInReport: "The evidence that refuted it is in the report of the run.",
+      refutedCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the candidate that the verifiers refuted is" : `the ${String(count3)} candidates that the verifiers refuted are`} not listed here; the report of the run holds each with its evidence.`,
+      noPlace: "no place in the repository",
+      trustHeading: "### How far to trust this review",
+      trust: (counts) => {
+        const refuted2 = counts.refuted === 0 ? `The verifiers refuted none of the ${String(counts.candidates)} candidates.` : `The verifiers refuted ${String(counts.refuted)} of ${counted(counts.candidates, "candidate", "candidates")}, so the finders' claims did not pass unchecked.`;
+        if (counts.findings === 0) return refuted2;
+        const unverified = counts.unverified === 0 ? "" : `, ${String(counts.unverified)} of them unverified`;
+        const ran = counts.majorConfirmedRan === 0 ? "" : `, ${String(counts.majorConfirmedRan)} of them reproduced by running ${counts.majorConfirmedRan === 1 ? "it" : "them"}`;
+        const major = counts.major === 0 ? "" : counts.major === 1 ? `; the major one is ${counts.majorConfirmed === 1 ? `CONFIRMED${counts.majorConfirmedRan === 1 ? ", reproduced by running it" : ""}` : "PLAUSIBLE"}` : `; ${String(counts.majorConfirmed)} of the ${String(counts.major)} major ones ${counts.majorConfirmed === 1 ? "is" : "are"} CONFIRMED${ran}`;
+        return `${String(counts.confirmed)} of the ${counted(counts.findings, "finding", "findings")} ${counts.confirmed === 1 ? "is" : "are"} CONFIRMED and ${String(counts.plausible)} PLAUSIBLE${unverified}${major}. Across all ${String(counts.findings)}, ${basesEnglish(counts)}. ${refuted2}`;
+      },
+      modelLine: "A model wrote the explanations from the verifiers' evidence, which the report of the run holds, and only that evidence was verified.",
+      conclusionDropped: "The writer gave no summary that passed deep-review's checks, so the summary and the actions are in deep-review's own words.",
+      areasDropped: "The writer gave no areas that passed deep-review's checks, so the major findings are listed in one area in deep-review's own words.",
+      refutedDropped: "The writer gave no lines for the refuted candidates that passed deep-review's checks, so each is given by its finder's summary.",
+      findingsDropped: (findings, count3) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count3 === 1 ? "it is" : "each is"} given in deep-review's own words.`,
+      noExplanation: "deep-review recorded no explanation by its writer for this run, so the review is in deep-review's own words.",
+      predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
+      areaDiagramsCut: "To fit the length GitHub takes, the diagrams of the areas are left out; the writer's answer on the machine that holds the run keeps them.",
+      lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`
+    };
+    korean = {
+      heading: "## deep-review\uC758 \uD480 \uB9AC\uD018\uC2A4\uD2B8 \uB9AC\uBDF0",
+      reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC73C\uBA70, \uD30C\uC77C\uC740 \uD558\uB098\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`,
+      findingList: (numbers) => `\uC9C0\uC801 \uC0AC\uD56D ${[...new Set(numbers)].sort((a, b) => a - b).map(String).join(", ")}`,
+      summaryHeading: "### \uC694\uC57D",
+      summaryCounts: (counts) => {
+        if (counts.findings === 0) return "\uC774 \uB9AC\uBDF0\uAC00 \uB0A8\uAE34 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uBC18\uBC15\uD588\uAC70\uB098, \uCC3E\uC740 \uD6C4\uBCF4\uAC00 \uC5C6\uC5C8\uC2B5\uB2C8\uB2E4.";
+        const parts = [
+          ...counts.major === 0 ? [] : [`major ${String(counts.major)}\uAC74${counts.critical === 0 ? "" : `(\uADF8\uC911 critical ${String(counts.critical)}\uAC74)`}\uC740 \uBCD1\uD569 \uC804\uC5D0 \uC0B4\uD3B4\uC57C \uD560 \uAC83`],
+          ...counts.minor === 0 ? [] : [`minor ${String(counts.minor)}\uAC74\uC740 \uADF8\uBCF4\uB2E4 \uAC00\uBCBC\uC6B4 \uAC83`]
+        ];
+        return `\uC774 \uB9AC\uBDF0\uB294 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC744 \uB0A8\uAE41\uB2C8\uB2E4. ${parts.length === 2 ? `${parts[0]}\uC774\uACE0, ${parts[1]}\uC785\uB2C8\uB2E4.` : `${parts[0]}\uC785\uB2C8\uB2E4.`}`;
+      },
+      summaryNext: (counts, fix) => {
+        const parts = [
+          ...counts.fixes === 0 ? [] : [`\uACE0\uCE60 \uAC83 ${String(counts.fixes)}\uAC74`],
+          ...counts.questions === 0 ? [] : [`\uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744 \uAC83 ${String(counts.questions)}\uAC74`],
+          ...counts.left === 0 ? [] : [`\uADF8\uB300\uB85C \uB458 \uAC83 ${String(counts.left)}\uAC74`]
+        ];
+        const decided = `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
+        if (counts.fixes + counts.questions === 0 && counts.authors === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+        if (counts.fixes + counts.questions === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFB8\uB294 \uAC83\uC740 \uC5C6\uC9C0\uB9CC, \uADF8\uC911 ${String(counts.authors)}\uAC74\uC740 "\uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C"\uC5D0 \uC801\uC5C8\uB4EF \uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4.`;
+        return `${decided} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${fix} \uBA85\uB839\uC73C\uB85C \uC218\uC815\uACFC \uADF8\uB54C\uAE4C\uC9C0 \uBC1B\uC740 \uB2F5\uC744 \uC790\uC2E0\uC758 \uD074\uB860\uC5D0 \uC801\uC6A9\uD558\uACE0 \uADF8 \uACB0\uACFC\uB97C \uD478\uC2DC\uD558\uAE30 \uC804\uAE4C\uC9C0, \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C\uB294 \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
+      },
+      needsHeading: "### \uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C",
+      needsQuestion: (finding, href, question, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}\uC5D0 \uB300\uD55C \uC9C8\uBB38](${href}).** ${question} ${tail}`,
+      needsDeparture: (finding, href, rule, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC758 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" ${tail}`,
+      departureStands: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 `--fix`\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4. \uACE0\uCE5C \uB4A4\uC5D0 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
+      needsAuthor: (finding, href, choice) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC740 \uADF8\uB300\uB85C \uB450\uC9C0\uB9CC, \uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC774 \uB0A8\uC558\uB2E4\uACE0 \uBD05\uB2C8\uB2E4.** ${choice}`,
+      needsAnswer: (command, flags) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${command} \uBA85\uB839\uC5D0 ${flags.length === 1 ? `${flags[0]}\uB97C` : `${flags.join(", ")} \uC911 \uD558\uB098\uB97C`} \uBD99\uC5EC \uB2F5\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
+      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      howHeading: "### \uB9AC\uBDF0\uAC00 \uC9C4\uD589\uB41C \uBC29\uC2DD",
+      howWorked: (counts) => `deep-review\uB294 \uC791\uC5C5\uC790\uB77C\uACE0 \uBD80\uB974\uB294 \uBAA8\uB378 \uC138\uC158\uC744 \uC5ED\uD560\uB9C8\uB2E4 \uB530\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4. \uCC3E\uB294 \uC791\uC5C5\uC790\uB294 \uC5EC\uB7EC \uAD00\uC810\uC5D0\uC11C \uACB0\uD568 \uD6C4\uBCF4\uB97C \uB0B4\uACE0, \uAC80\uC99D\uC790\uB294 \uCF54\uB4DC\uB97C \uC77D\uAC70\uB098 \uC2E4\uD589\uD574 \uAC01 \uD6C4\uBCF4\uB97C \uD655\uC778\uD558\uBA70, \uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uB294 \uACE0\uCE60\uC9C0, \uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744\uC9C0, \uADF8\uB300\uB85C \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4. \uC774\uBC88\uC5D0\uB294 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C\uAC00 \uC911\uBCF5\uC744 \uD569\uCE5C \uB4A4 ${String(counts.groups)}\uAC1C\uAC00 \uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uADF8\uC911 ${String(counts.refuted)}\uAC1C\uB97C \uBC18\uBC15\uD558\uACE0 ${String(counts.kept)}\uAC1C\uB97C \uB0A8\uACBC\uC73C\uBA70, \uB0A8\uC740 \uAC83 \uC911 ${String(counts.merged)}\uAC1C\uAC00 \uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC5D0 \uD569\uCCD0\uC838 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC774 \uB0A8\uC558\uC2B5\uB2C8\uB2E4.`,
+      howDiagram: (pullRequest) => [
+        "flowchart TD",
+        `  subgraph RV["review --pr ${String(pullRequest)}, \uC77D\uAE30 \uC804\uC6A9: \uC644\uB8CC"]`,
+        '    F["\uCC3E\uB294 \uC791\uC5C5\uC790\uAC00 \uD6C4\uBCF4\uB97C \uB0C5\uB2C8\uB2E4"] --> V["\uAC80\uC99D\uC790\uAC00 \uAC01 \uD6C4\uBCF4\uB97C \uC2E4\uD589\uD558\uAC70\uB098 \uB530\uB77C\uAC00 \uBD05\uB2C8\uB2E4"]',
+        '    V --> D["\uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uAC00 \uACE0\uCE60\uC9C0, \uBB3C\uC744\uC9C0, \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4"]',
+        '    D --> W["\uC124\uBA85 \uBAA8\uB378\uC774 \uC26C\uC6B4 \uB9D0\uB85C \uC124\uBA85\uD569\uB2C8\uB2E4"]',
+        "  end",
+        '  W --> P["publish\uAC00 \uAE00\uC744 \uC815\uB9AC\uD574 \uC774 \uB9AC\uBDF0\uB97C \uC62C\uB9BD\uB2C8\uB2E4"]',
+        '  P --> A["\uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC9C8\uBB38\uC5D0 \uB2F5\uD569\uB2C8\uB2E4"]',
+        `  A --> X["review --pr ${String(pullRequest)} --fix: \uC218\uC815 \uC791\uC5C5\uC790\uAC00 \uAC01 \uC218\uC815\uC744 \uC801\uC6A9\uD558\uACE0 \uAC80\uC0AC\uD569\uB2C8\uB2E4"]`
+      ].join("\n"),
+      verdictMeanings: "CONFIRMED\uB294 \uAC80\uC99D\uC790\uAC00 \uBB38\uC81C\uB97C \uC2E4\uD589\uD574 \uC7AC\uD604\uD588\uAC70\uB098, \uCF54\uB4DC \uACBD\uB85C\uB97C \uB530\uB77C\uAC00 \uC798\uBABB\uB41C \uACB0\uACFC\uC5D0 \uC774\uB974\uB294 \uAC83\uC744 \uD655\uC778\uD588\uB2E4\uB294 \uB73B\uC785\uB2C8\uB2E4. PLAUSIBLE\uC740 \uD655\uC778\uD55C \uBC94\uC704\uC5D0\uC11C\uB294 \uC8FC\uC7A5\uC774 \uB9DE\uC9C0\uB9CC \uD655\uC815\uD558\uC9C0\uB294 \uBABB\uD588\uB2E4\uB294 \uB73B\uC774\uBA70, \uC0AC\uC2E4 \uD558\uB098\uB97C \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uC120\uD0DD\uC774 \uB0A8\uC558\uAE30 \uB54C\uBB38\uC785\uB2C8\uB2E4. \uADF8\uB7F0 \uC9C0\uC801 \uC0AC\uD56D\uB9C8\uB2E4 \uC5B4\uB290 \uCABD\uC778\uC9C0, \uB610\uB294 \uADF8 \uD310\uC815\uC774 \uAC80\uC99D\uC790\uAC00 \uC774\uC720\uB97C \uB530\uB85C \uBC1D\uD788\uAE30 \uC804\uC5D0 \uAE30\uB85D\uB418\uC5C8\uB294\uC9C0 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      unverifiedMeaning: "\uAC80\uC99D \uC548 \uB428 \uD45C\uC2DC\uAC00 \uBD99\uC740 PLAUSIBLE \uC9C0\uC801 \uC0AC\uD56D\uC740 \uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83\uC785\uB2C8\uB2E4.",
+      severityMeanings: "\uC2EC\uAC01\uB3C4\uB294 \uC791\uC5C5\uC790\uC758 \uD310\uB2E8\uC785\uB2C8\uB2E4. critical\uC774\uB098 major \uC9C0\uC801 \uC0AC\uD56D\uC740 \uBCD1\uD569 \uC804\uC5D0 \uC0B4\uD3B4\uC57C \uD560 \uAC83\uC774\uACE0, minor \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC77D\uB294 \uC0AC\uB78C\uC744 \uC870\uAE08 \uD5F7\uAC08\uB9AC\uAC8C \uD558\uB294 \uBA54\uC2DC\uC9C0\uB098 \uB2E4\uC74C \uBCC0\uACBD\uC5D0\uC11C \uC11C\uB85C \uC5B4\uAE0B\uB0A0 \uC218 \uC788\uB294 \uC911\uBCF5 \uCF54\uB4DC\uCC98\uB7FC \uADF8\uBCF4\uB2E4 \uAC00\uBCBC\uC6B4 \uAC83\uC785\uB2C8\uB2E4. \uC77D\uB294 \uC0AC\uB78C\uC744 \uD070 \uC2E4\uC218\uB85C \uC774\uB044\uB294 \uBA54\uC2DC\uC9C0\uB294 \uADF8 \uC2E4\uC218\uC5D0 \uB530\uB77C \uC2EC\uAC01\uB3C4\uAC00 \uB9E4\uACA8\uC9D1\uB2C8\uB2E4.",
+      severityValues: "\uC9C0\uC801 \uC0AC\uD56D\uC758 \uC2EC\uAC01\uB3C4\uB294 \uADF8 \uC774\uC720\uAC00 \uBC1D\uD788\uB294 \uC138 \uAC12\uC73C\uB85C \uC815\uD558\uBA70, \uC774\uC720\uB294 \uAC12\uB9C8\uB2E4 \uADF8 \uAC12\uC744 \uC900 \uC0AC\uC2E4\uC744 \uD568\uAED8 \uC801\uC2B5\uB2C8\uB2E4. \uACB0\uACFC(effect)\uB294 `loss`(\uB370\uC774\uD130\uB97C \uC783\uAC70\uB098 \uBE44\uBC00\uC774 \uB4DC\uB7EC\uB0A8), `wrong`(\uC798\uBABB\uB41C \uACB0\uACFC\uB098 \uAE68\uC9C4 \uC57D\uC18D), `costly`(\uB300\uAC00\uB97C \uCE58\uB974\uC9C0\uB9CC \uC62C\uBC14\uB978 \uACB0\uACFC\uC5D0 \uC774\uB984), `none`(\uB2E4\uC74C \uBCC0\uACBD\uC5D0\uB9CC \uBE44\uC6A9\uC774 \uB4E6) \uAC00\uC6B4\uB370 \uD558\uB098\uC785\uB2C8\uB2E4. \uBC94\uC704(reach)\uB294 `always`(\uBAA8\uB4E0 \uC0AC\uC6A9), `common`(\uBB38\uC11C\uB098 \uCF54\uB4DC\uAC00 \uD558\uB294 \uC0AC\uC6A9), `rare`(\uB4DC\uBB38 \uC785\uB825\uC774\uB098 \uC774\uD6C4\uC758 \uBCC0\uACBD\uC5D0\uC11C\uB9CC) \uAC00\uC6B4\uB370 \uD558\uB098\uC785\uB2C8\uB2E4. \uD68C\uBCF5(recovery)\uC740 `self-fixed`(\uB9C8\uC8FC\uCE5C \uC0AC\uB78C\uC774 \uBC14\uB85C \uC54C\uC544\uCC44\uACE0 \uB418\uB3CC\uB9B4 \uC218 \uC788\uC74C), `needs-fix`(\uBCF4\uC774\uC9C0\uB9CC \uAD00\uB9AC\uC790\uB098 \uC218\uC815\uC774 \uD544\uC694\uD568), `unnoticed`(\uC544\uBB34\uB3C4 \uC54C\uC9C0 \uBABB\uD558\uAC70\uB098 \uB418\uB3CC\uB9B4 \uC218 \uC5C6\uC74C) \uAC00\uC6B4\uB370 \uD558\uB098\uC785\uB2C8\uB2E4.",
+      areasHeading: "### major \uC9C0\uC801 \uC0AC\uD56D",
+      findingsArea: "deep-review\uAC00 \uACE0\uCE58\uAC70\uB098 \uBB3B\uB294 major \uC9C0\uC801 \uC0AC\uD56D",
+      noMajor: "\uACE0\uCE58\uAC70\uB098 \uBB3C\uC744 major \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      wouldDo: (sentence2) => `deep-review\uAC00 \uD560 \uC77C: ${sentence2}`,
+      recommends: (option, text3) => `\uC791\uC131\uC790\uC5D0\uAC8C \uBB3B\uB294 \uC9C8\uBB38\uC774\uBA70, deep-review\uB294 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${text3}`,
+      againstRule: "\uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.",
+      inFullHeading: (finding, title) => `### \uC9C0\uC801 \uC0AC\uD56D ${String(finding)}: ${title}`,
+      grade: (severity, verdict, basis, marks2) => `\uC2EC\uAC01\uB3C4 ${severity}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
+      basisWords: { ran: "\uC2E4\uD589\uD574 \uC7AC\uD604\uD568", traced: "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00 \uD655\uC778\uD568", read: "\uCF54\uB4DC\uB97C \uC77D\uC5B4 \uD655\uC778\uD568" },
+      unverifiedMark: "\uAC80\uC99D \uC548 \uB428",
+      statusSentences: {
+        question: "deep-review\uAC00 \uC791\uC131\uC790\uC5D0\uAC8C \uBB3B\uC2B5\uB2C8\uB2E4.",
+        fixed: "deep-review\uAC00 \uACE0\uCCE4\uC2B5\uB2C8\uB2E4.",
+        "fixed-against-rule": "deep-review\uAC00 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB974\uAC8C \uACE0\uCCE4\uC2B5\uB2C8\uB2E4.",
+        "not-fixed": "deep-review\uAC00 \uACE0\uCE58\uAE30\uB85C \uD588\uC9C0\uB9CC \uACE0\uCE58\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+        left: "\uADF8\uB300\uB85C \uB461\uB2C8\uB2E4.",
+        planned: "deep-review\uAC00 \uACE0\uCE58\uB824 \uD569\uB2C8\uB2E4.",
+        "planned-against-rule": "deep-review\uAC00 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB974\uAC8C \uACE0\uCE58\uB824 \uD569\uB2C8\uB2E4."
+      },
+      lineNotChanged: "\uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB294 \uC774 \uC904\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+      fileNotChanged: "\uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB294 \uC774 \uD30C\uC77C\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+      noPatch: "GitHub\uAC00 \uC774 \uD30C\uC77C\uC758 diff\uB97C \uBCF4\uC5EC \uC8FC\uC9C0 \uC54A\uC544, \uC774 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uD574\uB2F9 \uC904\uC5D0 \uB313\uAE00\uB85C \uB2EC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+      noPlaceNote: "\uC774 \uC9C0\uC801 \uC0AC\uD56D\uC774 \uAC00\uB9AC\uD0A4\uB294 \uC704\uCE58\uB294 \uC800\uC7A5\uC18C\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      unexplained: (reason) => `deep-review\uC758 \uC124\uBA85 \uBAA8\uB378\uC774 \uC774 \uC9C0\uC801 \uC0AC\uD56D\uC744 \uC124\uBA85\uD558\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4. \uC9C1\uC811 \uD655\uC778\uD574 \uC8FC\uC138\uC694.${reason === null ? "" : ` \uC124\uBA85 \uBAA8\uB378\uC774 \uBC1D\uD78C \uC774\uC720: ${reason}`}`,
+      problemLabel: "**\uBB34\uC5C7\uC774 \uC798\uBABB\uB418\uB098.**",
+      whyPlausible: (unconfirmed) => {
+        if (unconfirmed === null) return "PLAUSIBLE\uC778 \uC774\uC720: \uC774 \uD310\uC815\uC740 \uAC80\uC99D\uC790\uAC00 \uC774\uC720\uB97C \uB530\uB85C \uBC1D\uD788\uAE30 \uC804\uC5D0 \uAE30\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.";
+        return unconfirmed.kind === "fact" ? `PLAUSIBLE\uC778 \uC774\uC720: \uD655\uC778\uD558\uC9C0 \uBABB\uD55C \uC0AC\uC2E4\uC774 \uD558\uB098 \uC788\uC2B5\uB2C8\uB2E4. ${unconfirmed.text}` : `PLAUSIBLE\uC778 \uC774\uC720: \uACB0\uD568\uC740 \uC788\uC9C0\uB9CC \uC120\uD0DD\uC774 \uB0A8\uC558\uC2B5\uB2C8\uB2E4. ${unconfirmed.text}`;
+      },
+      whyUnverified: "PLAUSIBLE\uC778 \uC774\uC720: \uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+      wouldDoLabel: "**deep-review\uAC00 \uD560 \uC77C.**",
+      asDecided: "\uACB0\uC815\uB41C \uC218\uC815",
+      rejected: (option, reason) => `\uD0DD\uD558\uC9C0 \uC54A\uC740 \uBC29\uBC95: ${option} ${reason}`,
+      departure: (rule, source, fact, accept, reject, fix) => `**\uC774 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" \uCD9C\uCC98: ${source} \uADDC\uCE59\uACFC \uB9DE\uC9C0 \uC54A\uB294 \uC0AC\uC2E4: ${fact} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${accept} \uBA85\uB839\uC73C\uB85C \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC774\uAC70\uB098 ${reject} \uBA85\uB839\uC73C\uB85C \uAC70\uBD80\uD569\uB2C8\uB2E4. \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 ${fix}\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4.`,
+      answeredAccept: (at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC600\uC2B5\uB2C8\uB2E4.`,
+      answeredReject: (at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 \uC774 \uACB0\uC815\uC744 \uAC70\uBD80\uD588\uC73C\uBBC0\uB85C, \uC218\uC815\uC740 \uADDC\uCE59\uC744 \uB530\uB985\uB2C8\uB2E4.`,
+      whyAsked: "**\uC9C8\uBB38\uD558\uB294 \uC774\uC720.**",
+      question: (question) => `**\uC9C8\uBB38.** ${question}`,
+      option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
+      standing: (recommended, applied, edits, option) => {
+        const recommendation = option === null ? `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4.` : `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${option}`;
+        const result = edits ? "`--fix`\uAC00 \uC774\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4." : "\uCF54\uB4DC\uB294 \uC9C0\uAE08 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4.";
+        return recommended === applied ? `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB3C4 \uC774 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}` : `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB294 \uB418\uB3CC\uB9AC\uAE30 \uAC00\uC7A5 \uC26C\uC6B4 ${String(applied)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}`;
+      },
+      answerQuestion: (command, fix) => `**\uB2F5\uD558\uB294 \uBC29\uBC95.** \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${command} \uBA85\uB839\uC73C\uB85C \uB2F5\uD569\uB2C8\uB2E4. \`<k>\`\uC5D0\uB294 \uACE0\uB978 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638\uB97C \uC501\uB2C8\uB2E4. \uADF8\uB2E4\uC74C ${fix}\uAC00 \uADF8 \uB2F5\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
+      answeredOption: (option, at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB85C \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`,
+      whyLeft: "**\uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720.**",
+      whyLook: "**\uADF8\uB798\uB3C4 \uC0AC\uB78C\uC774 \uBD10\uC57C \uD558\uB294 \uC774\uC720.**",
+      authorChoice: (choice) => `\uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4: ${choice}`,
+      howChecked: "\uAC80\uC99D\uC790\uAC00 \uD655\uC778\uD55C \uBC29\uBC95",
+      basisSentences: {
+        ran: "\uAC80\uC99D\uC790\uAC00 \uCF54\uB4DC\uB97C \uC2E4\uD589\uD574 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uC2E4\uD589\uD558\uACE0 \uBB34\uC5C7\uC744 \uBCF4\uC558\uB294\uC9C0\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
+        traced: "\uAC80\uC99D\uC790\uAC00 \uCF54\uB4DC\uB97C \uB530\uB77C\uAC00 \uACB0\uACFC\uAE4C\uC9C0 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
+        read: "\uAC80\uC99D\uC790\uAC00 \uD574\uB2F9 \uC904\uC744 \uC77D\uC5C8\uACE0, \uADF8\uAC83\uB9CC\uC73C\uB85C \uD310\uB2E8\uD560 \uC218 \uC788\uC5C8\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4."
+      },
+      noBasis: "\uAC80\uC99D\uC790\uC758 \uAE30\uB85D\uC5D0 \uD655\uC778 \uBC29\uBC95\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
+      notVerified: "\uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+      codeHeading: "\uB9AC\uBDF0\uD55C head\uC758 \uCF54\uB4DC:",
+      atBase: (link) => `${link} (merge base\uC758 \uCF54\uB4DC)`,
+      trace: (id, run2) => `<sub>\uC2E4\uD589 ${run2}\uC758 \uC9C0\uC801 \uC0AC\uD56D ${id}.</sub>`,
+      diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      minorHeading: "### minor \uC9C0\uC801 \uC0AC\uD56D",
+      minorLead: (counts) => {
+        const where = counts.onLine === counts.total ? "\uBAA8\uB450 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uC2B5\uB2C8\uB2E4" : counts.onLine === 0 ? "\uBAA8\uB450 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4" : `${String(counts.onLine)}\uAC74\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uACE0, \uB098\uBA38\uC9C0\uB294 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4`;
+        const kinds = counts.user === 0 ? "" : ` \uADF8\uC911 ${String(counts.user)}\uAC74\uC740 \uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uACE0, ${String(counts.code)}\uAC74\uC740 \uCF54\uB4DC\uC5D0 \uAD00\uD55C \uAC83\uC785\uB2C8\uB2E4.`;
+        return `minor \uC9C0\uC801 \uC0AC\uD56D\uC740 ${String(counts.total)}\uAC74\uC774\uBA70, ${where}.${kinds}`;
+      },
+      minorNeeds: (findings) => `\uADF8\uC911 ${findings}\uB294 "\uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C"\uC5D0 \uC801\uC5C8\uB4EF \uC0AC\uB78C\uC774 \uBD10\uC57C \uD569\uB2C8\uB2E4.`,
+      minorSummary: (count3) => `minor \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74`,
+      minorOrder: (user) => `\uCC98\uC74C ${String(user)}\uAC74\uC740 \uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uACE0, \uB098\uBA38\uC9C0\uB294 \uCF54\uB4DC\uC5D0 \uAD00\uD55C \uAC83\uC785\uB2C8\uB2E4.`,
+      minorColumns: ["#", "\uC9C0\uC801 \uC0AC\uD56D", "\uD310\uC815", "deep-review\uAC00 \uD560 \uC77C"],
+      minorCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C minor \uC9C0\uC801 \uC0AC\uD56D\uC758 \uD45C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC774\uB098 \uC704\uC758 \uC804\uBB38\uC5D0 \uC788\uC73C\uBA70, \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
+      leftHeading: "### \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D",
+      leftSummary: (count3) => `\uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74`,
+      leaveReasons: {
+        "outside-change-not-regression": "\uBCC0\uACBD \uBC94\uC704 \uBC16\uC774\uBA70 \uD68C\uADC0\uAC00 \uC544\uB2D8",
+        superseded: "\uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uC218\uC815\uC73C\uB85C \uD574\uACB0\uB428",
+        intended: "\uC800\uC7A5\uC18C\uC5D0 \uC801\uD78C \uB300\uB85C \uC758\uB3C4\uB41C \uB3D9\uC791\uC784"
+      },
+      leftBecause: (reason, by) => `deep-review\uAC00 \uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720: ${reason}${by === null ? "" : ` (${by})`}.`,
+      groundsLabel: "\uD310\uB2E8 \uADFC\uAC70:",
+      leftCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.`,
+      notExaminedHeading: "### \uC774 \uB9AC\uBDF0\uAC00 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83",
+      noCheck: "\uC774 \uC2E4\uD589\uC740 \uB9AC\uBDF0\uB9CC \uD588\uC73C\uBBC0\uB85C \uC5B4\uB5A4 \uAC80\uC0AC\uB3C4 \uB3CC\uB9AC\uC9C0 \uC54A\uC558\uACE0, \uBCC0\uACBD\uC5D0 \uB300\uD574 \uD14C\uC2A4\uD2B8\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+      allExamined: "\uBAA8\uB4E0 \uB9AC\uBDF0 \uB2E8\uACC4\uAC00 \uC2E4\uD589\uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uAC80\uD1A0\uD588\uC2B5\uB2C8\uB2E4.",
+      gap: (text3) => `${text3} (\uC2E4\uD589 \uAE30\uB85D\uC758 \uC6D0\uBB38 \uADF8\uB300\uB85C \uC601\uC5B4\uB85C \uC801\uC2B5\uB2C8\uB2E4)`,
+      excluded: (patterns, count3, layer) => `${patterns.join(", ")} \uD328\uD134\uC774 \uBC14\uB010 \uACBD\uB85C ${String(count3)}\uAC1C\uB97C \uC81C\uC678\uD588\uC73C\uBA70, \uC5B4\uB5A4 \uC791\uC5C5\uC790\uB3C4 \uC774 \uACBD\uB85C\uB97C \uC77D\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.${layer === null ? "" : ` \`scope.exclude\`\uB294 ${layer}\uC5D0\uC11C \uC815\uD588\uC2B5\uB2C8\uB2E4.`}`,
+      layers: { default: "\uAE30\uBCF8\uAC12", operator: "\uC6B4\uC601\uC790 \uC124\uC815 \uD30C\uC77C", repository: "\uC800\uC7A5\uC18C \uC124\uC815 \uD30C\uC77C", clone: "\uD074\uB860 \uC124\uC815 \uD30C\uC77C", invocation: "--config \uD30C\uC77C", flag: "\uBA85\uB839\uC904 \uD50C\uB798\uADF8" },
+      refutedLine: (count3) => `\uAC80\uC99D\uC790\uAC00 \uBC18\uBC15\uD55C \uD6C4\uBCF4 ${String(count3)}\uAC1C\uB97C \uC544\uB798\uC5D0 \uC801\uC5C8\uC2B5\uB2C8\uB2E4. \uAC19\uC740 \uC9C0\uC801\uC774 \uB2E4\uC2DC \uB098\uC624\uBA74 \uC5EC\uAE30\uC11C \uB2F5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+      refutedSummary: (count3) => `\uBC18\uBC15\uB41C \uD6C4\uBCF4 ${String(count3)}\uAC1C`,
+      refutedItem: (claim3, why) => `${claim3} \uBC18\uBC15\uB41C \uC774\uC720: ${why}`,
+      refutedInReport: "\uBC18\uBC15\uD55C \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
+      refutedCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uAC80\uC99D\uC790\uAC00 \uBC18\uBC15\uD55C \uD6C4\uBCF4 ${String(count3)}\uAC1C\uB294 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAC01 \uD6C4\uBCF4\uC640 \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.`,
+      noPlace: "\uC800\uC7A5\uC18C\uC5D0 \uC704\uCE58 \uC5C6\uC74C",
+      trustHeading: "### \uC774 \uB9AC\uBDF0\uB97C \uC5BC\uB9C8\uB098 \uBBFF\uC744 \uC218 \uC788\uB098",
+      trust: (counts) => {
+        const refuted2 = counts.refuted === 0 ? `\uAC80\uC99D\uC790\uB294 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C \uC911 \uC5B4\uB290 \uAC83\uB3C4 \uBC18\uBC15\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` : `\uAC80\uC99D\uC790\uAC00 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C \uC911 ${String(counts.refuted)}\uAC1C\uB97C \uBC18\uBC15\uD588\uC73C\uBBC0\uB85C, \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC8FC\uC7A5\uC774 \uD655\uC778 \uC5C6\uC774 \uD1B5\uACFC\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`;
+        if (counts.findings === 0) return refuted2;
+        const unverified = counts.unverified === 0 ? "" : `(\uADF8\uC911 ${String(counts.unverified)}\uAC74\uC740 \uAC80\uC99D \uC548 \uB428)`;
+        const major = counts.major === 0 ? "" : ` major ${String(counts.major)}\uAC74 \uC911 ${String(counts.majorConfirmed)}\uAC74\uC774 CONFIRMED\uC785\uB2C8\uB2E4${counts.majorConfirmedRan === 0 ? "" : `. \uADF8\uC911 ${String(counts.majorConfirmedRan)}\uAC74\uC740 \uC2E4\uD589\uD574 \uC7AC\uD604\uD588\uC2B5\uB2C8\uB2E4`}.`;
+        return `\uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74 \uC911 ${String(counts.confirmed)}\uAC74\uC774 CONFIRMED, ${String(counts.plausible)}\uAC74\uC774 PLAUSIBLE\uC785\uB2C8\uB2E4${unverified}.${major} \uC804\uCCB4 ${String(counts.findings)}\uAC74 \uC911 ${basesKorean(counts)} ${refuted2}`;
+      },
+      modelLine: "\uC124\uBA85\uC740 \uBAA8\uB378\uC774 \uAC80\uC99D\uC790\uC758 \uADFC\uAC70\uB97C \uBC14\uD0D5\uC73C\uB85C \uC37C\uC73C\uBA70, \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uB41C \uAC83\uC740 \uADF8 \uADFC\uAC70\uBFD0\uC785\uB2C8\uB2E4.",
+      conclusionDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC694\uC57D\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uC694\uC57D\uACFC \uC870\uCE58\uB294 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      areasDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC601\uC5ED\uC744 \uB0B4\uC9C0 \uBABB\uD574, major \uC9C0\uC801 \uC0AC\uD56D\uC740 deep-review\uAC00 \uC9C1\uC811 \uC774\uB984 \uBD99\uC778 \uD55C \uC601\uC5ED\uC5D0 \uBAA8\uC544 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      refutedDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uAC01 \uD6C4\uBCF4\uB294 \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC694\uC57D\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      findingsDropped: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC774 ${findings}\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
+      noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0 \uC804\uCCB4\uB97C deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      predates: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC740 ${findings}\uC5D0 \uB300\uD55C \uB2F5\uC774 \uAE30\uB85D\uB418\uAE30 \uC804\uC5D0 \uC4F0\uC600\uC2B5\uB2C8\uB2E4. \uAC01 \uB2F5\uC740 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
+      areaDiagramsCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC601\uC5ED\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (\uBAA8\uB378 ${facts.strong}, ${facts.fast}), \uC2E4\uD589 ${facts.run}, \uB9AC\uBDF0\uD55C \uCEE4\uBC0B ${facts.base}..${facts.head}.`
+    };
+    pullRequestLanguages = ["en", "ko"];
+    pullRequestWordTables = { en: english, ko: korean };
+  }
+});
+
 // src/review/report.ts
 function marks(candidate, unverified) {
   const where = repositoryLocation(candidate) === null ? [`unlocated: ${rawAt(candidate)}`] : outsideChange(candidate) ? ["outside the change"] : [];
@@ -38376,7 +38727,8 @@ function renderReport(state, input2) {
   const findingsSection = [
     "## Findings",
     "",
-    ...brief.findings.length === 0 ? ["No finding survived verification."] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id), decidedFor2.get(finding.id) ?? null, numbers, scratch), ""])
+    // The values a reason names are defined once before the first reason, in the words the posted review gives them in English (finding 23 of the review of the severity rubric).
+    ...brief.findings.length === 0 ? ["No finding survived verification."] : [pullRequestWordTables.en.severityValues, "", ...brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id), decidedFor2.get(finding.id) ?? null, numbers, scratch), ""])]
   ];
   const refutedSection = [
     "## Refuted at verification",
@@ -38413,6 +38765,7 @@ var init_report = __esm({
     init_state();
     init_settings_report();
     init_spend();
+    init_pull_request_words();
     init_survey_report();
     init_vocabulary();
     codexSandboxWords = {
@@ -39806,355 +40159,6 @@ var init_executable = __esm({
   }
 });
 
-// src/review/pull-request-words.ts
-function basesEnglish(counts) {
-  const ways = [["ran", "by running code"], ["traced", "by tracing it"], ["read", "by reading it"]].filter(([basis]) => counts.bases[basis] > 0);
-  const told = ways.map(([basis, how], index2) => index2 === 0 ? `${String(counts.bases[basis])} ${counts.bases[basis] === 1 ? "was" : "were"} checked ${how}` : `${String(counts.bases[basis])} ${how}`);
-  const none = counts.noBasis === 0 ? [] : [`${String(counts.noBasis)} ${counts.noBasis === 1 ? "has" : "have"} no basis on record`];
-  return told.length === 0 ? `no verdict records how it was checked` : `${listed(told)}${none.length === 0 ? "" : `, and ${none[0]}`}`;
-}
-function basesKorean(counts) {
-  const ways = [["ran", "\uCF54\uB4DC\uB97C \uC2E4\uD589\uD574"], ["traced", "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00"], ["read", "\uCF54\uB4DC\uB97C \uC77D\uC5B4"]].filter(([basis]) => counts.bases[basis] > 0);
-  const told = ways.length === 0 ? "\uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB41C \uD310\uC815\uC740 \uC5C6\uC2B5\uB2C8\uB2E4." : `${ways.map(([basis, how]) => `${String(counts.bases[basis])}\uAC74\uC740 ${how}`).join(", ")} \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`;
-  return `${told}${counts.noBasis === 0 ? "" : ` ${String(counts.noBasis)}\uAC74\uC740 \uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`}`;
-}
-function pullRequestWords(language) {
-  const primary = language.split("-")[0].toLowerCase();
-  return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
-}
-var english, korean, pullRequestLanguages, pullRequestWordTables;
-var init_pull_request_words = __esm({
-  "src/review/pull-request-words.ts"() {
-    "use strict";
-    init_markdown();
-    english = {
-      heading: "## deep-review's review of this pull request",
-      reviewed: (head2, files, base) => `deep-review reviewed this pull request at its head ${head2}, ${files === 1 ? "the 1 file" : `the ${String(files)} files`} changed from the merge base ${base}, and changed no file.`,
-      findingList: (numbers) => findingWords(numbers),
-      summaryHeading: "### Summary",
-      summaryCounts: (counts) => {
-        if (counts.findings === 0) return "The review keeps no finding: the verifiers refuted every candidate, or the finders proposed none.";
-        const critical = counts.critical === 0 ? "" : counts.major === 1 ? ", which is critical," : `, ${String(counts.critical)} of them critical,`;
-        const parts = [
-          ...counts.major === 0 ? [] : [`${counts.major === 1 ? "the major one" : `the ${String(counts.major)} major ones`}${critical} ${counts.major === 1 ? "is" : "are"} what matters before the merge`],
-          ...counts.minor === 0 ? [] : [counts.minor === 1 ? "the minor one is smaller" : `the ${String(counts.minor)} minor ones are smaller`]
-        ];
-        return `The review keeps ${counted(counts.findings, "finding", "findings")}. ${capitalized(parts.join("; "))}.`;
-      },
-      summaryNext: (counts, fix) => {
-        const acting = [
-          ...counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, "finding", "findings")}`],
-          ...counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, "question", "questions")}`]
-        ];
-        const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
-        if (acting.length === 0 && counts.authors === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
-        if (acting.length === 0) {
-          const verifiers = counts.left === 1 ? "its verifier leaves" : counts.authors === 1 ? "the verifier of 1 of them leaves" : `the verifiers of ${String(counts.authors)} of them leave`;
-          return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is and changes nothing on this branch, but ${verifiers} a choice to the author, as "What needs a person" says.`;
-        }
-        return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
-      },
-      needsHeading: "### What needs a person",
-      needsQuestion: (finding, href, question, tail) => `**[Question on finding ${String(finding)}](${href}).** ${question} ${tail}`,
-      needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
-      departureStands: "`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.",
-      needsAuthor: (finding, href, choice) => `**[Finding ${String(finding)}](${href}) is left as is, but its verifier leaves a choice to the author.** ${choice}`,
-      needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0] : `one of ${listed(flags, "or")}`}. A reply on this pull request is not read yet.`,
-      needsNothing: "Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.",
-      howHeading: "### How the review worked",
-      howWorked: (counts) => `deep-review runs model sessions, called workers, each in one role. Finders propose candidate defects from several angles, a verifier checks each candidate by reading the code or running it, and a decider chooses to fix, to ask the author, or to leave as is. Here ${counted(counts.candidates, "candidate", "candidates")} became ${String(counts.groups)} after merging duplicates; the verifiers refuted ${String(counts.refuted)} and kept ${String(counts.kept)}, and ${counts.merged === 0 ? "none" : String(counts.merged)} of those joined another finding, which leaves ${String(counts.findings)}.`,
-      howDiagram: (pullRequest) => [
-        "flowchart TD",
-        `  subgraph RV["review --pr ${String(pullRequest)}, read-only: done"]`,
-        '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
-        '    V --> D["A decider chooses: fix, ask or leave"]',
-        '    D --> W["The writer explains it in plain words"]',
-        "  end",
-        '  W --> P["publish cleans the text and posts this review"]',
-        '  P --> A["The person who ran the review answers the questions"]',
-        `  A --> X["review --pr ${String(pullRequest)} --fix: fixers apply and test each fix"]`
-      ].join("\n"),
-      verdictMeanings: "CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verdict was recorded before verifiers gave that reason on its own.",
-      unverifiedMeaning: "A PLAUSIBLE finding marked unverified is one that no verifier examined, since its verifier failed twice.",
-      severityMeanings: "The severity is a worker's judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a wrong message or repeated code that the next change can let drift.",
-      areasHeading: "### The major findings",
-      findingsArea: "The major findings that deep-review would fix or asks about",
-      noMajor: "No major finding asks for a fix or a question.",
-      wouldDo: (sentence2) => `Fix: ${sentence2}`,
-      recommends: (option, text3) => `A question for the author; deep-review recommends option ${String(option)}: ${text3}`,
-      againstRule: "Against a written rule.",
-      inFullHeading: (finding, title) => `### Finding ${String(finding)}: ${title}`,
-      grade: (severity, verdict, basis, marks2) => `${capitalized(severity)}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
-      basisWords: { ran: "reproduced by running it", traced: "traced through the code", read: "read in the code" },
-      unverifiedMark: "unverified",
-      statusSentences: {
-        question: "deep-review asks the author.",
-        fixed: "deep-review fixed this.",
-        "fixed-against-rule": "deep-review fixed this against a written rule.",
-        "not-fixed": "deep-review decided to fix this, and did not fix it.",
-        left: "Left as is.",
-        planned: "deep-review would fix this.",
-        "planned-against-rule": "deep-review would fix this against a written rule."
-      },
-      lineNotChanged: "This pull request does not change this line.",
-      fileNotChanged: "This pull request does not change this file.",
-      noPatch: "GitHub shows no diff of this file, so this finding has no comment on its line.",
-      noPlaceNote: "This finding names no place that the repository holds.",
-      unexplained: (reason) => `deep-review's writer did not explain this finding, so it is given in deep-review's own words: look at it yourself.${reason === null ? "" : ` The writer's reason: ${reason}`}`,
-      problemLabel: "**What goes wrong.**",
-      whyPlausible: (unconfirmed) => {
-        if (unconfirmed === null) return "Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.";
-        return unconfirmed.kind === "fact" ? `Why PLAUSIBLE: one fact is not settled: ${unconfirmed.text}` : `Why PLAUSIBLE: the defect is there, and a choice remains: ${unconfirmed.text}`;
-      },
-      whyUnverified: "Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.",
-      wouldDoLabel: "**What deep-review would do.**",
-      asDecided: "The fix as decided",
-      rejected: (option, reason) => `Rejected: ${option} ${reason}`,
-      departure: (rule, source, fact, accept, reject, fix) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; ${fix} makes the fix as decided unless it is rejected first.`,
-      answeredAccept: (at) => `The person who ran this review accepted the departure, on ${at}.`,
-      answeredReject: (at) => `The person who ran this review rejected the departure, so the fix follows the rule, on ${at}.`,
-      whyAsked: "**Why it is a question.**",
-      question: (question) => `**The question.** ${question}`,
-      option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
-      standing: (recommended, applied, edits, option) => {
-        const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
-        const result = edits ? "`--fix` applies it" : "the code stays as it is";
-        return recommended === applied ? `${recommendation} It also stands until someone answers: ${result}.` : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
-      },
-      answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
-      answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
-      whyLeft: "**Why it is left as is.**",
-      whyLook: "**Why a person should look anyway.**",
-      authorChoice: (choice) => `Its verifier leaves a choice to the author: ${choice}`,
-      howChecked: "How the verifier checked it",
-      basisSentences: {
-        ran: "The verifier ran code to check it; the report of the run holds what it ran and what it saw.",
-        traced: "The verifier traced the code to the result; the report of the run holds its evidence.",
-        read: "The verifier read the lines, which alone settle it; the report of the run holds its evidence."
-      },
-      noBasis: "The verifier's record gives no basis; the report of the run holds its evidence.",
-      notVerified: "No verifier examined it, since its verifier failed twice.",
-      codeHeading: "Code at the reviewed head:",
-      atBase: (link) => `${link} (at the merge base)`,
-      trace: (id, run2) => `<sub>Finding ${id} of run ${run2}.</sub>`,
-      diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
-      minorHeading: "### The minor findings",
-      minorLead: (counts) => {
-        const each = counts.total === 1 ? "" : "each ";
-        const where = counts.onLine === counts.total ? `, ${each}in a comment on its line` : counts.onLine === 0 ? `, ${each}in full above` : `: ${String(counts.onLine)} in a comment on its line and the rest in full above`;
-        const kinds = counts.user === 0 ? "" : ` ${String(counts.user)} ${counts.user === 1 ? "reaches" : "reach"} what a user sees, and ${String(counts.code)} ${counts.code === 1 ? "is" : "are"} about the code.`;
-        return `${capitalized(counted(counts.total, "minor finding", "minor findings"))}${where}.${kinds}`;
-      },
-      minorNeeds: (findings, count3) => `${capitalized(findings)} among them ${count3 === 1 ? "needs" : "need"} a person, as "What needs a person" says.`,
-      minorSummary: (count3) => count3 === 1 ? "The minor finding" : `The ${String(count3)} minor findings`,
-      minorOrder: (user) => `The first ${user === 1 ? "one reaches" : `${String(user)} reach`} what a user sees; the rest are about the code.`,
-      minorColumns: ["#", "Finding", "Verdict", "What deep-review would do"],
-      minorCut: "To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.",
-      leftHeading: "### The findings left as is",
-      leftSummary: (count3) => count3 === 1 ? "The finding left as is" : `The ${String(count3)} findings left as is`,
-      leaveReasons: {
-        "outside-change-not-regression": "outside the change, and not a regression",
-        superseded: "superseded",
-        intended: "intended, as the repository states"
-      },
-      leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? "" : ` by ${by}`}.`,
-      groundsLabel: "Why:",
-      leftCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the finding left as is is" : `the ${String(count3)} findings left as is are`} not listed here; the report of the run holds ${count3 === 1 ? "it" : "each"}.`,
-      notExaminedHeading: "### What this review did not examine",
-      noCheck: "No check ran: this run only reviewed, so no test ran against the change.",
-      allExamined: "Every review pass ran, and a verifier examined each candidate.",
-      gap: (text3) => text3,
-      excluded: (patterns, count3, layer) => `${capitalized(counted(count3, "changed path", "changed paths"))} under ${listed(patterns)} ${count3 === 1 ? "was" : "were"} left out${layer === null ? "" : `, as ${layer} sets \`scope.exclude\``}, and no worker read ${count3 === 1 ? "it" : "them"}.`,
-      layers: { default: "the default", operator: "the operator's file", repository: "the repository's file", clone: "the clone's file", invocation: "the --config file", flag: "a flag" },
-      refutedLine: (count3) => `${count3 === 1 ? "The candidate that the verifiers refuted is" : `The ${String(count3)} candidates that the verifiers refuted are`} listed below, so a point raised again can be answered from ${count3 === 1 ? "it" : "them"}.`,
-      refutedSummary: (count3) => count3 === 1 ? "The refuted candidate" : `The ${String(count3)} refuted candidates`,
-      refutedItem: (claim3, why) => `${claim3} Refuted: ${why}`,
-      refutedInReport: "The evidence that refuted it is in the report of the run.",
-      refutedCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the candidate that the verifiers refuted is" : `the ${String(count3)} candidates that the verifiers refuted are`} not listed here; the report of the run holds each with its evidence.`,
-      noPlace: "no place in the repository",
-      trustHeading: "### How far to trust this review",
-      trust: (counts) => {
-        const refuted2 = counts.refuted === 0 ? `The verifiers refuted none of the ${String(counts.candidates)} candidates.` : `The verifiers refuted ${String(counts.refuted)} of ${counted(counts.candidates, "candidate", "candidates")}, so the finders' claims did not pass unchecked.`;
-        if (counts.findings === 0) return refuted2;
-        const unverified = counts.unverified === 0 ? "" : `, ${String(counts.unverified)} of them unverified`;
-        const ran = counts.majorConfirmedRan === 0 ? "" : `, ${String(counts.majorConfirmedRan)} of them reproduced by running ${counts.majorConfirmedRan === 1 ? "it" : "them"}`;
-        const major = counts.major === 0 ? "" : counts.major === 1 ? `; the major one is ${counts.majorConfirmed === 1 ? `CONFIRMED${counts.majorConfirmedRan === 1 ? ", reproduced by running it" : ""}` : "PLAUSIBLE"}` : `; ${String(counts.majorConfirmed)} of the ${String(counts.major)} major ones ${counts.majorConfirmed === 1 ? "is" : "are"} CONFIRMED${ran}`;
-        return `${String(counts.confirmed)} of the ${counted(counts.findings, "finding", "findings")} ${counts.confirmed === 1 ? "is" : "are"} CONFIRMED and ${String(counts.plausible)} PLAUSIBLE${unverified}${major}. Across all ${String(counts.findings)}, ${basesEnglish(counts)}. ${refuted2}`;
-      },
-      modelLine: "A model wrote the explanations from the verifiers' evidence, which the report of the run holds, and only that evidence was verified.",
-      conclusionDropped: "The writer gave no summary that passed deep-review's checks, so the summary and the actions are in deep-review's own words.",
-      areasDropped: "The writer gave no areas that passed deep-review's checks, so the major findings are listed in one area in deep-review's own words.",
-      refutedDropped: "The writer gave no lines for the refuted candidates that passed deep-review's checks, so each is given by its finder's summary.",
-      findingsDropped: (findings, count3) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count3 === 1 ? "it is" : "each is"} given in deep-review's own words.`,
-      noExplanation: "deep-review recorded no explanation by its writer for this run, so the review is in deep-review's own words.",
-      predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
-      areaDiagramsCut: "To fit the length GitHub takes, the diagrams of the areas are left out; the writer's answer on the machine that holds the run keeps them.",
-      lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`
-    };
-    korean = {
-      heading: "## deep-review\uC758 \uD480 \uB9AC\uD018\uC2A4\uD2B8 \uB9AC\uBDF0",
-      reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC73C\uBA70, \uD30C\uC77C\uC740 \uD558\uB098\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`,
-      findingList: (numbers) => `\uC9C0\uC801 \uC0AC\uD56D ${[...new Set(numbers)].sort((a, b) => a - b).map(String).join(", ")}`,
-      summaryHeading: "### \uC694\uC57D",
-      summaryCounts: (counts) => {
-        if (counts.findings === 0) return "\uC774 \uB9AC\uBDF0\uAC00 \uB0A8\uAE34 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uBC18\uBC15\uD588\uAC70\uB098, \uCC3E\uC740 \uD6C4\uBCF4\uAC00 \uC5C6\uC5C8\uC2B5\uB2C8\uB2E4.";
-        const parts = [
-          ...counts.major === 0 ? [] : [`major ${String(counts.major)}\uAC74${counts.critical === 0 ? "" : `(\uADF8\uC911 critical ${String(counts.critical)}\uAC74)`}\uC740 \uBCD1\uD569 \uC804\uC5D0 \uC0B4\uD3B4\uC57C \uD560 \uAC83`],
-          ...counts.minor === 0 ? [] : [`minor ${String(counts.minor)}\uAC74\uC740 \uADF8\uBCF4\uB2E4 \uAC00\uBCBC\uC6B4 \uAC83`]
-        ];
-        return `\uC774 \uB9AC\uBDF0\uB294 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC744 \uB0A8\uAE41\uB2C8\uB2E4. ${parts.length === 2 ? `${parts[0]}\uC774\uACE0, ${parts[1]}\uC785\uB2C8\uB2E4.` : `${parts[0]}\uC785\uB2C8\uB2E4.`}`;
-      },
-      summaryNext: (counts, fix) => {
-        const parts = [
-          ...counts.fixes === 0 ? [] : [`\uACE0\uCE60 \uAC83 ${String(counts.fixes)}\uAC74`],
-          ...counts.questions === 0 ? [] : [`\uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744 \uAC83 ${String(counts.questions)}\uAC74`],
-          ...counts.left === 0 ? [] : [`\uADF8\uB300\uB85C \uB458 \uAC83 ${String(counts.left)}\uAC74`]
-        ];
-        const decided = `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
-        if (counts.fixes + counts.questions === 0 && counts.authors === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
-        if (counts.fixes + counts.questions === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFB8\uB294 \uAC83\uC740 \uC5C6\uC9C0\uB9CC, \uADF8\uC911 ${String(counts.authors)}\uAC74\uC740 "\uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C"\uC5D0 \uC801\uC5C8\uB4EF \uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4.`;
-        return `${decided} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${fix} \uBA85\uB839\uC73C\uB85C \uC218\uC815\uACFC \uADF8\uB54C\uAE4C\uC9C0 \uBC1B\uC740 \uB2F5\uC744 \uC790\uC2E0\uC758 \uD074\uB860\uC5D0 \uC801\uC6A9\uD558\uACE0 \uADF8 \uACB0\uACFC\uB97C \uD478\uC2DC\uD558\uAE30 \uC804\uAE4C\uC9C0, \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C\uB294 \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
-      },
-      needsHeading: "### \uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C",
-      needsQuestion: (finding, href, question, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}\uC5D0 \uB300\uD55C \uC9C8\uBB38](${href}).** ${question} ${tail}`,
-      needsDeparture: (finding, href, rule, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC758 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" ${tail}`,
-      departureStands: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 `--fix`\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4. \uACE0\uCE5C \uB4A4\uC5D0 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
-      needsAuthor: (finding, href, choice) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC740 \uADF8\uB300\uB85C \uB450\uC9C0\uB9CC, \uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC774 \uB0A8\uC558\uB2E4\uACE0 \uBD05\uB2C8\uB2E4.** ${choice}`,
-      needsAnswer: (command, flags) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${command} \uBA85\uB839\uC5D0 ${flags.length === 1 ? `${flags[0]}\uB97C` : `${flags.join(", ")} \uC911 \uD558\uB098\uB97C`} \uBD99\uC5EC \uB2F5\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
-      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
-      howHeading: "### \uB9AC\uBDF0\uAC00 \uC9C4\uD589\uB41C \uBC29\uC2DD",
-      howWorked: (counts) => `deep-review\uB294 \uC791\uC5C5\uC790\uB77C\uACE0 \uBD80\uB974\uB294 \uBAA8\uB378 \uC138\uC158\uC744 \uC5ED\uD560\uB9C8\uB2E4 \uB530\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4. \uCC3E\uB294 \uC791\uC5C5\uC790\uB294 \uC5EC\uB7EC \uAD00\uC810\uC5D0\uC11C \uACB0\uD568 \uD6C4\uBCF4\uB97C \uB0B4\uACE0, \uAC80\uC99D\uC790\uB294 \uCF54\uB4DC\uB97C \uC77D\uAC70\uB098 \uC2E4\uD589\uD574 \uAC01 \uD6C4\uBCF4\uB97C \uD655\uC778\uD558\uBA70, \uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uB294 \uACE0\uCE60\uC9C0, \uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744\uC9C0, \uADF8\uB300\uB85C \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4. \uC774\uBC88\uC5D0\uB294 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C\uAC00 \uC911\uBCF5\uC744 \uD569\uCE5C \uB4A4 ${String(counts.groups)}\uAC1C\uAC00 \uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uADF8\uC911 ${String(counts.refuted)}\uAC1C\uB97C \uBC18\uBC15\uD558\uACE0 ${String(counts.kept)}\uAC1C\uB97C \uB0A8\uACBC\uC73C\uBA70, \uB0A8\uC740 \uAC83 \uC911 ${String(counts.merged)}\uAC1C\uAC00 \uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC5D0 \uD569\uCCD0\uC838 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC774 \uB0A8\uC558\uC2B5\uB2C8\uB2E4.`,
-      howDiagram: (pullRequest) => [
-        "flowchart TD",
-        `  subgraph RV["review --pr ${String(pullRequest)}, \uC77D\uAE30 \uC804\uC6A9: \uC644\uB8CC"]`,
-        '    F["\uCC3E\uB294 \uC791\uC5C5\uC790\uAC00 \uD6C4\uBCF4\uB97C \uB0C5\uB2C8\uB2E4"] --> V["\uAC80\uC99D\uC790\uAC00 \uAC01 \uD6C4\uBCF4\uB97C \uC2E4\uD589\uD558\uAC70\uB098 \uB530\uB77C\uAC00 \uBD05\uB2C8\uB2E4"]',
-        '    V --> D["\uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uAC00 \uACE0\uCE60\uC9C0, \uBB3C\uC744\uC9C0, \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4"]',
-        '    D --> W["\uC124\uBA85 \uBAA8\uB378\uC774 \uC26C\uC6B4 \uB9D0\uB85C \uC124\uBA85\uD569\uB2C8\uB2E4"]',
-        "  end",
-        '  W --> P["publish\uAC00 \uAE00\uC744 \uC815\uB9AC\uD574 \uC774 \uB9AC\uBDF0\uB97C \uC62C\uB9BD\uB2C8\uB2E4"]',
-        '  P --> A["\uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC9C8\uBB38\uC5D0 \uB2F5\uD569\uB2C8\uB2E4"]',
-        `  A --> X["review --pr ${String(pullRequest)} --fix: \uC218\uC815 \uC791\uC5C5\uC790\uAC00 \uAC01 \uC218\uC815\uC744 \uC801\uC6A9\uD558\uACE0 \uAC80\uC0AC\uD569\uB2C8\uB2E4"]`
-      ].join("\n"),
-      verdictMeanings: "CONFIRMED\uB294 \uAC80\uC99D\uC790\uAC00 \uBB38\uC81C\uB97C \uC2E4\uD589\uD574 \uC7AC\uD604\uD588\uAC70\uB098, \uCF54\uB4DC \uACBD\uB85C\uB97C \uB530\uB77C\uAC00 \uC798\uBABB\uB41C \uACB0\uACFC\uC5D0 \uC774\uB974\uB294 \uAC83\uC744 \uD655\uC778\uD588\uB2E4\uB294 \uB73B\uC785\uB2C8\uB2E4. PLAUSIBLE\uC740 \uD655\uC778\uD55C \uBC94\uC704\uC5D0\uC11C\uB294 \uC8FC\uC7A5\uC774 \uB9DE\uC9C0\uB9CC \uD655\uC815\uD558\uC9C0\uB294 \uBABB\uD588\uB2E4\uB294 \uB73B\uC774\uBA70, \uC0AC\uC2E4 \uD558\uB098\uB97C \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uC120\uD0DD\uC774 \uB0A8\uC558\uAE30 \uB54C\uBB38\uC785\uB2C8\uB2E4. \uADF8\uB7F0 \uC9C0\uC801 \uC0AC\uD56D\uB9C8\uB2E4 \uC5B4\uB290 \uCABD\uC778\uC9C0, \uB610\uB294 \uADF8 \uD310\uC815\uC774 \uAC80\uC99D\uC790\uAC00 \uC774\uC720\uB97C \uB530\uB85C \uBC1D\uD788\uAE30 \uC804\uC5D0 \uAE30\uB85D\uB418\uC5C8\uB294\uC9C0 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
-      unverifiedMeaning: "\uAC80\uC99D \uC548 \uB428 \uD45C\uC2DC\uAC00 \uBD99\uC740 PLAUSIBLE \uC9C0\uC801 \uC0AC\uD56D\uC740 \uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83\uC785\uB2C8\uB2E4.",
-      severityMeanings: "\uC2EC\uAC01\uB3C4\uB294 \uC791\uC5C5\uC790\uC758 \uD310\uB2E8\uC785\uB2C8\uB2E4. critical\uC774\uB098 major \uC9C0\uC801 \uC0AC\uD56D\uC740 \uBCD1\uD569 \uC804\uC5D0 \uC0B4\uD3B4\uC57C \uD560 \uAC83\uC774\uACE0, minor \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC798\uBABB\uB41C \uBA54\uC2DC\uC9C0\uB098 \uB2E4\uC74C \uBCC0\uACBD\uC5D0\uC11C \uC11C\uB85C \uC5B4\uAE0B\uB0A0 \uC218 \uC788\uB294 \uC911\uBCF5 \uCF54\uB4DC\uCC98\uB7FC \uADF8\uBCF4\uB2E4 \uAC00\uBCBC\uC6B4 \uAC83\uC785\uB2C8\uB2E4.",
-      areasHeading: "### major \uC9C0\uC801 \uC0AC\uD56D",
-      findingsArea: "deep-review\uAC00 \uACE0\uCE58\uAC70\uB098 \uBB3B\uB294 major \uC9C0\uC801 \uC0AC\uD56D",
-      noMajor: "\uACE0\uCE58\uAC70\uB098 \uBB3C\uC744 major \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.",
-      wouldDo: (sentence2) => `deep-review\uAC00 \uD560 \uC77C: ${sentence2}`,
-      recommends: (option, text3) => `\uC791\uC131\uC790\uC5D0\uAC8C \uBB3B\uB294 \uC9C8\uBB38\uC774\uBA70, deep-review\uB294 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${text3}`,
-      againstRule: "\uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.",
-      inFullHeading: (finding, title) => `### \uC9C0\uC801 \uC0AC\uD56D ${String(finding)}: ${title}`,
-      grade: (severity, verdict, basis, marks2) => `\uC2EC\uAC01\uB3C4 ${severity}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
-      basisWords: { ran: "\uC2E4\uD589\uD574 \uC7AC\uD604\uD568", traced: "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00 \uD655\uC778\uD568", read: "\uCF54\uB4DC\uB97C \uC77D\uC5B4 \uD655\uC778\uD568" },
-      unverifiedMark: "\uAC80\uC99D \uC548 \uB428",
-      statusSentences: {
-        question: "deep-review\uAC00 \uC791\uC131\uC790\uC5D0\uAC8C \uBB3B\uC2B5\uB2C8\uB2E4.",
-        fixed: "deep-review\uAC00 \uACE0\uCCE4\uC2B5\uB2C8\uB2E4.",
-        "fixed-against-rule": "deep-review\uAC00 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB974\uAC8C \uACE0\uCCE4\uC2B5\uB2C8\uB2E4.",
-        "not-fixed": "deep-review\uAC00 \uACE0\uCE58\uAE30\uB85C \uD588\uC9C0\uB9CC \uACE0\uCE58\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
-        left: "\uADF8\uB300\uB85C \uB461\uB2C8\uB2E4.",
-        planned: "deep-review\uAC00 \uACE0\uCE58\uB824 \uD569\uB2C8\uB2E4.",
-        "planned-against-rule": "deep-review\uAC00 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB974\uAC8C \uACE0\uCE58\uB824 \uD569\uB2C8\uB2E4."
-      },
-      lineNotChanged: "\uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB294 \uC774 \uC904\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
-      fileNotChanged: "\uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB294 \uC774 \uD30C\uC77C\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
-      noPatch: "GitHub\uAC00 \uC774 \uD30C\uC77C\uC758 diff\uB97C \uBCF4\uC5EC \uC8FC\uC9C0 \uC54A\uC544, \uC774 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uD574\uB2F9 \uC904\uC5D0 \uB313\uAE00\uB85C \uB2EC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
-      noPlaceNote: "\uC774 \uC9C0\uC801 \uC0AC\uD56D\uC774 \uAC00\uB9AC\uD0A4\uB294 \uC704\uCE58\uB294 \uC800\uC7A5\uC18C\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.",
-      unexplained: (reason) => `deep-review\uC758 \uC124\uBA85 \uBAA8\uB378\uC774 \uC774 \uC9C0\uC801 \uC0AC\uD56D\uC744 \uC124\uBA85\uD558\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4. \uC9C1\uC811 \uD655\uC778\uD574 \uC8FC\uC138\uC694.${reason === null ? "" : ` \uC124\uBA85 \uBAA8\uB378\uC774 \uBC1D\uD78C \uC774\uC720: ${reason}`}`,
-      problemLabel: "**\uBB34\uC5C7\uC774 \uC798\uBABB\uB418\uB098.**",
-      whyPlausible: (unconfirmed) => {
-        if (unconfirmed === null) return "PLAUSIBLE\uC778 \uC774\uC720: \uC774 \uD310\uC815\uC740 \uAC80\uC99D\uC790\uAC00 \uC774\uC720\uB97C \uB530\uB85C \uBC1D\uD788\uAE30 \uC804\uC5D0 \uAE30\uB85D\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.";
-        return unconfirmed.kind === "fact" ? `PLAUSIBLE\uC778 \uC774\uC720: \uD655\uC778\uD558\uC9C0 \uBABB\uD55C \uC0AC\uC2E4\uC774 \uD558\uB098 \uC788\uC2B5\uB2C8\uB2E4. ${unconfirmed.text}` : `PLAUSIBLE\uC778 \uC774\uC720: \uACB0\uD568\uC740 \uC788\uC9C0\uB9CC \uC120\uD0DD\uC774 \uB0A8\uC558\uC2B5\uB2C8\uB2E4. ${unconfirmed.text}`;
-      },
-      whyUnverified: "PLAUSIBLE\uC778 \uC774\uC720: \uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
-      wouldDoLabel: "**deep-review\uAC00 \uD560 \uC77C.**",
-      asDecided: "\uACB0\uC815\uB41C \uC218\uC815",
-      rejected: (option, reason) => `\uD0DD\uD558\uC9C0 \uC54A\uC740 \uBC29\uBC95: ${option} ${reason}`,
-      departure: (rule, source, fact, accept, reject, fix) => `**\uC774 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" \uCD9C\uCC98: ${source} \uADDC\uCE59\uACFC \uB9DE\uC9C0 \uC54A\uB294 \uC0AC\uC2E4: ${fact} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${accept} \uBA85\uB839\uC73C\uB85C \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC774\uAC70\uB098 ${reject} \uBA85\uB839\uC73C\uB85C \uAC70\uBD80\uD569\uB2C8\uB2E4. \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 ${fix}\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4.`,
-      answeredAccept: (at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC600\uC2B5\uB2C8\uB2E4.`,
-      answeredReject: (at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 \uC774 \uACB0\uC815\uC744 \uAC70\uBD80\uD588\uC73C\uBBC0\uB85C, \uC218\uC815\uC740 \uADDC\uCE59\uC744 \uB530\uB985\uB2C8\uB2E4.`,
-      whyAsked: "**\uC9C8\uBB38\uD558\uB294 \uC774\uC720.**",
-      question: (question) => `**\uC9C8\uBB38.** ${question}`,
-      option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
-      standing: (recommended, applied, edits, option) => {
-        const recommendation = option === null ? `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4.` : `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${option}`;
-        const result = edits ? "`--fix`\uAC00 \uC774\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4." : "\uCF54\uB4DC\uB294 \uC9C0\uAE08 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4.";
-        return recommended === applied ? `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB3C4 \uC774 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}` : `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB294 \uB418\uB3CC\uB9AC\uAE30 \uAC00\uC7A5 \uC26C\uC6B4 ${String(applied)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}`;
-      },
-      answerQuestion: (command, fix) => `**\uB2F5\uD558\uB294 \uBC29\uBC95.** \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${command} \uBA85\uB839\uC73C\uB85C \uB2F5\uD569\uB2C8\uB2E4. \`<k>\`\uC5D0\uB294 \uACE0\uB978 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638\uB97C \uC501\uB2C8\uB2E4. \uADF8\uB2E4\uC74C ${fix}\uAC00 \uADF8 \uB2F5\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
-      answeredOption: (option, at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB85C \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`,
-      whyLeft: "**\uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720.**",
-      whyLook: "**\uADF8\uB798\uB3C4 \uC0AC\uB78C\uC774 \uBD10\uC57C \uD558\uB294 \uC774\uC720.**",
-      authorChoice: (choice) => `\uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4: ${choice}`,
-      howChecked: "\uAC80\uC99D\uC790\uAC00 \uD655\uC778\uD55C \uBC29\uBC95",
-      basisSentences: {
-        ran: "\uAC80\uC99D\uC790\uAC00 \uCF54\uB4DC\uB97C \uC2E4\uD589\uD574 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uC2E4\uD589\uD558\uACE0 \uBB34\uC5C7\uC744 \uBCF4\uC558\uB294\uC9C0\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
-        traced: "\uAC80\uC99D\uC790\uAC00 \uCF54\uB4DC\uB97C \uB530\uB77C\uAC00 \uACB0\uACFC\uAE4C\uC9C0 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
-        read: "\uAC80\uC99D\uC790\uAC00 \uD574\uB2F9 \uC904\uC744 \uC77D\uC5C8\uACE0, \uADF8\uAC83\uB9CC\uC73C\uB85C \uD310\uB2E8\uD560 \uC218 \uC788\uC5C8\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4."
-      },
-      noBasis: "\uAC80\uC99D\uC790\uC758 \uAE30\uB85D\uC5D0 \uD655\uC778 \uBC29\uBC95\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
-      notVerified: "\uAC80\uC99D\uC790\uAC00 \uB450 \uBC88 \uC2E4\uD328\uD574 \uC544\uBB34\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
-      codeHeading: "\uB9AC\uBDF0\uD55C head\uC758 \uCF54\uB4DC:",
-      atBase: (link) => `${link} (merge base\uC758 \uCF54\uB4DC)`,
-      trace: (id, run2) => `<sub>\uC2E4\uD589 ${run2}\uC758 \uC9C0\uC801 \uC0AC\uD56D ${id}.</sub>`,
-      diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
-      minorHeading: "### minor \uC9C0\uC801 \uC0AC\uD56D",
-      minorLead: (counts) => {
-        const where = counts.onLine === counts.total ? "\uBAA8\uB450 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uC2B5\uB2C8\uB2E4" : counts.onLine === 0 ? "\uBAA8\uB450 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4" : `${String(counts.onLine)}\uAC74\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uACE0, \uB098\uBA38\uC9C0\uB294 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4`;
-        const kinds = counts.user === 0 ? "" : ` \uADF8\uC911 ${String(counts.user)}\uAC74\uC740 \uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uACE0, ${String(counts.code)}\uAC74\uC740 \uCF54\uB4DC\uC5D0 \uAD00\uD55C \uAC83\uC785\uB2C8\uB2E4.`;
-        return `minor \uC9C0\uC801 \uC0AC\uD56D\uC740 ${String(counts.total)}\uAC74\uC774\uBA70, ${where}.${kinds}`;
-      },
-      minorNeeds: (findings) => `\uADF8\uC911 ${findings}\uB294 "\uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C"\uC5D0 \uC801\uC5C8\uB4EF \uC0AC\uB78C\uC774 \uBD10\uC57C \uD569\uB2C8\uB2E4.`,
-      minorSummary: (count3) => `minor \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74`,
-      minorOrder: (user) => `\uCC98\uC74C ${String(user)}\uAC74\uC740 \uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uACE0, \uB098\uBA38\uC9C0\uB294 \uCF54\uB4DC\uC5D0 \uAD00\uD55C \uAC83\uC785\uB2C8\uB2E4.`,
-      minorColumns: ["#", "\uC9C0\uC801 \uC0AC\uD56D", "\uD310\uC815", "deep-review\uAC00 \uD560 \uC77C"],
-      minorCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C minor \uC9C0\uC801 \uC0AC\uD56D\uC758 \uD45C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC774\uB098 \uC704\uC758 \uC804\uBB38\uC5D0 \uC788\uC73C\uBA70, \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
-      leftHeading: "### \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D",
-      leftSummary: (count3) => `\uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74`,
-      leaveReasons: {
-        "outside-change-not-regression": "\uBCC0\uACBD \uBC94\uC704 \uBC16\uC774\uBA70 \uD68C\uADC0\uAC00 \uC544\uB2D8",
-        superseded: "\uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uC218\uC815\uC73C\uB85C \uD574\uACB0\uB428",
-        intended: "\uC800\uC7A5\uC18C\uC5D0 \uC801\uD78C \uB300\uB85C \uC758\uB3C4\uB41C \uB3D9\uC791\uC784"
-      },
-      leftBecause: (reason, by) => `deep-review\uAC00 \uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720: ${reason}${by === null ? "" : ` (${by})`}.`,
-      groundsLabel: "\uD310\uB2E8 \uADFC\uAC70:",
-      leftCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.`,
-      notExaminedHeading: "### \uC774 \uB9AC\uBDF0\uAC00 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83",
-      noCheck: "\uC774 \uC2E4\uD589\uC740 \uB9AC\uBDF0\uB9CC \uD588\uC73C\uBBC0\uB85C \uC5B4\uB5A4 \uAC80\uC0AC\uB3C4 \uB3CC\uB9AC\uC9C0 \uC54A\uC558\uACE0, \uBCC0\uACBD\uC5D0 \uB300\uD574 \uD14C\uC2A4\uD2B8\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
-      allExamined: "\uBAA8\uB4E0 \uB9AC\uBDF0 \uB2E8\uACC4\uAC00 \uC2E4\uD589\uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uAC80\uD1A0\uD588\uC2B5\uB2C8\uB2E4.",
-      gap: (text3) => `${text3} (\uC2E4\uD589 \uAE30\uB85D\uC758 \uC6D0\uBB38 \uADF8\uB300\uB85C \uC601\uC5B4\uB85C \uC801\uC2B5\uB2C8\uB2E4)`,
-      excluded: (patterns, count3, layer) => `${patterns.join(", ")} \uD328\uD134\uC774 \uBC14\uB010 \uACBD\uB85C ${String(count3)}\uAC1C\uB97C \uC81C\uC678\uD588\uC73C\uBA70, \uC5B4\uB5A4 \uC791\uC5C5\uC790\uB3C4 \uC774 \uACBD\uB85C\uB97C \uC77D\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.${layer === null ? "" : ` \`scope.exclude\`\uB294 ${layer}\uC5D0\uC11C \uC815\uD588\uC2B5\uB2C8\uB2E4.`}`,
-      layers: { default: "\uAE30\uBCF8\uAC12", operator: "\uC6B4\uC601\uC790 \uC124\uC815 \uD30C\uC77C", repository: "\uC800\uC7A5\uC18C \uC124\uC815 \uD30C\uC77C", clone: "\uD074\uB860 \uC124\uC815 \uD30C\uC77C", invocation: "--config \uD30C\uC77C", flag: "\uBA85\uB839\uC904 \uD50C\uB798\uADF8" },
-      refutedLine: (count3) => `\uAC80\uC99D\uC790\uAC00 \uBC18\uBC15\uD55C \uD6C4\uBCF4 ${String(count3)}\uAC1C\uB97C \uC544\uB798\uC5D0 \uC801\uC5C8\uC2B5\uB2C8\uB2E4. \uAC19\uC740 \uC9C0\uC801\uC774 \uB2E4\uC2DC \uB098\uC624\uBA74 \uC5EC\uAE30\uC11C \uB2F5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
-      refutedSummary: (count3) => `\uBC18\uBC15\uB41C \uD6C4\uBCF4 ${String(count3)}\uAC1C`,
-      refutedItem: (claim3, why) => `${claim3} \uBC18\uBC15\uB41C \uC774\uC720: ${why}`,
-      refutedInReport: "\uBC18\uBC15\uD55C \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
-      refutedCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uAC80\uC99D\uC790\uAC00 \uBC18\uBC15\uD55C \uD6C4\uBCF4 ${String(count3)}\uAC1C\uB294 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAC01 \uD6C4\uBCF4\uC640 \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.`,
-      noPlace: "\uC800\uC7A5\uC18C\uC5D0 \uC704\uCE58 \uC5C6\uC74C",
-      trustHeading: "### \uC774 \uB9AC\uBDF0\uB97C \uC5BC\uB9C8\uB098 \uBBFF\uC744 \uC218 \uC788\uB098",
-      trust: (counts) => {
-        const refuted2 = counts.refuted === 0 ? `\uAC80\uC99D\uC790\uB294 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C \uC911 \uC5B4\uB290 \uAC83\uB3C4 \uBC18\uBC15\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` : `\uAC80\uC99D\uC790\uAC00 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C \uC911 ${String(counts.refuted)}\uAC1C\uB97C \uBC18\uBC15\uD588\uC73C\uBBC0\uB85C, \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC8FC\uC7A5\uC774 \uD655\uC778 \uC5C6\uC774 \uD1B5\uACFC\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`;
-        if (counts.findings === 0) return refuted2;
-        const unverified = counts.unverified === 0 ? "" : `(\uADF8\uC911 ${String(counts.unverified)}\uAC74\uC740 \uAC80\uC99D \uC548 \uB428)`;
-        const major = counts.major === 0 ? "" : ` major ${String(counts.major)}\uAC74 \uC911 ${String(counts.majorConfirmed)}\uAC74\uC774 CONFIRMED\uC785\uB2C8\uB2E4${counts.majorConfirmedRan === 0 ? "" : `. \uADF8\uC911 ${String(counts.majorConfirmedRan)}\uAC74\uC740 \uC2E4\uD589\uD574 \uC7AC\uD604\uD588\uC2B5\uB2C8\uB2E4`}.`;
-        return `\uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74 \uC911 ${String(counts.confirmed)}\uAC74\uC774 CONFIRMED, ${String(counts.plausible)}\uAC74\uC774 PLAUSIBLE\uC785\uB2C8\uB2E4${unverified}.${major} \uC804\uCCB4 ${String(counts.findings)}\uAC74 \uC911 ${basesKorean(counts)} ${refuted2}`;
-      },
-      modelLine: "\uC124\uBA85\uC740 \uBAA8\uB378\uC774 \uAC80\uC99D\uC790\uC758 \uADFC\uAC70\uB97C \uBC14\uD0D5\uC73C\uB85C \uC37C\uC73C\uBA70, \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uB41C \uAC83\uC740 \uADF8 \uADFC\uAC70\uBFD0\uC785\uB2C8\uB2E4.",
-      conclusionDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC694\uC57D\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uC694\uC57D\uACFC \uC870\uCE58\uB294 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
-      areasDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC601\uC5ED\uC744 \uB0B4\uC9C0 \uBABB\uD574, major \uC9C0\uC801 \uC0AC\uD56D\uC740 deep-review\uAC00 \uC9C1\uC811 \uC774\uB984 \uBD99\uC778 \uD55C \uC601\uC5ED\uC5D0 \uBAA8\uC544 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
-      refutedDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uAC01 \uD6C4\uBCF4\uB294 \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC694\uC57D\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
-      findingsDropped: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC774 ${findings}\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
-      noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0 \uC804\uCCB4\uB97C deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
-      predates: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC740 ${findings}\uC5D0 \uB300\uD55C \uB2F5\uC774 \uAE30\uB85D\uB418\uAE30 \uC804\uC5D0 \uC4F0\uC600\uC2B5\uB2C8\uB2E4. \uAC01 \uB2F5\uC740 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
-      areaDiagramsCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC601\uC5ED\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
-      lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (\uBAA8\uB378 ${facts.strong}, ${facts.fast}), \uC2E4\uD589 ${facts.run}, \uB9AC\uBDF0\uD55C \uCEE4\uBC0B ${facts.base}..${facts.head}.`
-    };
-    pullRequestLanguages = ["en", "ko"];
-    pullRequestWordTables = { en: english, ko: korean };
-  }
-});
-
 // src/review/pull-request-form.ts
 function diffStateOf(file2, line) {
   if (file2 === void 0) return "not-in-the-pull-request";
@@ -40402,7 +40406,7 @@ function needsSection(view, say) {
 }
 function howSection(view) {
   const { words, counts } = view;
-  const meanings = [words.verdictMeanings, ...counts.unverified === 0 ? [] : [words.unverifiedMeaning], words.severityMeanings].join(" ");
+  const meanings = [words.verdictMeanings, ...counts.unverified === 0 ? [] : [words.unverifiedMeaning], words.severityMeanings, words.severityValues].join(" ");
   return { part: "how", lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced2(words.howDiagram(view.pullRequest.number))], [meanings]) };
 }
 function areasOf(view, say) {
