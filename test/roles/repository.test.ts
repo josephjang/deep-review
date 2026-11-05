@@ -333,9 +333,15 @@ describe('the repository\'s roles/', () => {
     assert.match(rubric, /\*\*The default is the option easiest to take back\*\*/);
   });
 
-  it('defines in merge-rank\'s role prompt exactly the severities the engine records, each once, so the rubric and the schema cannot drift apart', () => {
+  it('reads merge-rank\'s severities from a table whose cells are exactly the severities the engine records, so the rubric and the schema cannot drift apart', () => {
     const list = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'phase4-list.md'), 'utf8');
-    assert.deepEqual([...list.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), [...severities]);
+    assert.deepEqual([...list.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'degraded', 'none', 'always', 'ordinary', 'contrived', 'visible', 'operator', 'silent'], 'each value of the three axes is defined once, in order');
+    const rows = [...list.matchAll(/^\| `([a-z]+)` +\|(.*)\|$/gm)];
+    assert.deepEqual(rows.map((row) => row[1]), ['loss', 'wrong', 'degraded', 'none'], 'the table has one row for each effect');
+    const cells = rows.flatMap((row) => row[2]!.split('|').map((cell) => cell.trim()));
+    assert.equal(cells.length, 12, 'each row has one cell for each reach');
+    assert.ok(cells.every((cell) => (severities as readonly string[]).includes(cell)), `every cell is a severity: ${cells.join(', ')}`);
+    assert.deepEqual([...severities].filter((severity) => !cells.includes(severity)), [], 'every severity is in a cell');
     assert.doesNotMatch(list, /the severity of the rule it breaks/, 'a rule carries no severity');
     assert.ok(roles.find((role) => role.key === 'merge-rank')!.fragments.some((fragment) => fragment.name === 'phase4-list.md'), 'merge-rank is given the rubric');
   });
