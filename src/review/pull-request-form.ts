@@ -596,10 +596,10 @@ function needsSection(view: FormView, say: Speaker): Section {
   return { part: 'needs', lines: blocks([words.needsHeading], items, ...answer) };
 }
 
-/** How the review worked (R3): the roles and the counts of the run, the fixed diagram, and what the verdicts and the severities mean. */
+/** How the review worked (R3): the roles and the counts of the run, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
 function howSection(view: FormView): Section {
   const { words, counts } = view;
-  const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings].join(' ');
+  const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings, words.severityValues].join(' ');
   return { part: 'how', lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced(words.howDiagram(view.pullRequest.number))], [meanings]) };
 }
 
