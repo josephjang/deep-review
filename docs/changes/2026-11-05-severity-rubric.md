@@ -184,4 +184,12 @@ The finders and verifiers of the two runs may surface other findings, and merge-
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The commit "feat(review): Grade the severity of a finding by a stated rubric" implements R1 to R5. `roles/fragments/phase4-list.md` holds the rubric of R1 in the wording planned here, followed by one paragraph that carries the tie question, what a severity is not graded by (R2), the grading of a `CONVENTIONS` violation by its rule's reason (R3) and the ask that each `reason` name the consequence (R4). `mergeRankTask` in `src/review/tasks.ts` gives the severity "as your role prompt defines it", asks the `reason` of R4 and no longer says that a violation takes the severity of its rule (R5).
+
+The test of R5 in `test/roles/repository.test.ts` reads `phase4-list.md`, which a test of the same file shows merge-rank's prompt is assembled from, and holds its rubric lines to the values of `severities` in order; renaming one line's severity makes it fail. It follows the decider's test that holds the leave reasons to the engine's list. The test of the task in `test/review/tasks.test.ts` holds the new sentence and the absence of the old one. `npm run build` rebuilt both plugins, whose fragment, engine and bundle hash changed, and `npm run check` passed at the commit.
+
+### The gate (R6)
+
+The gate has not run yet.
