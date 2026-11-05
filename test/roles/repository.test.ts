@@ -335,8 +335,13 @@ describe('the repository\'s roles/', () => {
 
   it('reads merge-rank\'s severities from a table whose cells are exactly the severities the engine records, so the rubric and the schema cannot drift apart', () => {
     const list = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'phase4-list.md'), 'utf8');
-    assert.deepEqual([...list.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'degraded', 'none', 'always', 'ordinary', 'contrived', 'visible', 'operator', 'silent'], 'each value of the three axes is defined once, in order');
-    const rows = [...list.matchAll(/^\| `([a-z]+)` +\|(.*)\|$/gm)];
+    // Only the rubric's own part is read, so a later bullet or table elsewhere in the fragment is not taken for an axis value or a row.
+    const start = list.indexOf('**Give each finding a severity**');
+    const end = list.indexOf('How sure the verdict is', start);
+    assert.ok(start >= 0 && end > start, 'the rubric opens with its heading and ends before what decides no severity');
+    const rubric = list.slice(start, end);
+    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'degraded', 'none', 'always', 'ordinary', 'contrived', 'visible', 'operator', 'silent'], 'each value of the three axes is defined once, in order');
+    const rows = [...rubric.matchAll(/^\| `([a-z]+)` +\|(.*)\|$/gm)];
     assert.deepEqual(rows.map((row) => row[1]), ['loss', 'wrong', 'degraded', 'none'], 'the table has one row for each effect');
     const cells = rows.flatMap((row) => row[2]!.split('|').map((cell) => cell.trim()));
     assert.equal(cells.length, 12, 'each row has one cell for each reach');
