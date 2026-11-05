@@ -31,6 +31,8 @@ The footguns review pass did not run, and a later pass looked for what it would 
 
 ## Findings
 
+A finding's severity is read from three values that its reason names, each with the fact that gives it. Its effect is `loss`, data lost or a secret exposed; `wrong`, a wrong result or a broken promise; `costly`, the right outcome reached at a cost; or `none`, a cost only to the next change. Its reach is `always`, every use; `common`, a use the documents or the code make; or `rare`, only an unusual input or a later change. Its recovery is `self-fixed`, the person who meets it sees it and can undo it; `needs-fix`, it is seen but needs a maintainer or a fix; or `unnoticed`, no one is told or it cannot be undone.
+
 <a id="finding-1"></a>
 
 ### 1. null dereference
