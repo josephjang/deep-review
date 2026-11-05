@@ -35,7 +35,10 @@ Effect, what happens when the defect occurs:
 - `degraded`: the caller still reaches the right outcome, at a cost: a
   misleading message, a missing next step, or work slower than it
   needs to be within any stated bound. For example, a refusal that
-  names the wrong file while it still refuses as it should.
+  names the wrong file while it still refuses as it should. A message
+  is `degraded` when the person it misleads still reaches the right
+  outcome; one that leads them into a mistake with a wrong result or a
+  loss takes the effect of that mistake.
 - `none`: the behavior is right, and the cost falls on the next reader
   or the next change. For example, two copies of a helper that the
   next change can let drift apart.
