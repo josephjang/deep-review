@@ -167,7 +167,7 @@ Each finding's `reason` names its effect, reach and recovery, each with the fact
 
 ### S5: What stays
 
-The three severities and the engine's order stay, and so do the posted words of `severityMeanings`, which call a wrong message or repeated code minor: under the table a wrong message is `degraded` and repeated code is `none`, both `minor` at ordinary reach unless they are silent. What a severity is not graded by stays: how sure the verdict is, how large the fix would be, which angle found the finding and how old the code is. A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong, and `none` when the rule states no reason and breaking it breaks no behavior.
+The three severities and the engine's order stay, and so do the posted words of `severityMeanings`, which call a wrong message or repeated code minor: under the table a wrong message is `degraded`, so `minor` at ordinary reach unless it is silent, and repeated code is `none`, so `minor` under any recovery. What a severity is not graded by stays: how sure the verdict is, how large the fix would be, which angle found the finding and how old the code is. A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong, or `none` when the rule states no reason, and takes a larger effect of S1 when breaking the rule also has one.
 
 ### Applied to the cases of the gate
 
