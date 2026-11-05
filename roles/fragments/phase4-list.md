@@ -73,8 +73,9 @@ Recovery, what follows once it has happened:
 | `none`         | minor    | minor    | minor     |
 
 Then `silent` raises the severity one step and `visible` lowers it one
-step; `operator` leaves it. An effect of `degraded` never reaches
-`critical`, and an effect of `none` stays `minor`. The engine shows a
+step; `operator` leaves it. `silent` does not raise an effect of
+`degraded`, since a cost that no one notices is no larger for it, and
+an effect of `none` stays `minor`. The engine shows a
 `critical` or `major` finding to the reader as what matters before the
 merge, and folds a `minor` one into a table.
 
