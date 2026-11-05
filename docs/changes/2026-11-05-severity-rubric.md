@@ -4,7 +4,7 @@
 
 Merge-rank, the worker that folds the verified findings of a review that share one root cause, gives each finding a severity: `critical`, `major` or `minor`. No prompt says what makes a finding one or the other. The engine still treats the value as the key of what a reader sees: a critical or major finding goes in the body as what matters before the merge, and a minor one is folded into a table. The report [`2026-11-05-review-written-and-read.md`](../reports/2026-11-05-review-written-and-read.md) names this as the largest judgment of the review that has no stated rule (W1), and puts a rubric first among its ways to improve.
 
-After this change, merge-rank's role prompt defines the three severities by what a finding costs once the change is merged, each with a test and one example, and says what a severity is not graded by. A `CONVENTIONS` violation is graded by what its rule's own reason says goes wrong. Merge-rank's `reason` for each finding says which consequence gives its severity. Its task names the severity as the role prompt defines it, so the rubric is one text. The change edits one role prompt fragment and one task, which changes merge-rank's role prompt and its hash; no event, schema or posted word changes.
+After this change, merge-rank gives each finding three values, each a fact of its evidence with one example: its effect, what happens when the defect occurs; its reach, who meets it; and its recovery, what follows once it has happened. It reads the severity from a table of effect and reach, moved one step by recovery, and the role prompt says what a severity is not graded by. A `CONVENTIONS` violation takes its effect from what its rule's own reason says goes wrong. Merge-rank's `reason` for each finding names its three values and the fact that gives each. The structure follows the report [How other fields grade severity, and what a review can take from them](../reports/2026-11-05-severity-across-fields.md), which the first gate of this proposal asked for. Its task names the severity as the role prompt defines it, so the rubric is one text. The change edits one role prompt fragment and one task, which changes merge-rank's role prompt and its hash; no event, schema or posted word changes.
 
 ## Problem
 
@@ -26,9 +26,13 @@ Both texts say that "a `CONVENTIONS` violation takes the severity of the rule it
 
 The review that the gate of the review on the pull request posted on #96 opened with 27 fixes, 8 of them major and 19 minor (#102). The independent read of that review found the claims of the findings right, 15 of 15 checked, and #102 does not dispute the grades; its complaint is how the body weighs them. So no real run has yet shown a wrong severity. The case for this change is that the value carries the form, the reader is told a rule, and no worker is given it; the gate measures whether the grades move once it is given.
 
+### A severity chosen whole is a feeling
+
+The first rubric of this proposal defined each severity by a few consequences in words, and settled a finding between two by asking whether a reviewer who knew of it would hold the merge. Its gate, recorded under Verification, graded one consequence two ways in one run: of four findings whose consequence is a secret posted in public, one was `critical` as "a security hole that cannot be undone" and three were `major`. It moved two different defects of one change together, one met by any documented use and one only by a caller that catches an abort and reads on, since the rubric had no value for how a defect is met. Every `reason` named a consequence, and none could say which value gave the grade, since the rubric had none. The author judged that the rubric is a feeling and gives no independent dimensions that can be applied consistently. Fields that grade defects for a living reached the same conclusion long ago: a severity chosen whole disagrees with itself about half the time, and a repeatable grade comes from a few axes, each answered by a fact, combined by a table (F1, F2 and F7 of the report).
+
 ## Goals
 
-A severity follows a stated test that the ranker is given, and that test is the one the body states to its reader. A reader of the ledger can see from each finding's `reason` which part of the test gave its grade. The rubric has one text, and a test fails when the severities of the engine and the rubric's list stop matching.
+A severity follows from values that the ranker is given, each answered by a fact of the finding's evidence, and from a table that the ranker reads, not from a judgment of the whole. A reader of the ledger can see from each finding's `reason` the value of each axis and the fact behind it, and check the severity against the table. The rubric has one text, and a test fails when the severities of the engine and the rubric's table stop matching.
 
 ## Non-Goals
 
@@ -50,71 +54,112 @@ How the summary counts the findings and where a minor finding goes are the revie
 
 ## Requirements
 
-### R1: Each severity has a test and one example
+### R1: A severity is read from three values and a table
 
-Merge-rank's role prompt defines each severity by what the finding costs once the change is merged as it is. `critical` is a harm that reaches every user or cannot be undone: data lost or corrupted, a hole in security, or the program or its build broken for everyone. `major` is a wrong result, a broken contract that a caller relies on, or a failure on a path that the change's users reach, which someone must fix before relying on the change. `minor` is a cost that falls on the next reader or the next change while the code does what every caller needs. Each test has one example, and a finding between two severities is settled by one question: would a reviewer who knew of it hold the merge for it.
+Merge-rank gives each finding three values, each answered by a fact of the finding's evidence. Its effect is what happens when the defect occurs: `loss`, data lost or corrupted or a secret reaching someone who must not have it; `wrong`, a wrong result, a broken contract or a failure of what the change promises, a cost past a bound that the code or its documents state included; `degraded`, the right outcome reached at a cost, such as a misleading message or work slower than it needs to be; or `none`, right behavior with a cost on the next reader or the next change. Its reach is who meets it: `always`, every use of what the change adds or alters; `ordinary`, a use that the documents, the tests or a caller in the repository make, under a condition, with input that an outside party controls counted here; or `contrived`, only an input or sequence that no documented use makes, or a later change. Its recovery is what follows once it has happened: `visible`, seen at once and undone or worked around by the person who meets it; `operator`, seen, but undone only by a maintainer, an operator or a fix; or `silent`, unseen or beyond undoing.
 
-The wording planned for `phase4-list.md`, in place of its sentence on the severity, is below. It is a prompt, so the implementation may still change its words, and the gate reads the prompt as built.
+The severity is read from a table of effect and reach, then raised one step by `silent` or lowered one step by `visible`. An effect of `degraded` never reaches `critical`, and an effect of `none` stays `minor`. When two values of one axis both fit, merge-rank takes the lower and names the other in the reason. Each value has one example. The tie question of the first rubric, whether a reviewer would hold the merge, goes: the decision a severity feeds is not a test of the severity.
+
+The wording planned for `phase4-list.md`, in place of its sentences on the severity and the tie, is below. It is a prompt, so the implementation may still change its words, and the gate reads the prompt as built.
 
 ```
-**Give each finding a severity** by what it costs once the change is
-merged as it is. The engine puts a `critical` or `major` finding in the
-body as what matters before the merge, and folds a `minor` one into a
-table.
+**Give each finding a severity** in two steps: give it three values,
+then read its severity from the table below. Each value is a fact of
+the finding's evidence; when two values of one axis both fit, take the
+lower and name the other in the reason.
 
-- `critical`: the harm reaches every user or cannot be undone: data is
-  lost or corrupted, a hole in security opens, or the program or its
-  build breaks for everyone. For example, a migration that drops a
-  column the code still reads.
-- `major`: the change gives a wrong result, breaks a contract that a
-  caller relies on, or fails on a path its users reach, and someone
-  must fix it before relying on the change. For example, an option
-  renamed where it is defined that one caller still passes under its
-  old name, so that caller's setting is silently ignored.
-- `minor`: the code does what every caller needs, and the cost falls on
-  the next reader or the next change. For example, two copies of a
-  helper that the next change can let drift apart.
+Effect, what happens when the defect occurs:
 
-When a finding sits between two severities, ask whether a reviewer who
-knew of it would hold the merge for it: held, `major`; merged and
-followed up, `minor`.
+- `loss`: data is lost or corrupted, or a secret or private data
+  reaches someone who must not have it. For example, a log line that
+  prints the user's token.
+- `wrong`: a caller gets a wrong result, a contract it relies on
+  breaks, or an operation the change promises fails: an error, a
+  refusal, a hang, or a cost past a bound the code or its documents
+  state. For example, an option renamed where it is defined that one
+  caller still passes under its old name, so that caller's setting is
+  silently ignored.
+- `degraded`: the caller still reaches the right outcome, at a cost: a
+  misleading message, a missing next step, or work slower than it
+  needs to be within any stated bound. For example, a refusal that
+  names the wrong file while it still refuses as it should.
+- `none`: the behavior is right, and the cost falls on the next reader
+  or the next change. For example, two copies of a helper that the
+  next change can let drift apart.
+
+Reach, who meets it:
+
+- `always`: every use of what the change adds or alters. For example,
+  a step that runs on every invocation.
+- `ordinary`: a use that the documents, the tests or a caller in the
+  repository make, under a condition such as an option, an input or a
+  failure from outside. Input that an outside party controls is
+  ordinary. For example, a flag that the README shows.
+- `contrived`: only an input or a sequence that no documented use
+  makes, or a later change. For example, a caller that catches an
+  internal error and goes on as if it had not happened.
+
+Recovery, what follows once it has happened:
+
+- `visible`: the person who meets it sees it at once and can undo it
+  or work around it alone. For example, a refusal that names the
+  action to take.
+- `operator`: it is seen, but undoing it needs a maintainer, an
+  operator or a fix. For example, a crash that stops the command.
+- `silent`: no one is told, or it cannot be undone. For example, a
+  result written wrong with no error.
+
+| effect \ reach | always   | ordinary | contrived |
+|----------------|----------|----------|-----------|
+| `loss`         | critical | critical | major     |
+| `wrong`        | critical | major    | minor     |
+| `degraded`     | major    | minor    | minor     |
+| `none`         | minor    | minor    | minor     |
+
+Then `silent` raises the severity one step and `visible` lowers it one
+step; `operator` leaves it. An effect of `degraded` never reaches
+`critical`, and an effect of `none` stays `minor`. The engine puts a
+`critical` or `major` finding in the body as what matters before the
+merge, and folds a `minor` one into a table.
 ```
 
 ### R2: What a severity is not graded by
 
 The role prompt says that a severity is not graded by how sure the verdict is, how large the fix would be, which angle found the finding, or how old the code is. The verdict already says how sure; `rubrics.md` already says that the size of a fix decides no grade; the engine already uses the angle as a tiebreak below the severity. A severity that rose with certainty or fell with the size of the fix would count one fact twice, or count the wrong fact.
 
-### R3: A convention violation is graded by its rule's reason
+### R3: A convention violation takes its effect from its rule's reason
 
-A `CONVENTIONS` violation is graded by the tests of R1, applied to what the rule's own reason says goes wrong when it is broken. A rule that states no reason gives its violation `minor`, unless breaking it also breaks behavior by R1. This replaces "takes the severity of the rule it breaks" in the role prompt and in the task, which pointed at a value that no rule carries.
+A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong when it is broken, and its reach and recovery as any finding does. A rule that states no reason gives its violation the effect `none`, unless breaking it also has another effect of R1, which the violation then takes. This replaces "takes the severity of the rule it breaks" in the role prompt and in the task, which pointed at a value that no rule carries.
 
-### R4: The reason says what gave the severity
+### R4: The reason names each value
 
-Merge-rank's `reason` for each finding says, in one sentence, which consequence of R1 gives its severity, and for a finding with members, the root cause they share. Today the task asks for a `reason` and says nothing of what it holds. The field is a string of up to 2,000 characters, so its shape does not change.
+Merge-rank's `reason` for each finding names its effect, its reach and its recovery, each with the fact of the evidence that gives it, and for a finding with members, the root cause they share. Today the task asks for a `reason` and says nothing of what it holds. The field is a string of up to 2,000 characters, so its shape does not change.
 
 ### R5: One text, held to the engine's list
 
-The rubric is written once, in `phase4-list.md`. The task names the three values and tells merge-rank to give the severity "as your role prompt defines it", as the decider's task already says of its decisions, and drops its own sentence on convention violations. A test reads merge-rank's assembled role prompt and fails unless each value of `severities` in `src/review/vocabulary.ts` has exactly one line of the rubric, and the rubric has no other.
+The rubric is written once, in `phase4-list.md`. The task names the three severities and tells merge-rank to give the severity "as your role prompt defines it", as the decider's task already says of its decisions, and drops its own sentence on convention violations. A test reads the rubric's table in the fragment that merge-rank's role prompt is assembled from, and fails unless every cell of the table is a value of `severities` in `src/review/vocabulary.ts` and every value of `severities` is in a cell.
 
 ### R6: The gate
 
 The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code. Then the engine of this branch reviews again two changes whose reviews are public with their severities: the change of #96, on Claude Code in English, and the change of deep-review/click#1, on Codex in Korean, each with the base and the end its first review had.
 
-The gate records, for each run, the count of findings at each severity before and after, and pairs the findings of the two reviews of each change by their location and their summary. For each pair whose severity differs, the author reads both findings and says which grade is right by the rubric and by their own judgment, and the record keeps their word. The gate also reads every `reason` of the two new runs and counts those that name a consequence of R1. A finding that has no pair is listed, not graded, since two runs of the same change do not find the same set.
+The gate records, for each run, the count of findings at each severity before and after, and pairs the findings of the two reviews of each change by their location and their summary. For each pair whose severity differs, the author reads both findings and says which grade is right by the rubric and by their own judgment, and the record keeps their word. The gate also reads every `reason` of the two new runs, counts those that name the three values of R1 each with its fact, and counts those whose values and severity disagree with the table, the measure of consistency that a severity chosen whole cannot have. A finding that has no pair is listed, not graded, since two runs of the same change do not find the same set.
+
+The gate ran once with the first rubric, three tests and a tie question, and did not pass; Verification records it. It runs again, on the same three changes, with the rubric of R1 as it stands.
 
 ## Product Decisions
 
-### PD1: The tests follow what the engine does with each value
+### PD1: The values are facts, and the severity is read from them
 
-The line between `major` and `minor` is drawn where the engine draws it: a major finding is what the body calls "what matters before the merge", and a minor one is what it folds. So the test of `major` is a cost that someone must fix before relying on the change, and the tie question asks about holding the merge. The rubric's example of `minor` is the one the body already gives its reader, repeated code that the next change can let drift. The sentence posted to a reader is then the rule the ranker followed, which principle 2 asks of anything a person reads: it follows from what was decided.
+Each axis asks one question that the evidence of a finding answers: what happens when the defect occurs, who meets it, and what follows once it has happened. These are the three questions on which safety and quality fields grade a defect (ISO 26262's severity, exposure and controllability, FMEA's severity, occurrence and detection; F1 of the report), and each can be checked against the evidence alone. The severity is then read, not judged: the ranker's judgment goes into three narrow answers, and the table turns them into the grade the same way every time. The line between `major` and `minor` is still drawn where the engine draws it, between what the body calls "what matters before the merge" and what it folds, and the table's cells say which combinations fall on each side.
 
 ### PD2: `critical` is narrow
 
-The engine treats a critical finding as a major one everywhere but the order and the count "of them critical". A broad `critical` would add nothing a reader can act on and would dilute the one word that says "this is worse than the others". So its test names the harms that reach every user or that no later release undoes.
+The engine treats a critical finding as a major one everywhere but the order and the count "of them critical". A broad `critical` would add nothing a reader can act on and would dilute the one word that says "this is worse than the others". So the table gives `critical` only to a loss that a documented use can cause, to a wrong result on every use, and to a `major` finding that no one sees or no one can undo; a `degraded` or `none` effect never reaches it.
 
-### PD3: One example each, from no particular repository
+### PD3: One example for each value, from no particular repository
 
-deep-review reviews any repository, so each example names a shape of defect common to code in general, not a file of this one. One example per severity anchors the test without becoming a list that merge-rank matches against; the test comes first and the example after.
+deep-review reviews any repository, so each example names a shape of defect common to code in general, not a file of this one. One example for each value of each axis anchors the value without becoming a list that merge-rank matches against; the definition comes first and the example after. The examples of `wrong` and `none` are those of the first rubric's `major` and `minor`, and the example of `none` is the one the body already gives its reader, repeated code that the next change can let drift.
 
 ### PD4: The rubric is in the role prompt, and the task points to it
 
@@ -126,7 +171,7 @@ A new field for the ground of a severity would be a new payload of `ranking.reco
 
 ### PD6: The posted words stay
 
-`severityMeanings` already says what the rubric says, in English and Korean, and calls the severity a worker's judgment, which it remains. Changing the posted words would change what a reader of every review sees, for no gain once the ranker follows them.
+`severityMeanings` says that a critical or major finding is what matters before the merge and that a minor one is smaller, "such as a wrong message or repeated code that the next change can let drift", in English and Korean, and calls the severity a worker's judgment, which it remains. Under the table a wrong message is `degraded` and repeated code is `none`, both `minor` at an ordinary reach unless no one sees them, so the posted words agree with the rubric. Changing them would change what a reader of every review sees, for no gain once the ranker follows them.
 
 ### PD7: Rejected: the engine computes the severity
 
@@ -140,13 +185,29 @@ A verifier knows its candidate's evidence best, but it sees one candidate, and a
 
 `rubrics.md` holds the rules every grading role shares, and eight roles name it. Only merge-rank gives a severity, so putting the rubric there would change seven other role prompts and their hashes for a rule none of them uses.
 
+### PD10: A table, not a score
+
+The values are combined by a table, as ISO 26262 reads its integrity level and as the FMEA handbook of 2019 reads its action priority, not by a sum or a product of ratings. FMEA replaced its product of three ratings, and Microsoft its DREAD score, because the arithmetic was not consistent (F2 of the report): a product of ordinal numbers weighs every axis alike and gives one number to combinations that mean different things. A table can be read by a person, argued with cell by cell and changed one cell at a time, and the step of recovery is the one rule beside it, as Chromium lowers a grade for a precondition (F3).
+
+### PD11: Recovery is its own axis
+
+The first rubric put "cannot be undone" in `critical`, and its gate applied the phrase to one leak of a secret and not to three others (G1 of the report). Whether a harm is seen and can be undone is a different question from how bad it is: ISO 26262 asks it as controllability, FMEA as detection, CVSS as recovery, Mozilla as whether a workaround exists. As its own axis it moves any finding one step, and the size of the harm stays with the effect.
+
+### PD12: Rejected: the quality that suffers as a fourth value
+
+SonarQube gives a severity for each quality a rule affects, and IBM's Orthogonal Defect Classification records the quality that suffers as its own attribute (F4 of the report). The form reads one severity per finding, so a severity per quality would need a rule to pick one, and a fourth value that no table cell reads would have no reader. The quality instead helps choose the effect: a slowdown is `degraded` while it stays within a bound that the code or its documents state, and `wrong` past it, and a secret posted in public is `loss`.
+
+### PD13: Rejected: keep the tie question
+
+"Would a reviewer who knew of it hold the merge" asks the decision that the severity feeds as the test of the severity, and each ranker answers it from its own sense of a reviewer (G4 of the report). It also cannot reach `critical`, as the review of #121 found. With three values, a finding between two grades sits between two values of one axis, and the rule to take the lower value and name the other settles it on a fact the reason states.
+
 ## Against the vision note
 
 This proposal is read against the vision note of 2026-11-05.
 
 ### Principle 1, evidence, not trust
 
-The severity was a value with no stated ground. With R4 each finding's `reason` names the consequence its grade rests on, so a reader of the ledger can check the grade against the finding without asking the ranker.
+The severity was a value with no stated ground. With R4 each finding's `reason` names the three values its grade is read from, each with its fact, so a reader of the ledger can check each value against the evidence and the grade against the table without asking the ranker.
 
 ### Principle 2, record before action
 
@@ -154,11 +215,11 @@ The form already decides nothing about the severity, but it states a meaning tha
 
 ### Principles 5 and 6, the core first, easy to understand with little context
 
-What reaches a reader first, the major findings in areas and "what matters before the merge", is chosen by the severity. A reader with little context cannot tell a grade from a guess; a stated test, the same one the body explains to them, makes the first screen mean what it says to every reader.
+What reaches a reader first, the major findings in areas and "what matters before the merge", is chosen by the severity. A reader with little context cannot tell a grade from a guess; a grade read from stated values by a table, which agrees with what the body explains to them, makes the first screen mean the same thing in every review.
 
 ### Principle 10, answers are labels
 
-The proposal departs from this principle. No answer in the ledger is about a severity, since a person answers questions and departures, not grades, so the ledger has no labels to measure the rubric against. The gate measures it against the author's reading of each grade that moved, which the principle calls an approximation. A later note can decide whether a person's correction of a severity becomes an answer.
+The proposal departs from this principle. No answer in the ledger is about a severity, since a person answers questions and departures, not grades, so the ledger has no labels to measure the rubric against. The gate measures it against the author's reading of each grade that moved, which the principle calls an approximation, and against the table itself, by counting the reasons whose values and grade disagree, which needs no label. A later note can decide whether a person's correction of a severity, or of one of its values, becomes an answer.
 
 ### Principle 12, a real run is the gate
 
@@ -168,11 +229,19 @@ R6 is a real run on the two changes whose earlier reviews are public, on both ru
 
 ### The examples become the only pattern
 
-A model given one example per severity may grade by resemblance to it. The tests come before the examples, and the gate reads the reasons of R4 for grades that name the example instead of a consequence.
+A model given one example per value may choose a value by resemblance to it. The definitions come before the examples, and the gate reads the reasons of R4 for values that name the example instead of a fact.
 
 ### More findings become major
 
-A rubric whose `major` is "someone must fix it before relying on the change" may move findings out of the folded table, and lengthen what a person reads, which the note's use counts against a proposal. The gate counts each severity before and after, and the author's reading of each moved grade says whether the move is right.
+A table may put more findings above the folded table than the ranker's sense did, and lengthen what a person reads, which the note's use counts against a proposal. The gate counts each severity before and after, and the author's reading of each moved grade says whether the move is right; a cell that moves too much is changed on its own.
+
+### Three values are more to give than one
+
+A ranker that gives three values and reads a table can still give a value the evidence does not bear out, or read the table wrong. The first is checked by the fact the reason names beside each value; the second is counted by the gate, and if it is common, the engine can read the table itself from values recorded as fields, which is a later change of the ledger.
+
+### The cells are a judgment
+
+Which combination is `major` is the author's choice, as each cell of ISO 26262's table was its committee's. The gate shows each cell's effect only on the findings the runs produce, and a cell that no finding reaches is not tested by it.
 
 ### A run started before the change cannot resume after it
 
@@ -186,7 +255,7 @@ The finders and verifiers of the two runs may surface other findings, and merge-
 
 ### Implementation
 
-The commit "feat(review): Grade the severity of a finding by a stated rubric" implements R1 to R5. `roles/fragments/phase4-list.md` holds the rubric of R1 in the wording planned here, followed by one paragraph that carries the tie question, what a severity is not graded by (R2), the grading of a `CONVENTIONS` violation by its rule's reason (R3) and the ask that each `reason` name the consequence (R4). `mergeRankTask` in `src/review/tasks.ts` gives the severity "as your role prompt defines it", asks the `reason` of R4 and no longer says that a violation takes the severity of its rule (R5).
+The commit "feat(review): Grade the severity of a finding by a stated rubric" implements the first rubric, three tests and a tie question, which R1 held before the gate; the rubric of R1 as it stands is not implemented yet. In that commit, `roles/fragments/phase4-list.md` holds the first rubric in the wording then planned, followed by one paragraph that carries the tie question, what a severity is not graded by (R2), the grading of a `CONVENTIONS` violation by its rule's reason (R3) and the ask that each `reason` name the consequence (R4). `mergeRankTask` in `src/review/tasks.ts` gives the severity "as your role prompt defines it", asks the `reason` of R4 and no longer says that a violation takes the severity of its rule (R5).
 
 The test of R5 in `test/roles/repository.test.ts` reads `phase4-list.md`, which a test of the same file shows merge-rank's prompt is assembled from, and holds its rubric lines to the values of `severities` in order; renaming one line's severity makes it fail. It follows the decider's test that holds the leave reasons to the engine's list. The test of the task in `test/review/tasks.test.ts` holds the new sentence and the absence of the old one. `npm run build` rebuilt both plugins, whose fragment, engine and bundle hash changed, and `npm run check` passed at the commit.
 
@@ -194,7 +263,7 @@ The test of R5 in `test/roles/repository.test.ts` reads `phase4-list.md`, which 
 
 The gate ran once with the first rubric, the three tests and the tie question of R1, by the engine built from the branch of #121 at its implementation, with Claude Code 2.1.310 and Codex 0.164.0 on Linux. Each run had its own clone, and no review was posted. The reports of the three runs are kept by the author outside the repository; the numbers below are theirs.
 
-The review of #121 ran with `--pr` on Claude Code over 3 commits and 6 files from the merge base with main, with 6 more paths left out by `scope.exclude`. It took 16 minutes and 10.12 USD, and found 16 findings: 0 critical, 4 major and 12 minor. Its four major findings and its question are about the rubric itself: the role prompt narrows R3's exception from a consequence of R1 to "breaks behavior"; the reason of a rule that R3 grades by is not in the working list, since a finder quotes only the rule; the posted `severityMeanings` calls a wrong message minor while the rubric's `major` names a wrong result; and no test covers a cost that users pay at run time while every result is right, which the run asks the author about.
+The review of #121 ran with `--pr` on Claude Code over 3 commits and 6 files from the merge base with main, with 6 more paths left out by `scope.exclude`. It took 16 minutes and 10.12 USD, and found 16 findings: 0 critical, 4 major and 12 minor. Its four major findings and its question are about the rubric itself: the role prompt narrows the exception of R3 from a consequence of the first rubric to "breaks behavior"; the reason of a rule that R3 grades by is not in the working list, since a finder quotes only the rule; the posted `severityMeanings` calls a wrong message minor while the rubric's `major` names a wrong result; and no test covers a cost that users pay at run time while every result is right, which the run asks the author about.
 
 The review of #96 again ran on Claude Code over the scope its first review had, 27 commits and 91 files from the merge base 89e5499e to the head that its posted review names, with 115 more paths left out by `scope.exclude`. Since #96 is merged and `--pr` refuses a merged pull request, it ran with `--from 89e5499e --to HEAD --merge-base`, which has no writer; the writer reads no severity, so the measure is the same. It took 43 minutes and 29.84 USD. The first review had 30 findings, 0 critical, 11 major and 19 minor; this one has 33, 1 critical, 17 major and 15 minor. Ten pairs share a location and a summary, and none of them moved: the continuation that matches no pull request, `publish` running the recorded `gh`, a 5xx read as a refusal, the cleaning with the publish command's environment, the URL of a renamed repository (all major), and the misplaced docstring, the rate limit read as missing access, the marker defined twice, the formatter defined twice and the 401 or 404 with no action (all minor).
 
@@ -204,6 +273,6 @@ The review of deep-review/click#1 again ran with `--pr` on Codex 0.164.0 with `-
 
 Of click#1, 4 findings of the first review have no pair: the `getchar` adapter that returns an empty character instead of raising `EOFError`, the `readlines` with no size hint and the wrapper that fails under `next()` (major), and the abort message printed before the prompt (minor). Three of the second have none: filtering while the echo is paused, which changes what `getchar` and a hidden prompt return and shares a symptom with the first of these (major), a conditional expression against `docs/contributing.md` (minor) and two copies of the echo and filter policy (minor).
 
-Every `reason` of the two runs again names a consequence: 33 of 33 on #96 and 17 of 17 on click#1. On #96, one names a consequence outside the tests of R1, the wasted cost of a writer whose text no command can show; one lowers a grade because the change does not create the defect, which R2 says decides nothing; and three repeat the words of the example of `minor`, each on a helper that the change does copy. Of the four findings whose consequence is a secret posted in public, one is critical as "a security hole that cannot be undone" and three are major, one of them as "public and cannot be undone"; two findings of a review posted twice, which cannot be taken back, are major. On click#1 none repeats an example, and the conditional expression is graded by what its rule's own reason says goes wrong, as R3 asks.
+Every `reason` of the two runs again names a consequence: 33 of 33 on #96 and 17 of 17 on click#1. On #96, one names a consequence outside the first rubric's tests, the wasted cost of a writer whose text no command can show; one lowers a grade because the change does not create the defect, which R2 says decides nothing; and three repeat the words of the example of `minor`, each on a helper that the change does copy. Of the four findings whose consequence is a secret posted in public, one is critical as "a security hole that cannot be undone" and three are major, one of them as "public and cannot be undone"; two findings of a review posted twice, which cannot be taken back, are major. On click#1 none repeats an example, and the conditional expression is graded by what its rule's own reason says goes wrong, as R3 asks.
 
 The two pairs that moved were put to the author with both findings and the new reasons. The author did not grade them one by one, and judged the rubric instead: it is a feeling, and it gives no independent dimensions that can be applied consistently. The gate does not pass. The report [How other fields grade severity, and what a review can take from them](../reports/2026-11-05-severity-across-fields.md) reads how other fields make a grade repeatable and proposes the structure that the second rubric follows, and the gate runs again with it.
