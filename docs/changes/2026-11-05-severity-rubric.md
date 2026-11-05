@@ -36,27 +36,27 @@ A severity follows from values that the ranker is given, each answered by a fact
 
 ## Non-Goals
 
-### The set of severities and the engine's order
+### NG1: The set of severities and the engine's order
 
 The three values and the order the engine derives from them (TD9 of the read-only review) stay. A fourth value, or a fold of `critical` into `major`, is a change of the form and the ledger, not of the rubric.
 
-### A severity floor for the fixes
+### NG2: A severity floor for the fixes
 
 Fixing only findings at or above a severity was deferred on 2026-10-02 (D3 of the report on preferences and policies). A rubric makes such a floor easier to state, and this proposal does not add one.
 
-### A repository's own table
+### NG3: A repository's own table
 
 Which cells of the table hold the merge is a rule about the risks a repository accepts, and principle 4 of the vision note gives such rules to the person (V7 of the report; SSVC decides by stakeholder for the same reason). The engine ships one table here, and a setting that lets a repository state its own, or the cells that hold the merge, belongs with the severity floor of D3.
 
-### How the form presents the severities
+### NG4: How the form presents the severities
 
 How the summary counts the findings and where a minor finding goes are the review that reads as a report and #102 and #115. This proposal changes which findings land on each side of the line, not the line.
 
-### A replay of merge-rank
+### NG5: A replay of merge-rank
 
 `npm run replay` reruns the verifiers of a recorded run, not merge-rank. A replay of merge-rank would measure a rubric against recorded working lists at low cost, and is later work; the gate here is a real run.
 
-### Whether the change introduced a defect decides the form
+### NG6: Whether the change introduced a defect decides the form
 
 A reviewer often lets a change through when it only finds a defect that was there before, and asks for a fix only of what the change made or made worse (V6 of the report). Letting the origin keep a finding out of what matters before the merge would change the line that the form draws, and is a proposal of its own. This proposal records the origin, so that proposal can count how often it would apply.
 
@@ -245,27 +245,27 @@ R6 is a real run on the two changes whose earlier reviews are public, on both ru
 
 ## Risks
 
-### The examples become the only pattern
+### RK1: The examples become the only pattern
 
 A model given one example per value may choose a value by resemblance to it. The definitions come before the examples, and the gate reads the reasons of R4 for values that name the example instead of a fact.
 
-### More findings become major
+### RK2: More findings become major
 
 A table may put more findings above the folded table than the ranker's sense did, and lengthen what a person reads, which the note's use counts against a proposal. The gate counts each severity before and after, and the author's reading of each moved grade says whether the move is right; a cell that moves too much is changed on its own.
 
-### Three values are more to give than one
+### RK3: Three values are more to give than one
 
 A ranker that gives three values and reads a table can still give a value the evidence does not bear out, or read the table wrong. The first is checked by the fact the reason names beside each value; the second is counted by the gate, and if it is common, the engine can read the table itself from values recorded as fields, which is a later change of the ledger.
 
-### The cells are a judgment
+### RK4: The cells are a judgment
 
 Which combination is `major` is the author's choice, as each cell of ISO 26262's table was its committee's. The gate shows each cell's effect only on the findings the runs produce, and a cell that no finding reaches is not tested by it.
 
-### A run started before the change cannot resume after it
+### RK5: A run started before the change cannot resume after it
 
 A run pins the digest of its roles when it is configured, and a resume with other roles is refused with the action to name the old roles directory (`--roles <dir>`). Any edit of a role prompt has this effect, and it is accepted here as it was for every earlier edit of a fragment.
 
-### Two runs of one change differ for reasons other than the rubric
+### RK6: Two runs of one change differ for reasons other than the rubric
 
 The finders and verifiers of the two runs may surface other findings, and merge-rank may merge them otherwise. The gate pairs findings and grades only the pairs, and the author's word, not the count alone, is what the gate keeps.
 
