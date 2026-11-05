@@ -341,6 +341,8 @@ describe('the repository\'s roles/', () => {
     assert.ok(start >= 0 && end > start, 'the rubric opens with its heading and ends before what decides no severity');
     const rubric = list.slice(start, end);
     assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'degraded', 'none', 'always', 'ordinary', 'contrived', 'visible', 'operator', 'silent'], 'each value of the three axes is defined once, in order');
+    // A cell means its reach only through the header, so the header's columns are held to the reaches as the bullets define them.
+    assert.match(rubric, /^\| effect \\ reach +\| always +\| ordinary +\| contrived +\|$/m, 'the columns are the reaches, in order');
     const rows = [...rubric.matchAll(/^\| `([a-z]+)` +\|(.*)\|$/gm)];
     assert.deepEqual(rows.map((row) => row[1]), ['loss', 'wrong', 'degraded', 'none'], 'the table has one row for each effect');
     const cells = rows.flatMap((row) => row[2]!.split('|').map((cell) => cell.trim()));
