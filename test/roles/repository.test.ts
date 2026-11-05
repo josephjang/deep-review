@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema, verifierOutputSchema } from '../../src/review/schemas.ts';
-import { decisionKinds, fixStatuses, leaveReasons, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
+import { decisionKinds, fixStatuses, leaveReasons, severities, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** Every role the engine knows, in manifest order: the surveyor, the ten finder angles and the phase roles around them. */
@@ -331,6 +331,13 @@ describe('the repository\'s roles/', () => {
     // An ask never stops the run, and its default is what a fixer applies (R4 of the decision step).
     assert.match(rubric, /An `ask` never stops the run\. A fix worker applies the default you name\s+now/);
     assert.match(rubric, /\*\*The default is the option easiest to take back\*\*/);
+  });
+
+  it('defines in merge-rank\'s role prompt exactly the severities the engine records, each once, so the rubric and the schema cannot drift apart', () => {
+    const list = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'phase4-list.md'), 'utf8');
+    assert.deepEqual([...list.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), [...severities]);
+    assert.doesNotMatch(list, /the severity of the rule it breaks/, 'a rule carries no severity');
+    assert.ok(roles.find((role) => role.key === 'merge-rank')!.fragments.some((fragment) => fragment.name === 'phase4-list.md'), 'merge-rank is given the rubric');
   });
 
   /**
