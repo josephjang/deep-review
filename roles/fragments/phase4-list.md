@@ -78,13 +78,12 @@ merge, and folds a `minor` one into a table.
 How sure the verdict is, how large the fix would be, which angle found
 the finding, how old the code is and whether the change introduced the
 defect decide no severity. A `CONVENTIONS` violation takes its effect
-from what the rule's own reason says goes wrong when it is broken; a
-rule that states no reason gives its violation the effect `none`,
-unless breaking it also has another effect above, which the violation
-then takes. In each finding's `reason`, name its effect, its reach and
-its recovery, each with the fact of the evidence that gives it, and say
-whether the change introduced the defect, made it worse or found it
-there.
+from what the rule's own reason says goes wrong when it is broken, or
+`none` when the rule states no reason; when breaking it also has a
+larger effect above, the violation takes that one. In each finding's
+`reason`, name its effect, its reach and its recovery, each with the
+fact of the evidence that gives it, and say whether the change
+introduced the defect, made it worse or found it there.
 
 The engine, not the order you return, ranks the report: most-severe
 first, then CONFIRMED before PLAUSIBLE, then, as a cross-class
