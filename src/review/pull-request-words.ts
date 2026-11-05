@@ -102,13 +102,15 @@ export interface PullRequestWords {
   readonly needsAnswer: (command: string, flags: readonly string[]) => string;
   readonly needsNothing: string;
 
-  /** How the review worked (R3): the roles and the counts, the fixed diagram for the pull request's number, and what each verdict, the unverified mark and the severities mean. */
+  /** How the review worked (R3): the roles and the counts, the fixed diagram for the pull request's number, and what each verdict, the unverified mark, the severities and the three values a severity is read from mean. */
   readonly howHeading: string;
   readonly howWorked: (counts: ReviewCounts) => string;
   readonly howDiagram: (pullRequest: number) => string;
   readonly verdictMeanings: string;
   readonly unverifiedMeaning: string;
   readonly severityMeanings: string;
+  /** The three values a finding's severity is read from, each with what it means, in the order the rubric of `roles/fragments/phase4-list.md` defines them; the run report gives the English one too. */
+  readonly severityValues: string;
 
   /** The major findings by area (R4): the area of an older run, the line when no major finding acts, what deep-review would do, what a question recommends, and the mark of a fix against a written rule. */
   readonly areasHeading: string;
@@ -265,6 +267,7 @@ const english: PullRequestWords = {
   verdictMeanings: 'CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verdict was recorded before verifiers gave that reason on its own.',
   unverifiedMeaning: 'A PLAUSIBLE finding marked unverified is one that no verifier examined, since its verifier failed twice.',
   severityMeanings: 'The severity is a worker\'s judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a message that misleads its reader only a little or repeated code that the next change can let drift. A message that leads its reader into a serious mistake is graded by that mistake.',
+  severityValues: 'A finding\'s severity is read from three values that its reason names, each with the fact that gives it. Its effect is `loss`, data lost or a secret exposed; `wrong`, a wrong result or a broken promise; `costly`, the right outcome reached at a cost; or `none`, a cost only to the next change. Its reach is `always`, every use; `common`, a use the documents or the code make; or `rare`, only an unusual input or a later change. Its recovery is `self-fixed`, the person who meets it sees it and can undo it; `needs-fix`, it is seen but needs a maintainer or a fix; or `unnoticed`, no one is told or it cannot be undone.',
 
   areasHeading: '### The major findings',
   findingsArea: 'The major findings that deep-review would fix or asks about',
@@ -446,6 +449,7 @@ const korean: PullRequestWords = {
   verdictMeanings: 'CONFIRMED는 검증자가 문제를 실행해 재현했거나, 코드 경로를 따라가 잘못된 결과에 이르는 것을 확인했다는 뜻입니다. PLAUSIBLE은 확인한 범위에서는 주장이 맞지만 확정하지는 못했다는 뜻이며, 사실 하나를 확인하지 못했거나 선택이 남았기 때문입니다. 그런 지적 사항마다 어느 쪽인지, 또는 그 판정이 검증자가 이유를 따로 밝히기 전에 기록되었는지 적었습니다.',
   unverifiedMeaning: '검증 안 됨 표시가 붙은 PLAUSIBLE 지적 사항은 검증자가 두 번 실패해 아무도 검토하지 않은 것입니다.',
   severityMeanings: '심각도는 작업자의 판단입니다. critical이나 major 지적 사항은 병합 전에 살펴야 할 것이고, minor 지적 사항은 읽는 사람을 조금 헷갈리게 하는 메시지나 다음 변경에서 서로 어긋날 수 있는 중복 코드처럼 그보다 가벼운 것입니다. 읽는 사람을 큰 실수로 이끄는 메시지는 그 실수에 따라 심각도가 매겨집니다.',
+  severityValues: '지적 사항의 심각도는 그 이유가 밝히는 세 값으로 정하며, 이유는 값마다 그 값을 준 사실을 함께 적습니다. 결과(effect)는 `loss`(데이터를 잃거나 비밀이 드러남), `wrong`(잘못된 결과나 깨진 약속), `costly`(대가를 치르지만 올바른 결과에 이름), `none`(다음 변경에만 비용이 듦) 가운데 하나입니다. 범위(reach)는 `always`(모든 사용), `common`(문서나 코드가 하는 사용), `rare`(드문 입력이나 이후의 변경에서만) 가운데 하나입니다. 회복(recovery)은 `self-fixed`(마주친 사람이 바로 알아채고 되돌릴 수 있음), `needs-fix`(보이지만 관리자나 수정이 필요함), `unnoticed`(아무도 알지 못하거나 되돌릴 수 없음) 가운데 하나입니다.',
 
   areasHeading: '### major 지적 사항',
   findingsArea: 'deep-review가 고치거나 묻는 major 지적 사항',

@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { layers } from '../../src/config/settings.ts';
 import { briefOf, findingStatuses } from '../../src/review/brief.ts';
 import { pullRequestLanguages, pullRequestWords, pullRequestWordTables, type PullRequestWords } from '../../src/review/pull-request-words.ts';
 import { leaveReasons, verdictBases } from '../../src/review/vocabulary.ts';
+import { fragmentsDirectoryName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { formOf, pullRequestRun as run, withSettings } from '../helpers/pull-request-review.ts';
 
 /** Each text of a table that is no function, by its key, the texts of a record by `key.entry`. */
@@ -118,5 +121,14 @@ describe('a review in the language the run recorded (R15)', () => {
   it('keeps the engine\'s words in English for a language with no table', () => {
     const french = formOf(inLanguage('fr'));
     assert.equal(french.body, english.body);
+  });
+
+  it('define the three values a severity is read from, each one the rubric defines, in its order, in every language (finding 23 of the review of the severity rubric)', () => {
+    const list = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'phase4-list.md'), 'utf8');
+    const values = [...list.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]);
+    assert.equal(values.length, 10, 'the rubric defines ten values');
+    for (const language of pullRequestLanguages) {
+      assert.deepEqual([...pullRequestWordTables[language].severityValues.matchAll(/`([a-z-]+)`/g)].map((match) => match[1]), values, language);
+    }
   });
 });
