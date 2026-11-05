@@ -344,7 +344,7 @@ describe('the task texts', () => {
     assert.match(task, /\[0\] RIPPLE-1 \(RIPPLE\)[\s\S]*verdict: CONFIRMED\n {4}evidence: line 4/);
     assert.match(task, /verdict: PLAUSIBLE \(unverified\)\n {4}evidence: none; the group's verifier failed twice/);
     assert.match(task, /Every index appears exactly once, as a primary or as a member/);
-    assert.match(task, /Give each finding a `severity` \(critical, major or minor\) as your role prompt defines it, a `summary` that names the other sites when there are any, and a `reason` that says which consequence gives the severity and, for a finding with members, the root cause they share\./);
+    assert.match(task, /Give each finding a `severity` \(critical, major or minor\) as your role prompt defines it, a `summary` that names the other sites when there are any, and a `reason` that names the values your role prompt gives the severity from, each with its fact, and the defect's origin and, for a finding with members, the root cause they share\./);
     assert.doesNotMatch(task, /the severity of the rule it breaks/, 'a rule carries no severity; the role prompt grades a violation by its reason');
     assert.match(task, /The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and `CONVENTIONS` before `DESIGN`, `DUPLICATION` and `ALTITUDE`, then by primary id\. The order you return them in is not kept\.$/m);
     assert.doesNotMatch(task, /Order most severe first/, 'the worker is not asked for an order the engine discards');
