@@ -181,7 +181,7 @@ A new field for the ground of a severity would be a new payload of `ranking.reco
 
 ### PD6: The posted words stay
 
-`severityMeanings` says that a critical or major finding is what matters before the merge and that a minor one is smaller, "such as a wrong message or repeated code that the next change can let drift", in English and Korean, and calls the severity a worker's judgment, which it remains. Under the table a wrong message is `degraded` and repeated code is `none`, both `minor` at an ordinary reach unless no one sees them, so the posted words agree with the rubric. Changing them would change what a reader of every review sees, for no gain once the ranker follows them.
+`severityMeanings` says that a critical or major finding is what matters before the merge and that a minor one is smaller, "such as a wrong message or repeated code that the next change can let drift", in English and Korean, and calls the severity a worker's judgment, which it remains. Under the table a wrong message is `degraded`: `minor` at an ordinary or contrived reach unless no one sees it, and `major` on every use unless its reader sees it at once and works around it. Repeated code is `none`, which always stays `minor`. So the posted words hold as examples of the common case, a wrong message met under a condition and repeated code, not as a rule that every wrong message is minor. Changing them would change what a reader of every review sees, for no gain once the ranker follows them.
 
 ### PD7: Rejected: the engine computes the severity
 
