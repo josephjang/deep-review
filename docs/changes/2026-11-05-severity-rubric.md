@@ -139,7 +139,7 @@ Nor is a severity graded by whether the change introduced the defect, made it wo
 
 ### R3: A convention violation takes its effect from its rule's reason
 
-A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong when it is broken, and its reach and recovery as any finding does. A rule that states no reason gives its violation the effect `none`, unless breaking it also has another effect of R1, which the violation then takes. This replaces "takes the severity of the rule it breaks" in the role prompt and in the task, which pointed at a value that no rule carries.
+A `CONVENTIONS` violation takes its effect from what the rule's own reason says goes wrong when it is broken, or `none` when the rule states no reason, and its reach and recovery as any finding does. When breaking the rule also has a larger effect of R1, whether or not the rule states a reason, the violation takes that one. This replaces "takes the severity of the rule it breaks" in the role prompt and in the task, which pointed at a value that no rule carries.
 
 ### R4: The reason names each value
 
