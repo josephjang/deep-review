@@ -343,18 +343,18 @@ describe('the repository\'s roles/', () => {
     const end = list.indexOf('How sure the verdict is', start);
     assert.ok(start >= 0 && end > start, 'the rubric opens with its heading and ends before what decides no severity');
     const rubric = list.slice(start, end);
-    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'degraded', 'none', 'always', 'ordinary', 'contrived', 'visible', 'operator', 'silent'], 'each value of the three axes is defined once, in order');
+    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), ['loss', 'wrong', 'costly', 'none', 'always', 'common', 'rare', 'self-fixed', 'needs-fix', 'unnoticed'], 'each value of the three axes is defined once, in order');
     // A cell means its reach only through the header, so the header's columns are held to the reaches as the bullets define them.
-    assert.match(rubric, /^\| effect \\ reach +\| always +\| ordinary +\| contrived +\|$/m, 'the columns are the reaches, in order');
+    assert.match(rubric, /^\| effect \\ reach +\| always +\| common +\| rare +\|$/m, 'the columns are the reaches, in order');
     const rows = [...rubric.matchAll(/^\| `([a-z]+)` +\|(.*)\|$/gm)];
-    assert.deepEqual(rows.map((row) => row[1]), ['loss', 'wrong', 'degraded', 'none'], 'the table has one row for each effect');
+    assert.deepEqual(rows.map((row) => row[1]), ['loss', 'wrong', 'costly', 'none'], 'the table has one row for each effect');
     const cells = rows.flatMap((row) => row[2]!.split('|').map((cell) => cell.trim()));
     assert.equal(cells.length, 12, 'each row has one cell for each reach');
     assert.ok(cells.every((cell) => (severities as readonly string[]).includes(cell)), `every cell is a severity: ${cells.join(', ')}`);
     assert.deepEqual([...severities].filter((severity) => !cells.includes(severity)), [], 'every severity is in a cell');
     assert.doesNotMatch(list, /the severity of the rule it breaks/, 'a rule carries no severity');
-    assert.match(rubric, /A message\s+is `degraded` when the person it misleads still reaches the right\s+outcome; one that leads them into a mistake with a wrong result or a\s+loss takes the effect of that mistake\./, 'R1: a misleading message is graded by what it leads its reader to');
-    assert.match(rubric, /Then `silent` raises the severity one step and `visible` lowers it one\s+step; `operator` leaves it\. `silent` does not raise an effect of\s+`degraded`, since a cost that no one notices is no larger for it, and\s+an effect of `none` stays `minor`\./, 'R1: the step of recovery, which leaves a cost no one notices where the table puts it');
+    assert.match(rubric, /A message\s+is `costly` when the person it misleads still reaches the right\s+outcome; one that leads them into a mistake with a wrong result or a\s+loss takes the effect of that mistake\./, 'R1: a misleading message is graded by what it leads its reader to');
+    assert.match(rubric, /Then `unnoticed` raises the severity one step and `self-fixed` lowers\s+it one step; `needs-fix` leaves it\. `unnoticed` does not raise an\s+effect of `costly`, since a cost that no one notices is no larger for\s+it, and an effect of `none` stays `minor`\./, 'R1: the step of recovery, which leaves a cost no one notices where the table puts it');
     assert.match(list, /How sure the verdict is, how large the fix would be, which angle found\s+the finding, how old the code is and whether the change introduced the\s+defect decide no severity\./, 'R2: what decides no severity');
     assert.match(list, /A `CONVENTIONS` violation takes its effect\s+from what the rule's own reason says goes wrong when it is broken, or\s+`none` when the rule states no reason/, 'R3: a violation takes its effect from its rule\'s reason');
     assert.match(list, /In each finding's\s+`reason`, name its effect, its reach and its recovery, each with the\s+fact of the evidence that gives it/, 'R4: the reason names each value with its fact');
