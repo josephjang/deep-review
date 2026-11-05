@@ -422,7 +422,7 @@ prose and the schema agree (R4):
 | deduplication | scope, candidates numbered `[0]`.. with id, file, line, summary and detail | group candidates that describe the same defect at the same location for the same reason; name the member to keep per group; a candidate in no group stands alone |
 | verifier | scope, the group's candidates numbered `[0]`.. with the angle each came from and the `outside the change` or `unlocated` mark | one verdict per index with one evidence line, by the rubric of the candidate's angle; an answer that misses an index is discarded whole and the group is run again |
 | sweep | scope, the verified list (id, location, summary, verdict), the refuted list (id, location, summary, evidence) | find gaps only; return candidates each with the angle whose territory it sits in |
-| merge-rank | scope, the working list with verdicts | fold same-root-cause findings across locations; give each finding a severity, a `CONVENTIONS` violation taking the severity of the rule it breaks; the engine orders them (TD9), and the order returned is not kept |
+| merge-rank | scope, the working list with verdicts | fold same-root-cause findings across locations; give each finding a severity as merge-rank's role prompt defines it, which [A rubric for the severity of a finding](2026-11-05-severity-rubric.md) later brought in; the engine orders them (TD9), and the order returned is not kept |
 
 Candidates are numbered by the engine in the input and referred to by
 index in the answer (dedup members, verdicts), so no worker copies ids
