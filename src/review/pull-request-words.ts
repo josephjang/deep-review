@@ -264,7 +264,7 @@ const english: PullRequestWords = {
   ].join('\n'),
   verdictMeanings: 'CONFIRMED means a verifier reproduced the problem by running it or traced the code path to the wrong result. PLAUSIBLE means the claim holds as far as it was checked but was not confirmed, either because a fact could not be settled or because a choice remains; each such finding says which, or that its verdict was recorded before verifiers gave that reason on its own.',
   unverifiedMeaning: 'A PLAUSIBLE finding marked unverified is one that no verifier examined, since its verifier failed twice.',
-  severityMeanings: 'The severity is a worker\'s judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a wrong message or repeated code that the next change can let drift.',
+  severityMeanings: 'The severity is a worker\'s judgment: a critical or major finding is what matters before the merge, and a minor one is smaller, such as a message that misleads its reader only a little or repeated code that the next change can let drift. A message that leads its reader into a serious mistake is graded by that mistake.',
 
   areasHeading: '### The major findings',
   findingsArea: 'The major findings that deep-review would fix or asks about',
@@ -445,7 +445,7 @@ const korean: PullRequestWords = {
   ].join('\n'),
   verdictMeanings: 'CONFIRMED는 검증자가 문제를 실행해 재현했거나, 코드 경로를 따라가 잘못된 결과에 이르는 것을 확인했다는 뜻입니다. PLAUSIBLE은 확인한 범위에서는 주장이 맞지만 확정하지는 못했다는 뜻이며, 사실 하나를 확인하지 못했거나 선택이 남았기 때문입니다. 그런 지적 사항마다 어느 쪽인지, 또는 그 판정이 검증자가 이유를 따로 밝히기 전에 기록되었는지 적었습니다.',
   unverifiedMeaning: '검증 안 됨 표시가 붙은 PLAUSIBLE 지적 사항은 검증자가 두 번 실패해 아무도 검토하지 않은 것입니다.',
-  severityMeanings: '심각도는 작업자의 판단입니다. critical이나 major 지적 사항은 병합 전에 살펴야 할 것이고, minor 지적 사항은 잘못된 메시지나 다음 변경에서 서로 어긋날 수 있는 중복 코드처럼 그보다 가벼운 것입니다.',
+  severityMeanings: '심각도는 작업자의 판단입니다. critical이나 major 지적 사항은 병합 전에 살펴야 할 것이고, minor 지적 사항은 읽는 사람을 조금 헷갈리게 하는 메시지나 다음 변경에서 서로 어긋날 수 있는 중복 코드처럼 그보다 가벼운 것입니다. 읽는 사람을 큰 실수로 이끄는 메시지는 그 실수에 따라 심각도가 매겨집니다.',
 
   areasHeading: '### major 지적 사항',
   findingsArea: 'deep-review가 고치거나 묻는 major 지적 사항',
