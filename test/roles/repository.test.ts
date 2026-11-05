@@ -29,6 +29,9 @@ const reviewRoles = ['surveyor', 'triage', ...expectedRoles.filter((key) => key.
 describe('the repository\'s roles/', () => {
   const roles = assembleRoles(repositoryRolesRoot());
 
+  /** The text of the repository's fragment `name`. */
+  const fragment = (name: string): string => readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, name), 'utf8');
+
   it('assembles exactly the expected roles, in order', () => {
     assert.deepEqual(roles.map((role) => role.key), expectedRoles);
   });
@@ -334,7 +337,7 @@ describe('the repository\'s roles/', () => {
   });
 
   it('reads merge-rank\'s severities from a table whose cells are exactly the severities the engine records, so the rubric and the schema cannot drift apart', () => {
-    const list = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'phase4-list.md'), 'utf8');
+    const list = fragment('phase4-list.md');
     // Only the rubric's own part is read, so a later bullet or table elsewhere in the fragment is not taken for an axis value or a row.
     const start = list.indexOf('**Give each finding a severity**');
     const end = list.indexOf('How sure the verdict is', start);
