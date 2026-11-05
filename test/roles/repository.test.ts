@@ -353,6 +353,7 @@ describe('the repository\'s roles/', () => {
     assert.ok(cells.every((cell) => (severities as readonly string[]).includes(cell)), `every cell is a severity: ${cells.join(', ')}`);
     assert.deepEqual([...severities].filter((severity) => !cells.includes(severity)), [], 'every severity is in a cell');
     assert.doesNotMatch(list, /the severity of the rule it breaks/, 'a rule carries no severity');
+    assert.match(rubric, /A message\s+is `degraded` when the person it misleads still reaches the right\s+outcome; one that leads them into a mistake with a wrong result or a\s+loss takes the effect of that mistake\./, 'R1: a misleading message is graded by what it leads its reader to');
     assert.match(list, /How sure the verdict is, how large the fix would be, which angle found\s+the finding, how old the code is and whether the change introduced the\s+defect decide no severity\./, 'R2: what decides no severity');
     assert.match(list, /A `CONVENTIONS` violation takes its effect\s+from what the rule's own reason says goes wrong when it is broken, or\s+`none` when the rule states no reason/, 'R3: a violation takes its effect from its rule\'s reason');
     assert.match(list, /In each finding's\s+`reason`, name its effect, its reach and its recovery, each with the\s+fact of the evidence that gives it/, 'R4: the reason names each value with its fact');
