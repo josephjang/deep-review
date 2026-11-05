@@ -147,7 +147,7 @@ Merge-rank's `reason` for each finding names its effect, its reach and its recov
 
 ### R5: One text, held to the engine's list
 
-The rubric is written once, in `phase4-list.md`. The task names the three severities and tells merge-rank to give the severity "as your role prompt defines it", as the decider's task already says of its decisions, and drops its own sentence on convention violations. A test reads the rubric's table in the fragment that merge-rank's role prompt is assembled from, and fails unless every cell of the table is a value of `severities` in `src/review/vocabulary.ts` and every value of `severities` is in a cell.
+The rubric is written once, in `phase4-list.md`. The task names the three severities and tells merge-rank to give the severity and the `reason` "as your role prompt defines it", as the decider's task already says of its decisions, and drops its own sentence on convention violations and its own list of what a reason holds. A test reads the rubric's table in the fragment that merge-rank's role prompt is assembled from, and fails unless every cell of the table is a value of `severities` in `src/review/vocabulary.ts` and every value of `severities` is in a cell.
 
 ### R6: The gate
 
