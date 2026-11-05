@@ -1,4 +1,4 @@
-# Report: What the writer writes and what the engine writes
+# Report: How the review on a pull request is written and read
 
 This report was written on 2026-11-05, at `ddf8d62`. It looks at the review that `deep-review publish` posts on a pull request and asks three questions. Which components write it, and what does each read and give? Can a reader with little context understand, from the review, what the change does and what deep-review found? Is the work split well between models, which are good with language, and code, which is exact, deterministic and cheap, and what structure would split it better? It rests on a read of the code, the role prompts, the two proposals of the review on the pull request, and issues #101 to #115. It ran no new review.
 
