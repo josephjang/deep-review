@@ -29,6 +29,7 @@ import { capitalized, codeSpan, counted, findingAnchor, inlineText, listed, loca
 import { findingNumbers, ranAgain, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { excludedLines, settingsHeaderLine, settingsNotes } from './settings-report.ts';
 import { budgetSpendNote, type BudgetSpend } from './spend.ts';
+import { pullRequestWordTables } from './pull-request-words.ts';
 import { conventionsReportSection, surveyLimitations } from './survey-report.ts';
 import { angles, verdictBasisWords, type Angle, type Phase, type VerdictBasis } from './vocabulary.ts';
 
@@ -496,7 +497,8 @@ export function renderReport(state: RunState, input: ReportInput): string {
   const findingsSection = [
     '## Findings',
     '',
-    ...(brief.findings.length === 0 ? ['No finding survived verification.'] : brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id)!, decidedFor.get(finding.id) ?? null, numbers, scratch), ''])),
+    // The values a reason names are defined once before the first reason, in the words the posted review gives them in English (finding 23 of the review of the severity rubric).
+    ...(brief.findings.length === 0 ? ['No finding survived verification.'] : [pullRequestWordTables.en.severityValues, '', ...brief.findings.flatMap((finding) => [...findingBlock(state, finding, entries.get(finding.id)!, decidedFor.get(finding.id) ?? null, numbers, scratch), ''])]),
   ];
   // The verifiers' prompt names this part, so it keeps its name and its form (R8 of the report for the person).
   const refutedSection = [

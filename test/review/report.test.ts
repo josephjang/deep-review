@@ -25,6 +25,7 @@ describe('renderReport', () => {
   it('exercises every section and mark in the snapshot', () => {
     const report = renderReport(reported().fold(), reportInput);
     for (const heading of ['# The uncommitted change on 22222222', '## What needs you', '## Before you merge', '## What deep-review would fix', '## Findings', '## What the review covered', '## Refuted at verification', '## About this run']) assert.ok(report.includes(`\n${heading}\n`) || report.startsWith(`${heading}\n`), heading);
+    assert.match(report, /^## Findings\n\nA finding's severity is read from three values that its reason names, each with the fact that gives it\. [^\n]*\n\n<a id="finding-1"><\/a>$/m, 'the values a reason names are defined before the first finding');
     assert.match(report, /^### 1\. null dereference\n\nLeft as is\. Major, CONFIRMED\.\n\n- Where: src\/a\.ts:4 \(RIPPLE-1; merged into it: SWEEP-2 at src\/a\.ts:7\)$/m);
     assert.match(report, /^### 2\. extract the helper\n\nLeft as is\. Minor, PLAUSIBLE, which no verifier examined\.\n\n- Where: C:\\elsewhere\\b\.ts:9 \(unlocated: C:\\elsewhere\\b\.ts:9; unverified\) \(SWEEP-1\)$/m);
     assert.match(report, /^- Evidence: none; the verifier of this group failed twice$/m);
