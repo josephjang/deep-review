@@ -44,6 +44,10 @@ The three values and the order the engine derives from them (TD9 of the read-onl
 
 Fixing only findings at or above a severity was deferred on 2026-10-02 (D3 of the report on preferences and policies). A rubric makes such a floor easier to state, and this proposal does not add one.
 
+### A repository's own table
+
+Which cells of the table hold the merge is a rule about the risks a repository accepts, and principle 4 of the vision note gives such rules to the person (V7 of the report; SSVC decides by stakeholder for the same reason). The engine ships one table here, and a setting that lets a repository state its own, or the cells that hold the merge, belongs with the severity floor of D3.
+
 ### How the form presents the severities
 
 How the summary counts the findings and where a minor finding goes are the review that reads as a report and #102 and #115. This proposal changes which findings land on each side of the line, not the line.
@@ -210,6 +214,10 @@ SonarQube gives a severity for each quality a rule affects, and IBM's Orthogonal
 ### PD14: The origin is recorded, not graded
 
 IBM's Orthogonal Defect Classification records the age of the code a defect sits in as an attribute that grades nothing (F4 of the report), and Bugzilla and SSVC keep the grade of a harm apart from what to do about it (F5). The origin of a defect is the reviewer's question of whether to hold the merge for it, not a part of how bad it is, so it goes in the reason beside the three values and moves no cell. Recording it costs one clause of a string that already exists, and gives the proposal that may let it decide the form a count to start from.
+
+### PD15: Rejected for now: the values as fields, and the engine reads the table
+
+The three values could be fields of each finding in `ranking.recorded`, and the engine could read the severity from the table itself, so that no ranker can read it wrong and a reader can filter findings by value. That is a new version of the event, a golden fixture and a fold for both versions (PD5), and it would make the table code, which the next change of a cell then reaches. The values go in the `reason` first, where the gate can count how often a ranker's grade disagrees with its own values; if that count is not small, the fields are the next change, with the measure that asks for them.
 
 ## Against the vision note
 
