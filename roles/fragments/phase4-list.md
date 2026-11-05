@@ -82,8 +82,9 @@ from what the rule's own reason says goes wrong when it is broken, or
 `none` when the rule states no reason; when breaking it also has a
 larger effect above, the violation takes that one. In each finding's
 `reason`, name its effect, its reach and its recovery, each with the
-fact of the evidence that gives it, and say whether the change
-introduced the defect, made it worse or found it there.
+fact of the evidence that gives it, say whether the change introduced
+the defect, made it worse or found it there, and, for a finding with
+members, name the root cause they share.
 
 The engine, not the order you return, ranks the report: most-severe
 first, then CONFIRMED before PLAUSIBLE, then, as a cross-class
