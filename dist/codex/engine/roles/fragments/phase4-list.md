@@ -32,10 +32,13 @@ Effect, what happens when the defect occurs:
   state. For example, an option renamed where it is defined that one
   caller still passes under its old name, so that caller's setting is
   silently ignored.
-- `degraded`: the caller still reaches the right outcome, at a cost: a
+- `costly`: the caller still reaches the right outcome, at a cost: a
   misleading message, a missing next step, or work slower than it
   needs to be within any stated bound. For example, a refusal that
-  names the wrong file while it still refuses as it should.
+  names the wrong file while it still refuses as it should. A message
+  is `costly` when the person it misleads still reaches the right
+  outcome; one that leads them into a mistake with a wrong result or a
+  loss takes the effect of that mistake.
 - `none`: the behavior is right, and the cost falls on the next reader
   or the next change. For example, two copies of a helper that the
   next change can let drift apart.
@@ -44,47 +47,48 @@ Reach, who meets it:
 
 - `always`: every use of what the change adds or alters. For example,
   a step that runs on every invocation.
-- `ordinary`: a use that the documents, the tests or a caller in the
+- `common`: a use that the documents, the tests or a caller in the
   repository make, under a condition such as an option, an input or a
   failure from outside. Input that an outside party controls is
-  ordinary. For example, a flag that the README shows.
-- `contrived`: only an input or a sequence that no documented use
+  common. For example, a flag that the README shows.
+- `rare`: only an input or a sequence that no documented use
   makes, or a later change. For example, a caller that catches an
   internal error and goes on as if it had not happened.
 
 Recovery, what follows once it has happened:
 
-- `visible`: the person who meets it sees it at once and can undo it
+- `self-fixed`: the person who meets it sees it at once and can undo it
   or work around it alone. For example, a refusal that names the
   action to take.
-- `operator`: it is seen, but undoing it needs a maintainer, an
+- `needs-fix`: it is seen, but undoing it needs a maintainer, an
   operator or a fix. For example, a crash that stops the command.
-- `silent`: no one is told, or it cannot be undone. For example, a
+- `unnoticed`: no one is told, or it cannot be undone. For example, a
   result written wrong with no error.
 
-| effect \ reach | always   | ordinary | contrived |
-|----------------|----------|----------|-----------|
-| `loss`         | critical | critical | major     |
-| `wrong`        | critical | major    | minor     |
-| `degraded`     | major    | minor    | minor     |
-| `none`         | minor    | minor    | minor     |
+| effect \ reach | always   | common   | rare     |
+|----------------|----------|----------|----------|
+| `loss`         | critical | critical | major    |
+| `wrong`        | critical | major    | minor    |
+| `costly`       | major    | minor    | minor    |
+| `none`         | minor    | minor    | minor    |
 
-Then `silent` raises the severity one step and `visible` lowers it one
-step; `operator` leaves it. An effect of `degraded` never reaches
-`critical`, and an effect of `none` stays `minor`. The engine shows a
+Then `unnoticed` raises the severity one step and `self-fixed` lowers
+it one step; `needs-fix` leaves it. `unnoticed` does not raise an
+effect of `costly`, since a cost that no one notices is no larger for
+it, and an effect of `none` stays `minor`. The engine shows a
 `critical` or `major` finding to the reader as what matters before the
 merge, and folds a `minor` one into a table.
 
 How sure the verdict is, how large the fix would be, which angle found
 the finding, how old the code is and whether the change introduced the
 defect decide no severity. A `CONVENTIONS` violation takes its effect
-from what the rule's own reason says goes wrong when it is broken; a
-rule that states no reason gives its violation the effect `none`,
-unless breaking it also has another effect above, which the violation
-then takes. In each finding's `reason`, name its effect, its reach and
-its recovery, each with the fact of the evidence that gives it, and say
-whether the change introduced the defect, made it worse or found it
-there.
+from what the rule's own reason says goes wrong when it is broken, or
+`none` when the rule states no reason; when breaking it also has a
+larger effect above, the violation takes that one. In each finding's
+`reason`, name its effect, its reach and its recovery, each with the
+fact of the evidence that gives it, say whether the change introduced
+the defect, made it worse or found it there, and, for a finding with
+members, name the root cause they share.
 
 The engine, not the order you return, ranks the report: most-severe
 first, then CONFIRMED before PLAUSIBLE, then, as a cross-class
