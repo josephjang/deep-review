@@ -6,7 +6,7 @@ Technical part: [2026-11-06-choice-settled-on-the-record.design.md](2026-11-06-c
 
 A review by deep-review runs workers in order. Finders propose defects, a verifier checks each one and gives its verdict, and the decider decides for each finding whether deep-review fixes it, leaves it as is with a stated reason, or asks a person. Since [the review that reads as a report](2026-11-04-review-that-reads-as-a-report.requirements.md), a verifier in a read-only run of a pull request also names, as a field of its verdict, the choice it thinks acting on the finding leaves to the author (`authorChoice`). The decider never receives that field. It reads the same choice only as a `Needs the author:` note in the free text of the evidence, and its rubric tells it to treat the note as a hint that the repository may answer.
 
-Two judgments of one choice can therefore disagree, and today the engine settles the disagreement while it renders the review: a finding that the decider left as is, while its verifier named a choice, is posted in what needs a person (R9 of that proposal). The report [How the review on a pull request is written and read](../reports/2026-11-05-review-written-and-read.md) names this as W4. A judgment is made after the decision is recorded, by code that cannot weigh it, and it filled the first screen of the gate's review: 20 of 32 Korean findings carried "Needs the author", and the English list of what needs a person held 11 items where the template held 4 (#115).
+Two judgments of one choice can therefore disagree, and today the engine settles the disagreement while it renders the review: a finding that the decider left as is, while its verifier named a choice, is posted in what needs a person (R9 of that proposal, which this proposal calls the author rule). The report [How the review on a pull request is written and read](../reports/2026-11-05-review-written-and-read.md) names this as W4. A judgment is made after the decision is recorded, by code that cannot weigh it, and it filled the first screen of the gate's review: 20 of 32 Korean findings carried "Needs the author", and the English list of what needs a person held 11 items where the template held 4 (#115).
 
 The same report names a second fault of the decision, W5. In #115, three English findings were decided `fix` with an approach that begins "Make no edit, and keep ...". The review posted them as "deep-review would fix this" and counted them among the fixes. The decider's rubric leads there: it says to decide `fix` when its order of what settles a choice settles it, and that order can settle a choice in favor of the code as it is, for which no reason to leave a finding exists.
 
@@ -37,7 +37,7 @@ The decider's rubric says that "your decision names the choice and its answer", 
 
 ### A verifier names a choice too readily
 
-#115 says that "a choice remains" is given too readily: eight of nine English `PLAUSIBLE` verdicts gave a choice, three of them for the scope of a fix or for a choice that the design records as made. Those three are choices the repository answers, which the decider is there to settle. Under R9 each of them went to the first screen.
+#115 says that "a choice remains" is given too readily: eight of nine English `PLAUSIBLE` verdicts gave a choice, three of them for the scope of a fix or for a choice that the design records as made. Those three are choices the repository answers, which the decider is there to settle. Under the author rule each of them went to the first screen.
 
 ### A fix that edits nothing
 
@@ -101,11 +101,15 @@ The report shows the reason `settled` in its own words, and, wherever it shows a
 
 ### R7: An older run
 
-A run whose decisions were recorded before this change has no settled choices. Such a run is posted as today, R9 of the review that reads as a report included: a finding it left as is while its verifier named a choice still goes in what needs a person, since its decider was not given the choice as a field and recorded nothing of it.
+A run whose decisions were recorded before this change has no settled choices. Such a run is posted as today, the author rule included: a finding it left as is while its verifier named a choice still goes in what needs a person, since its decider was not given the choice as a field and recorded nothing of it.
 
 ### R8: The gate
 
 The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the change whose reviews #115 counted: #114, which the gate of the review that reads as a report reviewed twice, once in English and once with `review.language = "ko"`. #114 is merged, and `review --pr` and `publish` refuse a pull request that is not open, while a run with `--from` and `--to` has no pull request to post to and no writer. So the two runs review a pull request that holds #114's commits on the base they had, opened in a copy of this repository under an account the author controls, as R17 of the review on the pull request opened one with the commits of pallets/click #3878, and each posts with `publish --dry-run`. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
+
+### R9: A refused answer is named to the next attempt
+
+When the engine refuses the decider's answer, its next attempt is given what the refusal said, each broken rule with the finding it concerns, as the writer's next attempt is given the parts of its earlier answer that failed. The task says to give the whole answer again.
 
 ## Metrics
 
@@ -127,7 +131,7 @@ Of the findings whose verifier named a choice, how many the decider asked about,
 
 The choice a verifier names is evidence for the decider, which owns the decision of whether a choice is the person's to make. The form shows the outcome and does not weigh it. Principle 2 places the judgment before the form, and principle 4 gives the decider the question of whether the repository answers a choice.
 
-### PD2: Rejected: keep R9 as a safety net
+### PD2: Rejected: keep the author rule as a safety net
 
 The report left open whether the form should still send to what needs a person a finding that the decider left as is while its verifier named a choice. The proposal rejects it for new runs. With the rule kept, the decider's settlement would be overruled whenever a verifier disagreed, which is the disagreement this change removes, and the first screen would keep the items that #115 counted. The case of #107 is covered without it: the decider now sees the choice as a field, and a decision to leave it must say what settles it, which the review shows beside the reason.
 
@@ -147,7 +151,7 @@ The report suggested recording on a fix whether it edits, as an option of a ques
 
 The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways the rubric reaches `fix` outside that order, no choice remaining and the scope of the fix, since #115 shows that a verifier names a choice too readily and names the scope of a fix as one: without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule is not given a step, since its departure is already the record of the choice. The source a step rests on is the decider's citation, as its grounds are.
 
-### PD7: An older run keeps R9
+### PD7: An older run keeps the author rule
 
 A run decided before this change recorded no settlement, so its disagreements are unresolved on the record. Posting such a run in the new way would fold a choice that no decision answered. The rule stays for those runs only, and is tied to the version of their decisions on the ledger.
 
@@ -191,7 +195,7 @@ A decider that now sees the choice as a field may ask about it more often, and l
 
 ### RK3: More answers refused
 
-The new rule of R2 refuses an answer that leaves a choice unsettled, and a refused answer costs another run of the decider. The gate records each refusal.
+The new rules of R2 and R3 refuse a whole answer when one decision breaks them, and the Korean review of #115 had 20 of 32 findings whose verifier named a choice. The decider is tried twice and its phase has no degraded result, so two refused answers stop the run before its report, with the blocker of a worker that failed twice; resuming the run gives the phase fresh attempts. Principle 11 counts such a stop against a run, so the second attempt is told what the first broke (R9), which makes a second refusal for the same rule less likely. The gate records each refusal and each stop.
 
 ### RK4: A run started before the change cannot resume after it
 

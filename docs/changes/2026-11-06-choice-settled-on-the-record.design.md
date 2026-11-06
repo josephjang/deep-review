@@ -4,7 +4,7 @@ Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-
 
 ## Summary
 
-The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops R9 for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
+The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
 
 ## Non-Goals
 
@@ -34,7 +34,7 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 `resolutionOf` and `mergedResolution` (`src/review/state.ts:72`, `:137`) give a finding the `authorChoice` of its shown candidate, else of the first other candidate that names one. Verdicts recorded at version 1 or 2 fold with `authorChoice: null` (`review-fold.ts:780`). A run records its verdicts at version 3 only when it is configured at `review.configured@11`, a read-only run of a pull request (`verdictsVersionOf`, `review-fold.ts:728`).
 
-### R9 in the form
+### The author rule in the form
 
 `forAuthor` (`src/review/pull-request-form.ts:250`) is true for a finding decided `leave` with an `authorChoice`. It puts the finding in full in the body (`inFull`, `:253`), gives it `authorBlocks` (`:453`) in `decisionBlocks` (`:468`), lists it in what needs a person (`:591`), counts it in the summary (`:565`), and keeps it out of `leftAsIs` (`:655`). Its words are `needsAuthor`, `authorChoice`, `whyLook` and the summary's count in `src/review/pull-request-words.ts`, in English and Korean. The report on the machine does not read `authorChoice`.
 
@@ -47,6 +47,10 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 ### The decider's task (R1)
 
 `DeciderTaskFinding` gives each candidate `authorChoice` and `unconfirmed`, read from the candidate's verdict, both null for a run whose verdicts lack them. `candidateLines` prints them when they are given, as `choice left to the author: <text>` and `why PLAUSIBLE: <fact or choice>: <text>`, after the evidence. The fixer's task passes neither, so its lines do not change. `deciderTask`'s text names the two lines and the settled choice of the answer.
+
+### A refused answer, named to the next attempt (R9)
+
+The decision phase builds its task with the failures that the decision unit holds (`UnitFailure.reason` in `src/checkpoint/review-fold.ts:121`, which the fold keeps from each `attempt.failed`), and `deciderTask` names each under a section "What failed in the earlier answer" and asks for the whole answer again, as `writerTask` does for the parts it drops (`src/review/explanation.ts:997`). `checkDecisions` words each failure with the index of the decision and the rule it broke, so the section can name both. The failures are cleared when a blocked phase is resumed, so a resumed run starts its decider without them, as the fold does for every unit today. No event changes.
 
 ### The answer and its check (R2, R3)
 
@@ -82,7 +86,7 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 ### An older run (R7)
 
-A run decided at version 1 keeps every path of R9 as it is, and none of its decisions has a settled choice. A run with verdicts at version 1 or 2 has no `authorChoice`, so R9 never applies to it, at either version of its decisions.
+A run decided at version 1 keeps every path of the author rule as it is, and none of its decisions has a settled choice. A run with verdicts at version 1 or 2 has no `authorChoice`, so the author rule never applies to it, at either version of its decisions.
 
 ### The golden fixture
 
@@ -119,9 +123,9 @@ Whether a finding's resolution names a choice is a fact of the state when the de
 
 `decisions.recorded@1` reads its leave reasons from `reviewVocabularyV4`, so adding `settled` to `leaveReasons` in `vocabulary.ts` does not change the old schema. Version 2 reads them, and the steps of the order, from `reviewVocabularyV13`, the next frozen vocabulary after `reviewVocabularyV12`, which a test holds equal to today's vocabulary as it holds each earlier one. A newer engine still reads an older ledger, and the golden test sees the change.
 
-### TD5: R9 is tied to the version of the decisions, not to a date or a flag
+### TD5: The author rule is tied to the version of the decisions, not to a date or a flag
 
-The fact that R9 answers, a decider that recorded no settlement, is the version of the decisions on the ledger. A run's configuration does not say it (TD1), and a date would misplace a run that was resumed across the change.
+The fact that the author rule answers, a decider that recorded no settlement, is the version of the decisions on the ledger. A run's configuration does not say it (TD1), and a date would misplace a run that was resumed across the change.
 
 ## Open Questions
 
@@ -139,6 +143,10 @@ The decider now reads the choice as a field, so the note in the evidence is read
 
 A test of `deciderTask` that gives a candidate with both notes and holds their two lines, and one that gives the fixer's task the same candidate and holds that neither line is printed.
 
+### R9: A refused answer, named to the next attempt
+
+A test of the decision phase whose first answer leaves a choice unsettled, and that holds the second task to name the decision's index and the broken rule.
+
 ### R2 and R3: The answer and its check
 
 Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
@@ -149,7 +157,7 @@ Tests of the fold that read `decisions.recorded` at versions 1 and 2 in one kind
 
 ### R4, R5 and R7: The form
 
-The four tests of `test/review/pull-request-form.test.ts` that pin R9 run on a run decided at version 1 and keep their assertions. New tests post a run decided at version 2 with a finding left as `settled` whose verifier named a choice, and hold that it is not in what needs a person, not counted for the author, and in the folded section with its settled line. A test holds the settled line in the comment of a fix, and a test of the words holds `settleSteps` in both languages.
+The four tests of `test/review/pull-request-form.test.ts` that pin the author rule run on a run decided at version 1 and keep their assertions. New tests post a run decided at version 2 with a finding left as `settled` whose verifier named a choice, and hold that it is not in what needs a person, not counted for the author, and in the folded section with its settled line. A test holds the settled line in the comment of a fix, and a test of the words holds `settleSteps` in both languages.
 
 ### R6: The report
 
