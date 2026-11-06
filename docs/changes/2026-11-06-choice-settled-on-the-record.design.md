@@ -16,9 +16,9 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 `routeOfDecision` in `src/review/fix-state.ts` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task does not receive the verifier's choice: principle 2 does not permit a fixer that makes a choice that the decision did not make, and the decision's settled choice is what the fixer applies, through the approach.
 
-### No change to the writer
+### No change to what the writer explains
 
-`findingsToExplain` in `src/review/explanation.ts` still gives the writer the findings decided `fix` or `ask`. The writer's task does not show the settled choice; the form shows it in the engine's frame.
+`findingsToExplain` in `src/review/explanation.ts` still gives the writer the findings decided `fix` or `ask`, and its answer and its checks stay. Its task gains one line, which "The writer's task" below gives.
 
 ## Context
 
@@ -79,6 +79,10 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 ### The form (R4, R5, R7)
 
 `forAuthor` becomes true only for a finding decided `leave` with an `authorChoice` in a run whose `decisionsVersion` is 1. In a run decided at version 2 it is never true, so the finding goes in `leftAsIs`, is not in full in the body unless it was there for another reason, and is not counted or listed as for the author. Each line of the findings left as is gives after the reason and the grounds `words.settledChoice(choice, words.settleSteps[by], source)`, or, for a finding with an `authorChoice` and no settled choice, `words.unsettledChoice(authorChoice)`, which names the choice as the verifier's and says deep-review did not settle it. The `left` cut of `bodyCuts` (`pull-request-form.ts:111`) changes with it: `leftSection` cut keeps the lines of the findings that carry either line and gives `words.leftCut` for the others only, so a body over the limit still shows each choice that a verifier named. Those lines are a few hundred characters each, and the cuts after `left` still apply if the body stays too long. `decisionBlocks` gives a `fix` with a settled choice the same line after the sentence of what deep-review would do, or for a minor finding after its paragraph, in its comment and in its text in the body. The folded table of minor findings does not change, since its cell of what deep-review would do is one sentence. The words gain `settleSteps` in English and Korean, `settledChoice`, and the label of `settled` in `leaveReasons`.
+
+### The writer's task (R5)
+
+The writer's task prints each candidate's verifier choice through `noteLines` (`explanation.ts:876`), and the decision through `decisionLines` (`explanation.ts:851`), which shows no settlement. A writer that explains a fix could then present the verifier's choice as open beside the engine's line that says how it is settled. `decisionLines` gains, for a decision with a settled choice, `        settled: <choice>, by <step>: <source>`, labeled as the decision's, and the task says that a choice the decision settled is not the author's to make. No check of the answer changes.
 
 ### The report on the machine (R6)
 
@@ -158,6 +162,10 @@ Tests of the fold that read `decisions.recorded` at versions 1 and 2 in one kind
 ### R4, R5 and R7: The form
 
 The four tests of `test/review/pull-request-form.test.ts` that pin the author rule run on a run decided at version 1 and keep their assertions. New tests post a run decided at version 2 with a finding left as `settled` whose verifier named a choice, and hold that it is not in what needs a person, not counted for the author, and in the folded section with its settled line, and one with a finding left as outside the change whose verifier named a choice, which holds the verifier's choice on its line. A test of a body cut at `left` holds that the lines with a choice stay and the others become their count. A test holds the settled line in the comment of a fix, and a test of the words holds `settleSteps` in both languages.
+
+### R5: The writer's task
+
+A test of the writer's task that gives a fix with a settled choice and holds its `settled:` line under the decision.
 
 ### R6: The report
 
