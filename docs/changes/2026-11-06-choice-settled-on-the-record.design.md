@@ -14,7 +14,7 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### No change to the fixer's routes
 
-`routeOfDecision` in `src/review/fix-state.ts` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task gains one line, which "The fixer's task" below gives, and nothing else of the fixer changes.
+`routeOfDecision` in `src/checkpoint/fix-state.ts:1019` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task gains one line, which "The fixer's task" below gives, and nothing else of the fixer changes.
 
 ### No change to what the writer explains
 
@@ -28,11 +28,11 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### The decision and its record
 
-`deciderOutputSchema` (`src/review/schemas.ts:216`) gives each decision `{index, decision, grounds, fix, leave, ask, departure}`, with `edits` only on the options of a question. `checkDecisions` (`schemas.ts:597`) holds one part per decision kind, a departure on a fix only, the option indexes and the superseded rule. The decision phase records the checked answer as `decisions.recorded@1` (`phases.ts:893`), whose schema (`src/checkpoint/events.ts:1334`) takes its leave reasons from the frozen `vocabularyV4.leaveReasons` (`events.ts:1227`). `decisionsRecorded` (`src/checkpoint/review-fold.ts:820`) holds them in the ranking's order. The engine's list of leave reasons is `leaveReasons` in `src/review/vocabulary.ts:544`, and a test of `test/roles/repository.test.ts` holds the rubric's list to it.
+`deciderOutputSchema` (`src/review/schemas.ts:216`) gives each decision `{index, decision, grounds, fix, leave, ask, departure}`, with `edits` only on the options of a question. `checkDecisions` (`schemas.ts:597`) holds one part per decision kind, a departure on a fix only, the option indexes and the superseded rule. The decision phase records the checked answer as `decisions.recorded@1` (`phases.ts:893`), whose schema (`recordedDecisionSchema`, `src/checkpoint/events.ts:1350`) takes its leave reasons from the frozen `vocabularyV4.leaveReasons` (`events.ts:1227`). `decisionsRecorded` (`src/checkpoint/review-fold.ts:820`) holds them in the ranking's order. The engine's list of leave reasons is `leaveReasons` in `src/review/vocabulary.ts:544`, and a test of `test/roles/repository.test.ts` holds the rubric's list to it.
 
 ### The verifier's choice in the state
 
-`resolutionOf` and `mergedResolution` (`src/review/state.ts:72`, `:137`) give a finding the `authorChoice` of its shown candidate, else of the first other candidate that names one. Verdicts recorded at version 1 or 2 fold with `authorChoice: null` (`review-fold.ts:780`). A run records its verdicts at version 3 only when it is configured at `review.configured@11`, a read-only run of a pull request (`verdictsVersionOf`, `review-fold.ts:728`).
+`resolutionOf` and `mergedResolution` (`src/review/state.ts:75`, `:137`) give a finding the `authorChoice` of its shown candidate, else of the first other candidate that names one. Verdicts recorded at version 1 or 2 fold with `authorChoice: null` (`review-fold.ts:780`). A run records its verdicts at version 3 only when it is configured at `review.configured@11`, a read-only run of a pull request (`verdictsVersionOf`, `review-fold.ts:728`).
 
 ### The author rule in the form
 
@@ -50,7 +50,7 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### A refused answer, named to the next attempt (R9)
 
-The decision phase builds its task with the failures that the decision unit holds (`UnitFailure.reason` in `src/checkpoint/review-fold.ts:121`, which the fold keeps from each `attempt.failed`), and `deciderTask` names each under a section "What failed in the earlier answer" and asks for the whole answer again, as `writerTask` does for the parts it drops (`src/review/explanation.ts:997`). `checkDecisions` words each failure with the index of the decision and the rule it broke, so the section can name both. The failures are cleared when a blocked phase is resumed, so a resumed run starts its decider without them, as the fold does for every unit today. No event changes.
+The decision phase builds its task with the failures that the decision unit holds (`UnitFailure.reason` in `src/checkpoint/review-fold.ts:121`, which the fold keeps from each `attempt.failed`), and `deciderTask` names each under a section "What failed in the earlier answer" and asks for the whole answer again, as `writerTask` does for the parts it drops (`src/review/explanation.ts:998`). `checkDecisions` words each failure with the index of the decision and the rule it broke, so the section can name both. The failures are cleared when a blocked phase is resumed, so a resumed run starts its decider without them, as the fold does for every unit today. No event changes.
 
 ### The answer and its check (R2, R3)
 
@@ -82,7 +82,7 @@ A test of `repository.test.ts` holds the labels of the order and the two steps o
 
 ### The form (R4, R5, R7)
 
-`forAuthor` becomes true only for a finding decided `leave` with an `authorChoice` in a run whose `decisionsVersion` is 1. In a run decided at version 2 it is never true, so the finding goes in `leftAsIs`, is not in full in the body unless it was there for another reason, and is not counted or listed as for the author. Each line of the findings left as is gives after the reason and the grounds `words.settledChoice(choice, words.settleSteps[by], source)`, or, for a finding with an `authorChoice` and no settled choice, `words.unsettledChoice(authorChoice)`, which names the choice as the verifier's and says deep-review did not settle it. The `left` cut of `bodyCuts` (`pull-request-form.ts:111`) changes with it: `leftSection` cut keeps the lines of the findings that carry either line and gives `words.leftCut` for the others only, so a body over the limit still shows each choice that a verifier named. Those lines are a few hundred characters each, and the cuts after `left` still apply if the body stays too long. `decisionBlocks` gives a `fix` with a settled choice the same line after the sentence of what deep-review would do, or for a minor finding after its paragraph, in its comment and in its text in the body. The folded table of minor findings does not change, since its cell of what deep-review would do is one sentence. The words gain `settleSteps` in English and Korean, `settledChoice`, and the label of `settled` in `leaveReasons`.
+`forAuthor` becomes true only for a finding decided `leave` with an `authorChoice` in a run whose `decisionsVersion` is 1. In a run decided at version 2 it is never true, so the finding goes in `leftAsIs`, is not in full in the body unless it was there for another reason, and is not counted or listed as for the author. Each line of the findings left as is gives after the reason and the grounds `words.settledChoice(choice, words.settleSteps[by], source)`, or, for a finding with an `authorChoice` and no settled choice, `words.unsettledChoice(authorChoice)`, which names the choice as the verifier's and says deep-review did not settle it. The `left` cut of `bodyCuts` (`pull-request-form.ts:111`) changes with it: `leftSection` cut keeps the lines of the findings that carry either line and gives `words.leftCut` for the others only, so a body over the limit still shows each choice that a verifier named. Each such line holds at most about 800 characters of the decider's text, the choice and the source being up to 400 each, and the cuts after `left` still apply if the body stays too long. `decisionBlocks` gives a `fix` with a settled choice the same line after the sentence of what deep-review would do, or for a minor finding after its paragraph, in its comment and in its text in the body. The folded table of minor findings does not change, since its cell of what deep-review would do is one sentence. The words gain `settleSteps` in English and Korean, `settledChoice`, and the label of `settled` in `leaveReasons`.
 
 ### The writer's task (R5)
 
@@ -124,7 +124,7 @@ Two tests hold today's leave reasons through the frozen vocabulary: `test/checkp
 
 ### TD1: A new version of `decisions.recorded`, which any run may record
 
-`verdicts.recorded` follows the run's configuration, because a run records many of them and must never mix two answers (R9 of runs on the record). A run records its decisions once, so it cannot mix two versions, and the fold accepts either version in any run without a new version of `review.configured`. The engine of this change always records version 2. A run configured before the change and resumed after it with its old roles records version 2 too, from a decider whose rubric does not name the settled choice. The schema still asks for the field, and a check that refuses the answer runs the decider again (RK3 of the requirements).
+`verdicts.recorded` follows the run's configuration, because a run records many of them and must never mix two answers (R9 of runs on the record). `explanation.recorded` follows it too, though a run records it once: a run of a pull request that an earlier engine configured keeps its writer's answer as it was when this engine resumes it (`events.ts:2722`, `review-fold.ts:855`). Decisions depart from that precedent. Tying them to the configuration would take a new version of `review.configured` for each of the two configurations an engine writes today, version 11 for a read-only run of a pull request, which explains its review, and version 9 for every other run (`controller.ts:1414`), to spare a run configured before the change and resumed after it the new answer. A run records its decisions once, so it cannot mix two versions, and the fold accepts either version in any run without a new version of `review.configured`. The engine of this change always records version 2. A run configured before the change and resumed after it with its old roles records version 2 too, from a decider whose rubric does not name the settled choice. The schema still asks for the field, and a check that refuses the answer runs the decider again (RK3 of the requirements).
 
 ### TD2: The step is an enum that the engine words, and the source is text
 
@@ -166,7 +166,7 @@ A test of the decision phase whose first answer leaves a choice unsettled, and t
 
 ### R2 and R3: The answer and its check
 
-Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
+Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, and an `intended` leave of a finding with a choice and none, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. A test of the decision phase holds that it records version 2 and passes each finding's choice to `checkDecisions`, in place of the test that pins version 1 (`test/review/phases.test.ts:428`). The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
 
 ### R2 and TD1: The event and the fold
 
