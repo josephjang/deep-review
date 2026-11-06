@@ -85,7 +85,7 @@ A decision may carry a settled choice: the choice in one sentence, in plain word
 
 ### R3: A choice kept as the code is, is left as settled
 
-A fourth reason to leave a finding, `settled`, says that acting on the finding needs a choice and the rubric's order settles it in favor of the code as it is. The rubric says that a `fix` edits the code, and that a choice the order settles without an edit is left as `settled`, not fixed. `intended` keeps its meaning: the repository states the behavior on purpose and the finding says that intent is wrong.
+A fourth reason to leave a finding, `settled`, says that acting on the finding needs a choice and the rubric's order settles it in favor of the code as it is with nothing stated: by keeping a behavior that was there before, or by the shape the surrounding code uses. A choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, is left as `intended`, since the repository then states the behavior on purpose; `intended` keeps its other case, a finding that says a stated intent is wrong. The rubric says that a `fix` edits the code, and that a choice the order settles without an edit is left, not fixed. The engine refuses a `settled` leave whose step is not `kept` or `shape`, and an `intended` leave whose settled choice has a step other than `intent` or `contract`. The step `before`, the behavior before the change, restores what the change altered, which is an edit, so it settles only a fix.
 
 ### R4: The form places each finding by its decision alone
 
@@ -137,7 +137,7 @@ The grounds could be asked to name the choice and what settles it. Text is not a
 
 ### PD4: A choice kept as the code is, is a reason to leave
 
-A decision that keeps the code as it is, is a decision not to act, and the review must say so rather than count it as a fix. The proposal adds the reason `settled` instead of widening `intended`, whose test is narrower: a behavior the repository states on purpose, against a finding that says the intent is wrong. A choice settled by the behavior before the change, or by keeping a behavior that was there before, rests on no stated intent.
+A decision that keeps the code as it is, is a decision not to act, and the review must say so rather than count it as a fix. The steps that can keep the code split by whether the repository states anything. The stated intent and the stated contract are statements, and a behavior the repository states is one it states on purpose, which is what `intended` says, so `intended` takes them. Keeping a behavior that was there before and the shape the surrounding code uses rest on no statement, which `intended` cannot say, so they take the new reason `settled`. The step `before` restores the behavior the change altered, which is an edit, so it settles a fix and never a leave. Each reason then has its own steps, the decider has one rule for choosing between them, and M3 can count them apart.
 
 ### PD5: Rejected: an `edits` flag on a fix
 
