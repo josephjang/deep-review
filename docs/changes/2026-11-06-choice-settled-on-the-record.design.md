@@ -69,12 +69,16 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 ### The rubric (R1, R3)
 
-`decider-rubric.md` changes in four places, in a commit of its own:
+`decider-rubric.md` changes in six places, in a commit of its own:
 
 1. Its first paragraph names the choice left to the author as a line of the candidate, and still calls it a verifier's view to settle or ask about, not an answer.
-2. Its table says that a `fix` edits the code, and that a choice the order settles without an edit is left as `settled`.
-3. Its list of reasons to leave gains `settled`, in the form the test of `repository.test.ts` reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is with nothing stated, by keeping a behavior that was there before or by the shape the surrounding code uses; give the settled choice." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is.
-4. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with the step of the order that settles it and the source it rests on, cited as the grounds cite.
+2. "Settling a choice" labels each step of the order with its value, as a list the test of `repository.test.ts` reads, in the form ``- `intent`: the change's stated intent``. The paragraph on a choice between two shapes that only a maintainer would see becomes the fifth item, `shape`, with its whole rule: the one the surrounding code already uses, else the one that adds less. R2's words for `shape` are this rule.
+3. The table of the three decisions says that a `fix` edits the code, names in its `fix` row the two steps outside the order, `none` for "acting needs no choice" and `scope` for the part of a result inside the change, and says that a choice the order settles without an edit is left, as `intended` or `settled`. Its `leave` row says four reasons, not three.
+4. Its list of reasons to leave gains `settled`, in the form the test reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is with nothing stated, by `kept` or `shape`; give the settled choice." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, given with its settled choice by `intent` or `contract`.
+5. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with its step and the source it rests on, cited as the grounds cite, and that a `fix` with a departure records its choice in the departure instead.
+6. The paragraph on a result that lies partly past the change names `scope` as the step of such a fix.
+
+A test of `repository.test.ts` holds the labels of the order and the two steps of the table, in order, to `settleSteps`, as the test of the leave reasons holds the list of reasons to `leaveReasons`.
 
 ### The form (R4, R5, R7)
 
