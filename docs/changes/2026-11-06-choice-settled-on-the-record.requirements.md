@@ -89,7 +89,7 @@ A fourth reason to leave a finding, `settled`, says that acting on the finding n
 
 ### R4: The form places each finding by its decision alone
 
-What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. A finding left as is whose verifier named a choice and whose decision settles none, as one left as outside the change or superseded may be, gives on its line the verifier's choice, marked as the verifier's and not settled by deep-review, so no choice that a verifier named is missing from the review. The summary no longer counts findings left for the author.
+What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. A finding left as is whose verifier named a choice and whose decision settles none, as one left as outside the change or superseded may be, gives on its line the verifier's choice, marked as the verifier's and not settled by deep-review, so no choice that a verifier named is missing from the review. When the body is too long and the engine cuts the findings left as is, it keeps the lines of those whose verifier named a choice and replaces only the others with their count, since those lines are what PD2 and the principle-4 risk rely on. The summary no longer counts findings left for the author.
 
 ### R5: A fix says which choice it makes
 
@@ -173,7 +173,7 @@ What needs a person returns to the questions and the departures, which a reader 
 
 ### Principle 8, say when a person must look
 
-The four conditions of principle 8 do not include a choice that a verifier named, and this proposal does not add one. A finding left as is with a settled choice is folded with the findings left as is, where the reader of #107 found the secret-posting finding. The difference is that its line now says what settled the choice, so a reader who disagrees can see it at a glance. The proposal names this as a choice: the first screen is kept for what only a person can answer.
+The four conditions of principle 8 do not include a choice that a verifier named, and this proposal does not add one. A finding left as is with a settled choice is folded with the findings left as is, where the reader of #107 found the secret-posting finding. The difference is that its line now says what settled the choice, so a reader who disagrees can see it at a glance, and that the line stays when the body is cut, which the folded section does not today. The proposal names this as a choice: the first screen is kept for what only a person can answer.
 
 ### Principle 10, answers are labels
 
