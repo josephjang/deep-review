@@ -4,7 +4,7 @@ Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-
 
 ## Summary
 
-The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
+The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` and the fold both hold the rules of R2 and R3. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
 
 ## Non-Goals
 
@@ -65,7 +65,7 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 ### The event and the fold (TD1, TD3)
 
-`decisionsRecordedV2` holds `recordedDecisionSchemaV2`: each variant of version 1 with `settled` beside `departure`, and the leave reasons of a new frozen vocabulary, `reviewVocabularyV13.leaveReasons`, with `settled`; the settled choice's `by` takes `reviewVocabularyV13.settleSteps`. The fold applies to version 2 the same rules as to version 1, and the rules of R2 that a recorded fact can hold: a `settled` leave has a settled choice, an `ask` has none. The rule that depends on the verifier's choice is the phase's, which holds the task it built. The reducer of version 1 gives every decision `settled: null`. The review state records, beside its decisions, the version they were recorded at, as `decisionsVersion: 1 | 2 | null`, null while no decisions are recorded, which the form reads for R7.
+`decisionsRecordedV2` holds `recordedDecisionSchemaV2`: each variant of version 1 with `settled` beside `departure`, and the leave reasons of a new frozen vocabulary, `reviewVocabularyV13.leaveReasons`, with `settled`; the settled choice's `by` takes `reviewVocabularyV13.settleSteps`. The fold applies to version 2 the same rules as to version 1, and every rule of R2 and R3 that `checkDecisions` holds, the one that depends on the verifier's choice included: a finding names a choice when the verdict of its primary or of one of its members, as the ranking records them, records an `authorChoice` at version 3 (TD3). The reducer of version 1 gives every decision `settled: null`. The review state records, beside its decisions, the version they were recorded at, as `decisionsVersion: 1 | 2 | null`, null while no decisions are recorded, which the form reads for R7.
 
 ### The rubric (R1, R3)
 
@@ -130,9 +130,11 @@ Two tests hold today's leave reasons through the frozen vocabulary: `test/checkp
 
 The seven steps are the rubric's order and the two other ways its table reaches `fix`, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is the decider's sentence in plain words, which the review shows, and the grounds keep its citation.
 
-### TD3: The phase holds the rule that depends on the verifier's choice
+### TD3: The phase and the fold both hold the rules of the settlement
 
-Whether a finding's resolution names a choice is a fact of the state when the decision phase builds its task, and `checkDecisions` is given it with the findings. The fold could hold the same rule, but only through `mergedResolution`, which picks the choice of a finding from its candidates by a rule of the engine, not of the ledger. A later engine that picks it another way would then refuse, when it opens an older ledger, an event that an earlier engine accepted, and a newer engine must always read an older ledger. So the fold holds only the rules that the event alone shows.
+`checkDecisions` refuses an answer that breaks R2 or R3, so the decider is run again before anything is recorded, and the fold refuses a `decisions.recorded@2` that breaks them, so no engine fault and no hand-edited ledger can record one. This is how `verdicts.recorded@3` holds that a `PLAUSIBLE` verdict says what keeps it from `CONFIRMED`: the verifier's check and the fold both hold it (`recordVerdicts` in `review-fold.ts`). Whether a finding names a choice is a fact of the ledger, the members the ranking records and their verdicts at version 3; `mergedResolution` only picks which candidate's choice the form shows, and a finding has a non-null one exactly when one of its candidates records one (`state.ts:137`), so the fold reads the fact and not the engine's rule for showing it.
+
+The cost is that the rules of version 2 are fixed: an older ledger must always fold, so a later change to what a settlement must hold, such as a new step, is a new version of the event, not an edit of these rules.
 
 ### TD4: A frozen vocabulary for the new reason
 
@@ -168,7 +170,7 @@ Tests of `checkDecisions` that refuse a fix of a finding with a choice and no se
 
 ### R2 and TD1: The event and the fold
 
-Tests of the fold that read `decisions.recorded` at versions 1 and 2 in one kind of run each, refuse a version 2 with a `settled` leave and no settled choice, and give `decisionsVersion` and `settled: null` for version 1. The golden fixtures `schema-1-19` and `schema-1-20`.
+Tests of the fold that read `decisions.recorded` at versions 1 and 2 in one kind of run each, refuse a version 2 with a `settled` leave and no settled choice, with a fix of a finding whose member's verdict records a choice and no settled choice, and with an `ask` that carries one, and give `decisionsVersion` and `settled: null` for version 1. The golden fixtures `schema-1-19` and `schema-1-20`.
 
 ### R4, R5 and R7: The form
 
