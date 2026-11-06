@@ -1,0 +1,163 @@
+# Technical Design: The decider settles each choice on the record
+
+Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-06-choice-settled-on-the-record.requirements.md).
+
+## Summary
+
+The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of five steps of the rubric's order, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops R9 for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
+
+## Non-Goals
+
+### No change to the verifier
+
+`verifierOutputSchemaV3`, `verdicts.recorded@3`, `notesParagraph` in `src/review/tasks.ts` and `roles/fragments/rubrics.md` stay. The verifier's `Needs the author:` note stays in its evidence, so in a read-only run of a pull request the decider reads the choice twice, once as the field and once in the evidence.
+
+### No change to the fixer
+
+`routeOfDecision` in `src/review/fix-state.ts` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task does not receive the verifier's choice: principle 2 does not permit a fixer that makes a choice that the decision did not make, and the decision's settled choice is what the fixer applies, through the approach.
+
+### No change to the writer
+
+`findingsToExplain` in `src/review/explanation.ts` still gives the writer the findings decided `fix` or `ask`. The writer's task does not show the settled choice; the form shows it in the engine's frame.
+
+## Context
+
+### The decider's task today
+
+`deciderFindings` (`src/review/phases.ts:214`) gives each ranked finding its id, severity, verdict, summary, reason and candidates, each candidate through `taskCandidate` (`phases.ts:203`). `TaskCandidate` (`src/review/tasks.ts:578`) has no field for the verifier's two notes. `candidateLines` (`tasks.ts:732`) prints a candidate's summary, detail and evidence, and serves both the decider's task (`deciderTask`, `tasks.ts:1210`) and the fixer's (`tasks.ts:903`). The decider's role prompt is assembled from `decider-brief.md`, `worker-scope.md`, `lead-verify.md`, `rubrics.md` and `decider-rubric.md` (`roles/manifest.json:121`).
+
+### The decision and its record
+
+`deciderOutputSchema` (`src/review/schemas.ts:216`) gives each decision `{index, decision, grounds, fix, leave, ask, departure}`, with `edits` only on the options of a question. `checkDecisions` (`schemas.ts:597`) holds one part per decision kind, a departure on a fix only, the option indexes and the superseded rule. The decision phase records the checked answer as `decisions.recorded@1` (`phases.ts:893`), whose schema (`src/checkpoint/events.ts:1334`) takes its leave reasons from the frozen `vocabularyV4.leaveReasons` (`events.ts:1227`). `decisionsRecorded` (`src/checkpoint/review-fold.ts:820`) holds them in the ranking's order. The engine's list of leave reasons is `leaveReasons` in `src/review/vocabulary.ts:544`, and a test of `test/roles/repository.test.ts` holds the rubric's list to it.
+
+### The verifier's choice in the state
+
+`resolutionOf` and `mergedResolution` (`src/review/state.ts:72`, `:137`) give a finding the `authorChoice` of its shown candidate, else of the first other candidate that names one. Verdicts recorded at version 1 or 2 fold with `authorChoice: null` (`review-fold.ts:780`). A run records its verdicts at version 3 only when it is configured at `review.configured@11`, a read-only run of a pull request (`verdictsVersionOf`, `review-fold.ts:728`).
+
+### R9 in the form
+
+`forAuthor` (`src/review/pull-request-form.ts:250`) is true for a finding decided `leave` with an `authorChoice`. It puts the finding in full in the body (`inFull`, `:253`), gives it `authorBlocks` (`:453`) in `decisionBlocks` (`:468`), lists it in what needs a person (`:591`), counts it in the summary (`:565`), and keeps it out of `leftAsIs` (`:655`). Its words are `needsAuthor`, `authorChoice`, `whyLook` and the summary's count in `src/review/pull-request-words.ts`, in English and Korean. The report on the machine does not read `authorChoice`.
+
+### The status of a fix
+
+`findingStatusOf` (`src/review/brief.ts:369`) makes every `fix` of a read-only run `planned` or `planned-against-rule`, and the form counts and words it as a fix. In a fix run, `routeOfDecision` sends every `fix` to a fixer.
+
+## Design
+
+### The decider's task (R1)
+
+`DeciderTaskFinding` gives each candidate `authorChoice` and `unconfirmed`, read from the candidate's verdict, both null for a run whose verdicts lack them. `candidateLines` prints them when they are given, as `choice left to the author: <text>` and `why PLAUSIBLE: <fact or choice>: <text>`, after the evidence. The fixer's task passes neither, so its lines do not change. `deciderTask`'s text names the two lines and the settled choice of the answer.
+
+### The answer and its check (R2, R3)
+
+`deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape']`, the five steps of the rubric's order in its order. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and refuses an answer in which:
+
+- a decision of `fix`, or of `leave` as `intended` or `settled`, of a finding whose resolution names a choice, has no settled choice;
+- a decision of `leave` as `settled` has no settled choice;
+- a decision of `ask` has one.
+
+A decision of `leave` as `outside-change-not-regression` or `superseded` may carry one or not, since acting on the finding is not deep-review's to choose there.
+
+### The event and the fold (TD1, TD3)
+
+`decisionsRecordedV2` holds `recordedDecisionSchemaV2`: each variant of version 1 with `settled` beside `departure`, and the leave reasons of a new frozen vocabulary, `reviewVocabularyV13.leaveReasons`, with `settled`; the settled choice's `by` takes `reviewVocabularyV13.settleSteps`. The fold applies to version 2 the same rules as to version 1, and the rules of R2 that a recorded fact can hold: a `settled` leave has a settled choice, an `ask` has none. The rule that depends on the verifier's choice is the phase's, which holds the task it built. The reducer of version 1 gives every decision `settled: null`. The review state records, beside its decisions, the version they were recorded at, as `decisionsVersion: 1 | 2`, which the form reads for R7.
+
+### The rubric (R1, R3)
+
+`decider-rubric.md` changes in four places, in a commit of its own:
+
+1. Its first paragraph names the choice left to the author as a line of the candidate, and still calls it a verifier's view to settle or ask about, not an answer.
+2. Its table says that a `fix` edits the code, and that a choice the order settles without an edit is left as `settled`.
+3. Its list of reasons to leave gains `settled`, in the form the test of `repository.test.ts` reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is; give the settled choice."
+4. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with the step of the order that settles it and the source it rests on, cited as the grounds cite.
+
+### The form (R4, R5, R7)
+
+`forAuthor` becomes true only for a finding decided `leave` with an `authorChoice` in a run whose `decisionsVersion` is 1. In a run decided at version 2 it is never true, so the finding goes in `leftAsIs`, is not in full in the body unless it was there for another reason, and is not counted or listed as for the author. Each line of the findings left as is gives after the reason and the grounds `words.settledChoice(choice, words.settleSteps[by], source)`. `decisionBlocks` gives a `fix` with a settled choice the same line after the sentence of what deep-review would do, or for a minor finding after its paragraph, in its comment and in its text in the body. The folded table of minor findings does not change, since its cell of what deep-review would do is one sentence. The words gain `settleSteps` in English and Korean, `settledChoice`, and the label of `settled` in `leaveReasons`.
+
+### The report on the machine (R6)
+
+`decision-report.ts` gains the label of `settled` and gives, after the grounds of each decision with a settled choice, the same line in English, since the report is in English today.
+
+### An older run (R7)
+
+A run decided at version 1 keeps every path of R9 as it is, and none of its decisions has a settled choice. A run with verdicts at version 1 or 2 has no `authorChoice`, so R9 never applies to it, at either version of its decisions.
+
+### The golden fixture
+
+The change adds `decisions.recorded@2` and a vocabulary version, so a fixture `schema-1-20` is committed with `npm run golden -- --output test/fixtures/checkpoints/schema-1-20`, and the older fixtures still open and fold.
+
+### Where the code goes
+
+- `src/review/vocabulary.ts`: `settleSteps` and the fourth leave reason.
+- `src/review/schemas.ts`: the answer and `checkDecisions`.
+- `src/review/phases.ts`: the task's findings and the event's version.
+- `src/review/tasks.ts`: the candidate lines and the decider's task.
+- `src/checkpoint/events.ts`: the event and the vocabulary.
+- `src/checkpoint/review-fold.ts`: the reducers and `decisionsVersion`.
+- `src/review/pull-request-form.ts` and `src/review/pull-request-words.ts`: the form.
+- `src/review/decision-report.ts`: the report.
+- `roles/fragments/decider-rubric.md`: the prompt.
+- `dist/`: rebuilt in the last commit of the series.
+
+## Technical Decisions
+
+### TD1: A new version of `decisions.recorded`, which any run may record
+
+`verdicts.recorded` follows the run's configuration, because a run records many of them and must never mix two answers (R9 of runs on the record). A run records its decisions once, so it cannot mix two versions, and the fold accepts either version in any run without a new version of `review.configured`. The engine of this change always records version 2. A run configured before the change and resumed after it with its old roles records version 2 too, from a decider whose rubric does not name the settled choice. The schema still asks for the field, and a check that refuses the answer runs the decider again (RK3 of the requirements).
+
+### TD2: The step is an enum that the engine words, and the source is text
+
+The five steps are the rubric's order, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is a citation like the grounds, and stays the decider's text.
+
+### TD3: The phase holds the rule that depends on the verifier's choice
+
+Whether a finding's resolution names a choice is a fact of the state when the decision phase builds its task, and `checkDecisions` is given it with the findings. The fold could hold the same rule, but only through `mergedResolution`, which picks the choice of a finding from its candidates by a rule of the engine, not of the ledger. A later engine that picks it another way would then refuse, when it opens an older ledger, an event that an earlier engine accepted, and a newer engine must always read an older ledger. So the fold holds only the rules that the event alone shows.
+
+### TD4: A frozen vocabulary for the new reason
+
+`decisions.recorded@1` reads its leave reasons from `reviewVocabularyV4`, so adding `settled` to `leaveReasons` in `vocabulary.ts` does not change the old schema. Version 2 reads them, and the steps of the order, from `reviewVocabularyV13`, the next frozen vocabulary after `reviewVocabularyV12`, which a test holds equal to today's vocabulary as it holds each earlier one. A newer engine still reads an older ledger, and the golden test sees the change.
+
+### TD5: R9 is tied to the version of the decisions, not to a date or a flag
+
+The fact that R9 answers, a decider that recorded no settlement, is the version of the decisions on the ledger. A run's configuration does not say it (TD1), and a date would misplace a run that was resumed across the change.
+
+## Open Questions
+
+### Does the decider fill the settled choice when its verifier named none?
+
+R2 asks for a settled choice only when the verifier named a choice or the decision is `settled`. A decider may also give one for a fix that makes a choice the verifier did not name, which the rubric's sentence invites. The gate counts how often it does, and whether the form should show those too is decided on what it shows.
+
+### Should the verifier stop writing `Needs the author:` in the evidence of a read-only run?
+
+The decider now reads the choice as a field, so the note in the evidence is read twice in those runs. Removing it changes the verifier's rubric, which NG1 of the requirements leaves out. It is a candidate for the change that tightens how readily a verifier names a choice.
+
+## Test Strategy
+
+### R1: The decider's task
+
+A test of `deciderTask` that gives a candidate with both notes and holds their two lines, and one that gives the fixer's task the same candidate and holds that neither line is printed.
+
+### R2 and R3: The answer and its check
+
+Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
+
+### R2 and TD1: The event and the fold
+
+Tests of the fold that read `decisions.recorded` at versions 1 and 2 in one kind of run each, refuse a version 2 with a `settled` leave and no settled choice, and give `decisionsVersion` and `settled: null` for version 1. The golden fixtures `schema-1-19` and `schema-1-20`.
+
+### R4, R5 and R7: The form
+
+The four tests of `test/review/pull-request-form.test.ts` that pin R9 run on a run decided at version 1 and keep their assertions. New tests post a run decided at version 2 with a finding left as `settled` whose verifier named a choice, and hold that it is not in what needs a person, not counted for the author, and in the folded section with its settled line. A test holds the settled line in the comment of a fix, and a test of the words holds `settleSteps` in both languages.
+
+### R6: The report
+
+A test of `decision-report.ts` that gives a `settled` leave and holds its label and its settled line.
+
+### R8: The gate
+
+The gate's runs, recorded under Verification with the metrics of the requirements.
+
+## Verification
+
+No checks have run yet.
