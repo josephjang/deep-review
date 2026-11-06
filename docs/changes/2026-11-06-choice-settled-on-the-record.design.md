@@ -53,7 +53,8 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 `deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']`: the five steps of the rubric's order in its order, then the scope of a fix that keeps to the part inside the change, and no choice remaining. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and refuses an answer in which:
 
 - a decision of `fix` with no departure, or of `leave` as `intended` or `settled`, of a finding whose resolution names a choice, has no settled choice;
-- a decision of `leave` as `settled` has no settled choice;
+- a decision of `leave` as `settled` has no settled choice, or one whose step is not `kept` or `shape`;
+- a decision of `leave` as `intended` has a settled choice whose step is not `intent` or `contract`;
 - a decision of `ask` has one.
 
 A decision of `leave` as `outside-change-not-regression` or `superseded` may carry one or not, since acting on the finding is not deep-review's to choose there.
@@ -68,7 +69,7 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 1. Its first paragraph names the choice left to the author as a line of the candidate, and still calls it a verifier's view to settle or ask about, not an answer.
 2. Its table says that a `fix` edits the code, and that a choice the order settles without an edit is left as `settled`.
-3. Its list of reasons to leave gains `settled`, in the form the test of `repository.test.ts` reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is; give the settled choice."
+3. Its list of reasons to leave gains `settled`, in the form the test of `repository.test.ts` reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is with nothing stated, by keeping a behavior that was there before or by the shape the surrounding code uses; give the settled choice." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is.
 4. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with the step of the order that settles it and the source it rests on, cited as the grounds cite.
 
 ### The form (R4, R5, R7)
