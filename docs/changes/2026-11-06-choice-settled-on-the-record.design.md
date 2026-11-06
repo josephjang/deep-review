@@ -65,7 +65,7 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 ### The event and the fold (TD1, TD3)
 
-`decisionsRecordedV2` holds `recordedDecisionSchemaV2`: each variant of version 1 with `settled` beside `departure`, and the leave reasons of a new frozen vocabulary, `reviewVocabularyV13.leaveReasons`, with `settled`; the settled choice's `by` takes `reviewVocabularyV13.settleSteps`. The fold applies to version 2 the same rules as to version 1, and the rules of R2 that a recorded fact can hold: a `settled` leave has a settled choice, an `ask` has none. The rule that depends on the verifier's choice is the phase's, which holds the task it built. The reducer of version 1 gives every decision `settled: null`. The review state records, beside its decisions, the version they were recorded at, as `decisionsVersion: 1 | 2`, which the form reads for R7.
+`decisionsRecordedV2` holds `recordedDecisionSchemaV2`: each variant of version 1 with `settled` beside `departure`, and the leave reasons of a new frozen vocabulary, `reviewVocabularyV13.leaveReasons`, with `settled`; the settled choice's `by` takes `reviewVocabularyV13.settleSteps`. The fold applies to version 2 the same rules as to version 1, and the rules of R2 that a recorded fact can hold: a `settled` leave has a settled choice, an `ask` has none. The rule that depends on the verifier's choice is the phase's, which holds the task it built. The reducer of version 1 gives every decision `settled: null`. The review state records, beside its decisions, the version they were recorded at, as `decisionsVersion: 1 | 2 | null`, null while no decisions are recorded, which the form reads for R7.
 
 ### The rubric (R1, R3)
 
@@ -102,7 +102,9 @@ A run decided at version 1 keeps every path of the author rule as it is, and non
 
 ### The golden fixture
 
-The change adds `decisions.recorded@2` and a vocabulary version, so a fixture `schema-1-20` is committed with `npm run golden -- --output test/fixtures/checkpoints/schema-1-20`, and the older fixtures still open and fold.
+The change adds `decisions.recorded@2` and a vocabulary version, so a fixture `schema-1-20` is committed with `npm run golden -- --output test/fixtures/checkpoints/schema-1-20`, and the older fixtures still open and fold. The runs of `scripts/golden-checkpoint.ts` all record their decisions at version 1 today, so a fixture made from them would hold no version 2 and prove nothing about a later engine reading one. The script gains a run whose decisions are at version 2, with a `settled` leave, an `intended` leave with a settled choice, a fix with a settled choice and a leave as outside the change of a finding whose verifier named a choice, and `golden.test.ts` holds what that run folds to, as it holds each earlier run that brought a new version.
+
+Two tests hold today's leave reasons through the frozen vocabulary: `test/checkpoint/events-vocabulary.test.ts:382` and `:507` hold `reviewVocabularyV4` equal to `leaveReasons`, and `test/review/vocabulary.test.ts:60` pins the list. The first two hold `reviewVocabularyV4` to a literal of the three reasons instead, as the file holds an older list of phases to `phasesBeforeAnswers`, and a new assertion holds `reviewVocabularyV13` to today's `leaveReasons` and `settleSteps`. The third gains `settled`.
 
 ### Where the code goes
 
@@ -112,6 +114,7 @@ The change adds `decisions.recorded@2` and a vocabulary version, so a fixture `s
 - `src/review/tasks.ts`: the candidate lines and the decider's task.
 - `src/checkpoint/events.ts`: the event and the vocabulary.
 - `src/checkpoint/review-fold.ts`: the reducers and `decisionsVersion`.
+- `scripts/golden-checkpoint.ts`: the run at version 2.
 - `src/review/pull-request-form.ts` and `src/review/pull-request-words.ts`: the form.
 - `src/review/decision-report.ts`: the report.
 - `roles/fragments/decider-rubric.md`: the prompt.
