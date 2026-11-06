@@ -71,7 +71,7 @@ Posting the core of the change and the conditions of principle 8 is a proposal o
 
 ### NG6: The fixer and the answers
 
-The fixer, its routes and `deep-review answer` stay as they are. A finding left as is goes to no fixer, as today.
+The fixer's routes and `deep-review answer` stay as they are, and a finding left as is goes to no fixer, as today. The fixer's task gains only the settled choice of its decision (R5).
 
 ## Requirements
 
@@ -93,7 +93,7 @@ What needs a person lists the questions and the fixes that depart from a written
 
 ### R5: A fix says which choice it makes
 
-The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line. The writer, whose text explains the fix in the same comment and who is given the verifier's choice, is given the settled choice as the decision's too, so its text does not present as the author's a choice that the decision settled.
+The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line. The writer, whose text explains the fix in the same comment and who is given the verifier's choice, is given the settled choice as the decision's too, so its text does not present as the author's a choice that the decision settled. The fixer that applies the fix, whose evidence can still hold the verifier's note, is given the settled choice with its decision, so it applies the choice the decision made.
 
 ### R6: The report on the machine
 
