@@ -93,7 +93,7 @@ What needs a person lists the questions and the fixes that depart from a written
 
 ### R5: A fix says which choice it makes
 
-The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line.
+The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line. The writer, whose text explains the fix in the same comment and who is given the verifier's choice, is given the settled choice as the decision's too, so its text does not present as the author's a choice that the decision settled.
 
 ### R6: The report on the machine
 
