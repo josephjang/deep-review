@@ -105,7 +105,7 @@ A run whose decisions were recorded before this change has no settled choices. S
 
 ### R8: The gate
 
-The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the two changes whose reviews #115 counted, in English and in Korean, each with the base and the end its review had, and posts each with `publish --dry-run`. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
+The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the change whose reviews #115 counted: #114, which the gate of the review that reads as a report reviewed twice, once in English and once with `review.language = "ko"`. #114 is merged, and `review --pr` and `publish` refuse a pull request that is not open, while a run with `--from` and `--to` has no pull request to post to and no writer. So the two runs review a pull request that holds #114's commits on the base they had, opened in a copy of this repository under an account the author controls, as R17 of the review on the pull request opened one with the commits of pallets/click #3878, and each posts with `publish --dry-run`. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
 
 ## Metrics
 
@@ -177,7 +177,7 @@ No answer on the ledger is about a settled choice, since the person answers ques
 
 ### Principle 12, a real run is the gate
 
-R8 is a real run of this pull request and of the two changes whose reviews #115 counted, in English and in Korean.
+R8 is a real run of this pull request, and two of #114's change, in English and in Korean, on an open pull request that holds its commits, since the engine refuses to review or post a merged one.
 
 ## Risks
 
