@@ -105,7 +105,7 @@ A run whose decisions were recorded before this change has no settled choices. S
 
 ### R8: The gate
 
-The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the change whose reviews #115 counted: #114, which the gate of the review that reads as a report reviewed twice, once in English and once with `review.language = "ko"`. #114 is merged, and `review --pr` and `publish` refuse a pull request that is not open, while a run with `--from` and `--to` has no pull request to post to and no writer. So the two runs review a pull request that holds #114's commits on the base they had, opened in a copy of this repository under an account the author controls, as R17 of the review on the pull request opened one with the commits of pallets/click #3878, and each posts with `publish --dry-run`. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
+The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the change whose reviews #115 counted: #114, which the gate of the review that reads as a report reviewed twice, once in English and once with `review.language = "ko"`. #114 is merged, and `review --pr` and `publish` refuse a pull request that is not open, while a run with `--from` and `--to` has no pull request to post to and no writer. So the two runs review a pull request that holds #114's commits on the base they had, opened in a copy of this repository under an account the author controls, as R17 of the review on the pull request opened one with the commits of pallets/click #3878, and each posts with `publish --dry-run`. A third run reviews #96's change the same way, in English, since #96 holds the finding of #107, the case that the author rule was made for, and records what the decider decides for it and what the review shows. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
 
 ### R9: A refused answer is named to the next attempt
 
@@ -115,7 +115,7 @@ When the engine refuses the decider's answer, its next attempt is given what the
 
 ### M1: The length of what needs a person
 
-The items of what needs a person in each review, against the English review of #115, which held 11 where the template held 4. The target is that each item is a question or a departure.
+The questions and the departures in what needs a person in each review, against the English review of #115, which held 11 items where the template of the review that reads as a report held 4. R4 makes every item a question or a departure, so the count measures RK2, the decider asking more, and not the form. The author reads each question and says whether only a person could answer it. The target is fewer items than #115's 11 in the English run of #114, and no question that the author judges the repository answers.
 
 ### M2: Fixes that edit nothing
 
@@ -181,7 +181,7 @@ No answer on the ledger is about a settled choice, since the person answers ques
 
 ### Principle 12, a real run is the gate
 
-R8 is a real run of this pull request, and two of #114's change, in English and in Korean, on an open pull request that holds its commits, since the engine refuses to review or post a merged one.
+R8 is a real run of this pull request, two of #114's change, in English and in Korean, and one of #96's change, each on an open pull request that holds the change's commits, since the engine refuses to review or post a merged one.
 
 ## Risks
 
@@ -200,3 +200,7 @@ The new rules of R2 and R3 refuse a whole answer when one decision breaks them, 
 ### RK4: A run started before the change cannot resume after it
 
 The decider's role prompt changes, so a run configured before the change and resumed after it is refused with the action to name the old roles directory (`--roles <dir>`), as for every earlier edit of a fragment.
+
+### RK5: A rerun differs for reasons other than the decider
+
+The gate's runs review #114's and #96's changes again from the start, so their finders and verifiers may surface other findings and name other choices than the runs that #115 and #107 describe. A count against #115 mixes the decider's change with that difference. The author's word on each question and each settlement, not the count alone, is what the gate keeps.
