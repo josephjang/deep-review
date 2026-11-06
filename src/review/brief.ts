@@ -900,7 +900,7 @@ function fixesPart(brief: Brief, form: BriefForm): string[] {
   // A row of a finding still a question is the default a fixer applied, which the question's answer may change.
   const asked = new Set(brief.findings.filter((finding) => finding.status === 'question').map((finding) => finding.number));
   const marks = (fix: BriefFix): string => [...(fix.againstRule ? ['against a written rule'] : []), ...(fix.finding !== null && asked.has(fix.finding) ? ['the default of a question'] : []), ...(fix.plausible ? ['plausible'] : [])].map((mark) => `, ${mark}`).join('');
-  const name = (fix: BriefFix): string => (fix.finding === null ? 'Documentation' : `${form === 'report' ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity!}${marks(fix)}`);
+  const name = (fix: BriefFix): string => (fix.finding === null ? 'Documentation' : `${form === 'report' ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${capitalized(fix.severity!)}${marks(fix)}`);
   const shown = brief.fixes.slice(0, shownFixes);
   const others = brief.fixes.slice(shownFixes);
   const otherFindings = others.flatMap((fix) => (fix.finding === null ? [] : [fix.finding]));

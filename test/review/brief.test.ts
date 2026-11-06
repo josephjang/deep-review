@@ -445,7 +445,7 @@ describe('the brief for the person', () => {
     const brief = briefOf(answerable());
     assert.equal(brief.needs.at(-1)!.lines[0], '**Apply the 1 fix that deep-review decided.** This run only reviewed. If you do nothing, the change stays as it is. To fix, ask your agent to continue this review with fixes, or run `deep-review review --fix` on the same change with the same runtime.');
     const lines = briefMarkdown(brief);
-    assert.deepEqual(lines.slice(lines.indexOf('## What deep-review would fix')), ['## What deep-review would fix', '', '| Finding | The planned fix |', '|---|---|', '| [1](#finding-1), major, against a written rule | guard the null once, before parse reads it |']);
+    assert.deepEqual(lines.slice(lines.indexOf('## What deep-review would fix')), ['## What deep-review would fix', '', '| Finding | The planned fix |', '|---|---|', '| [1](#finding-1), Major, against a written rule | guard the null once, before parse reads it |']);
     assert.match(lines[lines.indexOf('## Before you merge') + 2]!, /^No check ran: this run only reviewed\. The major findings stay open: finding 1\./);
   });
 
@@ -458,8 +458,8 @@ describe('the brief for the person', () => {
       return briefOf({ ...state, review: { ...state.review!, fix: { ...fix, answers: { ...fix.answers, fixes: { 'c1-1': { ...answer, findings } } } } } } as RunState);
     };
     const row = (brief: Brief, form: 'report' | 'chat' = 'report'): string => briefMarkdown(brief, form).at(-1)!;
-    assert.equal(row(validated(['limited', 'old-code', 'existing'])), '| [1](#finding-1), major, against a written rule | fix: Guard the null | a new test fails on the code before the fix; existing tests and checks rerun; a limited check | 1 |');
-    assert.equal(row(validated([]), 'chat'), '| 1, major, against a written rule | fix: Guard the null | none reported | 1 |');
+    assert.equal(row(validated(['limited', 'old-code', 'existing'])), '| [1](#finding-1), Major, against a written rule | fix: Guard the null | a new test fails on the code before the fix; existing tests and checks rerun; a limited check | 1 |');
+    assert.equal(row(validated([]), 'chat'), '| 1, Major, against a written rule | fix: Guard the null | none reported | 1 |');
     assert.ok(briefMarkdown(validated([])).includes('| Finding | The fix | How its fixer reports checking it | Patch |'), 'the heading says the fixer reports it');
   });
 

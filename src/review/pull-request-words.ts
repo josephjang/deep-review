@@ -459,7 +459,7 @@ const korean: PullRequestWords = {
   againstRule: '명문화된 규칙과 다릅니다.',
 
   inFullHeading: (finding, title) => `### 지적 사항 ${String(finding)}: ${title}`,
-  grade: (severity, verdict, basis, marks) => `심각도 ${severity}. ${[verdict, ...marks, ...(basis === null ? [] : [basis])].join(', ')}.`,
+  grade: (severity, verdict, basis, marks) => `심각도 ${capitalized(severity)}. ${[verdict, ...marks, ...(basis === null ? [] : [basis])].join(', ')}.`,
   basisWords: { ran: '실행해 재현함', traced: '코드를 따라가 확인함', read: '코드를 읽어 확인함' },
   unverifiedMark: '검증 안 됨',
   statusSentences: {

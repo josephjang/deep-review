@@ -99,7 +99,7 @@ describe('a review in the language the run recorded (R15)', () => {
     assert.match(korean.body, /^deep-review가 이 풀 리퀘스트를 head `22222222`에서 리뷰했습니다\. merge base `11111111`부터 바뀐 파일 1개를 보았으며, 파일은 하나도 바꾸지 않았습니다\.$/m);
     assert.match(korean.body, /^\*\*deep-review가 고치거나 묻는 major 지적 사항\.\*\*$/m, 'the area of an older run, in Korean');
     assert.match(korean.body, /^### 지적 사항 2: extract the helper$/m);
-    assert.match(korean.comments[0]!.body, /^심각도 major\. CONFIRMED, 코드를 따라가 확인함\. deep-review가 명문화된 규칙과 다르게 고치려 합니다\.$/m);
+    assert.match(korean.comments[0]!.body, /^심각도 Major\. CONFIRMED, 코드를 따라가 확인함\. deep-review가 명문화된 규칙과 다르게 고치려 합니다\.$/m);
   });
 
   it('gives each gap of the brief in English, and says so in Korean', () => {

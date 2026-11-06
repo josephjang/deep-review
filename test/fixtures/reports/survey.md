@@ -27,7 +27,7 @@ The footguns review pass did not run, and a later pass looked for what it would 
 
 | Finding | The fix | How its fixer reports checking it | Patch |
 |---|---|---|---|
-| [1](#finding-1), major | fix: Guard the null in parse | a new test fails on the code before the fix | 2 |
+| [1](#finding-1), Major | fix: Guard the null in parse | a new test fails on the code before the fix | 2 |
 
 ## Findings
 
