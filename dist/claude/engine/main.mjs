@@ -35820,7 +35820,7 @@ function fixesPart(brief, form) {
   const said2 = (text3, own2) => tableCell(inlineText(quoted(text3, { numbers: brief.numbers, own: own2, scratch: brief.scratch })));
   const asked = new Set(brief.findings.filter((finding) => finding.status === "question").map((finding) => finding.number));
   const marks2 = (fix) => [...fix.againstRule ? ["against a written rule"] : [], ...fix.finding !== null && asked.has(fix.finding) ? ["the default of a question"] : [], ...fix.plausible ? ["plausible"] : []].map((mark) => `, ${mark}`).join("");
-  const name = (fix) => fix.finding === null ? "Documentation" : `${form === "report" ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${fix.severity}${marks2(fix)}`;
+  const name = (fix) => fix.finding === null ? "Documentation" : `${form === "report" ? `[${String(fix.finding)}](#${findingAnchor(fix.finding)})` : String(fix.finding)}, ${capitalized(fix.severity)}${marks2(fix)}`;
   const shown = brief.fixes.slice(0, shownFixes);
   const others = brief.fixes.slice(shownFixes);
   const otherFindings = others.flatMap((fix) => fix.finding === null ? [] : [fix.finding]);
@@ -38381,7 +38381,7 @@ var init_pull_request_words = __esm({
       recommends: (option, text3) => `\uC791\uC131\uC790\uC5D0\uAC8C \uBB3B\uB294 \uC9C8\uBB38\uC774\uBA70, deep-review\uB294 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${text3}`,
       againstRule: "\uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.",
       inFullHeading: (finding, title) => `### \uC9C0\uC801 \uC0AC\uD56D ${String(finding)}: ${title}`,
-      grade: (severity, verdict, basis, marks2) => `\uC2EC\uAC01\uB3C4 ${severity}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
+      grade: (severity, verdict, basis, marks2) => `\uC2EC\uAC01\uB3C4 ${capitalized(severity)}. ${[verdict, ...marks2, ...basis === null ? [] : [basis]].join(", ")}.`,
       basisWords: { ran: "\uC2E4\uD589\uD574 \uC7AC\uD604\uD568", traced: "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00 \uD655\uC778\uD568", read: "\uCF54\uB4DC\uB97C \uC77D\uC5B4 \uD655\uC778\uD568" },
       unverifiedMark: "\uAC80\uC99D \uC548 \uB428",
       statusSentences: {

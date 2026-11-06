@@ -84,7 +84,7 @@ describe('the default a fixer applied to an open question in the brief', () => {
     assert.deepEqual(brief.fixes.map((fix) => [fix.finding, fix.subject, fix.patches]), [[1, 'fix: Guard the null', [1]]]);
     assert.equal(brief.status.text, `deep-review's fix run ${shortRunId(state.id)} has 2 findings. It fixed no finding. It asks you 2 questions and applied the default of finding 1.`);
     const lines = briefMarkdown(brief);
-    assert.equal(lines.at(-1), '| [1](#finding-1), major, the default of a question | fix: Guard the null | none reported | 1 |');
+    assert.equal(lines.at(-1), '| [1](#finding-1), Major, the default of a question | fix: Guard the null | none reported | 1 |');
     assert.ok(!lines.includes('deep-review fixed no finding.'));
   });
 
