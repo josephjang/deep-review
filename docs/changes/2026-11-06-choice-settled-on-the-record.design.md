@@ -75,7 +75,7 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 2. "Settling a choice" labels each step of the order with its value, as a list the test of `repository.test.ts` reads, in the form ``- `intent`: the change's stated intent``. The paragraph on a choice between two shapes that only a maintainer would see becomes the fifth item, `shape`, with its whole rule: the one the surrounding code already uses, else the one that adds less. R2's words for `shape` are this rule.
 3. The table of the three decisions says that a `fix` edits the code, names in its `fix` row the two steps outside the order, `none` for "acting needs no choice" and `scope` for the part of a result inside the change, and says that a choice the order settles without an edit is left, as `intended` or `settled`. Its `leave` row says four reasons, not three.
 4. Its list of reasons to leave gains `settled`, in the form the test reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is with nothing stated, by `kept` or `shape`; give the settled choice." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, given with its settled choice by `intent` or `contract`.
-5. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with its step and the source it rests on, cited as the grounds cite, and that a `fix` with a departure records its choice in the departure instead.
+5. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with its step and the source it rests on, and that the choice and the source are written as a question is, in plain words for a person who did not read the change, with no file, line, requirement number or internal name of the code, while the grounds cite; and that a `fix` with a departure records its choice in the departure instead.
 6. The paragraph on a result that lies partly past the change names `scope` as the step of such a fix.
 
 A test of `repository.test.ts` holds the labels of the order and the two steps of the table, in order, to `settleSteps`, as the test of the leave reasons holds the list of reasons to `leaveReasons`.
@@ -128,7 +128,7 @@ Two tests hold today's leave reasons through the frozen vocabulary: `test/checkp
 
 ### TD2: The step is an enum that the engine words, and the source is text
 
-The seven steps are the rubric's order and the two other ways its table reaches `fix`, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is a citation like the grounds, and stays the decider's text.
+The seven steps are the rubric's order and the two other ways its table reaches `fix`, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is the decider's sentence in plain words, which the review shows, and the grounds keep its citation.
 
 ### TD3: The phase holds the rule that depends on the verifier's choice
 
