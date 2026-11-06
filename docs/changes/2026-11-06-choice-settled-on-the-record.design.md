@@ -4,7 +4,7 @@ Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-
 
 ## Summary
 
-The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of five steps of the rubric's order, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops R9 for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
+The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` holds the rule of R2. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops R9 for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
 
 ## Non-Goals
 
@@ -50,9 +50,9 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### The answer and its check (R2, R3)
 
-`deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape']`, the five steps of the rubric's order in its order. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and refuses an answer in which:
+`deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']`: the five steps of the rubric's order in its order, then the scope of a fix that keeps to the part inside the change, and no choice remaining. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and refuses an answer in which:
 
-- a decision of `fix`, or of `leave` as `intended` or `settled`, of a finding whose resolution names a choice, has no settled choice;
+- a decision of `fix` with no departure, or of `leave` as `intended` or `settled`, of a finding whose resolution names a choice, has no settled choice;
 - a decision of `leave` as `settled` has no settled choice;
 - a decision of `ask` has one.
 
@@ -108,7 +108,7 @@ The change adds `decisions.recorded@2` and a vocabulary version, so a fixture `s
 
 ### TD2: The step is an enum that the engine words, and the source is text
 
-The five steps are the rubric's order, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is a citation like the grounds, and stays the decider's text.
+The seven steps are the rubric's order and the two other ways its table reaches `fix`, so an enum costs no judgment the decider does not already make, and it lets the form give the step in the review's language and the gate count the steps across runs (PD6 of the requirements). The source is a citation like the grounds, and stays the decider's text.
 
 ### TD3: The phase holds the rule that depends on the verifier's choice
 

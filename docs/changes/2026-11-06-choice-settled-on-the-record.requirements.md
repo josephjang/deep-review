@@ -10,7 +10,7 @@ Two judgments of one choice can therefore disagree, and today the engine settles
 
 The same report names a second fault of the decision, W5. In #115, three English findings were decided `fix` with an approach that begins "Make no edit, and keep ...". The review posted them as "deep-review would fix this" and counted them among the fixes. The decider's rubric leads there: it says to decide `fix` when its order of what settles a choice settles it, and that order can settle a choice in favor of the code as it is, for which no reason to leave a finding exists.
 
-After this change the decider receives the verifier's choice as a field, and each decision that settles a choice records the choice, which step of the rubric's order settles it, and the source it rests on. A choice settled in favor of the code as it is becomes a finding left as is with a reason of its own, and a `fix` always edits. The form stops deciding: what needs a person holds only the questions and the departures from rules, and a finding left as is shows beside its reason the choice it settles and what settles it.
+After this change the decider receives the verifier's choice as a field, and each decision that settles a choice records the choice, the step that settles it, and the source it rests on. A choice settled in favor of the code as it is becomes a finding left as is with a reason of its own, and a `fix` always edits. The form stops deciding: what needs a person holds only the questions and the departures from rules, and a finding left as is shows beside its reason the choice it settles and what settles it.
 
 ```mermaid
 flowchart TD
@@ -81,7 +81,7 @@ In a run whose verdicts record them, the decider's task gives, for each candidat
 
 ### R2: A decision that settles a choice records how
 
-A decision may carry a settled choice: the choice in one sentence, in plain words; the step of the rubric's order that settles it, one of the stated intent of the change, the stated contract of the repository, the behavior before the change, keeping a behavior that was there before, or the shape the surrounding code uses; and the source that the step rests on, cited. A decision of `fix` or of `leave` as `intended` or `settled` on a finding whose verifier named a choice carries one, and a decision of `leave` as `settled` always carries one. The engine refuses an answer that breaks this, as it refuses an answer that breaks any other rule of the decisions today. A decision of `ask` carries none, since its question is the record of the choice.
+A decision may carry a settled choice: the choice in one sentence, in plain words; the step that settles it; and the source that the step rests on, cited. A step is one of the five of the rubric's order, the stated intent of the change, the stated contract of the repository, the behavior before the change, keeping a behavior that was there before, or the shape the surrounding code uses, or one of two that the rubric gives a fix outside that order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one, which the source says; or the scope, since the fix keeps to the part of the result inside the change, as the rubric decides when part of it lies past the change. A decision of `fix` without a departure, or of `leave` as `intended` or `settled`, on a finding whose verifier named a choice carries one, and a decision of `leave` as `settled` always carries one. A `fix` with a departure needs none, since the departure records how the decision went against the order. The engine refuses an answer that breaks this, as it refuses an answer that breaks any other rule of the decisions today. A decision of `ask` carries none, since its question is the record of the choice.
 
 ### R3: A choice kept as the code is, is left as settled
 
@@ -143,9 +143,9 @@ A decision that keeps the code as it is, is a decision not to act, and the revie
 
 The report suggested recording on a fix whether it edits, as an option of a question records it, and refusing a fix that edits nothing. A flag that must always be true checks nothing: a decider that writes "make no edit" in its approach can also write that the fix edits. The fault is that the rubric has no right decision for the case, and R3 gives it one. The gate counts what is left of it (M2).
 
-### PD6: The step of the order is a value, and its source is text
+### PD6: The step is a value, and its source is text
 
-The step that settles a choice is one of the five of the rubric's order, so the engine can name it in the review's language and count it across runs. The source it rests on is the decider's citation, as its grounds are.
+The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways the rubric reaches `fix` outside that order, no choice remaining and the scope of the fix, since #115 shows that a verifier names a choice too readily and names the scope of a fix as one: without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule is not given a step, since its departure is already the record of the choice. The source a step rests on is the decider's citation, as its grounds are.
 
 ### PD7: An older run keeps R9
 
