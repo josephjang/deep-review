@@ -12,9 +12,9 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 `verifierOutputSchemaV3`, `verdicts.recorded@3`, `notesParagraph` in `src/review/tasks.ts` and `roles/fragments/rubrics.md` stay. The verifier's `Needs the author:` note stays in its evidence, so in a read-only run of a pull request the decider reads the choice twice, once as the field and once in the evidence.
 
-### No change to the fixer
+### No change to the fixer's routes
 
-`routeOfDecision` in `src/review/fix-state.ts` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task does not receive the verifier's choice: principle 2 does not permit a fixer that makes a choice that the decision did not make, and the decision's settled choice is what the fixer applies, through the approach.
+`routeOfDecision` in `src/review/fix-state.ts` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task gains one line, which "The fixer's task" below gives, and nothing else of the fixer changes.
 
 ### No change to what the writer explains
 
@@ -83,6 +83,10 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 ### The writer's task (R5)
 
 The writer's task prints each candidate's verifier choice through `noteLines` (`explanation.ts:876`), and the decision through `decisionLines` (`explanation.ts:851`), which shows no settlement. A writer that explains a fix could then present the verifier's choice as open beside the engine's line that says how it is settled. `decisionLines` gains, for a decision with a settled choice, `        settled: <choice>, by <step>: <source>`, labeled as the decision's, and the task says that a choice the decision settled is not the author's to make. No check of the answer changes.
+
+### The fixer's task (R5)
+
+The fixer's task prints each candidate's evidence (`candidateLines`, `tasks.ts:738`), which in a read-only run of a pull request still ends with the verifier's `Needs the author:` note, and such a run can be continued into a fix pass with `--fix`. `decidedLines` (`tasks.ts:750`) prints the grounds, the approach, the rejected options and the departure, and no settlement. A fixer could then hold the verifier's open choice beside an approach that does not spell out how the decision settled it, and make the choice itself, which principle 2 does not permit. `decidedLines` gains, for a `fix` with a settled choice, `        settled: <choice>, by <step>: <source>`, so the fixer applies the choice the decision made. The fixer's task does not get the verifier's choice as a field.
 
 ### The report on the machine (R6)
 
@@ -165,7 +169,7 @@ The four tests of `test/review/pull-request-form.test.ts` that pin the author ru
 
 ### R5: The writer's task
 
-A test of the writer's task that gives a fix with a settled choice and holds its `settled:` line under the decision.
+A test of the writer's task that gives a fix with a settled choice and holds its `settled:` line under the decision, and one of the fixer's task that holds the same line in its decided lines.
 
 ### R6: The report
 
