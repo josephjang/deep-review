@@ -45,7 +45,7 @@ The decision schema gives each option of a question an `edits` flag and gives a 
 
 ## Goals
 
-Every judgment that decides where a finding goes in the review is made by a worker and recorded on the ledger before the form reads it. A reader sees, for each choice that a verifier named, either a question for the person or the step of the rubric's order and the source that settle it. What needs a person holds only questions and departures from rules. No decision of `fix` leaves the code as it is.
+Every judgment that decides where a finding goes in the review is made by a worker and recorded on the ledger before the form reads it. A reader sees, for each choice that a verifier named, a question for the person, the step and the source that settle it, or, for a finding that deep-review does not act on at all, the verifier's choice itself beside the reason it is left. What needs a person holds only questions and departures from rules. No decision of `fix` leaves the code as it is.
 
 ## Non-Goals
 
@@ -89,7 +89,7 @@ A fourth reason to leave a finding, `settled`, says that acting on the finding n
 
 ### R4: The form places each finding by its decision alone
 
-What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. The summary no longer counts findings left for the author.
+What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. A finding left as is whose verifier named a choice and whose decision settles none, as one left as outside the change or superseded may be, gives on its line the verifier's choice, marked as the verifier's and not settled by deep-review, so no choice that a verifier named is missing from the review. The summary no longer counts findings left for the author.
 
 ### R5: A fix says which choice it makes
 
@@ -123,7 +123,7 @@ The decisions of `fix` whose approach makes no edit, read by hand on the gate's 
 
 ### M3: Where the verifier's choices end
 
-Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, and left as `intended` or `settled`, with the steps of the order that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked.
+Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, left as `intended` or `settled`, and left as outside the change or superseded with no settled choice, with the steps that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked.
 
 ## Product Decisions
 
@@ -133,7 +133,7 @@ The choice a verifier names is evidence for the decider, which owns the decision
 
 ### PD2: Rejected: keep the author rule as a safety net
 
-The report left open whether the form should still send to what needs a person a finding that the decider left as is while its verifier named a choice. The proposal rejects it for new runs. With the rule kept, the decider's settlement would be overruled whenever a verifier disagreed, which is the disagreement this change removes, and the first screen would keep the items that #115 counted. The case of #107 is covered without it: the decider now sees the choice as a field, and a decision to leave it must say what settles it, which the review shows beside the reason.
+The report left open whether the form should still send to what needs a person a finding that the decider left as is while its verifier named a choice. The proposal rejects it for new runs. With the rule kept, the decider's settlement would be overruled whenever a verifier disagreed, which is the disagreement this change removes, and the first screen would keep the items that #115 counted. The case of #107 is covered without it: the decider now sees the choice as a field, and a decision to leave it as `intended` or `settled` must say what settles it, which the review shows beside the reason. A decision to leave it as outside the change or superseded need not settle it, since deep-review does not act on the finding, and the review then shows the verifier's choice itself beside the reason, so the reader of #107 would still see the choice next to the decision.
 
 ### PD3: The settlement is a field, not the text of the grounds
 
