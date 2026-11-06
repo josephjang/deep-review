@@ -179,6 +179,10 @@ The four conditions of principle 8 do not include a choice that a verifier named
 
 No answer on the ledger is about a settled choice, since the person answers questions and departures. The gate measures the settlements against the author's reading of each (M3), which the principle calls an approximation. A later note can decide whether a person's correction of a settled choice becomes an answer.
 
+### Principle 11, recovery without a person
+
+The proposal departs from this principle in one case it adds. The rules of R2 and R3 are a new way for the decider's answer to be refused, and two refusals stop the run before its report, so a person must resume it, which the principle counts as a person back in the loop (RK3). R9 makes the second refusal less likely, and the stop names its action, a resume, which gives the phase fresh attempts. The proposal builds no further recovery, such as a degraded decision, since the principle permits recovery only for a failure that a run has shown; the gate records each stop, and a stop that real runs show is the case for it.
+
 ### Principle 12, a real run is the gate
 
 R8 is a real run of this pull request, two of #114's change, in English and in Korean, and one of #96's change, each on an open pull request that holds the change's commits, since the engine refuses to review or post a merged one.
