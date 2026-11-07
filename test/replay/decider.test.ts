@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { Checkpoint, evidenceDirectoryName } from '../../src/checkpoint/checkpoint.ts';
@@ -331,5 +331,14 @@ describe('replayDecider', { timeout: 600_000 }, () => {
     const root = checkpointOf(rows.slice(0, decision));
 
     await assert.rejects(replay({ checkpoint: root, output: newDirectory('pending'), printTask: true }), (error: unknown) => error instanceof ReplayRefusedError && /never reached the decision phase: the phase is pending/.test(error.message));
+  });
+
+  it('refuses an output directory inside the tree, named directly or through a link, before anything is written', async () => {
+    const link = newDirectory('tree-link');
+    symlinkSync(box.repo, link, 'junction');
+    for (const output of [join(box.repo, 'replay-out'), join(link, 'replay-out')]) {
+      await assert.rejects(replay({ output, printTask: true }), (error: unknown) => error instanceof ReplayRefusedError && /^The output directory .* is inside the tree /.test(error.message), output);
+      assert.ok(!existsSync(output), `nothing was written at ${output}`);
+    }
   });
 });

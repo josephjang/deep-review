@@ -27,6 +27,7 @@ import { conventionsKnown } from '../checkpoint/survey-state.ts';
 import { EvidenceStore } from '../evidence/store.ts';
 import { ghTokenVariables } from '../github/gh.ts';
 import type { PullRequestFile, PullRequestFileStatus } from '../github/pull-request.ts';
+import { isInside } from '../paths.ts';
 import { briefOf } from '../review/brief.ts';
 import { StructuralCheckError, structuralCheckPrefix } from '../review/errors.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
@@ -50,7 +51,7 @@ import type { WindowsSandbox } from '../runtime/codex.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { defaultRuntimes } from '../runtime/runtimes.ts';
 import { ReplayRefusedError } from './errors.ts';
-import { canonicalPath, isWithin, replayCheckpointDirectoryName, treeDifferences, writeWhole } from './run.ts';
+import { replayCheckpointDirectoryName, treeDifferences, writeWhole } from './run.ts';
 
 /** The deciders a replay launches at most, as the decision phase gives its unit: one and one more after a failure. */
 export const deciderAttempts = 2;
@@ -477,7 +478,7 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
   const differences = treeDifferences(state, tree);
   if (differences.length > 0) throw new ReplayRefusedError(`${tree} is not the tree run ${state.id} reviewed: ${differences.join('; ')}`);
   const output = resolve(options.output);
-  if (isWithin(tree, canonicalPath(output))) throw new ReplayRefusedError(`The output directory ${output} is inside the tree ${tree}, where the decider would read the replay's files and they would read as changes to the tree; give it an output directory outside the tree`);
+  if (isInside(tree, output)) throw new ReplayRefusedError(`The output directory ${output} is inside the tree ${tree}, where the decider would read the replay's files and they would read as changes to the tree; give it an output directory outside the tree`);
   if (existsSync(output) && readdirSync(output).length > 0) throw new ReplayRefusedError(`The output directory ${output} is not empty; give each replay a directory of its own`);
 
   const runtimes = options.runtimes ?? defaultRuntimes();
