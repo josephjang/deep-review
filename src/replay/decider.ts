@@ -13,13 +13,14 @@
  * own workers in a checkpoint of its own under the output directory, and
  * calls real models when given a real runtime.
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { Checkpoint, evidenceDirectoryName } from '../checkpoint/checkpoint.ts';
 import type { RecordedDecision, ScopeFile, ScopeState, WorkerLaunch } from '../checkpoint/events.ts';
 import { applyEvent, firstUnknownEvent, foldRun, type DecodedEvent, type RunState } from '../checkpoint/fold.ts';
-import { Ledger, ledgerFileName } from '../checkpoint/ledger.ts';
+import { busyTimeoutMs, Ledger, ledgerFileName } from '../checkpoint/ledger.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
 import { changeReadingOf } from '../checkpoint/review-fold.ts';
 import { conventionsKnown } from '../checkpoint/survey-state.ts';
@@ -80,8 +81,23 @@ export interface RecordedRun {
 }
 
 /**
+ * A copy of the ledger at `path` in the directory `copy`, taken by SQLite
+ * as one snapshot (`VACUUM INTO`) through a read-only connection, so a run
+ * still writing the ledger, or a checkpoint of its write-ahead log, can
+ * neither tear the copy nor leave it without events the ledger already held.
+ */
+function snapshotLedger(path: string, copy: string): void {
+  const source = new DatabaseSync(path, { readOnly: true, timeout: busyTimeoutMs });
+  try {
+    source.prepare('VACUUM INTO ?').run(join(copy, ledgerFileName));
+  } finally {
+    source.close();
+  }
+}
+
+/**
  * The events of the run of `root` whose id is or starts with `run`, read
- * from a copy of the ledger in a temporary directory, which is removed
+ * from a snapshot of the ledger in a temporary directory, which is removed
  * after: opening a ledger sets its journal mode, which writes. The runs are
  * listed by id with no fold, since a run of the first gate holds a
  * `decisions.recorded@2` of a shape this engine refuses.
@@ -92,7 +108,7 @@ export function readRecordedRun(root: string, run: string): RecordedRun {
   if (!existsSync(ledger)) throw new ReplayRefusedError(`${root} holds no ${ledgerFileName}; --checkpoint names a deep-review-checkpoint directory`);
   const copy = mkdtempSync(join(tmpdir(), 'deep-review-replay-decider-'));
   try {
-    for (const suffix of ['', '-wal']) if (existsSync(`${ledger}${suffix}`)) copyFileSync(`${ledger}${suffix}`, join(copy, `${ledgerFileName}${suffix}`));
+    snapshotLedger(ledger, copy);
     const copied = Ledger.open(copy);
     try {
       const ids = copied.listRuns().map((listed) => listed.id);
