@@ -4,7 +4,7 @@ Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-
 
 ## Summary
 
-The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` and the fold both hold the rules of R2 and R3. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits and when a decision is left as `settled`.
+The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` and the fold both hold the table of R2, which decision may carry a settled choice, must carry one or must not, and with which steps. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for a run decided at version 2 and keeps it for one decided at version 1. The decider's rubric says that a fix edits, when a decision is left as `settled`, and that a choice between two behaviors that nothing stated settles is asked, with keeping the code as the default, even when the order would keep it.
 
 ## Non-Goals
 
@@ -14,7 +14,7 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### No change to the fixer's routes
 
-`routeOfDecision` in `src/checkpoint/fix-state.ts:1019` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer. The fixer's task gains one line, which "The fixer's task" below gives, and nothing else of the fixer changes.
+`routeOfDecision` in `src/checkpoint/fix-state.ts:1019` already routes a `leave` to `held`, so a finding left as `settled` reaches no fixer, and routes to `held` too an `ask` whose applied option does not edit, so an ask whose default keeps the code reaches no fixer either. The fixer's task gains the settled choice of its decision and of each finding that its fix removes, which "The fixer's task" below gives, and nothing else of the fixer changes.
 
 ### No change to what the writer explains
 
@@ -54,14 +54,12 @@ The decision phase builds its task with the failures that the decision unit hold
 
 ### The answer and its check (R2, R3)
 
-`deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']`: the five steps of the rubric's order in its order, then the scope of a fix that keeps to the part inside the change, and no choice remaining. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and refuses an answer in which:
+`deciderOutputSchema` adds to each decision `settled: {choice: text up to 400, by: settleStep, source: text up to 400} | null`, where `settleSteps` in `vocabulary.ts` is `['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']`: the five steps of the rubric's order in its order, then the scope of a fix that keeps to the part inside the change, and no choice remaining. `leaveReasons` becomes `['outside-change-not-regression', 'superseded', 'intended', 'settled']`. `checkDecisions(output, findings)` takes, for each index, whether the finding's resolution names an `authorChoice`, and holds the table of R2 of the requirements. It refuses an answer in which:
 
-- a decision of `fix` with no departure, or of `leave` as `intended` or `settled`, of a finding whose resolution names a choice, has no settled choice;
-- a decision of `leave` as `settled` has no settled choice, or one whose step is not `kept` or `shape`;
-- a decision of `leave` as `intended` has a settled choice whose step is not `intent` or `contract`;
-- a decision of `ask` has one.
-
-A decision of `leave` as `outside-change-not-regression` or `superseded` may carry one or not, since acting on the finding is not deep-review's to choose there.
+- a decision of `fix` with no departure, or of `leave` as `intended`, `settled` or `superseded`, of a finding whose resolution names a choice, has no settled choice;
+- a decision of `leave` as `settled` has no settled choice, whatever its finding's resolution names;
+- a decision of `leave` as `outside-change-not-regression`, or of `ask`, has one;
+- a settled choice names a step that its decision does not allow: `intended` allows `intent` and `contract`, `settled` allows `shape`, `superseded` allows every step but `before`, and `fix`, with or without a departure, allows all seven.
 
 ### The event and the fold (TD1, TD3)
 
@@ -69,14 +67,15 @@ A decision of `leave` as `outside-change-not-regression` or `superseded` may car
 
 ### The rubric (R1, R2, R3)
 
-`decider-rubric.md` changes in six places, in a commit of its own:
+`decider-rubric.md` changes in seven places, in a commit of its own:
 
 1. Its first paragraph names the choice left to the author as a line of the candidate, and still calls it a verifier's view to settle or ask about, not an answer.
 2. "Settling a choice" labels each step of the order with its value, as a list the test of `repository.test.ts` reads, in the form ``- `intent`: the change's stated intent``. The paragraph on a choice between two shapes that only a maintainer would see becomes the fifth item, `shape`, with its whole rule: the one the surrounding code already uses, else the one that adds less. R2's words for `shape` are this rule.
-3. The table of the three decisions says that a `fix` edits the code, names in its `fix` row the two steps outside the order, `none` for "acting needs no choice" and `scope` for the part of a result inside the change, and says that a choice the order settles without an edit is left, as `intended` or `settled`. Its `leave` row says four reasons, not three.
-4. Its list of reasons to leave gains `settled`, in the form the test reads: "`settled`: acting needs a choice, and the order above settles it in favor of the code as it is with nothing stated, by `kept` or `shape`; give the settled choice." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, given with its settled choice by `intent` or `contract`.
+3. The table of the three decisions says that a `fix` edits the code, names in its `fix` row the two steps outside the order, `none` for "acting needs no choice" and `scope` for the part of a result inside the change, and says that a choice the order settles without an edit is not fixed: it is left as `intended` or `settled`, or, when it is a choice between two behaviors that a caller or a user would see and only keeping a behavior that was there before settles it, asked, with a default that keeps the code and does not edit. Its `ask` row names that case, and its `leave` row says four reasons, not three.
+4. Its list of reasons to leave gains `settled`, in the form the test reads: "`settled`: acting needs a choice between two shapes that only a maintainer reading the code would see, nothing stated settles it, and the rule for shapes keeps the code as it is; give the settled choice, by `shape`." The text of `intended` gains its second case: a choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, given with its settled choice by `intent` or `contract`. The text of `superseded` says to give, when the verifier named a choice, the settled choice that the superseding fix makes for the finding, by any step but `before`, and the text of `outside-change-not-regression` says that such a finding carries no settled choice.
 5. A sentence after "Your decision names the choice and its answer" says to record a choice that the decision settles in `settled`, with its step and the source it rests on, and that the choice and the source are written as a question is, in plain words for a person who did not read the change, with no file, line, requirement number or internal name of the code, while the grounds cite; and that a `fix` with a departure records its choice in the departure instead.
 6. The paragraph on a result that lies partly past the change names `scope` as the step of such a fix.
+7. The section of the three decisions ends with the table of R2 of the requirements, which decision may carry a settled choice, must carry one or must not, and with which steps, with the reason of each row.
 
 A test of `repository.test.ts` holds the labels of the order and the two steps of the table, in order, to `settleSteps`, as the test of the leave reasons holds the list of reasons to `leaveReasons`.
 
@@ -90,7 +89,7 @@ The writer's task prints each candidate's verifier choice through `noteLines` (`
 
 ### The fixer's task (R5)
 
-The fixer's task prints each candidate's evidence (`candidateLines`, `tasks.ts:738`), which in a read-only run of a pull request still ends with the verifier's `Needs the author:` note, and such a run can be continued into a fix pass with `--fix`. `decidedLines` (`tasks.ts:750`) prints the grounds, the approach, the rejected options and the departure, and no settlement. A fixer could then hold the verifier's open choice beside an approach that does not spell out how the decision settled it, and make the choice itself, which principle 2 does not permit. `decidedLines` gains, for a `fix` with a settled choice, `        settled: <choice>, by <step>: <source>`, so the fixer applies the choice the decision made. The fixer's task does not get the verifier's choice as a field.
+The fixer's task prints each candidate's evidence (`candidateLines`, `tasks.ts:738`), which in a read-only run of a pull request still ends with the verifier's `Needs the author:` note, and such a run can be continued into a fix pass with `--fix`. `decidedLines` (`tasks.ts:750`) prints the grounds, the approach, the rejected options and the departure, and no settlement. A fixer could then hold the verifier's open choice beside an approach that does not spell out how the decision settled it, and make the choice itself, which principle 2 does not permit. `decidedLines` gains, for a `fix` with a settled choice, `        settled: <choice>, by <step>: <source>`, so the fixer applies the choice the decision made. Each `removes also:` line (`tasks.ts:906`), which names a finding left as `superseded` that the fix removes, gains that finding's settled choice when it has one, in the same form, since the fix acts on that finding too. The fixer's task does not get the verifier's choice as a field.
 
 ### The report on the machine (R6)
 
@@ -111,7 +110,7 @@ Two tests hold today's leave reasons through the frozen vocabulary: `test/checkp
 - `src/review/vocabulary.ts`: `settleSteps` and the fourth leave reason.
 - `src/review/schemas.ts`: the answer and `checkDecisions`.
 - `src/review/phases.ts`: the task's findings and the event's version.
-- `src/review/tasks.ts`: the candidate lines, the decider's task and the fixer's decided lines.
+- `src/review/tasks.ts`: the candidate lines, the decider's task, and the fixer's decided lines and `removes also:` lines.
 - `src/review/explanation.ts`: the writer's decision lines.
 - `src/checkpoint/events.ts`: the event and the vocabulary.
 - `src/checkpoint/review-fold.ts`: the reducers and `decisionsVersion`.
@@ -163,7 +162,7 @@ A test of `deciderTask` that gives a candidate with both notes and holds their t
 
 ### R2 and R3: The answer and its check
 
-Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, and an `intended` leave of a finding with a choice and none, a `settled` leave whose step is `before`, and an `intended` leave whose step is `kept`, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. A test of the decision phase holds that it records version 2 and passes each finding's choice to `checkDecisions`, in place of the test that pins version 1 (`test/review/phases.test.ts:428`). The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
+Tests of `checkDecisions` that refuse a fix of a finding with a choice and no settled choice, a `settled` leave with none, and an ask with one, an `intended` leave and a `superseded` leave of a finding with a choice and none, an `outside-change-not-regression` leave with one, a `settled` leave whose step is `kept`, an `intended` leave whose step is `kept`, and a `superseded` leave whose step is `before`, and accept an `outside-change-not-regression` leave of a finding with a choice and no settled choice. A test of the decision phase holds that it records version 2 and passes each finding's choice to `checkDecisions`, in place of the test that pins version 1 (`test/review/phases.test.ts:428`). The test of `repository.test.ts` that holds the rubric's leave reasons to `leaveReasons` covers the fourth reason, and a new one holds the rubric's steps of the order to `settleSteps`.
 
 ### R2 and TD1: The event and the fold
 
@@ -175,7 +174,7 @@ The four tests of `test/review/pull-request-form.test.ts` that pin the author ru
 
 ### R5: The writer's task
 
-A test of the writer's task that gives a fix with a settled choice and holds its `settled:` line under the decision, and one of the fixer's task that holds the same line in its decided lines.
+A test of the writer's task that gives a fix with a settled choice and holds its `settled:` line under the decision, and one of the fixer's task that holds the same line in its decided lines and the settled choice of a finding left as `superseded` on its `removes also:` line.
 
 ### R6: The report
 
