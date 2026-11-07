@@ -7,7 +7,7 @@ import { settleSteps, type SettleStep } from '../../src/review/vocabulary.ts';
 import { departure, History, unconfirmedFact, withReportForm, worker } from '../helpers/review-history.ts';
 import { pullRequestRun } from '../helpers/pull-request-review.ts';
 
-// Which settled choice each decision may carry (D1 of the settled choice), written out
+// Which settled choice each decision may carry (R2 of the settled choice), written out
 // from the requirement rather than read from the engine's table, so a wrong row there fails.
 type Need = 'required' | 'optional' | 'refused';
 interface Case {
@@ -110,7 +110,7 @@ function holdsAlike(sweep: string | null, decided: readonly Record<string, unkno
 
 const accepted = (need: Need, steps: readonly SettleStep[], by: SettleStep | null): boolean => (by === null ? need !== 'required' : need !== 'refused' && steps.includes(by));
 
-describe('the settled choice each decision may carry, held alike by the decider\'s check and the fold (D1, TD3 of the settled choice)', () => {
+describe('the settled choice each decision may carry, held alike by the decider\'s check and the fold (R2, TD3 of the settled choice)', () => {
   it('is the base run: its first finding names a choice for the author and its second none, and a plain fix of each folds', () => {
     assert.doesNotThrow(() => decidedAt2(null, decisionsOf(cases[1]!.decision, 'RIPPLE-1', [])).fold());
     assert.deepEqual(Object.values(decidedAt2(sweepChoice, decisionsOf(cases[1]!.decision, 'RIPPLE-1', [])).fold().review!.candidates).filter((candidate) => candidate.verdict?.authorChoice != null).map((candidate) => candidate.id), ['RIPPLE-1', 'SWEEP-2']);

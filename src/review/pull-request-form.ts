@@ -104,7 +104,7 @@ const shortCommit = (commit: string): string => commit.slice(0, 8);
  * What a body over the limit is cut of, in this order (TD5 of the review
  * that reads as a report): the refuted candidates, then the findings left
  * as is whose verifier named no choice for the author, which a cut keeps
- * (D9 of the settled choice), then the table of the minor findings, each of which has its
+ * (R4 of the settled choice), then the table of the minor findings, each of which has its
  * comment on its line or its text in full above, then the diagrams of the
  * areas. What needs a person, the areas and the findings in full are never
  * cut.
@@ -657,7 +657,7 @@ const minorActing = (view: FormView): FindingView[] => {
 /** The findings left as is, in rank order, whatever their verifiers named (R4 of the settled choice). */
 const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding));
 
-/** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4, D9 of the settled choice). */
+/** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4 of the settled choice). */
 const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
 
 /** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
@@ -680,7 +680,7 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
  * The findings left as is, folded, each with why, the choice beside its
  * decision and its line (R4 of the settled choice); or, cut, those whose
  * verifier named a choice and the note in place of the others, or the
- * note in place of them all when none named one (D9).
+ * note in place of them all when none named one.
  */
 function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;

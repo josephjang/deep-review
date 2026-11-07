@@ -1215,7 +1215,7 @@ export interface DeciderTaskFinding {
   readonly candidates: readonly DeciderTaskCandidate[];
 }
 
-/** What each step that settles a choice means, as the decider's task defines it, so a run resumed with an older rubric is told the steps too (D6 of the settled choice). */
+/** What each step that settles a choice means, as the decider's task defines it, so a run resumed with an older rubric is told the steps too (RK4 of the settled choice). */
 const settleStepMeanings: Readonly<Record<SettleStep, string>> = {
   intent: 'the change\'s stated intent settles it',
   contract: 'the repository\'s stated contract settles it',

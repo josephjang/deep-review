@@ -303,7 +303,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
   const withDecision = (state: RunState, id: string, change: Record<string, unknown>): RunState => ({ ...state, review: { ...state.review!, decisions: state.review!.decisions!.map((decision) => (decision.id === id ? { ...decision, ...change } as typeof decision : decision)) } });
   const settled = { for: ['RIPPLE-1'], choice: 'Parse keeps returning null on an empty file.', by: 'contract', source: 'The documentation of parse says that an empty file gives null.' };
 
-  it('folds a finding left as is whose verifier named a choice with the findings left as is, and shows the choice there as the verifier\'s, which deep-review did not settle (R4; D2, D3 of the settled choice)', () => {
+  it('folds a finding left as is whose verifier named a choice with the findings left as is, and shows the choice there as the verifier\'s, which deep-review did not settle (R4; PD8, PD7 of the settled choice)', () => {
     const state = withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice });
     const body = formOf(state).body;
     excludes(section(body, '### What needs a person'), 'Finding 1');
@@ -311,7 +311,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     inOrder(leftOf(body), ['**1. ', 'Why: ', `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`, 'Code at the reviewed head:']);
   });
 
-  it('gives a finding left as is no text in full, since it asks no person to act, and shows it only in the findings left as is (D3 of the settled choice)', () => {
+  it('gives a finding left as is no text in full, since it asks no person to act, and shows it only in the findings left as is (PD7 of the settled choice)', () => {
     const state = withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice });
     const full = writerAnswer();
     const asked = findingsToExplain(state.review!);
@@ -321,7 +321,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     includes(leftOf(body), '<a id="finding-1"></a>');
   });
 
-  it('says in the summary that nothing needs to change when every finding is left as is, whatever their verifiers named (D3 of the settled choice)', () => {
+  it('says in the summary that nothing needs to change when every finding is left as is, whatever their verifiers named (PD7 of the settled choice)', () => {
     const answer = { ...writerAnswer(), conclusion: { ...writerAnswer().conclusion, actions: [] } };
     const withChoice = withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice });
     for (const state of [withChoice, run([leftIntended, decisions[1]]).fold()]) includes(section(formOf(state, answer).body, '### Summary'), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
@@ -337,7 +337,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     includes(leftOf(body), `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`);
   });
 
-  it('shows beside a finding left as is the choice its decision settles, the step in the review\'s words and its source, after the verifier\'s choice (R4, D2 of the settled choice)', () => {
+  it('shows beside a finding left as is the choice its decision settles, the step in the review\'s words and its source, after the verifier\'s choice (R4, PD8 of the settled choice)', () => {
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [settled] });
     includes(leftOf(formOf(state).body), `**The choice.** Its verifier left this choice to the author: ${choice} deep-review decided: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`);
     const unnamed = withDecision(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { leave: { reason: 'settled', supersededBy: null }, settled: [{ ...settled, for: [], by: 'shape' }] });
@@ -347,7 +347,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     excludes(leftOf(formOf(run([leftIntended, decisions[1]]).fold()).body), '**The choice.**');
   });
 
-  it('shows in a fix\'s comment, after what deep-review would do, the choice it settles, and the verifier\'s choice beside it (R5, D2 of the settled choice)', () => {
+  it('shows in a fix\'s comment, after what deep-review would do, the choice it settles, and the verifier\'s choice beside it (R5, PD8 of the settled choice)', () => {
     const settledFix = withDecision(withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [{ ...settled, by: 'intent' }] });
     inOrder(formOf(settledFix).comments[0]!.body, ['**What deep-review would do.**', `**The choice.** Its verifier left this choice to the author: ${choice} deep-review decided: Parse keeps returning null on an empty file. What settles it: the stated intent of the change.`, '**This fix goes against a written rule.**', '<details><summary>The fix as decided</summary>']);
     const departing = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
@@ -395,7 +395,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     includes(leftOf(form.body), `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review did not settle it.`);
   });
 
-  it('keeps, when it cuts the findings left as is, those whose verifier named a choice, and gives the others their count (R4, D9 of the settled choice)', () => {
+  it('keeps, when it cuts the findings left as is, those whose verifier named a choice, and gives the others their count (R4 of the settled choice)', () => {
     // Grounds longer than a decider gives, so that the body overflows by the finding a cut takes.
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) });
     const form = formOf(state);
