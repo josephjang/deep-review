@@ -212,10 +212,10 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   return facts.changedFiles;
 }
 
-/** A cut of the body as a dry run names it (R12). */
+/** A cut of the body as a dry run names it (R12); the cut of the findings left as is keeps those whose verifier named a choice (R4 of the settled choice). */
 const cutWords: Readonly<Record<BodyCut, string>> = {
   refuted: 'the refuted candidates',
-  left: 'the findings left as is',
+  left: 'the findings left as is whose verifiers named no choice',
   'minor-table': 'the table of the minor findings',
   'area-diagrams': 'the diagrams of the areas',
 };

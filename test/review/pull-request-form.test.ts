@@ -4,6 +4,7 @@ import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { diagramFailures, findingsToExplain, type ExplainedFinding, type RecordedAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
+import { dryRunLines } from '../../src/review/publish.ts';
 import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
@@ -404,6 +405,13 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     includes(left, `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`);
     includes(left, 'To fit the length GitHub takes, the other finding left as is is not listed here; the report of the run holds it.');
     excludes(form.body, 'g'.repeat(100));
+  });
+
+  it('names, in a dry run, the cut of the findings left as is as of those whose verifiers named no choice, since it keeps the others (R4 of the settled choice)', () => {
+    const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) });
+    const form = formOf(state);
+    assert.deepEqual(form.cuts, ['refuted', 'left']);
+    assert.ok(dryRunLines(state, [], form, []).includes('Cut from the body to fit: the refuted candidates, then the findings left as is whose verifiers named no choice.'), form.cuts.join());
   });
 });
 
