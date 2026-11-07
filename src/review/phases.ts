@@ -22,7 +22,7 @@ import type { WorkerReceipt } from '../runtime/launcher.ts';
 import { checkCitedVerdicts } from './cited-runs.ts';
 import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
-import { StructuralCheckError } from './errors.ts';
+import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
 import { writtenVersion } from './event-versions.ts';
 import { writerContribution, writerTask, type ExplanationEvent } from './explanation.ts';
 import { attemptRevisionEvents, comparesWithBase, fixAnswerEvents, type AnswerContext, type RevisionContext } from './fix-events.ts';
@@ -794,7 +794,7 @@ export function contributionOf(unit: Unit, receipt: WorkerReceipt, context: Cont
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review, context)];
   } catch (error) {
-    if (error instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error.message}`, context);
+    if (error instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `${structuralCheckPrefix}${error.message}`, context);
     throw error;
   }
 }

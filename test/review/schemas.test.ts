@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { changeReadingSchema, changeTextLengthV1, citedRunLimitsV1, verdictsRecordedV2 } from '../../src/checkpoint/events.ts';
-import { StructuralCheckError } from '../../src/review/errors.ts';
+import { StructuralCheckError, structuralCheckPrefix } from '../../src/review/errors.ts';
 import {
   changeSourceLimits,
   checkDecisions,
@@ -26,7 +26,7 @@ import {
   verifierOutputSchemaV2,
   type DeciderOutput,
 } from '../../src/review/schemas.ts';
-import { finderAngles, reviewRoles } from '../../src/review/vocabulary.ts';
+import { finderAngles, maxRecordedTextLength, reviewRoles } from '../../src/review/vocabulary.ts';
 import { compileOutputSchema } from '../../src/runtime/contract.ts';
 import { deciderAnswer, type DecidedFinding } from '../helpers/fake-runtime.ts';
 
@@ -430,5 +430,25 @@ describe('the decider\'s output schema and its structural check (R3 of the decis
     assert.throws(() => checkDecisions(superseded(0, [{ decision: 'ask' }]), 2), /superseded by \[0\], which is not another finding of the task decided fix/);
     const intended = parsed([{}, { decision: 'leave', reason: 'intended', supersededBy: 0 }]);
     assert.throws(() => checkDecisions(intended, 2), /Decision \[1\] is left as intended and names a superseding finding, which only a superseded one does/);
+  });
+
+  it('names every fault of an answer in one refusal, each with its decision, so the next attempt is told all of them at once', () => {
+    const output = parsed([{}, { decision: 'ask' }, {}]);
+    const broken = changed(changed(output, 0, { fix: null }), 1, { departure: { rule: 'r', source: 's', reason: 'r' } });
+    assert.throws(() => checkDecisions({ decisions: broken.decisions.slice(0, 2) }, 3), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.equal(error.message, 'The answer breaks 3 rules: Decision [0] is fix and has no `fix`; Decision [1] is ask and departs from a rule, which only a fix does; The answer leaves out finding [2] of the 3 the task gave');
+      return true;
+    });
+  });
+
+  it('keeps a refusal of many faults within what a failed attempt records, counting those it leaves out', () => {
+    const output = parsed(Array.from({ length: 300 }, () => ({ decision: 'leave' as const, reason: 'superseded' as const })));
+    assert.throws(() => checkDecisions(output, 300), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.ok(`${structuralCheckPrefix}${error.message}`.length <= maxRecordedTextLength, String(error.message.length));
+      assert.match(error.message, /^The answer breaks 300 rules: Decision \[0\] is superseded and names no finding that supersedes it; .*; and [0-9]+ more$/);
+      return true;
+    });
   });
 });

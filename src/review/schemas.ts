@@ -10,8 +10,8 @@ import { z } from 'zod';
 import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, verifierNoteLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
-import { StructuralCheckError } from './errors.ts';
-import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type ReviewRole } from './vocabulary.ts';
+import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
+import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, maxRecordedTextLength, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type DecisionKind, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -586,41 +586,72 @@ export function checkMergeRank(output: MergeRankOutput, count: number): void {
   if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(', ')} of the ${String(count)} candidates on the working list`);
 }
 
+/** What one decision of a decider's answer breaks, each fault a sentence that names the decision by its index and the rule. */
+function decisionFaults(entry: DeciderOutput['decisions'][number], count: number, kindOf: ReadonlyMap<number, DecisionKind>): string[] {
+  const what = `Decision [${String(entry.index)}]`;
+  if (entry.index >= count) return [`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`];
+  const faults: string[] = [];
+  for (const kind of decisionKinds) {
+    if ((entry.decision === kind) !== (entry[kind] !== null)) faults.push(entry.decision === kind ? `${what} is ${kind} and has no \`${kind}\`` : `${what} is ${entry.decision} and carries \`${kind}\`, which only a ${kind} decision does`);
+  }
+  if (entry.departure !== null && entry.decision !== 'fix') faults.push(`${what} is ${entry.decision} and departs from a rule, which only a fix does`);
+  if (entry.ask !== null) {
+    const options = entry.ask.options.length;
+    for (const [name, value] of [['recommends', entry.ask.recommended], ['applies', entry.ask.applied]] as const) {
+      if (value >= options) faults.push(`${what} ${name} option ${String(value)}, but its question offers options 0 to ${String(options - 1)}`);
+    }
+  }
+  if (entry.leave !== null) {
+    const by = entry.leave.supersededBy;
+    if (entry.leave.reason === 'superseded' && by === null) faults.push(`${what} is superseded and names no finding that supersedes it`);
+    if (entry.leave.reason !== 'superseded' && by !== null) faults.push(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
+    else if (by !== null && (by === entry.index || by >= count || kindOf.get(by) !== 'fix')) faults.push(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
+  }
+  return faults;
+}
+
+/**
+ * The faults of an answer as the message of one refusal, within what a
+ * failed attempt records of it after `structuralCheckPrefix`: one fault
+ * alone, or each in turn, with the count of those left out when the rest
+ * would not fit.
+ */
+function faultsMessage(faults: readonly string[]): string {
+  if (faults.length === 1) return faults[0]!;
+  const room = maxRecordedTextLength - structuralCheckPrefix.length;
+  const head = `The answer breaks ${String(faults.length)} rules: `;
+  const listed: string[] = [];
+  for (const [position, fault] of faults.entries()) {
+    const left = faults.length - position - 1;
+    const tail = left === 0 ? '' : `; and ${String(left)} more`;
+    if ((head + [...listed, fault].join('; ') + tail).length > room) return `${head}${listed.join('; ')}; and ${String(faults.length - position)} more`;
+    listed.push(fault);
+  }
+  return `${head}${listed.join('; ')}`;
+}
+
 /**
  * Refuse a decider answer that does not decide each finding of the task
  * once, that gives a decision any part but its own or lacks it, that
  * departs from a rule on anything but a fix, that recommends or applies
  * an option the question does not offer, or that leaves a finding as
  * superseded without naming another finding it decides `fix`, or names
- * one for another reason.
+ * one for another reason. Every fault of the answer is named in the one
+ * refusal, so the next attempt is told all it must change at once.
  */
 export function checkDecisions(output: DeciderOutput, count: number): void {
   const seen = new Set<number>();
   const kindOf = new Map(output.decisions.map((entry) => [entry.index, entry.decision]));
+  const faults: string[] = [];
   for (const entry of output.decisions) {
-    const what = `Decision [${String(entry.index)}]`;
-    if (entry.index >= count) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`);
-    if (seen.has(entry.index)) throw new StructuralCheckError(`${what} is given twice`);
+    if (seen.has(entry.index)) {
+      faults.push(`Decision [${String(entry.index)}] is given twice`);
+      continue;
+    }
     seen.add(entry.index);
-    for (const kind of decisionKinds) {
-      if ((entry.decision === kind) !== (entry[kind] !== null)) {
-        throw new StructuralCheckError(entry.decision === kind ? `${what} is ${kind} and has no \`${kind}\`` : `${what} is ${entry.decision} and carries \`${kind}\`, which only a ${kind} decision does`);
-      }
-    }
-    if (entry.departure !== null && entry.decision !== 'fix') throw new StructuralCheckError(`${what} is ${entry.decision} and departs from a rule, which only a fix does`);
-    if (entry.ask !== null) {
-      const options = entry.ask.options.length;
-      for (const [name, value] of [['recommends', entry.ask.recommended], ['applies', entry.ask.applied]] as const) {
-        if (value >= options) throw new StructuralCheckError(`${what} ${name} option ${String(value)}, but its question offers options 0 to ${String(options - 1)}`);
-      }
-    }
-    if (entry.leave !== null) {
-      const by = entry.leave.supersededBy;
-      if (entry.leave.reason === 'superseded' && by === null) throw new StructuralCheckError(`${what} is superseded and names no finding that supersedes it`);
-      if (entry.leave.reason !== 'superseded' && by !== null) throw new StructuralCheckError(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
-      if (by !== null && (by === entry.index || by >= count || kindOf.get(by) !== 'fix')) throw new StructuralCheckError(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
-    }
+    faults.push(...decisionFaults(entry, count, kindOf));
   }
   const missing = missingIndexes(seen, count);
-  if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(', ')} of the ${String(count)} the task gave`);
+  if (missing.length > 0) faults.push(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(', ')} of the ${String(count)} the task gave`);
+  if (faults.length > 0) throw new StructuralCheckError(faultsMessage(faults));
 }
