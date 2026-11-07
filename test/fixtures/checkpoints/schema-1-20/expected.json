@@ -14792,7 +14792,8 @@
             "patches": []
           },
           "at": "2026-09-26T00:00:684.000Z",
-          "checkCount": 11
+          "checkCount": 11,
+          "sequence": 685
         },
         "fix": {
           "checks": {
@@ -20259,7 +20260,8 @@
             "patches": []
           },
           "at": "2026-09-26T00:00:955.000Z",
-          "checkCount": 11
+          "checkCount": 11,
+          "sequence": 956
         },
         "fix": {
           "checks": {

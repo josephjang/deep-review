@@ -274,12 +274,15 @@ export interface ReviewState extends AnswerState {
   /**
    * The read-only report of a run continued into the fix pass, with when
    * the continuation was recorded and how many worktree checks the run held
-   * then (R6, R7 of fix pass continuation); null for a run never continued.
-   * The continuation clears `report`, so the second report takes its place
-   * and this one stays beside it, as an answer pass keeps the report it
-   * replaces (`AnswerPass.reportBefore`).
+   * then (R6, R7 of fix pass continuation), and the sequence of the
+   * `fix.pinned` event that continued it, before which the ledger holds the
+   * finished read-only run that `publish` posts (R5 of the review of a fix
+   * run); null for a run never continued. The continuation clears
+   * `report`, so the second report takes its place and this one stays
+   * beside it, as an answer pass keeps the report it replaces
+   * (`AnswerPass.reportBefore`).
    */
-  readonly continuedFrom: { readonly report: ReportWritten; readonly at: string; readonly checkCount: number } | null;
+  readonly continuedFrom: { readonly report: ReportWritten; readonly at: string; readonly checkCount: number; readonly sequence: number } | null;
   /** The fix pass's state, or null for a run configured without it and not continued into it, including every run recorded before it existed. */
   readonly fix: FixState | null;
   /** The survey's state, or null for a run configured before the survey existed, whose survey phase is skipped. */

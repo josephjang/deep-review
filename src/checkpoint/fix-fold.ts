@@ -569,7 +569,7 @@ function pinFix(state: RunState | undefined, payload: Omit<FixPinned, 'plannedCh
   for (const phase of configuredPhases(review, fixPhases)) phaseStates[phase] = { status: 'pending', attempt: 0 };
   for (const phase of reopened) phaseStates[phase] = { status: 'pending', attempt: review.phases[phase].attempt };
   const configuration = { ...review.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings };
-  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: 'continuation', continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length } }, event);
+  return withReview(current, { ...review, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: 'continuation', continuedFrom: { report: review.report, at: event.recordedAt, checkCount: review.checks.length, sequence: event.sequence } }, event);
 }
 
 /** A version 1 pin, recorded before the settings existed: its flags' checks read as settings of the flag layer, and it records no fix side. */

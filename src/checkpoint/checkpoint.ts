@@ -109,6 +109,18 @@ export class Checkpoint {
   }
 
   /**
+   * The run's state from its events whose sequence is lower than
+   * `sequence`: the run as it stood before that event, as `publish` reads a
+   * run continued into the fix pass before its `fix.pinned` (R5 of the
+   * review of a fix run). An event this engine does not declare among them
+   * is refused by `UnreadableRunError`, as `fold` refuses it.
+   */
+  foldBefore(runId: string, sequence: number): RunState {
+    if (!this.ledger.hasRun(runId)) throw new UnknownRunError(runId);
+    return this.#readable(runId, this.ledger.events(runId).map(decode).filter((event) => event.sequence < sequence));
+  }
+
+  /**
    * Every run of the ledger, in ledger order: its state, or an unreadable
    * entry for a run holding an event this engine does not declare. It
    * never throws for such a run, which another engine build may have

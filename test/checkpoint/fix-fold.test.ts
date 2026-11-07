@@ -620,7 +620,7 @@ describe('the continuation into the fix pass', () => {
     assert.equal(review.report, null);
     assert.equal(before.reportSetAsideBy, null, 'a current report is set aside by nothing');
     assert.equal(review.reportSetAsideBy, 'continuation');
-    assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt, checkCount: before.checks.length });
+    assert.deepEqual(review.continuedFrom, { report: before.report, at: history.events.at(-1)!.recordedAt, checkCount: before.checks.length, sequence: history.events.at(-1)!.sequence });
     assert.ok(before.checks.length > 0, 'the read-only phases checked the worktree');
     assert.deepEqual(review.ranking, before.ranking);
     assert.deepEqual(review.decisions, before.decisions);
