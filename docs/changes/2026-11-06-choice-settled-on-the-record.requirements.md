@@ -99,7 +99,7 @@ Whether a decision may carry a settled choice, must carry one or must not, and w
 | `leave` as `outside-change-not-regression` | refused | refused | no settled choice |
 | `ask` | refused | refused | no settled choice |
 
-A fix acts on the finding, so it records the choice it makes. A fix with a departure need not, since its departure records how the decision went against the order. `intended` names one of the two steps that are statements, and `settled` always names `shape` (R3). A finding left as `superseded` is acted on by the fix that removes what it names, so it records the choice that fix makes for it, with the steps of a fix but `before`: that step restores what the change altered by an edit of the finding's own, which would make the finding a fix of its own. A finding left as outside the change is one that deep-review does not act on, so no choice is settled for it, and an ask's question is the record of its choice. The engine refuses an answer that breaks the table, as it refuses an answer that breaks any other rule of the decisions today. Where the table makes a settled choice optional, the rubric still asks the decider to record each choice it settles.
+A fix acts on the finding, so it records the choice it makes. A fix with a departure need not, since its departure records how the decision went against the order. `intended` names one of the two steps that are statements, and `settled` always names `shape` (R3). A finding left as `superseded` is acted on by the fix that removes what it names, so it records the choice that fix makes for it, with the steps of a fix but `before`: that step restores what the change altered by an edit of the finding's own, which would make the finding a fix of its own. A finding left as outside the change is one that deep-review does not act on, so no choice is settled for it, and an ask's question is the record of its choice. The engine refuses an answer that breaks the table, as it refuses an answer that breaks any other rule of the decisions today. The decider's task, which the engine writes in every run, states the seven steps with one line each and this table, so a decider whose role prompt predates this change, as in a run resumed with its old roles directory (RK4), is told them too; the rubric says the same at more length. Where the table makes a settled choice optional, the rubric still asks the decider to record each choice it settles.
 
 ### R3: A choice kept as the code is, is never a fix
 
@@ -213,7 +213,7 @@ No answer on the ledger is about a settled choice, since the person answers ques
 
 ### Principle 11, recovery without a person
 
-The proposal departs from this principle in one case it adds. The rules of R2 and R3 are a new way for the decider's answer to be refused, and two refusals stop the run before its report, so a person must resume it, which the principle counts as a person back in the loop (RK3). R9 makes the second refusal less likely, and the stop names its action, a resume, which gives the phase fresh attempts. A resume clears the failures that R9 names, so the decider after it starts without them; the proposal accepts this, since after the resume the second attempt is again told what the first broke. The proposal builds no further recovery, such as a degraded decision, since the principle permits recovery only for a failure that a run has shown; the gate records each stop, and a stop that real runs show is the case for it.
+The proposal departs from this principle in one case it adds. The rules of R2 and R3 are a new way for the decider's answer to be refused, and two refusals stop the run before its report, so a person must resume it, which the principle counts as a person back in the loop (RK3). R9 makes the second refusal less likely, and the stop names its action, a resume, which gives the phase fresh attempts. A resume clears the failures that R9 names, so the decider after it starts without them; the proposal accepts this, since after the resume the second attempt is again told what the first broke. The decider's task states the steps and the table of R2 in every run, so a run resumed with its old roles directory is not stopped for rules that its rubric never stated (RK4). The proposal builds no further recovery, such as a degraded decision, since the principle permits recovery only for a failure that a run has shown; the gate records each stop, and a stop that real runs show is the case for it.
 
 ### Principle 12, a real run is the gate
 
@@ -235,7 +235,7 @@ The new rules of R2 and R3 refuse a whole answer when one decision breaks them, 
 
 ### RK4: A run started before the change cannot resume after it
 
-The decider's role prompt changes, so a run configured before the change and resumed after it is refused with the action to name the old roles directory (`--roles <dir>`), as for every earlier edit of a fragment.
+The decider's role prompt changes, so a run configured before the change and resumed after it is refused with the action to name the old roles directory (`--roles <dir>`), as for every earlier edit of a fragment. A run resumed so has a rubric that defines neither the steps nor `settled`, so the decider's task states both, with the table of R2, and such a run is not refused for rules that its rubric never stated.
 
 ### RK5: A rerun differs for reasons other than the decider
 

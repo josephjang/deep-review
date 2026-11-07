@@ -44,9 +44,9 @@ The decider's task gains one line per candidate: the choice its verifier leaves 
 
 ## Design
 
-### The decider's task (R1)
+### The decider's task (R1, R2)
 
-`DeciderTaskFinding` gives each candidate `authorChoice`, read from the candidate's verdict, null for a run whose verdicts lack it. `candidateLines` prints it when it is given, as `choice left to the author: <text>`, after the evidence. The verdict's `unconfirmed` is not passed: no rule reads it, and the evidence line already ends with what keeps a `PLAUSIBLE` verdict from `CONFIRMED` (`roles/fragments/rubrics.md`). The fixer's task passes no `authorChoice`, so its lines do not change. `deciderTask`'s text names the line and the settled choice of the answer.
+`DeciderTaskFinding` gives each candidate `authorChoice`, read from the candidate's verdict, null for a run whose verdicts lack it. `candidateLines` prints it when it is given, as `choice left to the author: <text>`, after the evidence. The verdict's `unconfirmed` is not passed: no rule reads it, and the evidence line already ends with what keeps a `PLAUSIBLE` verdict from `CONFIRMED` (`roles/fragments/rubrics.md`). The fixer's task passes no `authorChoice`, so its lines do not change. `deciderTask`'s text names the line and the settled choice of the answer. It also states the seven steps, one line each, and the table of R2 of the requirements, which decision may carry a settled choice, must carry one or must not, and with which steps. The task states them because `deciderTask` is engine code that every run receives, while a run resumed with its old roles directory has a rubric that defines neither the steps nor `settled` (RK4 of the requirements).
 
 ### A refused answer, named to the next attempt (R9)
 
@@ -124,7 +124,7 @@ Two tests hold today's leave reasons through the frozen vocabulary: `test/checkp
 
 ### TD1: A new version of `decisions.recorded`, which any run may record
 
-`verdicts.recorded` follows the run's configuration, because a run records many of them and must never mix two answers (R9 of runs on the record). `explanation.recorded` follows it too, though a run records it once: a run of a pull request that an earlier engine configured keeps its writer's answer as it was when this engine resumes it (`events.ts:2722`, `review-fold.ts:855`). Decisions depart from that precedent. Tying them to the configuration would take a new version of `review.configured` for each of the two configurations an engine writes today, version 11 for a read-only run of a pull request, which explains its review, and version 9 for every other run (`controller.ts:1414`), to spare a run configured before the change and resumed after it the new answer. A run records its decisions once, so it cannot mix two versions, and the fold accepts either version in any run without a new version of `review.configured`. The engine of this change always records version 2. A run configured before the change and resumed after it with its old roles records version 2 too, from a decider whose rubric does not name the settled choice. The schema still asks for the field, and a check that refuses the answer runs the decider again (RK3 of the requirements).
+`verdicts.recorded` follows the run's configuration, because a run records many of them and must never mix two answers (R9 of runs on the record). `explanation.recorded` follows it too, though a run records it once: a run of a pull request that an earlier engine configured keeps its writer's answer as it was when this engine resumes it (`events.ts:2722`, `review-fold.ts:855`). Decisions depart from that precedent. Tying them to the configuration would take a new version of `review.configured` for each of the two configurations an engine writes today, version 11 for a read-only run of a pull request, which explains its review, and version 9 for every other run (`controller.ts:1414`), to spare a run configured before the change and resumed after it the new answer. A run records its decisions once, so it cannot mix two versions, and the fold accepts either version in any run without a new version of `review.configured`. The engine of this change always records version 2. A run configured before the change and resumed after it with its old roles records version 2 too, from a decider whose rubric does not name the settled choice, its steps or `settled`. The schema still asks for the field, the decider's task states the steps and the table of R2 ("The decider's task" above), and a check that refuses the answer runs the decider again with what failed (R9 and RK3 of the requirements).
 
 ### TD2: The step is an enum that the engine words, and the source is text
 
@@ -158,7 +158,7 @@ The decider now reads the choice as a field, so the note in the evidence is read
 
 ### R1: The decider's task
 
-A test of `deciderTask` that gives a candidate with an `authorChoice` and an `unconfirmed` and holds the line of the choice and no line of `unconfirmed`, and one that gives the fixer's task the same candidate and holds that the line of the choice is not printed.
+A test of `deciderTask` that gives a candidate with an `authorChoice` and an `unconfirmed` and holds the line of the choice and no line of `unconfirmed`, and one that gives the fixer's task the same candidate and holds that the line of the choice is not printed. A test holds that the decider's task states each of the seven steps on a line of its own and each row of the table of R2.
 
 ### R2 and R3: The answer and its check
 
