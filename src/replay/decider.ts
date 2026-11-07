@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Checkpoint, evidenceDirectoryName } from '../checkpoint/checkpoint.ts';
-import type { RecordedDecision, ScopeState } from '../checkpoint/events.ts';
+import type { RecordedDecision, ScopeFile, ScopeState } from '../checkpoint/events.ts';
 import { applyEvent, firstUnknownEvent, foldRun, type DecodedEvent, type RunState } from '../checkpoint/fold.ts';
 import { Ledger, ledgerFileName } from '../checkpoint/ledger.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
@@ -231,16 +231,98 @@ export function deciderFacts(state: RunState): DeciderFacts {
 /** How a scope file's status reads as GitHub lists a file of a pull request. */
 const listedStatus: Readonly<Record<ScopeState['files'][number]['status'], PullRequestFileStatus>> = { added: 'added', modified: 'modified', deleted: 'removed' };
 
+/** The bytes git's C-style quoting of a path (`quote_c_style`) writes as a backslash and a letter, by that letter. */
+const quotedLetters: Readonly<Record<string, number>> = { a: 0x07, b: 0x08, t: 0x09, n: 0x0a, v: 0x0b, f: 0x0c, r: 0x0d, '"': 0x22, '\\': 0x5c };
+
+/**
+ * The path a C-style quoted name of git's holds, read from `text` from the
+ * quote at `start` to its closing quote, with the index past that quote; null
+ * when `text` holds no well-formed quoted name there. git quotes a path that
+ * holds a byte it cannot write as is, such as a quote, a control character
+ * or, unless core.quotePath is false, a byte of a non-ASCII character, which
+ * it writes as three octal digits; those bytes read as UTF-8.
+ */
+function quotedName(text: string, start: number): { readonly name: string; readonly end: number } | null {
+  if (text[start] !== '"') return null;
+  const bytes: number[] = [];
+  for (let index = start + 1; index < text.length;) {
+    const character = String.fromCodePoint(text.codePointAt(index)!);
+    if (character === '"') return { name: Buffer.from(bytes).toString('utf8'), end: index + 1 };
+    if (character !== '\\') {
+      bytes.push(...Buffer.from(character, 'utf8'));
+      index += character.length;
+      continue;
+    }
+    const escaped = text[index + 1];
+    const octal = /^[0-3][0-7]{2}/.exec(text.slice(index + 1, index + 4));
+    if (octal !== null) {
+      bytes.push(Number.parseInt(octal[0], 8));
+      index += 4;
+    } else if (escaped !== undefined && Object.hasOwn(quotedLetters, escaped)) {
+      bytes.push(quotedLetters[escaped]!);
+      index += 2;
+    } else return null;
+  }
+  return null;
+}
+
+/** A name of a patch as git writes it, quoted or as is, read whole; null for a quoted name that is not well formed or does not fill `text`. */
+function patchName(text: string): string | null {
+  if (!text.startsWith('"')) return text;
+  const quoted = quotedName(text, 0);
+  return quoted !== null && quoted.end === text.length ? quoted.name : null;
+}
+
+/**
+ * The path a file's part of a patch changes, on its new side, or null when
+ * the part does not say it plainly. A rename or a copy names it on its own
+ * line, `rename to` or `copy to`, since the two sides of its header differ.
+ * Otherwise the header names the path twice, `diff --git a/<path> b/<path>`:
+ * a quoted new side is read up to its quote, and an unquoted header is read
+ * as the two sides equal, so a path that holds ` b/` is not split there.
+ */
+export function newPathOfPatchPart(part: string): string | null {
+  const [first, ...rest] = part.split('\n');
+  if (!first!.startsWith('diff --git ')) return null;
+  const header = first!.slice('diff --git '.length);
+  for (const line of rest) {
+    // The extended header lines end where the content of the part starts.
+    if (line.startsWith('--- ') || line.startsWith('@@') || line.startsWith('Binary files ') || line === 'GIT binary patch') break;
+    const named = /^(?:rename|copy) to (.+)$/.exec(line);
+    if (named !== null) return patchName(named[1]!);
+  }
+  if (header.endsWith('"')) {
+    // Neither side holds a space before a quote: an unquoted name holds no quote, and a quoted one escapes it.
+    const newSide = quotedName(header, header.lastIndexOf(' "') + 1);
+    return newSide !== null && newSide.end === header.length && newSide.name.startsWith('b/') ? newSide.name.slice(2) : null;
+  }
+  if (header.startsWith('"')) {
+    const oldSide = quotedName(header, 0);
+    return oldSide !== null && header.startsWith(' b/', oldSide.end) ? header.slice(oldSide.end + 3) : null;
+  }
+  const path = header.slice(2, 2 + (header.length - 5) / 2);
+  return header === `a/${path} b/${path}` ? path : null;
+}
+
 /**
  * The files of the change with their patches, in place of the list
- * `publish` reads from GitHub: each file the run captured, with its part
- * of the patch it captured. A file `scope.exclude` left out is not among
- * them, so a finding on one reads as on a file the pull request does not
- * change, which places it in the body as GitHub's list would.
+ * `publish` reads from GitHub: each file of `files`, with the part of
+ * `patch` whose new side is its path. A file `scope.exclude` left out is
+ * not among them, so a finding on one reads as on a file the pull request
+ * does not change, which places it in the body as GitHub's list would.
  */
+export function patchFiles(files: readonly Pick<ScopeFile, 'path' | 'status'>[], patch: string): PullRequestFile[] {
+  const parts = new Map<string, string>();
+  for (const part of patch.split(/^(?=diff --git )/m)) {
+    const path = newPathOfPatchPart(part);
+    if (path !== null && !parts.has(path)) parts.set(path, part);
+  }
+  return files.map((file) => ({ path: file.path, status: listedStatus[file.status], previousPath: null, patch: parts.get(file.path) ?? null }));
+}
+
+/** The files of the change with the patches the run captured, as `patchFiles` reads them. */
 function capturedFiles(scope: ScopeState, evidence: EvidenceStore): PullRequestFile[] {
-  const parts = evidence.read(scope.patch).toString('utf8').split(/^(?=diff --git )/m);
-  return scope.files.map((file) => ({ path: file.path, status: listedStatus[file.status], previousPath: null, patch: parts.find((part) => part.split('\n', 1)[0]!.endsWith(` b/${file.path}`)) ?? null }));
+  return patchFiles(scope.files, evidence.read(scope.patch).toString('utf8'));
 }
 
 /** The lines `publish --dry-run` prints for a decided run of a pull request, with no writer's answer, or the refusal of a form that does not fit. */

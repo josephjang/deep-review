@@ -6,15 +6,18 @@ import { Checkpoint, evidenceDirectoryName } from '../../src/checkpoint/checkpoi
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { Ledger, ledgerFileName, type EventRow } from '../../src/checkpoint/ledger.ts';
 import type { Gh } from '../../src/github/gh.ts';
-import { answerFileName, decisionsFileName, factsFileName, promptFileName, replayDecider, reviewFileName, type DeciderReplayOptions, type DeciderReplayOutcome } from '../../src/replay/decider.ts';
+import type { ScopeFile } from '../../src/checkpoint/events.ts';
+import { newLinesOf } from '../../src/github/pull-request.ts';
+import { answerFileName, decisionsFileName, factsFileName, newPathOfPatchPart, patchFiles, promptFileName, replayDecider, reviewFileName, type DeciderReplayOptions, type DeciderReplayOutcome } from '../../src/replay/decider.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
 import { replayCheckpointDirectoryName } from '../../src/replay/run.ts';
 import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
+import { diffNameStatus, diffPatch } from '../../src/scope/git.ts';
 import { fakeGh, writeFakeGhScript } from '../helpers/fake-gh.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { baseEnvironment, fakeClaude } from '../helpers/launcher.ts';
-import { git } from '../helpers/repository.ts';
+import { commitAll, git, remove, repositoryWith, temporaryDirectory, write } from '../helpers/repository.ts';
 import { reportText, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 /** The choice the verifier of SWEEP-1 leaves to the author. */
@@ -52,6 +55,45 @@ const pullRequestSource = (box: ReviewSandbox, gh: Gh): ScopeSource => ({
   pullRequest: true,
   choice: () => ({ mode: 'pull-request', request: { pullRequest: { number: 42, repository: null }, paths: [] } }),
   request: () => resolvePullRequestScope(box.repo, { pullRequest: { number: 42, repository: null }, paths: [] }, gh),
+});
+
+describe('patchFiles', () => {
+  it('finds the part of the patch of each file by its path, quoted by git or holding " b/", and places a finding on its line', (t) => {
+    const repo = repositoryWith(temporaryDirectory(t, 'deep-review-patch-files-'), { 'plain.ts': 'one\n', 'old.ts': 'kept\nkept\nkept\nkept\n' });
+    const base = git(repo, 'rev-parse', 'HEAD');
+    write(repo, 'plain.ts', 'one\ntwo\n');
+    write(repo, 'café.ts', 'x\n');
+    write(repo, 'a b/a b/c.ts', 'y\n');
+    remove(repo, 'old.ts');
+    write(repo, 'new.ts', 'kept\nkept\nkept\nkept\nmore\n');
+    const head = commitAll(repo, 'change');
+    const statuses: Record<string, ScopeFile['status']> = { A: 'added', M: 'modified', D: 'deleted' };
+    const files = diffNameStatus(repo, base, head, []).map(({ code, path }) => ({ path, status: statuses[code]! }));
+    const patch = diffPatch(repo, base, head, []).toString('utf8');
+    assert.match(patch, /^diff --git "a\/caf\\303\\251\.ts" "b\/caf\\303\\251\.ts"$/m, 'git quotes the path of café.ts');
+    assert.match(patch, /^rename to new\.ts$/m, 'git writes the move of old.ts as a rename');
+
+    const listed = new Map(patchFiles(files, patch).map((file) => [file.path, file.patch]));
+
+    assert.deepEqual([...listed.keys()].sort(), ['a b/a b/c.ts', 'café.ts', 'new.ts', 'old.ts', 'plain.ts']);
+    assert.equal(newLinesOf(listed.get('café.ts')!)?.get(1), 'added', 'a finding on café.ts:1 is on the diff');
+    assert.ok(listed.get('café.ts')!.includes('+x\n'));
+    assert.ok(listed.get('a b/a b/c.ts')!.includes('+y\n'), 'the part of the path holding " b/" is its own');
+    assert.equal(newLinesOf(listed.get('plain.ts')!)?.get(2), 'added');
+    assert.equal(newLinesOf(listed.get('new.ts')!)?.get(5), 'added', 'a renamed file is read from its rename line');
+    assert.equal(listed.get('old.ts'), null, 'the old side of a rename has no part of its own');
+  });
+
+  it('reads the new path of a part from the header as git writes it', () => {
+    assert.equal(newPathOfPatchPart('diff --git a/x b/x\nindex 1..2\n'), 'x');
+    assert.equal(newPathOfPatchPart('diff --git a/x b/y b/x b/y\n'), 'x b/y');
+    assert.equal(newPathOfPatchPart('diff --git "a/tab\\there" "b/tab\\there"\n'), 'tab\there');
+    assert.equal(newPathOfPatchPart('diff --git "a/q\\"\\\\" "b/q\\"\\\\"\n'), 'q"\\');
+    assert.equal(newPathOfPatchPart('diff --git "a/caf\\303\\251.ts" "b/caf\\303\\251.ts"\n'), 'café.ts');
+    assert.equal(newPathOfPatchPart('diff --git a/old "b/caf\\303\\251.ts"\nsimilarity index 90%\nrename from old\nrename to "caf\\303\\251.ts"\n'), 'café.ts');
+    assert.equal(newPathOfPatchPart('diff --git a/x b/y\n--- a/x\n+++ b/y\n'), null, 'an unquoted header of two paths names no path plainly');
+    assert.equal(newPathOfPatchPart('diff --git "a/x" "b/\\q"\n'), null, 'an escape git never writes is no path');
+  });
 });
 
 describe('replayDecider', { timeout: 600_000 }, () => {
