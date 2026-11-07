@@ -1,7 +1,9 @@
 /**
  * `deep-review publish` (R7, R8, R13, R14 of the review on the pull
- * request, "Publish" of its design): post a finished read-only run of a
- * pull request as one review of that pull request, a comment, on the head
+ * request, "Publish" of its design; R5 to R7 of the review of a fix run):
+ * post the review of a run of a pull request, a finished read-only run or
+ * one continued into its fix pass as it stood when its read-only report
+ * was written, as one review of that pull request, a comment, on the head
  * the run reviewed. The command takes the checkpoint's start lock only to
  * choose its run and take the run's lock, so no other command of the
  * repository waits on GitHub. Under the run's lock it settles a
@@ -36,7 +38,7 @@ export interface PublishOptions {
   readonly worktree: string;
   /** The git common directory of the repository, which no posted text names (R11). */
   readonly gitCommon: string;
-  /** The run to publish, by its id or the start of it; when absent, the one `report` would show. */
+  /** The run to publish, by its id or the start of it; when absent, the newest run of the worktree whose review is finished (`hasFinishedReview`). */
   readonly runId?: string;
   /** Read, check and print what would be posted, and record nothing (R14). */
   readonly dryRun?: boolean;
@@ -73,14 +75,23 @@ const targetOf = (run: RunState): PullRequestTarget => {
 };
 
 /**
+ * Whether a run's review is finished (R5 of the review of a fix run): it
+ * has a current report, or it was continued into the fix pass, whose
+ * read-only part ended with its report whatever its fix pass has done
+ * since, blocked or stopped included.
+ */
+const hasFinishedReview = (run: RunState): boolean => hasCurrentReport(run) || (run.review?.continuedFrom ?? null) !== null;
+
+/**
  * The run to publish: the one named by its id or the start of it, or the
- * one `report` would show, the run of the worktree with a current report
- * whose last event is the latest (R7).
+ * run of the worktree whose review is finished and whose last event is the
+ * latest, as `report` chooses the run with a current report (R7; R5 of the
+ * review of a fix run).
  */
 function chooseRun(options: PublishOptions, log: (line: string) => void): RunState {
   const { checkpoint, worktree } = options;
   if (options.runId !== undefined) return checkpoint.fold(runIdOf(checkpoint, options.runId));
-  const choice = chooseReportRun(checkpoint, worktree, log);
+  const choice = chooseReportRun(checkpoint, worktree, log, hasFinishedReview);
   if (choice.run !== null) return choice.run;
   if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report, so there is no review to post; deep-review status shows the run that is active`);
   throw new ReviewRefusedError(`no run of worktree ${worktree} has a report, so there is no review to post; the newest, run ${choice.newest.run}, ${choice.newest.state}; deep-review status --all lists the runs`);
@@ -170,20 +181,34 @@ const unrecordedWords = (settled: string | null): string => (settled === null ? 
 const readRefusal = (target: PullRequestTarget, unrecorded: string): GitHubRefusal => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded });
 
 /**
- * Why a run cannot be posted, before any call of GitHub (R8), or null: a
- * run with no current report, a fix run or one continued into the fix
- * pass (the non-goal "No review of a fix run"), a run of another scope
- * than a pull request, and a run `--path` narrowed, whose body could not
- * say what the review left out (PD2).
+ * The run as its review stands (R5, PD2, TD2 of the review of a fix run):
+ * for a run continued into the fix pass, the fold of its events before the
+ * continuation, which is a finished read-only run; any other run as it is.
  */
-function whyNotPostable(run: RunState): string | null {
-  const review = run.review;
-  const scope = run.scope;
-  if (review === null || !hasCurrentReport(run)) return `run ${run.id} has no current report, since it ${noReportWords(run)}; publish posts a finished run`;
-  if (review.continuedFrom !== null) return `run ${run.id} was continued into the fix pass with --fix, and the review of a fix run is not posted; review the pull request again with deep-review review --pr <number>, and post that run before you continue it`;
-  if (review.fix !== null) return `run ${run.id} is a fix run, and the review of a fix run is not posted; review the pull request with deep-review review --pr <number>, without --fix`;
+function reviewedOf(checkpoint: Checkpoint, run: RunState): RunState {
+  const continuedFrom = run.review?.continuedFrom ?? null;
+  return continuedFrom === null ? run : checkpoint.foldBefore(run.id, continuedFrom.sequence);
+}
+
+/**
+ * Why a run cannot be posted, before any call of GitHub (R8), or null,
+ * read from `reviewed`, the run as its review stands (`reviewedOf`): a
+ * review with no current report; a run of another scope than a pull
+ * request; a fix run that did not review first, which has a fix state and
+ * was never continued (R7 of the review of a fix run); a run `--path`
+ * narrowed, whose body could not say what the review left out (PD2); and
+ * a run abandoned in its fix pass, which the ledger takes no publication
+ * on.
+ */
+function whyNotPostable(run: RunState, reviewed: RunState): string | null {
+  const review = reviewed.review;
+  const scope = reviewed.scope;
+  if (review === null || !hasCurrentReport(reviewed)) return `run ${run.id} has no current report, since it ${noReportWords(run)}; publish posts a finished run`;
   if (scope === null || scope.pullRequest === null) return `run ${run.id} reviewed no pull request, so there is none to post its review to; review the pull request with deep-review review --pr <number>`;
-  if (scope.request.paths.length > 0) return `run ${run.id} reviewed only the paths --path named (${scope.request.paths.join(', ')}), so its review could not say what it left out of the pull request; review the whole pull request with deep-review review --pr ${String(scope.pullRequest.number)}`;
+  const number = String(scope.pullRequest.number);
+  if (review.fix !== null) return `run ${run.id} reviewed and fixed in one pass, as an engine before this one ran review --pr --fix, so it holds no review written for a reader of the pull request; review the pull request again with deep-review review --pr ${number}, with or without --fix`;
+  if (scope.request.paths.length > 0) return `run ${run.id} reviewed only the paths --path named (${scope.request.paths.join(', ')}), so its review could not say what it left out of the pull request; review the whole pull request with deep-review review --pr ${number}`;
+  if (run.status === 'abandoned') return `run ${run.id} was abandoned in its fix pass, and an abandoned run records nothing more, so its review cannot be recorded as posted; review the pull request again with deep-review review --pr ${number}`;
   return null;
 }
 
@@ -339,21 +364,23 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const earlier = run.publications.find((publication) => publication.status === 'posted');
   if (earlier?.status === 'posted') return { kind: 'posted', runId: run.id, url: earlier.posted.review.url, how: 'earlier', comments: earlier.posted.comments.length };
 
-  // 3. What cannot be posted truthfully is refused, first without GitHub, then against the pull request as it is now (R8, PD2).
-  const why = whyNotPostable(run);
+  // 3. What cannot be posted truthfully is refused, first without GitHub, then against the pull request as it is now (R8, PD2), all read from the run as its review stands: a run continued into the fix pass as it stood before the continuation (R5 of the review of a fix run).
+  const reviewed = reviewedOf(checkpoint, run);
+  const why = whyNotPostable(run, reviewed);
   if (why !== null) throw new ReviewRefusedError(why);
-  const target = targetOf(run);
+  const target = targetOf(reviewed);
   const unrecorded = unrecordedWords(settled);
-  const changedFiles = requireUnmoved(ghOf(), run, unrecorded);
+  const changedFiles = requireUnmoved(ghOf(), reviewed, unrecorded);
 
-  // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded.
-  const scope = run.scope!;
+  // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded. The publication is the whole run's, whose events come after the fix pass.
+  const scope = reviewed.scope!;
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
-  const placements = placeFindings(run.review!, files);
+  const placements = placeFindings(reviewed.review!, files);
   const serial = run.publications.length + 1;
   const form = pullRequestForm({
-    state: run,
-    answer: run.explanation === null ? null : recordedAnswerOf(run.explanation, checkpoint.evidence),
+    state: reviewed,
+    fixPass: run.review!.continuedFrom === null ? 'to-come' : 'continued',
+    answer: reviewed.explanation === null ? null : recordedAnswerOf(reviewed.explanation, checkpoint.evidence),
     places: placements,
     machine: machineContextOf({ worktree: run.worktree, checkpoint: checkpoint.root, gitCommon: options.gitCommon, engine: dirname(options.engineEntry), workers: run.workers, environment: options.environment, platform: options.platform ?? process.platform }),
     engine: checkpoint.engine,
@@ -362,7 +389,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   if (form.kind === 'refused') throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded}, and the report of the run holds all of it`);
 
   // 5. A dry run ends with what it would post (R14).
-  if (dryRun) return { kind: 'dry-run', runId: run.id, lines: dryRunLines(run, placements, form, notes) };
+  if (dryRun) return { kind: 'dry-run', runId: run.id, lines: dryRunLines(reviewed, placements, form, notes) };
   if (form.cuts.length > 0) log(`run ${run.id}: the body of the review is cut to fit: ${form.cuts.map((cut) => cutWords[cut]).join(', then ')}; the report of the run holds all of it`);
 
   // 6. The publication is on the ledger, with what is posted frozen, before the post (R13, principle 2).

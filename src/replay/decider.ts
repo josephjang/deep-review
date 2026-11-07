@@ -349,6 +349,8 @@ function renderedReview(state: RunState, scope: ScopeState, context: { readonly 
   const places = placeFindings(state.review!, capturedFiles(scope, context.evidence));
   const form = pullRequestForm({
     state,
+    // A replay decides a copy of the run again and runs no fix pass.
+    fixPass: 'to-come',
     answer: null,
     places,
     machine: machineContextOf({ worktree: state.worktree, checkpoint: context.root, gitCommon: locateCheckpoint(context.tree).commonDir, engine: join(import.meta.dirname, '..'), workers: state.workers, environment: context.environment, platform: context.platform }),

@@ -5,8 +5,10 @@
  * person, how the review worked and its diagram, the lines of a finding's
  * block, who answers a question or a departure and how, how far to trust
  * the review, and the notes of a cut or of a fallback, one table for each
- * language this change writes. A language with no table takes English.
- * Every table is a `PullRequestWords`, so a table that lacks a key does
+ * language this change writes, with the words that a review of a run
+ * continued into its fix pass says in place of those of what follows a
+ * read-only review (`FollowingWords`). A language with no table takes
+ * English. Every table is a `PullRequestWords`, so a table that lacks a key does
  * not compile. Verdicts, severities, identifiers, paths and commands are
  * given to these words as they are and never translated; the words of the
  * workers and the gaps of the brief, which the brief holds as English
@@ -92,6 +94,29 @@ export interface MinorCounts {
   readonly user: number;
   readonly code: number;
   readonly onLine: number;
+}
+
+/**
+ * The texts that say what follows the review (R6 of the review of a fix
+ * run), in a run that went on into its fix pass on the machine of the
+ * person who ran the review: the line on what the run reviewed, the
+ * summary's next step, what a fix against a written rule does until it is
+ * answered, the result of the option that stands, how a question is
+ * answered, the diagram of how the review worked, and the check that did
+ * not run. They name no command that fixes, since none remains to run,
+ * and claim no edit: the report on that machine says what each fix did.
+ * The form takes the read-only ones of `PullRequestWords` in their place
+ * for a run that has not been continued.
+ */
+export interface FollowingWords {
+  readonly reviewed: (head: string, files: number, base: string) => string;
+  readonly summaryNext: (counts: DecisionCounts) => string;
+  readonly departureStands: string;
+  readonly departure: (rule: string, source: string, fact: string, accept: string, reject: string) => string;
+  readonly standing: (recommended: number, applied: number, edits: boolean, option: string | null) => string;
+  readonly answerQuestion: (command: string) => string;
+  readonly howDiagram: (pullRequest: number) => string;
+  readonly noCheck: string;
 }
 
 /** Each text of the form that the engine writes, in one language. A function takes what the sentence names, already cleaned and formatted. */
@@ -219,6 +244,9 @@ export interface PullRequestWords {
 
   /** The last visible line. */
   readonly lastLine: (facts: LastLineFacts) => string;
+
+  /** What follows the review of a run continued into its fix pass, in place of the read-only entries of the same names. */
+  readonly continued: FollowingWords;
 }
 
 /** How the findings were checked, in English: each basis with its count, then the findings with none. */
@@ -229,9 +257,38 @@ function basesEnglish(counts: ReviewCounts): string {
   return told.length === 0 ? `no verdict records how it was checked` : `${listed(told)}${none.length === 0 ? '' : `, and ${none[0]!}`}`;
 }
 
+/** The option recommended and the one that stands, in English, with `edited`, what follows for an option that edits the code. */
+const standingEnglish = (edited: string) => (recommended: number, applied: number, edits: boolean, option: string | null): string => {
+  const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
+  const result = edits ? edited : 'the code stays as it is';
+  return recommended === applied
+    ? `${recommendation} It also stands until someone answers: ${result}.`
+    : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
+};
+
+/** What deep-review decided, in English, when it acts on some finding: the fixes and the questions, then the findings left as is. */
+function decidedEnglish(counts: DecisionCounts): string {
+  const acting = [
+    ...(counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, 'finding', 'findings')}`]),
+    ...(counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, 'question', 'questions')}`]),
+  ];
+  const left = counts.left === 0 ? '' : `${String(counts.left)} ${counts.left === 1 ? 'is' : 'are'} left as is`;
+  return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}.`;
+}
+
+/** The line in English on what deep-review reviewed: the head, the count of the files and the merge base. */
+const reviewedEnglish = (head: string, files: number, base: string): string => `deep-review reviewed this pull request at its head ${head}, ${files === 1 ? 'the 1 file' : `the ${String(files)} files`} changed from the merge base ${base}`;
+
+/** The finders, the verifiers, the decider and the writer, in English, as the diagram of how the review worked draws them. */
+const reviewNodesEnglish = [
+  '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
+  '    V --> D["A decider chooses: fix, ask or leave"]',
+  '    D --> W["The writer explains it in plain words"]',
+];
+
 const english: PullRequestWords = {
   heading: '## deep-review\'s review of this pull request',
-  reviewed: (head, files, base) => `deep-review reviewed this pull request at its head ${head}, ${files === 1 ? 'the 1 file' : `the ${String(files)} files`} changed from the merge base ${base}, and changed no file.`,
+  reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}, and changed no file.`,
   findingList: (numbers) => findingWords(numbers),
 
   summaryHeading: '### Summary',
@@ -245,13 +302,8 @@ const english: PullRequestWords = {
     return `The review keeps ${counted(counts.findings, 'finding', 'findings')}. ${capitalized(parts.join('; '))}.`;
   },
   summaryNext: (counts, fix) => {
-    const acting = [
-      ...(counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, 'finding', 'findings')}`]),
-      ...(counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, 'question', 'questions')}`]),
-    ];
-    const left = counts.left === 0 ? '' : `${String(counts.left)} ${counts.left === 1 ? 'is' : 'are'} left as is`;
-    if (acting.length === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
-    return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
+    if (counts.fixes + counts.questions === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
+    return `${decidedEnglish(counts)} Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
   },
 
   needsHeading: '### What needs a person',
@@ -266,9 +318,7 @@ const english: PullRequestWords = {
   howDiagram: (pullRequest) => [
     'flowchart TD',
     `  subgraph RV["review --pr ${String(pullRequest)}, read-only: done"]`,
-    '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
-    '    V --> D["A decider chooses: fix, ask or leave"]',
-    '    D --> W["The writer explains it in plain words"]',
+    ...reviewNodesEnglish,
     '  end',
     '  W --> P["publish cleans the text and posts this review"]',
     '  P --> A["The person who ran the review answers the questions"]',
@@ -319,13 +369,7 @@ const english: PullRequestWords = {
   whyAsked: '**Why it is a question.**',
   question: (question) => `**The question.** ${question}`,
   option: (number, option, cost) => `${String(number)}. **${option}** ${cost}`,
-  standing: (recommended, applied, edits, option) => {
-    const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
-    const result = edits ? '`--fix` applies it' : 'the code stays as it is';
-    return recommended === applied
-      ? `${recommendation} It also stands until someone answers: ${result}.`
-      : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
-  },
+  standing: standingEnglish('`--fix` applies it'),
   answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
   answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
   choice: ({ verifiers, settled }) => {
@@ -401,6 +445,28 @@ const english: PullRequestWords = {
   areaDiagramsCut: 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.',
 
   lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`,
+
+  continued: {
+    reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and the report of the run on that machine says what each fix did.`,
+    summaryNext: (counts) => {
+      if (counts.fixes + counts.questions === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
+      return `${decidedEnglish(counts)} What its fix pass changed reaches this branch only when the person who ran the review pushes it.`;
+    },
+    departureStands: 'The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.',
+    departure: (rule, source, fact, accept, reject) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.`,
+    standing: standingEnglish('the fix pass makes its edit while this option stands'),
+    answerQuestion: (command) => `**How to answer.** Once the fix pass of the run has ended, the person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option, and that command applies the answer. A reply on this pull request is not read yet.`,
+    howDiagram: (pullRequest) => [
+      'flowchart TD',
+      `  subgraph RV["The review of pull request ${String(pullRequest)}: done"]`,
+      ...reviewNodesEnglish,
+      '  end',
+      '  W --> X["The fix pass started on the machine that ran the review, and its report there holds what it changed"]',
+      '  W --> P["publish cleans the text and posts this review"]',
+      '  P --> A["The person who ran the review answers the questions"]',
+    ].join('\n'),
+    noCheck: 'No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and its report there holds their results.',
+  },
 };
 
 /** How the findings were checked, in Korean: each basis with its count, then the findings with none. */
@@ -409,6 +475,32 @@ function basesKorean(counts: ReviewCounts): string {
   const told = ways.length === 0 ? '확인 방법이 기록된 판정은 없습니다.' : `${ways.map(([basis, how]) => `${String(counts.bases[basis])}건은 ${how}`).join(', ')} 확인했습니다.`;
   return `${told}${counts.noBasis === 0 ? '' : ` ${String(counts.noBasis)}건은 확인 방법이 기록되지 않았습니다.`}`;
 }
+
+/** The option recommended and the one that stands, in Korean, with `edited`, the sentence of what follows for an option that edits the code. */
+const standingKorean = (edited: string) => (recommended: number, applied: number, edits: boolean, option: string | null): string => {
+  const recommendation = option === null ? `deep-review는 ${String(recommended)}번 선택지를 권합니다.` : `deep-review는 ${String(recommended)}번 선택지를 권합니다: ${option}`;
+  const result = edits ? edited : '코드는 지금 그대로입니다.';
+  return recommended === applied
+    ? `${recommendation} 누군가 답할 때까지도 이 선택지를 따릅니다. ${result}`
+    : `${recommendation} 누군가 답할 때까지는 되돌리기 가장 쉬운 ${String(applied)}번 선택지를 따릅니다. ${result}`;
+};
+
+/** What deep-review decided, in Korean: the fixes, the questions and the findings left as is. */
+function decidedKorean(counts: DecisionCounts): string {
+  const parts = [
+    ...(counts.fixes === 0 ? [] : [`고칠 것 ${String(counts.fixes)}건`]),
+    ...(counts.questions === 0 ? [] : [`작성자에게 물을 것 ${String(counts.questions)}건`]),
+    ...(counts.left === 0 ? [] : [`그대로 둘 것 ${String(counts.left)}건`]),
+  ];
+  return `deep-review의 결정은 ${parts.join(', ')}입니다.`;
+}
+
+/** The finders, the verifiers, the decider and the writer, in Korean, as the diagram of how the review worked draws them. */
+const reviewNodesKorean = [
+  '    F["찾는 작업자가 후보를 냅니다"] --> V["검증자가 각 후보를 실행하거나 따라가 봅니다"]',
+  '    V --> D["결정하는 작업자가 고칠지, 물을지, 둘지 정합니다"]',
+  '    D --> W["설명 모델이 쉬운 말로 설명합니다"]',
+];
 
 const korean: PullRequestWords = {
   heading: '## deep-review의 풀 리퀘스트 리뷰',
@@ -425,14 +517,8 @@ const korean: PullRequestWords = {
     return `이 리뷰는 지적 사항 ${String(counts.findings)}건을 남깁니다. ${parts.length === 2 ? `${parts[0]!}이고, ${parts[1]!}입니다.` : `${parts[0]!}입니다.`}`;
   },
   summaryNext: (counts, fix) => {
-    const parts = [
-      ...(counts.fixes === 0 ? [] : [`고칠 것 ${String(counts.fixes)}건`]),
-      ...(counts.questions === 0 ? [] : [`작성자에게 물을 것 ${String(counts.questions)}건`]),
-      ...(counts.left === 0 ? [] : [`그대로 둘 것 ${String(counts.left)}건`]),
-    ];
-    const decided = `deep-review의 결정은 ${parts.join(', ')}입니다.`;
-    if (counts.fixes + counts.questions === 0) return `${decided} 이 브랜치에서 바꿀 것은 없습니다.`;
-    return `${decided} 이 리뷰를 실행한 사람이 ${fix} 명령으로 수정과 그때까지 받은 답을 자신의 클론에 적용하고 그 결과를 푸시하기 전까지, 이 브랜치에서는 아무것도 바뀌지 않습니다.`;
+    if (counts.fixes + counts.questions === 0) return `${decidedKorean(counts)} 이 브랜치에서 바꿀 것은 없습니다.`;
+    return `${decidedKorean(counts)} 이 리뷰를 실행한 사람이 ${fix} 명령으로 수정과 그때까지 받은 답을 자신의 클론에 적용하고 그 결과를 푸시하기 전까지, 이 브랜치에서는 아무것도 바뀌지 않습니다.`;
   },
 
   needsHeading: '### 사람이 해야 할 일',
@@ -447,9 +533,7 @@ const korean: PullRequestWords = {
   howDiagram: (pullRequest) => [
     'flowchart TD',
     `  subgraph RV["review --pr ${String(pullRequest)}, 읽기 전용: 완료"]`,
-    '    F["찾는 작업자가 후보를 냅니다"] --> V["검증자가 각 후보를 실행하거나 따라가 봅니다"]',
-    '    V --> D["결정하는 작업자가 고칠지, 물을지, 둘지 정합니다"]',
-    '    D --> W["설명 모델이 쉬운 말로 설명합니다"]',
+    ...reviewNodesKorean,
     '  end',
     '  W --> P["publish가 글을 정리해 이 리뷰를 올립니다"]',
     '  P --> A["리뷰를 실행한 사람이 질문에 답합니다"]',
@@ -500,13 +584,7 @@ const korean: PullRequestWords = {
   whyAsked: '**질문하는 이유.**',
   question: (question) => `**질문.** ${question}`,
   option: (number, option, cost) => `${String(number)}. **${option}** ${cost}`,
-  standing: (recommended, applied, edits, option) => {
-    const recommendation = option === null ? `deep-review는 ${String(recommended)}번 선택지를 권합니다.` : `deep-review는 ${String(recommended)}번 선택지를 권합니다: ${option}`;
-    const result = edits ? '`--fix`가 이를 적용합니다.' : '코드는 지금 그대로입니다.';
-    return recommended === applied
-      ? `${recommendation} 누군가 답할 때까지도 이 선택지를 따릅니다. ${result}`
-      : `${recommendation} 누군가 답할 때까지는 되돌리기 가장 쉬운 ${String(applied)}번 선택지를 따릅니다. ${result}`;
-  },
+  standing: standingKorean('`--fix`가 이를 적용합니다.'),
   answerQuestion: (command, fix) => `**답하는 방법.** 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그다음 ${fix}가 그 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
   answeredOption: (option, at) => `이 리뷰를 실행한 사람이 ${at}에 ${String(option)}번 선택지로 답했습니다.`,
   choice: ({ verifiers, settled }) => {
@@ -593,6 +671,28 @@ const korean: PullRequestWords = {
   areaDiagramsCut: 'GitHub가 받는 길이에 맞추느라 영역의 다이어그램은 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
 
   lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (모델 ${facts.strong}, ${facts.fast}), 실행 ${facts.run}, 리뷰한 커밋 ${facts.base}..${facts.head}.`,
+
+  continued: {
+    reviewed: (head, files, base) => `deep-review가 이 풀 리퀘스트를 head ${head}에서 리뷰했습니다. merge base ${base}부터 바뀐 파일 ${String(files)}개를 보았습니다. 그 뒤 deep-review는 이 리뷰를 실행한 사람의 컴퓨터에서 같은 실행의 수정 단계로 넘어가, 고치기로 한 지적 사항을 고치기 시작했습니다. 그 수정은 이 리뷰에 포함되지 않으며, 각 수정이 한 일은 그 컴퓨터에 있는 실행 보고서에 있습니다.`,
+    summaryNext: (counts) => {
+      if (counts.fixes + counts.questions === 0) return `${decidedKorean(counts)} 이 브랜치에서 바꿀 것은 없습니다.`;
+      return `${decidedKorean(counts)} 수정 단계가 바꾼 내용은 이 리뷰를 실행한 사람이 푸시해야 이 브랜치에 반영됩니다.`;
+    },
+    departureStands: '이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 합니다. 이 리뷰를 실행한 사람이 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.',
+    departure: (rule, source, fact, accept, reject) => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. 이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 하며, 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.`,
+    standing: standingKorean('이 선택지가 유지되는 동안 수정 단계가 그 수정을 합니다.'),
+    answerQuestion: (command) => `**답하는 방법.** 그 실행의 수정 단계가 끝난 뒤, 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그 명령이 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
+    howDiagram: (pullRequest) => [
+      'flowchart TD',
+      `  subgraph RV["풀 리퀘스트 ${String(pullRequest)}의 리뷰: 완료"]`,
+      ...reviewNodesKorean,
+      '  end',
+      '  W --> X["리뷰를 실행한 컴퓨터에서 수정 단계가 시작되었습니다. 바꾼 내용은 그 실행 보고서에 있습니다"]',
+      '  W --> P["publish가 글을 정리해 이 리뷰를 올립니다"]',
+      '  P --> A["리뷰를 실행한 사람이 질문에 답합니다"]',
+    ].join('\n'),
+    noCheck: '이 리뷰에서는 어떤 검사도 돌리지 않았습니다. 이어진 수정 단계가 그 컴퓨터에서 저장소의 검사를 실행하며, 그 결과는 실행 보고서에 있습니다.',
+  },
 };
 
 /** The languages that have a table of the engine's words. */

@@ -260,6 +260,52 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   });
 });
 
+
+// R6 of the review of a fix run: the review of a run that went on into its fix pass says what followed the review, and names --fix nowhere.
+describe('the review of a run continued into its fix pass (R6 of the review of a fix run)', () => {
+  /** The form of `state` as publish renders a run that went on into its fix pass. */
+  const continued = (state: RunState = run().fold()): PullRequestForm => formOf(state, writerAnswer(), filesWith(), { fixPass: 'continued' });
+  /** The body and every comment of a form, as one text. */
+  const textOf = (form: PullRequestForm): string => [form.body, ...form.comments.map((comment) => comment.body)].join('\n');
+  const { body, comments } = continued();
+
+  it('says that deep-review went on to fix on the machine of the person who ran the review, that its edits are not part of the review, and that they reach the branch only when that person pushes them', () => {
+    includes(body, '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and the report of the run on that machine says what each fix did.\n');
+    includes(section(body, '### Summary'), 'deep-review would fix 1 finding and asks the author 1 question. What its fix pass changed reaches this branch only when the person who ran the review pushes it.');
+    excludes(body, 'changed no file');
+    excludes(body, 'Nothing on this branch changes until');
+  });
+
+  it('says that the fix pass sets out to make a departure as decided and that a rejection sends it back to a fixer, with no claim that it made the fix', () => {
+    includes(section(body, '### What needs a person'), 'The rule: "parse throws on a null input." The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.');
+    includes(comments[0]!.body, 'on the machine that holds the run; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.');
+    includes(comments[0]!.body, 'deep-review would fix this against a written rule.');
+  });
+
+  it('says that the command that answers a question applies the answer once the fix pass has ended, and that the fix pass makes the edit of an option that stands', () => {
+    includes(body, '**How to answer.** Once the fix pass of the run has ended, the person who ran this review answers on the machine that holds the run, with `deep-review answer --run run-1 --finding 2 --option <k>`, where `<k>` is the number of the option, and that command applies the answer. A reply on this pull request is not read yet.');
+    const same = askDecision('SWEEP-1', true) as { ask: Record<string, unknown> };
+    const standing = continued(run([{ ...decisions[0], departure }, { ...same, ask: { ...same.ask, recommended: 0 } }]).fold());
+    includes(section(standing.body, '### What needs a person'), 'deep-review recommends option 1: Reject it with an error. It also stands until someone answers: the fix pass makes its edit while this option stands.');
+  });
+
+  it('draws the review done and the fix pass started on that machine, and says no check ran in the review and where the checks of the fix pass are', () => {
+    const how = section(body, '### How the review worked');
+    includes(how, '```mermaid\nflowchart TD\n  subgraph RV["The review of pull request 42: done"]');
+    includes(how, '  W --> X["The fix pass started on the machine that ran the review, and its report there holds what it changed"]\n  W --> P["publish cleans the text and posts this review"]\n  P --> A["The person who ran the review answers the questions"]\n```');
+    includes(section(body, '### What this review did not examine'), '- No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and its report there holds their results.');
+    for (const words of Object.values(pullRequestWordTables)) assert.deepEqual(diagramFailures(words.continued.howDiagram(42)), []);
+  });
+
+  it('takes each of those words from the table of the run\'s language, and names --fix nowhere, in the body or a comment, in each language', () => {
+    for (const [language, words] of Object.entries(pullRequestWordTables)) {
+      const text = textOf(continued(withSettings(run(), { 'review.language': language }, { 'review.language': 'repository' }).fold()));
+      excludes(text, '--fix');
+      for (const part of [words.continued.reviewed('`22222222`', 1, '`11111111`'), words.continued.summaryNext({ fixes: 1, questions: 1, left: 0 }), words.continued.departureStands, words.continued.howDiagram(42), words.continued.noCheck]) includes(text, part);
+      for (const readOnly of [words.reviewed('`22222222`', 1, '`11111111`'), words.departureStands, words.howDiagram(42), words.noCheck]) excludes(text, readOnly);
+    }
+  });
+});
 describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)', () => {
   /** The state with the verdict of candidate `id` changed as `change` says. */
   const withVerdict = (state: RunState, id: string, change: Record<string, unknown>): RunState => {

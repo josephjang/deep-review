@@ -9,12 +9,12 @@ import { leaveReasons, settleSteps, verdictBases } from '../../src/review/vocabu
 import { fragmentsDirectoryName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { formOf, pullRequestRun as run, withSettings } from '../helpers/pull-request-review.ts';
 
-/** Each text of a table that is no function, by its key, the texts of a record by `key.entry`. */
+/** Each text of a table that is no function, by its key, the texts of a record by `key.entry`, those of the words of a continued run among them. */
 function textsOf(table: PullRequestWords): Map<string, string> {
   const texts = new Map<string, string>();
   for (const [key, value] of Object.entries(table)) {
     if (typeof value === 'string') texts.set(key, value);
-    else if (typeof value === 'object') for (const [entry, text] of Object.entries(value as Record<string, string>)) texts.set(`${key}.${entry}`, text);
+    else if (typeof value === 'object') for (const [entry, text] of Object.entries(value as Record<string, unknown>)) if (typeof text === 'string') texts.set(`${key}.${entry}`, text);
   }
   return texts;
 }
@@ -93,6 +93,7 @@ describe('the tables of the engine\'s words', () => {
     for (const language of pullRequestLanguages) {
       for (const [key, text] of textsOf(pullRequestWordTables[language])) assert.doesNotMatch(text, /[–—·…]/, `${language} ${key}`);
       assert.doesNotMatch(pullRequestWordTables[language].howDiagram(42), /[–—·…]/, language);
+      assert.doesNotMatch(pullRequestWordTables[language].continued.howDiagram(42), /[–—·…]/, language);
     }
   });
 });

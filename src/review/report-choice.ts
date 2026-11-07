@@ -8,7 +8,9 @@
  * names it with why, so that an older result is never taken for the
  * current one. A later run this engine cannot read is named too. The
  * words of why a run has no report are also those `report` refuses a run
- * that `--run` names with (R9).
+ * that `--run` names with (R9). `publish` chooses by another rule what
+ * a run must have to be chosen, a finished review (R5 of the review of a
+ * fix run), and passes over the runs that lack it the same way.
  */
 import { isUnreadable, type Checkpoint } from '../checkpoint/checkpoint.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -80,8 +82,8 @@ interface Weighed {
   readonly words: string;
 }
 
-/** Choose the run `report` shows for `worktree`, logging a line for each run this engine cannot read, as every command that picks a run does. */
-export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (line: string) => void): ReportChoice {
+/** Choose the run `report` shows for `worktree`, the latest for which `shown` holds, a current report by default, logging a line for each run this engine cannot read, as every command that picks a run does. */
+export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (line: string) => void, shown: (run: RunState) => boolean = hasCurrentReport): ReportChoice {
   const weighed: Weighed[] = [];
   for (const listed of checkpoint.listRuns()) {
     if (isUnreadable(listed)) {
@@ -93,7 +95,7 @@ export function chooseReportRun(checkpoint: Checkpoint, worktree: string, log: (
     }
   }
   const ordered = latestFirst(weighed);
-  const index = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
+  const index = ordered.findIndex((entry) => entry.state !== null && shown(entry.state));
   const newest = ordered[0];
   const passed = (entry: Weighed): PassedOver => ({ run: entry.id, state: entry.words });
   return {

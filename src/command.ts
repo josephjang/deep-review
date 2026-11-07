@@ -92,7 +92,7 @@ export const usage = `usage:
   deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <number>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
-  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]   (posts a finished run of --pr without --fix as one review of its pull request, a comment; --dry-run prints it and records nothing)
+  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]   (posts the review of a finished run of --pr, with or without --fix, as one review of its pull request, a comment; --dry-run prints it and records nothing)
   deep-review answer  --finding <number> (--option <n> | --accept | --reject) [--note <text>]
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <index> --into <dir> [--repo <dir>]   (run by a fix worker after each finding, by its index in its batch from 0)

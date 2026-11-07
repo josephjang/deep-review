@@ -10,7 +10,9 @@ import { configurationSource } from '../../src/config/source.ts';
 import type { PublishPosted, PublishPrepared } from '../../src/checkpoint/events.ts';
 import { GitHubCallError } from '../../src/github/errors.ts';
 import type { Gh } from '../../src/github/gh.ts';
-import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
+import { resolvePullRequestScope, type ReviewOptions, type ReviewOutcome, type ScopeSource } from '../../src/review/controller.ts';
+import { flagCheckSettings } from '../../src/review/checks/discover.ts';
+import { captureScope } from '../../src/scope/capture.ts';
 import { PublicationOpenError, ReviewRefusedError } from '../../src/review/errors.ts';
 import { acquireRunLock, acquireStartLock } from '../../src/review/lock.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from '../../src/review/markers.ts';
@@ -341,19 +343,78 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     for (const box of [blocked, other, narrowed]) assert.deepEqual(publications(box), []);
   });
 
-  it('refuses a read-only run of a pull request that --fix continued, posting nothing', async (t) => {
-    const script: Script = {
-      ...reviewScript,
-      'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
-      'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
-    };
+  /** The review of reviewScript with a fixer for each of its two clusters. */
+  const fixingScript: Script = {
+    ...reviewScript,
+    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+    'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+  };
+
+  /** A sandbox whose `review --pr 42 --fix`, with `change`, reviewed the pull request, wrote the read-only report and continued the run into the fix pass, and what that command ended with. */
+  async function continued(t: TestContext, script: Script, change: Partial<ReviewOptions> = {}): Promise<{ box: ReviewSandbox; outcome: ReviewOutcome }> {
     const box = ReviewSandbox.forTest(t, script);
-    const { gh } = fakeGhWith(t, [...reviewSteps(box), ...reviewSteps(box)]);
-    reportText(await box.review('claude', { scope: pullRequestSource(box, gh) }));
-    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    const { gh } = fakeGhWith(t, reviewSteps(box));
+    const outcome = await box.fix('claude', { scope: pullRequestSource(box, gh), ...change });
     assert.notEqual(box.run().review!.continuedFrom, null, 'the run was continued into the fix pass');
-    refused(() => publishWith(box, () => assert.fail('a refusal before GitHub resolves no gh')), /was continued into the fix pass with --fix, and the review of a fix run is not posted/);
+    return { box, outcome };
+  }
+
+  it('posts the review of a run that review --pr --fix continued as the run stood at its read-only report, with the words of a run that went on to fix and no --fix, records it on the whole run, and posts nothing the second time (R5, R6 of the review of a fix run)', async (t) => {
+    const { box, outcome } = await continued(t, fixingScript);
+    assert.equal(outcome.kind, 'report', 'the fix pass wrote its report');
+    const runId = box.run().id;
+    const dry = publishGh(t, publishSteps(box));
+    const printed = publishWith(box, dry.gh, { dryRun: true }).outcome;
+    const text = printed.kind === 'dry-run' ? printed.lines.join('\n') : '';
+    // The findings go where they go in the review of the read-only run of the same head.
+    assert.ok(text.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42, on its head ${commitsOf(box).head}; nothing is posted or recorded.\nWhere each finding goes:\n- 1 (SCAN-1): a comment on src/a.ts:2\n- 2 (SCAN-2): a comment on src/b.ts:1\n- 3 (SWEEP-1): in the body, left as is (src/a.ts:5)\n`), text);
+    assert.ok(text.includes('. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review'), text);
+    assert.ok(text.includes('What its fix pass changed reaches this branch only when the person who ran the review pushes it.'), text);
+    for (const gone of ['changed no file', '--fix', 'deep-review fixed this']) assert.ok(!text.includes(gone), `no ${gone}`);
+    assert.equal(writes(dry.script), 0);
+    const { gh, script } = publishGh(t, publishSteps(box));
+    assert.deepEqual(publishWith(box, gh).outcome, { kind: 'posted', runId, url: reviewUrl, how: 'posted', comments: 2 });
+    const [held] = fakeGhHeld(script);
+    assert.ok(held!.body.includes('It then went on to fix the findings it decided to fix') && !held!.body.includes('--fix'), held!.body);
+    // The publication is recorded on the whole run, after its fix report.
+    const kinds = box.events(runId).map(([kind]) => kind);
+    assert.ok(kinds.lastIndexOf('report.written') < kinds.indexOf('publish.prepared'), kinds.join(', '));
+    assert.deepEqual(publications(box).map(([kind]) => kind), ['publish.prepared', 'publish.posted']);
+    const again = publishWith(box, () => assert.fail('a posted run calls no gh'));
+    assert.deepEqual(again.outcome, { kind: 'posted', runId, url: reviewUrl, how: 'earlier', comments: 2 });
+  });
+
+  it('chooses with no --run a run whose fix pass blocked, since its review is finished, and refuses it once it is abandoned in its fix pass (R5 of the review of a fix run)', async (t) => {
+    // No flag settles a check, so the continuation asks the surveyor again for the checks, and it fails twice.
+    const { box, outcome } = await continued(t, { ...fixingScript, surveyor: [{}, { exit: 2 }] }, { fix: flagCheckSettings({}, []) });
+    assert.equal(outcome.kind, 'blocked');
+    const runId = box.run().id;
+    const { gh } = publishGh(t, publishSteps(box));
+    const printed = publishWith(box, gh, { dryRun: true }).outcome;
+    assert.equal(printed.runId, runId, 'the run whose fix pass blocked is chosen');
+    assert.ok(printed.kind === 'dry-run' && printed.lines.join('\n').includes('It then went on to fix the findings it decided to fix'), JSON.stringify(printed));
+    box.checkpoint.append(runId, box.run().lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'the fixes went another way' } }]);
+    refused(() => publishWith(box, () => assert.fail('a refusal before GitHub resolves no gh')), new RegExp(`^run ${runId} was abandoned in its fix pass, and an abandoned run records nothing more, so its review cannot be recorded as posted; review the pull request again with deep-review review --pr 42$`));
     assert.deepEqual(publications(box), []);
+  });
+
+  it('refuses a fix run that reviewed and fixed in one pass, as an engine before this one ran review --pr --fix, naming the command that reviews the pull request again (R7 of the review of a fix run)', async (t) => {
+    const box = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
+    // The configuration of a fix run, taken from a fix run of the last commit that blocked at its triage.
+    assert.equal((await box.fix('claude')).kind, 'blocked');
+    const stand = box.run();
+    const pinned = box.events(stand.id).find(([kind]) => kind === 'review.configured')![1];
+    box.checkpoint.append(stand.id, stand.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'stand in for an older engine' } }]);
+    // A run of pull request #42 with the fix pass from its start, which the next command resumes to its report.
+    const { gh } = fakeGhWith(t, reviewSteps(box));
+    const requested = pullRequestSource(box, gh).request();
+    const { id } = box.checkpoint.createRun({ worktree: box.repo });
+    box.checkpoint.append(id, captureScope(box.checkpoint, id, requested.request, { pullRequest: requested.pullRequest! }).lastSequence, [{ kind: 'review.configured', version: 9, payload: pinned }]);
+    box.script(fixingScript);
+    reportText(await box.fix('claude'));
+    assert.equal(box.checkpoint.fold(id).review!.continuedFrom, null, 'a fix run from its start');
+    refused(() => publishWith(box, () => assert.fail('a refusal before GitHub resolves no gh'), { runId: id }), new RegExp(`^run ${id} reviewed and fixed in one pass, as an engine before this one ran review --pr --fix, so it holds no review written for a reader of the pull request; review the pull request again with deep-review review --pr 42, with or without --fix$`));
+    assert.deepEqual(box.events(id).filter(([kind]) => kind.startsWith('publish.')), []);
   });
 
   it('runs gh as the operator\'s file names it now and posts in the language the run recorded, after the file changes (R15, R20)', async (t) => {
