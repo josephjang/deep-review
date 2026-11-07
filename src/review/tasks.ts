@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import { comparisonWordsLengthV1, type Answer, type Lead, type RecordedDecision, type SurveyedSources } from '../checkpoint/events.ts';
+import { comparisonWordsLengthV1, settlementRulesV1, type Answer, type Lead, type RecordedDecision, type SettlementCase, type SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
@@ -16,7 +16,7 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { failedOrTimedOut, finderAngles, verdictBasisWords, type CheckKind, type FinderAngle, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
+import { failedOrTimedOut, finderAngles, settleSteps, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -1191,6 +1191,11 @@ export function documentationTask(input: DocumentationTaskInput): string {
   ].join('\n');
 }
 
+/** A candidate as the decider's task gives it: as a fixer's task does, with the choice its verifier leaves to the author, null when it names none or its verdict was recorded before the review read as a report (R1 of the settled choice). */
+export interface DeciderTaskCandidate extends TaskCandidate {
+  readonly authorChoice: string | null;
+}
+
 /** One finding as the decider's task gives it: its id, severity and merged verdict, merge-rank's summary and reason, and every candidate of it, primary first. */
 export interface DeciderTaskFinding {
   readonly id: string;
@@ -1198,28 +1203,78 @@ export interface DeciderTaskFinding {
   readonly verdict: Verdict;
   readonly summary: string;
   readonly reason: string;
-  /** The primary first, then the members, each with its own verdict and evidence. */
-  readonly candidates: readonly TaskCandidate[];
+  /** The primary first, then the members, each with its own verdict, evidence and choice left to the author. */
+  readonly candidates: readonly DeciderTaskCandidate[];
+}
+
+/** What each step that settles a choice means, as the decider's task defines it, so a run resumed with an older rubric is told the steps too (D6 of the settled choice). */
+const settleStepMeanings: Readonly<Record<SettleStep, string>> = {
+  intent: 'the change\'s stated intent settles it',
+  contract: 'the repository\'s stated contract settles it',
+  before: 'for a behavior the change altered, the behavior before the change, which a fix restores',
+  kept: 'for a behavior that was there before the change, keeping it',
+  shape: 'for two shapes only a maintainer reading the code would see, with nothing stated, the one the surrounding code already uses, else the one that adds less',
+  scope: 'outside the order: the fix keeps to the part of the result inside the change',
+  none: 'outside the order: no choice remains, since acting on the finding has one sound way and the verifier\'s choice is not a real one',
+};
+
+/** Each case of a decision as the decider's task names it. */
+const settlementCaseWords: Readonly<Record<SettlementCase, string>> = {
+  fix: '`fix` with no `departure`',
+  'fix-departing': '`fix` with a `departure`',
+  intended: '`leave` as `intended`',
+  settled: '`leave` as `settled`',
+  superseded: '`leave` as `superseded`',
+  'outside-change-not-regression': '`leave` as `outside-change-not-regression`',
+  ask: '`ask`',
+};
+
+/** What a decision of one case holds of a settled choice, from the rules the engine refuses an answer by (D1 of the settled choice). */
+function settlementLine(rule: (typeof settlementRulesV1)[SettlementCase], name: string): string {
+  if (rule.named === 'refused') return `- ${name}: settles no choice; give \`settled\` null, since ${rule.why ?? ''}.`;
+  const when = rule.unnamed === 'required' ? 'always settles its choice' : rule.named === 'required' ? 'settles its choice when a candidate has a choice left to the author, and may otherwise' : 'may settle its choice';
+  const by = rule.steps.length === settleSteps.length ? 'by any step' : `by ${rule.steps.map((step) => `\`${step}\``).join(' or ')}`;
+  return `- ${name}: ${when}, ${by}.`;
 }
 
 /**
- * The decider's task (R2, R3 of the decision step): every ranked finding,
- * numbered in rank order, each with every candidate merged into it and
- * that candidate's own verdict and evidence, then the answer it returns.
+ * The decider's task (R2, R3 of the decision step; R1, R2, R9 of the
+ * settled choice): every ranked finding, numbered in rank order, each with
+ * every candidate merged into it and that candidate's own verdict,
+ * evidence and choice left to the author; the steps that settle a choice
+ * and which decision settles one by which; after a refused answer, what
+ * the engine refused it for; then the answer it returns.
  */
-export function deciderTask(findings: readonly DeciderTaskFinding[]): string {
+export function deciderTask(findings: readonly DeciderTaskFinding[], refused: readonly string[] = []): string {
   const count = findings.length;
   const list = findings.map((finding, position) => [
     `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
     `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`, candidate)),
+    ...finding.candidates.flatMap((candidate, at) => [
+      ...candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`, candidate),
+      ...(candidate.authorChoice === null ? [] : [`        choice left to the author: ${candidate.authorChoice}`]),
+    ]),
   ].join('\n'));
   return [
-    `The review's ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
+    `The review's ${String(count)} finding${count === 1 ? '' : 's'}, numbered [0] to [${String(count - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence, and the choice its verifier leaves to the author when it names one, which is the verifier's view and not an answer. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
     '',
     ...list,
     '',
-    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.',
+    'The step that settles a choice, `by` in `settled`: the first of the order that answers it, or one of the two outside it.',
+    ...settleSteps.map((step) => `- \`${step}\`: ${settleStepMeanings[step]}.`),
+    '',
+    'Which decision settles a choice, and by which step; the engine refuses an answer that breaks one of these:',
+    ...(Object.keys(settlementCaseWords) as SettlementCase[]).map((name) => settlementLine(settlementRulesV1[name], settlementCaseWords[name])),
+    '',
+    ...(refused.length === 0 ? [] : [
+      '### What failed in the earlier answer',
+      '',
+      'The engine refused an earlier answer to this task for these faults. Give your whole answer again, every finding of it, and keep none of them:',
+      '',
+      ...refused.map((reason) => `- ${inlineText(reason)}`),
+      '',
+    ]),
+    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` is the choice the decision settles, as above: the `choice` in one sentence, the step `by` that settles it, and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite; or null. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.',
   ].join('\n');
 }
 

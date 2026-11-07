@@ -353,22 +353,56 @@ describe('the task texts', () => {
   });
 
   it('numbers the decider\'s findings in rank order, each with every candidate\'s own verdict and evidence, and asks for one decision per index (R2, R3 of the decision step)', () => {
-    const member = (id: string, angle: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', evidence: string | null, unverified = false) => ({ id, angle, location: `src/a.ts:${id.length}`, summary: `${id} summary`, detail: `${id} detail`, verdict, unverified, evidence, cited: null });
+    const member = (id: string, angle: string, verdict: 'CONFIRMED' | 'PLAUSIBLE', evidence: string | null, unverified = false) => ({ id, angle, location: `src/a.ts:${id.length}`, summary: `${id} summary`, detail: `${id} detail`, verdict, unverified, evidence, cited: null, authorChoice: null });
     const task = deciderTask([
       { id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', summary: 'parse dereferences null, also at line 7', reason: 'one root cause', candidates: [member('RIPPLE-1', 'RIPPLE', 'CONFIRMED', 'line 4'), member('ALTITUDE-2', 'ALTITUDE', 'PLAUSIBLE', 'Needs the author: where to guard')] },
       { id: 'SWEEP-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 'a helper', reason: 'one improvement', candidates: [member('SWEEP-1', 'DESIGN', 'PLAUSIBLE', null, true)] },
     ]);
-    assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\], each with every candidate merged into it, its verdict and its verifier's evidence\. Decide each one as your role prompt defines it: `fix`, `leave` or `ask`\.$/m);
+    assert.match(task, /^The review's 2 findings, numbered \[0\] to \[1\], each with every candidate merged into it, its verdict and its verifier's evidence, and the choice its verifier leaves to the author when it names one, which is the verifier's view and not an answer\. Decide each one as your role prompt defines it: `fix`, `leave` or `ask`\.$/m);
     assert.match(task, /^\[0\] RIPPLE-1 \[major\] CONFIRMED: parse dereferences null, also at line 7\n {4}merge and rank: one root cause\n {4}- RIPPLE-1 \(RIPPLE\) primary at src\/a\.ts:8: CONFIRMED\n {8}summary: RIPPLE-1 summary\n {8}detail: RIPPLE-1 detail\n {8}evidence: line 4\n {4}- ALTITUDE-2 \(ALTITUDE\) at src\/a\.ts:10: PLAUSIBLE\n {8}summary: ALTITUDE-2 summary\n {8}detail: ALTITUDE-2 detail\n {8}evidence: Needs the author: where to guard$/m);
     assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE: a helper\n {4}merge and rank: one improvement\n {4}- SWEEP-1 \(DESIGN\) primary at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the group's verifier failed twice$/m);
     assert.match(task, /`leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise\./);
     assert.match(task, /the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer\./);
-    assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. Every index appears exactly once\. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing\.$/);
+    assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. `settled` is the choice the decision settles/);
+    assert.match(task, /Every index appears exactly once\. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing\.$/);
     assert.match(deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [member('A-1', 'SCAN', 'PLAUSIBLE', 'e')] }]), /^The review's 1 finding, numbered \[0\] to \[0\]/);
+    assert.doesNotMatch(task, /choice left to the author:/, 'no candidate names a choice');
+    assert.doesNotMatch(task, /What failed in the earlier answer/, 'a first attempt is told of no refusal');
+  });
+
+  it('gives the decider each candidate\'s choice left to the author on a line of its own after its evidence, and the fixer none (R1 of the settled choice)', () => {
+    const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 's', detail: 'd', verdict: 'PLAUSIBLE' as const, unverified: false, evidence: 'line 4. Needs the author: throw or return null', cited: null, authorChoice: 'Whether parse should throw or return null on an empty input.' };
+    const task = deciderTask([{ id: 'RIPPLE-1', severity: 'major', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [candidate] }]);
+    assert.match(task, /^ {8}evidence: line 4\. Needs the author: throw or return null\n {8}choice left to the author: Whether parse should throw or return null on an empty input\.$/m);
+  });
+
+  it('defines for the decider each step that settles a choice and which decision settles one by which, the rules the engine refuses an answer by (D1, D6 of the settled choice)', () => {
+    const task = deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'CONFIRMED', summary: 's', reason: 'r', candidates: [] }]);
+    const defined = task.slice(task.indexOf('The step that settles a choice'), task.indexOf('Which decision settles a choice'));
+    const steps = [...defined.matchAll(/^- `([a-z]+)`: /gm)].map((match) => match[1]);
+    assert.deepEqual(steps, ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']);
+    assert.match(task, /^- `fix` with no `departure`: settles its choice when a candidate has a choice left to the author, and may otherwise, by any step\.$/m);
+    assert.match(task, /^- `fix` with a `departure`: may settle its choice, by any step\.$/m);
+    assert.match(task, /^- `leave` as `intended`: settles its choice when a candidate has a choice left to the author, and may otherwise, by `intent` or `contract`\.$/m);
+    assert.match(task, /^- `leave` as `settled`: always settles its choice, by `shape`\.$/m);
+    assert.match(task, /^- `leave` as `superseded`: settles its choice when a candidate has a choice left to the author, and may otherwise, by `intent` or `contract` or `kept` or `shape` or `scope` or `none`\.$/m);
+    assert.match(task, /^- `leave` as `outside-change-not-regression`: settles no choice; give `settled` null, since deep-review does not act on such a finding\.$/m);
+    assert.match(task, /^- `ask`: settles no choice; give `settled` null, since its question is the record of the choice\.$/m);
+  });
+
+  it('tells a decider after a refused answer what the engine refused it for, and to give the whole answer again (R9 of the settled choice)', () => {
+    const task = deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'CONFIRMED', summary: 's', reason: 'r', candidates: [] }], ['Decision [0] is a leave as settled and settles no choice, which a leave as settled always does']);
+    assert.match(task, /^### What failed in the earlier answer\n\nThe engine refused an earlier answer to this task for these faults\. Give your whole answer again, every finding of it, and keep none of them:\n\n- Decision \[0\] is a leave as settled and settles no choice, which a leave as settled always does$/m);
   });
 });
 
 describe('the fixer\'s task', () => {
+  it('gives the fixer no candidate\'s choice left to the author as a line, since its decision settles it (R1 of the settled choice)', () => {
+    const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 's', detail: 'd', verdict: 'PLAUSIBLE' as const, unverified: false, evidence: 'line 4', cited: null, authorChoice: 'Whether parse should throw or return null on an empty input.' };
+    const fixer = fixerTask({ ...input, findings: [{ ...input.findings[0]!, primary: candidate, members: [] }] });
+    assert.doesNotMatch(fixer, /choice left to the author/);
+  });
+
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const claim = `node "/engine/main.mjs" claim --path '${claimPathPlaceholder}' --unit c1-2 --in "/scratch/claims/run/round-1"`;
   const input: FixerBatchTaskInput = {

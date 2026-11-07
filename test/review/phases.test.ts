@@ -450,6 +450,8 @@ describe('contributionOf', () => {
     assert.match((unsettled.payload as { reason: string }).reason, /^structural check: Decision \[0\] is a fix with no departure of a finding whose verifier named a choice for the author, and settles no choice$/);
     const settled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ settledBy: 'intent' }, {}])), state, worktree);
     assert.equal(settled.kind, 'decisions.recorded', 'the finding whose verifier named none needs no settled choice');
+    const task = taskFor(unit('decision', 'decision', 'decider'), state.review);
+    assert.equal(task.split('choice left to the author: Whether parse should throw or return null on an empty input.').length, 2, 'the decider is told the choice, once, on its candidate');
   });
 
   it('turns a decider answer the structural check refuses into a failed attempt naming the check', () => {
@@ -459,6 +461,20 @@ describe('contributionOf', () => {
     assert.match((short.payload as { reason: string }).reason, /^structural check: The answer leaves out finding \[1\] of the 2 the task gave$/);
     const superseded = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { decision: 'ask' }])), state, worktree);
     assert.match((superseded.payload as { reason: string }).reason, /^structural check: Decision \[0\] is superseded by \[1\], which is not another finding of the task decided fix$/);
+  });
+
+  it('tells the decider\'s next attempt what the engine refused its earlier answer for, and nothing of another failure, until a resume clears them (R9 of the settled choice)', () => {
+    const history = decidedOf(mergeRanked(), null).start('decision');
+    const refused = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{}, { decision: 'leave', reason: 'settled', settledBy: null }])), history.fold(), worktree);
+    assert.equal(refused.kind, 'attempt.failed');
+    history.add(refused.kind, refused.payload, refused.version);
+    history.add('attempt.failed', { phase: 'decision', key: 'decision', workerId: worker(46), reason: 'failed: The answer does not match the output schema', fault: 'unit' }, refused.version);
+    const task = taskFor(unit('decision', 'decision', 'decider'), history.review());
+    const section = task.slice(task.indexOf('### What failed in the earlier answer'));
+    assert.match(section, /^- Decision \[1\] is a leave as settled and settles no choice, which a leave as settled always does$/m, 'the decision by its index, and the rule');
+    assert.doesNotMatch(section, /output schema/, 'a failure no structural check made is not the answer\'s to change');
+    const resumed = history.finish('decision', 'blocked', 1, { code: 'worker-failed', detail: 'the decider failed twice', action: 'resume' }).start('decision', 2);
+    assert.doesNotMatch(taskFor(unit('decision', 'decision', 'decider'), resumed.review()), /What failed in the earlier answer/, 'a resume gives the unit fresh attempts');
   });
 });
 
