@@ -19,7 +19,9 @@
  * the reviewed head, or at the merge base for removed lines (R14). A body
  * over the limit is cut in the order of `bodyCuts`, and a body that still
  * does not fit, or a comment that does not, is a refusal with its size and
- * parts, before anything is recorded.
+ * parts, before anything is recorded. The texts that say what follows the
+ * review are chosen once, by whether the run went on into its fix pass
+ * (`followingOf`, R6 of the review of a fix run).
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import type { CandidateChoice, ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState, Unconfirmed } from '../checkpoint/events.ts';
@@ -34,7 +36,7 @@ import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
-import { pullRequestWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
+import { pullRequestWords, type FollowingWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown, mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { asksToAct, verdictBases, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
@@ -112,10 +114,19 @@ const shortCommit = (commit: string): string => commit.slice(0, 8);
 export const bodyCuts = ['refuted', 'left', 'minor-table', 'area-diagrams'] as const;
 export type BodyCut = (typeof bodyCuts)[number];
 
+/**
+ * What follows the review of the run (R6 of the review of a fix run): a
+ * fix pass still to come, run with `review --pr <n> --fix`, or one that
+ * the run went on into on the machine of the person who ran the review.
+ */
+export type FixPass = 'to-come' | 'continued';
+
 /** What the form renders from beyond the fold, each read by the caller. */
 export interface PullRequestFormInput {
-  /** The run, folded: a read-only run of a pull request with its report. */
+  /** The run, folded: a read-only run of a pull request with its report, or such a run as it stood before it was continued into its fix pass. */
   readonly state: RunState;
+  /** Whether the run went on into its fix pass, which the folded `state` before the continuation does not show. */
+  readonly fixPass: FixPass;
   /** The writer's answer as the evidence store froze it (`recordedAnswerOf`), or null when the run recorded no explanation or no answer passed any part. */
   readonly answer: WriterAnswer | null;
   /** The place of each finding (`placeFindings`), against the files of the pull request as `publish` read them. */
@@ -230,6 +241,8 @@ interface FormView {
   readonly pullRequest: PullRequestFacts;
   readonly brief: Brief;
   readonly words: PullRequestWords;
+  /** The words of what follows the review, for the run's fix pass (`followingOf`). */
+  readonly following: FollowingWords;
   readonly findings: readonly FindingView[];
   /** The writer's areas; null puts every major finding that acts in one area named by the engine (R16). */
   readonly areas: readonly AreaView[] | null;
@@ -330,8 +343,25 @@ const locationLink = (view: FormView, location: FindingLocation): string => `[${
 /** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block in the body. */
 const hrefOf = (view: FormView, finding: FindingView): string => (finding.placement.place === 'line' ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`);
 
-/** The command that continues the run into the fix pass, as a code span. */
-const fixCommand = (view: FormView): string => codeSpan(`deep-review review --pr ${String(view.pullRequest.number)} --fix`);
+/**
+ * The words of what follows the review (R6 of the review of a fix run):
+ * those of a run continued into its fix pass, or the read-only ones, which
+ * name the command that continues the run into the fix pass, a code span.
+ */
+function followingOf(words: PullRequestWords, fixPass: FixPass, pullRequest: number): FollowingWords {
+  if (fixPass === 'continued') return words.continued;
+  const fix = codeSpan(`deep-review review --pr ${String(pullRequest)} --fix`);
+  return {
+    reviewed: words.reviewed,
+    summaryNext: (counts) => words.summaryNext(counts, fix),
+    departureStands: words.departureStands,
+    departure: (rule, source, fact, accept, reject) => words.departure(rule, source, fact, accept, reject, fix),
+    standing: words.standing,
+    answerQuestion: (command) => words.answerQuestion(command, fix),
+    howDiagram: words.howDiagram,
+    noCheck: words.noCheck,
+  };
+}
 
 /** The marks after a finding's verdict: no verifier examined it. */
 const verdictMarks = (view: FormView, finding: FindingView): string[] => (finding.entry.resolution.unverified ? [view.words.unverifiedMark] : []);
@@ -428,7 +458,7 @@ function decidedFixLines(view: FormView, decision: Extract<RecordedDecision, { d
 function departureLines(view: FormView, departure: BriefDeparture, say: Speaker): string[] {
   const { words } = view;
   const sentence = (text: string): string => sentenceText(say.words(text));
-  const paragraph = words.departure(sentence(departure.rule), sentence(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject), fixCommand(view));
+  const paragraph = view.following.departure(sentence(departure.rule), sentence(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject));
   const given = departure.review;
   const answered = given === null ? [] : [given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at)];
   return [[paragraph, ...answered].join(' ')];
@@ -442,8 +472,8 @@ function questionBlocks(view: FormView, finding: FindingView, question: BriefQue
   const standing = given !== null && given.option !== null
     ? [[words.answeredOption(given.option, given.at)]]
     : [
-      [words.standing(question.choice, question.default, question.options[question.default - 1]!.edits, null)],
-      [words.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>')), fixCommand(view))],
+      [view.following.standing(question.choice, question.default, question.options[question.default - 1]!.edits, null)],
+      [view.following.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>')))],
     ];
   return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options, ...standing];
 }
@@ -553,10 +583,10 @@ interface Section {
   readonly lines: readonly string[];
 }
 
-/** The heading and the line on what the run reviewed and that it changed no file (R1). */
+/** The heading and the line on what the run reviewed and that it changed no file, or what it went on to do (R1; R6 of the review of a fix run). */
 function headingSection(view: FormView): Section {
   const { words, scope } = view;
-  return { part: 'heading', lines: [words.heading, '', words.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
+  return { part: 'heading', lines: [words.heading, '', view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 
 /** The summary (R1): the counts of the findings with the writer's sentence on the areas, left out when the checks dropped the writer's areas, which the body then does not show, then what deep-review decided and what happens next. */
@@ -569,7 +599,7 @@ function summarySection(view: FormView, say: Speaker): Section {
     questions: findings.filter((finding) => finding.finding.status === 'question').length,
     left: findings.filter((finding) => finding.finding.status === 'left').length,
   };
-  const next = findings.length === 0 ? [] : [[words.summaryNext(decided, fixCommand(view))]];
+  const next = findings.length === 0 ? [] : [[view.following.summaryNext(decided)]];
   return { part: 'summary', lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(' ')], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
 }
 
@@ -583,14 +613,14 @@ function needsSection(view: FormView, say: Speaker): Section {
     const given = question.answer;
     const tail = given !== null && given.option !== null
       ? words.answeredOption(given.option, given.at)
-      : words.standing(question.choice, question.default, question.options[question.default - 1]!.edits, say.sentence(question.options[question.choice - 1]!.option));
+      : view.following.standing(question.choice, question.default, question.options[question.default - 1]!.edits, say.sentence(question.options[question.choice - 1]!.option));
     return [`- ${words.needsQuestion(finding.finding.number, hrefOf(view, finding), say.sentence(question.question), tail)}`];
   });
   const departures = view.findings.flatMap((finding) => {
     const { departure } = finding;
     if (departure === null) return [];
     const given = departure.review;
-    const tail = given === null ? words.departureStands : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
+    const tail = given === null ? view.following.departureStands : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence(departure.rule), tail)}`];
   });
   const items = [...questions, ...departures];
@@ -604,7 +634,7 @@ function needsSection(view: FormView, say: Speaker): Section {
 function howSection(view: FormView): Section {
   const { words, counts } = view;
   const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings, words.severityValues].join(' ');
-  return { part: 'how', lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced(words.howDiagram(view.pullRequest.number))], [meanings]) };
+  return { part: 'how', lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced(view.following.howDiagram(view.pullRequest.number))], [meanings]) };
 }
 
 /** The major findings that ask a person to act, in rank order. */
@@ -722,7 +752,7 @@ function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<Body
   const cut = cuts.has('refuted');
   const count = view.refuted.length;
   const refutedLine = count === 0 ? [] : [cut ? words.refutedCut(count) : words.refutedLine(count)];
-  const items = [words.noCheck, ...excluded, ...(gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text)))), ...refutedLine].map((item) => `- ${item}`);
+  const items = [view.following.noCheck, ...excluded, ...(gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text)))), ...refutedLine].map((item) => `- ${item}`);
   if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], items) };
   const entries = view.refuted.map(({ candidate, claim, why }) => {
     const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
@@ -863,6 +893,7 @@ function formViewOf(input: PullRequestFormInput): FormView {
   const scope = state.scope;
   if (review === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
   const brief = briefOf(state);
+  const words = pullRequestWords(reviewLanguage(review));
   const placements = new Map(input.places.map((placement) => [placement.finding, placement]));
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
@@ -894,7 +925,8 @@ function formViewOf(input: PullRequestFormInput): FormView {
     scope,
     pullRequest: scope.pullRequest,
     brief,
-    words: pullRequestWords(reviewLanguage(review)),
+    words,
+    following: followingOf(words, input.fixPass, scope.pullRequest.number),
     findings,
     areas: input.answer?.areas ?? null,
     refuted: refuted(review).map(({ candidate }) => {
