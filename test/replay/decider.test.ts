@@ -166,7 +166,7 @@ describe('replayDecider', { timeout: 600_000 }, () => {
 
     const outcome = await replay({ checkpoint: root, run: runId.slice(0, 8), output, printTask: true });
 
-    assert.deepEqual(outcome, { runId, attempts: [], decisions: null });
+    assert.deepEqual(outcome, { runId, attempts: [], decisions: null, review: null });
     const prompt = read(output, promptFileName(1));
     assert.match(prompt, /^Role: decider\nUnit: decision\nPhase: decision$/m);
     assert.match(prompt, /numbered \[0\] to \[2\]/);
@@ -229,6 +229,7 @@ describe('replayDecider', { timeout: 600_000 }, () => {
     const outcome = await replay({ output });
 
     assert.deepEqual(outcome.attempts.map((attempt) => attempt.outcome), ['accepted']);
+    assert.equal(outcome.review, join(output, reviewFileName), 'the outcome names the review it wrote');
     const review = read(output, reviewFileName);
     assert.ok(review.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42`), review);
     const body = review.slice(review.indexOf('--- The body of the review'), review.indexOf('--- The end of the body ---'));
@@ -240,6 +241,37 @@ describe('replayDecider', { timeout: 600_000 }, () => {
     assert.deepEqual(facts.needsAPerson, { questions: [{ finding: 1, id: 'SCAN-1', question: 'fake question for [0]?' }], departures: [] });
     assert.deepEqual(facts.fixes, [{ finding: 2, id: 'SCAN-2', approach: 'fake approach for [1]', departure: false }]);
     assert.deepEqual(facts.choices.map((choice) => [choice.id, choice.decision, choice.settled, choice.unanswered]), [['SWEEP-1', 'leave', [], [{ candidate: 'SWEEP-1', choice: sweepChoice }]]]);
+  });
+
+  it('writes and names no review for a run that reviewed no pull request', async () => {
+    const local = new ReviewSandbox();
+    try {
+      local.script(reviewScript);
+      reportText(await local.review('claude'));
+      const localRun = local.run().id;
+      local.script({ decider: { output: deciderAnswer([{}, {}, {}]) } });
+      const lines: string[] = [];
+      const output = newDirectory('no-pull-request');
+
+      const outcome = await replay({
+        checkpoint: local.checkpoint.root,
+        run: localRun,
+        tree: local.repo,
+        rolesRoot: local.rolesRoot,
+        environment: { ...baseEnvironment, FAKE_SCRIPT: local.scriptFile },
+        scratchRoot: local.scratchRoot,
+        output,
+        log: (line) => lines.push(line),
+      });
+
+      assert.deepEqual(outcome.attempts.map((attempt) => attempt.outcome), ['accepted']);
+      assert.notEqual(outcome.decisions, null);
+      assert.ok(lines.includes(`run ${localRun} reviewed no pull request, so there is no review to render`), lines.join('\n'));
+      assert.equal(outcome.review, null, 'the outcome names no review');
+      assert.ok(!existsSync(join(output, reviewFileName)), 'no review was written');
+    } finally {
+      local.close();
+    }
   });
 
   it('launches the decider with the recorded decider\'s settings on its runtime, and with the roles\' policy on another', async () => {
