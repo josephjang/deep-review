@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, parse, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { fixerOutputSchema, surveyorCheckSchema, surveyorOutputSchema, verifierOutputSchema } from '../../src/review/schemas.ts';
-import { decisionKinds, fixStatuses, leaveReasons, severities, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
+import { decisionKinds, fixStatuses, leaveReasons, settleSteps, severities, validationMethods, verdicts } from '../../src/review/vocabulary.ts';
 import { assembleRoles, fragmentsDirectoryName, manifestFileName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 
 /** Every role the engine knows, in manifest order: the surveyor, the ten finder angles and the phase roles around them. */
@@ -25,6 +25,17 @@ const leadRoles = ['triage', 'finder-SCAN', 'deduplication', 'verifier', 'sweep'
 
 /** The roles the read-only review runs: the surveyor, the triage (which runs `SCAN`), the nine other finders, the four phase roles after them, the decider and the writer of a run of a pull request. */
 const reviewRoles = ['surveyor', 'triage', ...expectedRoles.filter((key) => key.startsWith('finder-') && key !== 'finder-SCAN'), 'deduplication', 'verifier', 'sweep', 'merge-rank', 'decider', 'writer'];
+
+/** The part of a fragment from `start` to the next heading, which must follow it. */
+function sectionOf(text: string, start: string): string {
+  const from = text.indexOf(start);
+  assert.ok(from >= 0, `the fragment has ${start}`);
+  const end = text.indexOf('\n###', from + start.length);
+  return text.slice(from, end < 0 ? text.length : end);
+}
+
+/** The labels of a section's list items written as ``- `label`: ``, in order. */
+const labelsOf = (section: string): string[] => [...section.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]!);
 
 describe('the repository\'s roles/', () => {
   const roles = assembleRoles(repositoryRolesRoot());
@@ -329,12 +340,19 @@ describe('the repository\'s roles/', () => {
   it('names in the decider\'s rubric every decision and exactly the leave reasons the engine records, so the prompt and the schema cannot drift apart (R3 of the decision step)', () => {
     const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'decider-rubric.md'), 'utf8');
     for (const kind of decisionKinds) assert.match(rubric, new RegExp(`^\\| \`${kind}\` \\|`, 'm'), kind);
-    // The rubric does not define the reason `settled` yet, nor the steps that settle a choice.
-    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), leaveReasons.filter((reason) => reason !== 'settled'));
-    assert.match(rubric, /The reasons a finding is left, and no others:/);
+    assert.deepEqual(labelsOf(sectionOf(rubric, 'The reasons a finding is left, and no others:')), [...leaveReasons]);
+    assert.match(rubric, /^\| `leave` \| One of the four reasons below holds/m);
     // An ask never stops the run, and its default is what a fixer applies (R4 of the decision step).
     assert.match(rubric, /An `ask` never stops the run\. A fix worker applies the default you name\s+now/);
     assert.match(rubric, /\*\*The default is the option easiest to take back\*\*/);
+  });
+
+  it('names in the decider\'s rubric exactly the steps that settle a choice the engine records, the order\'s five and then the two outside it, so the prompt and the schema cannot drift apart (R2 of the settled choice)', () => {
+    const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'decider-rubric.md'), 'utf8');
+    const section = sectionOf(rubric, '### Settling a choice');
+    assert.deepEqual(labelsOf(section), [...settleSteps]);
+    assert.ok(section.indexOf('Two more steps settle a fix outside the order:') > section.indexOf('- `shape`: ') && section.indexOf('Two more steps settle a fix outside the order:') < section.indexOf('- `scope`: '), 'the two steps outside the order come after the order, marked as such');
+    assert.match(rubric, /A `fix` edits the code\./);
   });
 
   it('reads merge-rank\'s severities from a table whose cells are exactly the severities the engine records, so the rubric and the schema cannot drift apart', () => {
