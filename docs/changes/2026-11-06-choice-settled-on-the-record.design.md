@@ -190,4 +190,16 @@ A test of `checkDecisions` that gives an answer breaking two rules in two decisi
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+Seven commits implement the design, from "feat(review): Name every fault of a decider's answer in one refusal" to "chore(dist): Rebuild the engine for the settled choice". The rules of the settled choice are one table, `settlementRulesV1` in `src/checkpoint/events.ts`, beside `reviewVocabularyV13` and `decisions.recorded@2`, since the rules of version 2 are fixed with the event; `settlementFaultV1` reads it for `checkDecisions` and for the fold, and the decider's task states the steps and the table from the same source. `test/review/settled-choice.test.ts` writes the table of R2 out literally and runs every case, each decision kind with and without a verifier's choice and with no step or each of the seven, through both `checkDecisions` and the fold. The golden script gains a run at version 2, and the fixture `schema-1-20` holds it. The author rule, its words in both languages and its paths are removed, and the four tests that pinned it now hold the new placement. The rubric's change is its own commit, "feat(roles): Tell the decider how to record a choice it settles"; the commit before it holds the rubric's list of leave reasons to the three it still names, and that commit restores the strict test, scoped to the list of the reasons, with a new test of the list of the steps.
+
+Choices made in the work, within the requirements: the cut of the findings left as is is not made when every one of them carries a verifier's choice, since it would remove nothing; when some do, the others are counted with their own words. The verifier's choice is shown beside fixes and findings left as is, in the form and in the report, and not beside an ask. The rubric asks a leave as `intended` or `settled` always to name its settled choice, which is more than the engine refuses for `intended`. The Korean words of the steps, of the choice lines and of the reason `settled` have not been read by a native speaker.
+
+### Checks
+
+At the head of the series, `npm run check` passed (3,590 tests: 3,577 pass, 13 skipped, none fail), `npm run test:contract` passed (104 of 104), and `npm run verify` found `dist/claude` and `dist/codex` matching the sources. Every commit of the series passed `npm run typecheck` and `npm run lint`.
+
+### The gate (R8)
+
+The gate has not run. It needs the copy of the repository that R8 names, with pull requests that hold the commits of #114 and #96, and a real run of this pull request.
