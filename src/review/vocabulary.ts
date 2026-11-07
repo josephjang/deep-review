@@ -549,6 +549,14 @@ export const leaveReasons = ['outside-change-not-regression', 'superseded', 'int
 export const leaveReasonSchema = z.enum(leaveReasons);
 export type LeaveReason = z.infer<typeof leaveReasonSchema>;
 
+/** Why a finding was left in English words, as the report and the English review on a pull request say it. */
+export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
+  'outside-change-not-regression': 'outside the change, and not a regression',
+  superseded: 'superseded',
+  intended: 'intended, as the repository states',
+  settled: 'a choice of shape, settled in favor of the code as it is',
+};
+
 /**
  * The step that settles a choice a decision makes (R2 of the settled
  * choice): the five of the decider's order, in its order, the change's
