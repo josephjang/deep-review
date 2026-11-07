@@ -21335,7 +21335,25 @@ function refineDocumentationPlan(plan, context) {
 function isDocumentItem(item) {
   return item.file !== null;
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, eventRegistry;
+function settlementCaseOf(decision) {
+  if (decision.decision === "fix") return decision.departure === null ? "fix" : "fix-departing";
+  if (decision.decision === "ask") return "ask";
+  if (decision.leave === null) throw new Error("A leave decision has no reason");
+  return decision.leave.reason;
+}
+function settlementFaultV1(decision, named) {
+  const rule = settlementRulesV1[settlementCaseOf(decision)];
+  const need2 = named ? rule.named : rule.unnamed;
+  const { settled: settled4 } = decision;
+  if (settled4 === null) {
+    if (need2 !== "required") return null;
+    return rule.unnamed === "required" ? `is ${rule.what} and settles no choice, which ${rule.what} always does` : `is ${rule.what} of a finding whose verifier named a choice for the author, and settles no choice`;
+  }
+  if (need2 === "refused") return `is ${rule.what} and settles a choice, which ${rule.what} never does: ${rule.why ?? ""}`;
+  if (!rule.steps.includes(settled4.by)) return `is ${rule.what} and settles its choice by \`${settled4.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(", ")}`;
+  return null;
+}
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, reviewVocabularyV13, vocabularyV13, settledChoiceSchemaV1, settlementRulesV1, recordedFixV1, recordedLeaveV1, recordedAskV1, decidedLeaveV2, recordedDecisionSchemaV2, decisionsRecordedV2, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -22994,6 +23012,38 @@ var init_events = __esm({
       external_exports.strictObject({ marker: publicationMarkerSchemaV1, reason: external_exports.literal(vocabularyV11.publicationDropReasons[0]), status: external_exports.number().int().min(400).max(499), message: recordedTextSchema }),
       external_exports.strictObject({ marker: publicationMarkerSchemaV1, reason: external_exports.literal(vocabularyV11.publicationDropReasons[1]) })
     ]);
+    reviewVocabularyV13 = {
+      leaveReasons: ["outside-change-not-regression", "superseded", "intended", "settled"],
+      settleSteps: ["intent", "contract", "before", "kept", "shape", "scope", "none"]
+    };
+    vocabularyV13 = reviewVocabularyV13;
+    settledChoiceSchemaV1 = external_exports.strictObject({ choice: decisionText(400), by: external_exports.enum(vocabularyV13.settleSteps), source: decisionText(400) });
+    settlementRulesV1 = {
+      fix: { named: "required", unnamed: "optional", steps: vocabularyV13.settleSteps, what: "a fix with no departure", why: null },
+      "fix-departing": { named: "optional", unnamed: "optional", steps: vocabularyV13.settleSteps, what: "a fix that departs from a rule", why: null },
+      intended: { named: "required", unnamed: "optional", steps: ["intent", "contract"], what: "a leave as intended", why: null },
+      settled: { named: "required", unnamed: "required", steps: ["shape"], what: "a leave as settled", why: null },
+      superseded: { named: "required", unnamed: "optional", steps: ["intent", "contract", "kept", "shape", "scope", "none"], what: "a leave as superseded", why: null },
+      "outside-change-not-regression": { named: "refused", unnamed: "refused", steps: [], what: "a leave as outside-change-not-regression", why: "deep-review does not act on such a finding" },
+      ask: { named: "refused", unnamed: "refused", steps: [], what: "an ask", why: "its question is the record of the choice" }
+    };
+    [recordedFixV1, recordedLeaveV1, recordedAskV1] = recordedDecisionSchema.options;
+    decidedLeaveV2 = external_exports.strictObject({ reason: external_exports.enum(vocabularyV13.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => leave.reason === "superseded" === (leave.supersededBy !== null), {
+      message: "a superseded finding names the finding that supersedes it, and no other left finding names one",
+      path: ["supersededBy"]
+    });
+    recordedDecisionSchemaV2 = external_exports.discriminatedUnion("decision", [
+      external_exports.strictObject({ ...recordedFixV1.shape, settled: settledChoiceSchemaV1.nullable() }),
+      external_exports.strictObject({ ...recordedLeaveV1.shape, leave: decidedLeaveV2, settled: settledChoiceSchemaV1.nullable() }),
+      external_exports.strictObject({ ...recordedAskV1.shape, settled: settledChoiceSchemaV1.nullable() })
+    ]);
+    decisionsRecordedV2 = external_exports.strictObject({
+      workerId: external_exports.uuid(),
+      decisions: external_exports.array(recordedDecisionSchemaV2).min(1)
+    }).refine((recorded) => new Set(recorded.decisions.map((decided) => decided.id)).size === recorded.decisions.length, {
+      message: "each finding is decided once",
+      path: ["decisions"]
+    });
     eventRegistry = defineRegistry({
       "run.created": { 1: { schema: runCreatedV1 } },
       "run.abandoned": { 1: { schema: runAbandonedV1 } },
@@ -23029,7 +23079,7 @@ var init_events = __esm({
       "commits.dropped": { 1: { schema: commitsDroppedV1 } },
       "survey.recorded": { 1: { schema: surveyRecordedV1 } },
       "survey.failed": { 1: { schema: surveyFailedV1 } },
-      "decisions.recorded": { 1: { schema: decisionsRecordedV1 } },
+      "decisions.recorded": { 1: { schema: decisionsRecordedV1 }, 2: { schema: decisionsRecordedV2 } },
       "files.claimed": { 1: { schema: filesClaimedV1 } },
       "claims.lost": { 1: { schema: claimsLostV1 } },
       "fix.pinned": { 1: { schema: fixPinnedV1 }, 2: { schema: fixPinnedV2 } },
@@ -23072,7 +23122,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, settleSteps, settleStepSchema, settleStepWords, settledChoiceWords, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -23209,8 +23259,20 @@ var init_vocabulary = __esm({
     decisionKindSchema = external_exports.enum(decisionKinds);
     asksToAct = (decision) => decision === "fix" || decision === "ask";
     decisionCountWords = (counts) => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
-    leaveReasons = ["outside-change-not-regression", "superseded", "intended"];
+    leaveReasons = ["outside-change-not-regression", "superseded", "intended", "settled"];
     leaveReasonSchema = external_exports.enum(leaveReasons);
+    settleSteps = ["intent", "contract", "before", "kept", "shape", "scope", "none"];
+    settleStepSchema = external_exports.enum(settleSteps);
+    settleStepWords = {
+      intent: "the stated intent of the change",
+      contract: "what the repository states",
+      before: "the behavior before the change",
+      kept: "keeping a behavior that was there before",
+      shape: "the shape the code around it already uses, or else the one that adds less",
+      scope: "keeping the fix to the part inside the change",
+      none: "no real choice remains, since there is one sound way to act"
+    };
+    settledChoiceWords = (choice, by, source) => `${choice.replace(/[.\s]+$/, "")}; settled by ${settleStepWords[by]}: ${source}`;
     severities = ["critical", "major", "minor"];
     severitySchema2 = external_exports.enum(severities);
     candidateIdSchema2 = external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1");
@@ -24107,6 +24169,31 @@ function recordVerdicts(state, payload, event, drafts, version2) {
   for (const { id, ...verdict } of payload.verdicts) candidates[id] = { ...candidates[id], verdict };
   return withReview(current, { ...review2, candidates, units: answered(review2, drafts, { phase: payload.phase, key: payload.groupId }, payload.workerId) }, event);
 }
+function namesChoice(review2, finding) {
+  return [finding.id, ...finding.members].some((id) => (review2.candidates[id]?.verdict?.authorChoice ?? null) !== null);
+}
+function recordDecisions(state, payload, event, drafts, version2) {
+  const { current, review: review2 } = requireReview(state, event);
+  requireRunning(review2, event, "decision");
+  if (review2.decisions !== null) throw invalid(event, "records its decisions twice");
+  const unit = { phase: "decision", key: singleUnitKey("decision") };
+  requireUnanswered(review2, event, unit);
+  const ranked2 = (review2.ranking ?? []).map((finding) => finding.id);
+  const decided = payload.decisions.map((decision) => decision.id);
+  if (decided.length !== ranked2.length || !ranked2.every((id) => decided.includes(id))) {
+    throw invalid(event, `decides [${decided.join(", ")}], which is not every ranked finding [${ranked2.join(", ")}] once`);
+  }
+  const kindOf = new Map(payload.decisions.map((decision) => [decision.id, decision.decision]));
+  const findings = new Map((review2.ranking ?? []).map((finding) => [finding.id, finding]));
+  for (const decision of payload.decisions) {
+    const by = decision.leave?.supersededBy ?? null;
+    if (by !== null && (by === decision.id || kindOf.get(by) !== "fix")) throw invalid(event, `leaves ${decision.id} as superseded by ${by}, which is not another finding decided fix`);
+    const fault = version2 === 2 ? settlementFaultV1(decision, namesChoice(review2, findings.get(decision.id))) : null;
+    if (fault !== null) throw invalid(event, `records the decision of ${decision.id}, which ${fault}`);
+  }
+  const decisions = ranked2.map((id) => payload.decisions.find((decision) => decision.id === id));
+  return withReview(current, { ...review2, decisions, units: answered(review2, drafts, unit, payload.workerId) }, event);
+}
 function recordExplanation(state, payload, event, drafts, version2) {
   const { current, review: review2 } = requireReview(state, event);
   if (!review2.explanationStep) throw invalid(event, "records an explanation, which only a run configured at review.configured@10 or later has");
@@ -24134,12 +24221,13 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, explanationRecorded, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, decisionsRecordedV12, explanationRecorded, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
     init_vocabulary();
     init_errors4();
+    init_events();
     init_fix_state();
     init_survey_state();
     invalid = (event, what) => new InvalidHistoryError(`Run ${event.runId} ${what}, at sequence ${String(event.sequence)} (${event.kind}@${String(event.version)})`);
@@ -24290,25 +24378,8 @@ var init_review_fold = __esm({
       }
       return withReview(current, { ...review2, ranking: payload.findings, units: answered(review2, drafts, unit, payload.workerId) }, event);
     };
-    decisionsRecorded = (state, payload, event, drafts) => {
-      const { current, review: review2 } = requireReview(state, event);
-      requireRunning(review2, event, "decision");
-      if (review2.decisions !== null) throw invalid(event, "records its decisions twice");
-      const unit = { phase: "decision", key: singleUnitKey("decision") };
-      requireUnanswered(review2, event, unit);
-      const ranked2 = (review2.ranking ?? []).map((finding) => finding.id);
-      const decided = payload.decisions.map((decision) => decision.id);
-      if (decided.length !== ranked2.length || !ranked2.every((id) => decided.includes(id))) {
-        throw invalid(event, `decides [${decided.join(", ")}], which is not every ranked finding [${ranked2.join(", ")}] once`);
-      }
-      const kindOf = new Map(payload.decisions.map((decision) => [decision.id, decision.decision]));
-      for (const decision of payload.decisions) {
-        const by = decision.leave?.supersededBy ?? null;
-        if (by !== null && (by === decision.id || kindOf.get(by) !== "fix")) throw invalid(event, `leaves ${decision.id} as superseded by ${by}, which is not another finding decided fix`);
-      }
-      const decisions = ranked2.map((id) => payload.decisions.find((decision) => decision.id === id));
-      return withReview(current, { ...review2, decisions, units: answered(review2, drafts, unit, payload.workerId) }, event);
-    };
+    decisionsRecorded = (state, payload, event, drafts) => recordDecisions(state, payload, event, drafts, 2);
+    decisionsRecordedV12 = (state, payload, event, drafts) => recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: null })) }, event, drafts, 1);
     explanationRecorded = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 2);
     explanationRecordedV12 = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 1);
     reportWritten = (state, payload, event) => {
@@ -24378,7 +24449,8 @@ var init_review_fold = __esm({
       "verdicts.recorded@3": verdictsRecorded,
       "group.unverified@1": groupUnverified,
       "ranking.recorded@1": rankingRecorded,
-      "decisions.recorded@1": decisionsRecorded,
+      "decisions.recorded@1": decisionsRecordedV12,
+      "decisions.recorded@2": decisionsRecorded,
       "report.written@1": reportWrittenV12,
       "report.written@2": reportWritten,
       "report.written@3": reportWritten,
@@ -26964,7 +27036,7 @@ var init_dist = __esm({
 });
 
 // src/review/errors.ts
-var InvalidPolicyError, StructuralCheckError, ReviewRefusedError, PublicationOpenError;
+var InvalidPolicyError, StructuralCheckError, structuralCheckPrefix, ReviewRefusedError, PublicationOpenError;
 var init_errors7 = __esm({
   "src/review/errors.ts"() {
     "use strict";
@@ -26975,6 +27047,7 @@ var init_errors7 = __esm({
     StructuralCheckError = class extends EngineError {
       name = "StructuralCheckError";
     };
+    structuralCheckPrefix = "structural check: ";
     ReviewRefusedError = class extends EngineError {
       name = "ReviewRefusedError";
       /** The blocker code the refusal prints, when it has one. */
@@ -31469,35 +31542,60 @@ function checkMergeRank(output2, count3) {
   const missing = missingIndexes(seen, count3);
   if (missing.length > 0) throw new StructuralCheckError(`The ranking leaves out index ${missing.map(String).join(", ")} of the ${String(count3)} candidates on the working list`);
 }
-function checkDecisions(output2, count3) {
-  const seen = /* @__PURE__ */ new Set();
-  const kindOf = new Map(output2.decisions.map((entry) => [entry.index, entry.decision]));
-  for (const entry of output2.decisions) {
-    const what = `Decision [${String(entry.index)}]`;
-    if (entry.index >= count3) throw new StructuralCheckError(`${what} is outside the task, whose findings are numbered [0] to [${String(count3 - 1)}]`);
-    if (seen.has(entry.index)) throw new StructuralCheckError(`${what} is given twice`);
-    seen.add(entry.index);
-    for (const kind of decisionKinds) {
-      if (entry.decision === kind !== (entry[kind] !== null)) {
-        throw new StructuralCheckError(entry.decision === kind ? `${what} is ${kind} and has no \`${kind}\`` : `${what} is ${entry.decision} and carries \`${kind}\`, which only a ${kind} decision does`);
-      }
-    }
-    if (entry.departure !== null && entry.decision !== "fix") throw new StructuralCheckError(`${what} is ${entry.decision} and departs from a rule, which only a fix does`);
-    if (entry.ask !== null) {
-      const options2 = entry.ask.options.length;
-      for (const [name, value] of [["recommends", entry.ask.recommended], ["applies", entry.ask.applied]]) {
-        if (value >= options2) throw new StructuralCheckError(`${what} ${name} option ${String(value)}, but its question offers options 0 to ${String(options2 - 1)}`);
-      }
-    }
-    if (entry.leave !== null) {
-      const by = entry.leave.supersededBy;
-      if (entry.leave.reason === "superseded" && by === null) throw new StructuralCheckError(`${what} is superseded and names no finding that supersedes it`);
-      if (entry.leave.reason !== "superseded" && by !== null) throw new StructuralCheckError(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
-      if (by !== null && (by === entry.index || by >= count3 || kindOf.get(by) !== "fix")) throw new StructuralCheckError(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
+function decisionFaults(entry, namesChoice2, kindOf) {
+  const what = `Decision [${String(entry.index)}]`;
+  const count3 = namesChoice2.length;
+  if (entry.index >= count3) return [`${what} is outside the task, whose findings are numbered [0] to [${String(count3 - 1)}]`];
+  const faults = [];
+  for (const kind of decisionKinds) {
+    if (entry.decision === kind !== (entry[kind] !== null)) faults.push(entry.decision === kind ? `${what} is ${kind} and has no \`${kind}\`` : `${what} is ${entry.decision} and carries \`${kind}\`, which only a ${kind} decision does`);
+  }
+  if (entry.departure !== null && entry.decision !== "fix") faults.push(`${what} is ${entry.decision} and departs from a rule, which only a fix does`);
+  if (entry.ask !== null) {
+    const options2 = entry.ask.options.length;
+    for (const [name, value] of [["recommends", entry.ask.recommended], ["applies", entry.ask.applied]]) {
+      if (value >= options2) faults.push(`${what} ${name} option ${String(value)}, but its question offers options 0 to ${String(options2 - 1)}`);
     }
   }
+  if (entry.leave !== null) {
+    const by = entry.leave.supersededBy;
+    if (entry.leave.reason === "superseded" && by === null) faults.push(`${what} is superseded and names no finding that supersedes it`);
+    if (entry.leave.reason !== "superseded" && by !== null) faults.push(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
+    else if (by !== null && (by === entry.index || by >= count3 || kindOf.get(by) !== "fix")) faults.push(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
+  }
+  const settlement = entry.decision === "leave" && entry.leave === null ? null : settlementFaultV1(entry, namesChoice2[entry.index]);
+  if (settlement !== null) faults.push(`${what} ${settlement}`);
+  return faults;
+}
+function faultsMessage(faults) {
+  if (faults.length === 1) return faults[0];
+  const room = maxRecordedTextLength - structuralCheckPrefix.length;
+  const head2 = `The answer breaks ${String(faults.length)} rules: `;
+  const listed2 = [];
+  for (const [position, fault] of faults.entries()) {
+    const left = faults.length - position - 1;
+    const tail = left === 0 ? "" : `; and ${String(left)} more`;
+    if ((head2 + [...listed2, fault].join("; ") + tail).length > room) return `${head2}${listed2.join("; ")}; and ${String(faults.length - position)} more`;
+    listed2.push(fault);
+  }
+  return `${head2}${listed2.join("; ")}`;
+}
+function checkDecisions(output2, namesChoice2) {
+  const count3 = namesChoice2.length;
+  const seen = /* @__PURE__ */ new Set();
+  const kindOf = new Map(output2.decisions.map((entry) => [entry.index, entry.decision]));
+  const faults = [];
+  for (const entry of output2.decisions) {
+    if (seen.has(entry.index)) {
+      faults.push(`Decision [${String(entry.index)}] is given twice`);
+      continue;
+    }
+    seen.add(entry.index);
+    faults.push(...decisionFaults(entry, namesChoice2, kindOf));
+  }
   const missing = missingIndexes(seen, count3);
-  if (missing.length > 0) throw new StructuralCheckError(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count3)} the task gave`);
+  if (missing.length > 0) faults.push(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count3)} the task gave`);
+  if (faults.length > 0) throw new StructuralCheckError(faultsMessage(faults));
 }
 var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, verifierNote, verifierOutputSchemaV3, mergeRankOutputSchema, decisionText2, deciderOutputSchema, citedSides, writerText, writerDiagram, writerOutputSchema, writerOutputSchemaV2, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
 var init_schemas3 = __esm({
@@ -31594,7 +31692,8 @@ var init_schemas3 = __esm({
           applied: index,
           searched: external_exports.array(decisionText2(400)).min(1).max(10)
         }).nullable(),
-        departure: external_exports.strictObject({ rule: decisionText2(400), source: decisionText2(400), reason: decisionText2(1e3) }).nullable()
+        departure: external_exports.strictObject({ rule: decisionText2(400), source: decisionText2(400), reason: decisionText2(1e3) }).nullable(),
+        settled: external_exports.strictObject({ choice: decisionText2(400), by: settleStepSchema, source: decisionText2(400) }).nullable()
       }))
     });
     citedSides = ["head", "base"];
@@ -34667,17 +34766,24 @@ function appliedWords(review2, answer3, held) {
     }
   }
 }
-function decisionBlockLines(review2, decision, quote) {
+function choiceLines(authorChoice, settled4, said2) {
+  return [
+    ...authorChoice === null ? [] : [`The verifier's choice for the author${settled4 === null ? ", which deep-review did not settle" : ""}: ${said2(authorChoice)}`],
+    ...settled4 === null ? [] : [`Settled choice: ${settledChoiceWords(said2(settled4.choice), settled4.by, said2(settled4.source))}`]
+  ];
+}
+function decisionBlockLines(review2, decision, quote, authorChoice) {
   const said2 = (text3) => inlineText(quoted(text3, { numbers: quote.numbers, own: quote.own, scratch: quote.scratch }));
   const standing = standingAnswer(review2, decision.id);
   switch (decision.decision) {
     case "leave":
-      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said2(decision.grounds)}`];
+      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said2(decision.grounds)}`, ...choiceLines(authorChoice, decision.settled, said2)];
     case "fix": {
       const { fix, departure } = decision;
       const reviewed = departure === null ? [] : standing === null ? [`To review: \`${answerCommand(quote.run, quote.own, "--accept")}\` keeps the fix and changes the rule, \`${answerCommand(quote.run, quote.own, "--reject")}\` follows the rule`] : [`Answer: ${answerSummary(review2, standing, standing.answer.kind === "reject" ? "the rule-following fix the tree held" : "the departure the tree held")}`];
       return [
         `Decision: fix: ${said2(decision.grounds)}`,
+        ...choiceLines(authorChoice, decision.settled, said2),
         `Plan: ${sentenceText(said2(fix.approach))}`,
         ...fix.rejected.map((option) => `Rejected: ${said2(option.option)}: ${said2(option.reason)}`),
         ...departure === null ? [] : [`Against a written rule: ${said2(departure.rule)} (${said2(departure.source)}): ${said2(departure.reason)}`],
@@ -34710,10 +34816,12 @@ var init_decision_report = __esm({
     init_markdown();
     init_shell();
     init_needs();
+    init_vocabulary();
     leaveReasonWords = {
       "outside-change-not-regression": "outside the change, and not a regression",
       superseded: "superseded",
-      intended: "intended, as the repository states"
+      intended: "intended, as the repository states",
+      settled: "a choice of shape, settled in favor of the code as it is"
     };
     leaveWords = (leave, numbers) => leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`;
     answerAtTerminal = (engineEntry, run2) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run2, "<number>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
@@ -36565,6 +36673,7 @@ function decidedLines(decision, answered2) {
       `        approach: ${fix.approach}`,
       ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
       ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`],
+      ...settledLines(decision.settled),
       ...answered2 === null ? [] : answeredLines(answered2)
     ];
   }
@@ -36669,7 +36778,7 @@ function fixerTask(input2) {
     ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...finding.decision === null ? [] : decidedLines(finding.decision, finding.answered),
-    ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
+    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.settled)]),
     ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
   ].join("\n"));
   const decided = input2.findings.some((finding) => finding.decision !== null);
@@ -36802,19 +36911,42 @@ ${input2.exclude.map((pattern) => `- ${pattern}`).join("\n")}`,
     ...editingTail(input2, "item")
   ].join("\n");
 }
-function deciderTask(findings) {
+function settlementLine(rule, name) {
+  if (rule.named === "refused") return `- ${name}: settles no choice; give \`settled\` null, since ${rule.why ?? ""}.`;
+  const when = rule.unnamed === "required" ? "always settles its choice" : rule.named === "required" ? "settles its choice when a candidate has a choice left to the author, and may otherwise" : "may settle its choice";
+  const by = rule.steps.length === settleSteps.length ? "by any step" : `by ${rule.steps.map((step) => `\`${step}\``).join(" or ")}`;
+  return `- ${name}: ${when}, ${by}.`;
+}
+function deciderTask(findings, refused = []) {
   const count3 = findings.length;
   const list = findings.map((finding, position) => [
     `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
     `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate))
+    ...finding.candidates.flatMap((candidate, at) => [
+      ...candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate),
+      ...candidate.authorChoice === null ? [] : [`        choice left to the author: ${candidate.authorChoice}`]
+    ])
   ].join("\n"));
   return [
-    `The review's ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
+    `The review's ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence, and the choice its verifier leaves to the author when it names one, which is the verifier's view and not an answer. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
     "",
     ...list,
     "",
-    "For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing."
+    "The step that settles a choice, `by` in `settled`: the first of the order that answers it, or one of the two outside it.",
+    ...settleSteps.map((step) => `- \`${step}\`: ${settleStepMeanings[step]}.`),
+    "",
+    "Which decision settles a choice, and by which step; the engine refuses an answer that breaks one of these:",
+    ...Object.keys(settlementCaseWords).map((name) => settlementLine(settlementRulesV1[name], settlementCaseWords[name])),
+    "",
+    ...refused.length === 0 ? [] : [
+      "### What failed in the earlier answer",
+      "",
+      "The engine refused an earlier answer to this task for these faults. Give your whole answer again, every finding of it, and keep none of them:",
+      "",
+      ...refused.map((reason) => `- ${inlineText(reason)}`),
+      ""
+    ],
+    "For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` is the choice the decision settles, as above: the `choice` in one sentence, the step `by` that settles it, and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite; or null. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing."
   ].join("\n");
 }
 function mergeRankTask(inputs) {
@@ -36827,7 +36959,7 @@ function mergeRankTask(inputs) {
     list
   ].join("\n");
 }
-var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, notesParagraph, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, citingValidationWords, citingValidationRule, probeRule, fileList, verdictWords, evidenceWords, answeredRule, decidedRule, repairTailBytes;
+var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, notesParagraph, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, citingValidationWords, citingValidationRule, probeRule, fileList, verdictWords, evidenceWords, settledLines, answeredRule, decidedRule, repairTailBytes, settleStepMeanings, settlementCaseWords;
 var init_tasks = __esm({
   "src/review/tasks.ts"() {
     "use strict";
@@ -36858,9 +36990,28 @@ var init_tasks = __esm({
     fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
     verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
     evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
+    settledLines = (settled4) => settled4 === null ? [] : [`        settled: ${settledChoiceWords(settled4.choice, settled4.by, settled4.source)}`];
     answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
     decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
     repairTailBytes = 16 * 1024;
+    settleStepMeanings = {
+      intent: "the change's stated intent settles it",
+      contract: "the repository's stated contract settles it",
+      before: "for a behavior the change altered, the behavior before the change, which a fix restores",
+      kept: "for a behavior that was there before the change, keeping it",
+      shape: "for two shapes only a maintainer reading the code would see, with nothing stated, the one the surrounding code already uses, else the one that adds less",
+      scope: "outside the order: the fix keeps to the part of the result inside the change",
+      none: "outside the order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one"
+    };
+    settlementCaseWords = {
+      fix: "`fix` with no `departure`",
+      "fix-departing": "`fix` with a `departure`",
+      intended: "`leave` as `intended`",
+      settled: "`leave` as `settled`",
+      superseded: "`leave` as `superseded`",
+      "outside-change-not-regression": "`leave` as `outside-change-not-regression`",
+      ask: "`ask`"
+    };
   }
 });
 
@@ -37290,6 +37441,7 @@ ${text3.endsWith("\n") ? text3 : `${text3}
 function decisionLines(decision, clean) {
   if (decision === void 0) return ["    decision: none recorded"];
   const grounds = `        grounds: ${clean(decision.grounds)}`;
+  const settled4 = decision.settled === null ? [] : [`        settled by the decision: ${settledChoiceWords(clean(decision.settled.choice), decision.settled.by, clean(decision.settled.source))}`];
   switch (decision.decision) {
     case "fix":
       return [
@@ -37297,7 +37449,8 @@ function decisionLines(decision, clean) {
         grounds,
         `        approach: ${clean(decision.fix.approach)}`,
         ...decision.fix.rejected.map((option) => `        rejected: ${clean(option.option)}, because ${clean(option.reason)}`),
-        ...decision.departure === null ? [] : [`        departs from the rule "${clean(decision.departure.rule)}" (${clean(decision.departure.source)}): ${clean(decision.departure.reason)}`]
+        ...decision.departure === null ? [] : [`        departs from the rule "${clean(decision.departure.rule)}" (${clean(decision.departure.source)}): ${clean(decision.departure.reason)}`],
+        ...settled4
       ];
     case "ask":
       return [
@@ -37307,7 +37460,7 @@ function decisionLines(decision, clean) {
         ...decision.ask.options.map((option, index2) => `        option ${String(index2 + 1)}: ${clean(option.option)}; cost: ${clean(option.cost)}; rule: ${clean(option.rule)}${index2 === decision.ask.recommended ? "; recommended" : ""}${index2 === decision.ask.applied ? "; the default deep-review would apply" : ""}`)
       ];
     case "leave":
-      return ["    decision: leave it as it is", grounds, `        reason: ${decision.leave.reason}${decision.leave.supersededBy === null ? "" : `, superseded by ${decision.leave.supersededBy}`}`];
+      return ["    decision: leave it as it is", grounds, `        reason: ${decision.leave.reason}${decision.leave.supersededBy === null ? "" : `, superseded by ${decision.leave.supersededBy}`}`, ...settled4];
   }
 }
 function noteLines2(verdict, clean) {
@@ -37382,7 +37535,7 @@ function writerTask(state, input2) {
     "",
     "### The findings",
     "",
-    `The review's ${counted(ranked2.length, "finding", "findings")}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.`,
+    `The review's ${counted(ranked2.length, "finding", "findings")}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked2.some((entry) => (decided.get(entry.finding.id)?.settled ?? null) !== null) ? " A choice a decision settles, on its line `settled by the decision`, is the decision's and not the author's to make, whatever a verifier's note says: explain it as decided." : ""}`,
     "",
     ...ranked2.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids2.includes(entry.finding.id) ? explainWords(entry, version2) : null, decided.get(entry.finding.id), clean, quote), ""]),
     ...report2 === null || refutedCandidates.length === 0 ? [] : [
@@ -37567,8 +37720,12 @@ function deciderFindings(review2) {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map((candidate) => taskCandidate(candidate))
+    candidates: [entry.primary, ...entry.members].map((candidate) => ({ ...taskCandidate(candidate), authorChoice: resolutionOf(candidate)?.authorChoice ?? null }))
   }));
+}
+function refusedDecisions(review2) {
+  const failures = review2.units.decision[singleUnitKey("decision")]?.failures ?? [];
+  return failures.filter((failure2) => failure2.cause === "unit" && failure2.reason.startsWith(structuralCheckPrefix)).map((failure2) => failure2.reason.slice(structuralCheckPrefix.length));
 }
 function answeredFor(review2, decision, id) {
   const standing = standingAnswer(review2, id);
@@ -37659,7 +37816,7 @@ function taskFinding(review2, ranked2, entry, decision, evidence) {
     decision,
     supersedes: (review2.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked2.get(left.id);
-      return leftEntry === void 0 ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary }];
+      return leftEntry === void 0 ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary, settled: left.settled }];
     }),
     answered: answeredFor(review2, decision, id)
   };
@@ -37846,7 +38003,7 @@ function taskFor(unit, review2, options2 = {}) {
     case "merge-rank":
       return mergeRankTask(mergeRankInput(review2).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
     case "decision":
-      return deciderTask(deciderFindings(review2));
+      return deciderTask(deciderFindings(review2), refusedDecisions(review2));
     case "fixes":
       if (evidence === null) throw new Error("The fixer task names the baseline checks' frozen outputs and needs the evidence store");
       return fixerTaskOf(unit, review2, requireEditing(), evidence);
@@ -37954,7 +38111,7 @@ function orderedRanking(review2, output2, input2) {
 }
 function recordedDecisions(output2, findings) {
   const idAt = (position) => findings[position].finding.id;
-  return output2.decisions.map(({ index: index2, leave, ...decided }) => recordedDecisionSchema.parse({
+  return output2.decisions.map(({ index: index2, leave, ...decided }) => recordedDecisionSchemaV2.parse({
     id: idAt(index2),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) }
@@ -37967,7 +38124,7 @@ function contributionOf(unit, receipt, context) {
   try {
     return isEditingPhase(unit.phase) ? fixAnswerEvents(unit, receipt, context) : [contributionEvent(unit, receipt, review2, context)];
   } catch (error62) {
-    if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `structural check: ${error62.message}`, context);
+    if (error62 instanceof StructuralCheckError) return failedWithEdits(unit, receipt, `${structuralCheckPrefix}${error62.message}`, context);
     throw error62;
   }
 }
@@ -38038,8 +38195,8 @@ function contributionEvent(unit, receipt, review2, context) {
     case "decision": {
       const output2 = receipt.output;
       const findings = rankedFindings(review2);
-      checkDecisions(output2, findings.length);
-      return { kind: "decisions.recorded", version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
+      checkDecisions(output2, findings.map((entry) => entry.resolution.authorChoice !== null));
+      return { kind: "decisions.recorded", version: 2, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output2, findings) } };
     }
     case "explanation":
       return writerContribution(state, receipt, context);
@@ -38161,6 +38318,7 @@ var init_pull_request_words = __esm({
   "src/review/pull-request-words.ts"() {
     "use strict";
     init_markdown();
+    init_vocabulary();
     english = {
       heading: "## deep-review's review of this pull request",
       reviewed: (head2, files, base) => `deep-review reviewed this pull request at its head ${head2}, ${files === 1 ? "the 1 file" : `the ${String(files)} files`} changed from the merge base ${base}, and changed no file.`,
@@ -38181,18 +38339,13 @@ var init_pull_request_words = __esm({
           ...counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, "question", "questions")}`]
         ];
         const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
-        if (acting.length === 0 && counts.authors === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
-        if (acting.length === 0) {
-          const verifiers = counts.left === 1 ? "its verifier leaves" : counts.authors === 1 ? "the verifier of 1 of them leaves" : `the verifiers of ${String(counts.authors)} of them leave`;
-          return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is and changes nothing on this branch, but ${verifiers} a choice to the author, as "What needs a person" says.`;
-        }
+        if (acting.length === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
         return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
       },
       needsHeading: "### What needs a person",
       needsQuestion: (finding, href, question, tail) => `**[Question on finding ${String(finding)}](${href}).** ${question} ${tail}`,
       needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
       departureStands: "`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.",
-      needsAuthor: (finding, href, choice) => `**[Finding ${String(finding)}](${href}) is left as is, but its verifier leaves a choice to the author.** ${choice}`,
       needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0] : `one of ${listed(flags, "or")}`}. A reply on this pull request is not read yet.`,
       needsNothing: "Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.",
       howHeading: "### How the review worked",
@@ -38258,9 +38411,12 @@ var init_pull_request_words = __esm({
       },
       answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
       answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
-      whyLeft: "**Why it is left as is.**",
-      whyLook: "**Why a person should look anyway.**",
-      authorChoice: (choice) => `Its verifier leaves a choice to the author: ${choice}`,
+      choice: ({ verifier, settled: settled4 }) => {
+        const left = verifier === null ? [] : [`Its verifier left this choice to the author: ${verifier}`];
+        const decided = settled4 === null ? "deep-review did not settle it." : `deep-review settles ${verifier === null ? "a choice" : "it"}: ${settled4.choice} What settles it: ${settled4.step}. ${settled4.source}`;
+        return `**The choice.** ${[...left, decided].join(" ")}`;
+      },
+      settleSteps: settleStepWords,
       howChecked: "How the verifier checked it",
       basisSentences: {
         ran: "The verifier ran code to check it; the report of the run holds what it ran and what it saw.",
@@ -38290,11 +38446,13 @@ var init_pull_request_words = __esm({
       leaveReasons: {
         "outside-change-not-regression": "outside the change, and not a regression",
         superseded: "superseded",
-        intended: "intended, as the repository states"
+        intended: "intended, as the repository states",
+        settled: "a choice of shape, settled in favor of the code as it is"
       },
       leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? "" : ` by ${by}`}.`,
       groundsLabel: "Why:",
       leftCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the finding left as is is" : `the ${String(count3)} findings left as is are`} not listed here; the report of the run holds ${count3 === 1 ? "it" : "each"}.`,
+      leftOthersCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the other finding left as is is" : `the other ${String(count3)} findings left as is are`} not listed here; the report of the run holds ${count3 === 1 ? "it" : "each"}.`,
       notExaminedHeading: "### What this review did not examine",
       noCheck: "No check ran: this run only reviewed, so no test ran against the change.",
       allExamined: "Every review pass ran, and a verifier examined each candidate.",
@@ -38346,15 +38504,13 @@ var init_pull_request_words = __esm({
           ...counts.left === 0 ? [] : [`\uADF8\uB300\uB85C \uB458 \uAC83 ${String(counts.left)}\uAC74`]
         ];
         const decided = `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
-        if (counts.fixes + counts.questions === 0 && counts.authors === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
-        if (counts.fixes + counts.questions === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFB8\uB294 \uAC83\uC740 \uC5C6\uC9C0\uB9CC, \uADF8\uC911 ${String(counts.authors)}\uAC74\uC740 "\uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C"\uC5D0 \uC801\uC5C8\uB4EF \uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4.`;
+        if (counts.fixes + counts.questions === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
         return `${decided} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${fix} \uBA85\uB839\uC73C\uB85C \uC218\uC815\uACFC \uADF8\uB54C\uAE4C\uC9C0 \uBC1B\uC740 \uB2F5\uC744 \uC790\uC2E0\uC758 \uD074\uB860\uC5D0 \uC801\uC6A9\uD558\uACE0 \uADF8 \uACB0\uACFC\uB97C \uD478\uC2DC\uD558\uAE30 \uC804\uAE4C\uC9C0, \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C\uB294 \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
       },
       needsHeading: "### \uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C",
       needsQuestion: (finding, href, question, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}\uC5D0 \uB300\uD55C \uC9C8\uBB38](${href}).** ${question} ${tail}`,
       needsDeparture: (finding, href, rule, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC758 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" ${tail}`,
       departureStands: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 `--fix`\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4. \uACE0\uCE5C \uB4A4\uC5D0 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
-      needsAuthor: (finding, href, choice) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC740 \uADF8\uB300\uB85C \uB450\uC9C0\uB9CC, \uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC774 \uB0A8\uC558\uB2E4\uACE0 \uBD05\uB2C8\uB2E4.** ${choice}`,
       needsAnswer: (command, flags) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${command} \uBA85\uB839\uC5D0 ${flags.length === 1 ? `${flags[0]}\uB97C` : `${flags.join(", ")} \uC911 \uD558\uB098\uB97C`} \uBD99\uC5EC \uB2F5\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
       needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
       howHeading: "### \uB9AC\uBDF0\uAC00 \uC9C4\uD589\uB41C \uBC29\uC2DD",
@@ -38420,9 +38576,20 @@ var init_pull_request_words = __esm({
       },
       answerQuestion: (command, fix) => `**\uB2F5\uD558\uB294 \uBC29\uBC95.** \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${command} \uBA85\uB839\uC73C\uB85C \uB2F5\uD569\uB2C8\uB2E4. \`<k>\`\uC5D0\uB294 \uACE0\uB978 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638\uB97C \uC501\uB2C8\uB2E4. \uADF8\uB2E4\uC74C ${fix}\uAC00 \uADF8 \uB2F5\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
       answeredOption: (option, at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB85C \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`,
-      whyLeft: "**\uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720.**",
-      whyLook: "**\uADF8\uB798\uB3C4 \uC0AC\uB78C\uC774 \uBD10\uC57C \uD558\uB294 \uC774\uC720.**",
-      authorChoice: (choice) => `\uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4: ${choice}`,
+      choice: ({ verifier, settled: settled4 }) => {
+        const left = verifier === null ? [] : [`\uAC80\uC99D\uC790\uB294 \uC791\uC131\uC790\uAC00 \uC815\uD560 \uC120\uD0DD\uC744 \uB0A8\uACBC\uC2B5\uB2C8\uB2E4: ${verifier}`];
+        const decided = settled4 === null ? "deep-review\uB294 \uC774 \uC120\uD0DD\uC744 \uC815\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : `deep-review\uAC00 \uC815\uD55C \uC120\uD0DD: ${settled4.choice} \uC815\uD55C \uADFC\uAC70: ${settled4.step}. ${settled4.source}`;
+        return `**\uC120\uD0DD.** ${[...left, decided].join(" ")}`;
+      },
+      settleSteps: {
+        intent: "\uBCC0\uACBD\uC774 \uBC1D\uD78C \uC758\uB3C4",
+        contract: "\uC800\uC7A5\uC18C\uC5D0 \uC801\uD78C \uADDC\uCE59",
+        before: "\uBCC0\uACBD \uC804\uC758 \uB3D9\uC791",
+        kept: "\uC6D0\uB798 \uC788\uB358 \uB3D9\uC791\uC744 \uC720\uC9C0\uD568",
+        shape: "\uC8FC\uBCC0 \uCF54\uB4DC\uAC00 \uC774\uBBF8 \uC4F0\uB294 \uD615\uD0DC, \uC5C6\uC73C\uBA74 \uB35C \uB354\uD558\uB294 \uD615\uD0DC",
+        scope: "\uC218\uC815\uC744 \uBCC0\uACBD \uBC94\uC704 \uC548\uC73C\uB85C \uD55C\uC815\uD568",
+        none: "\uC2E4\uC81C\uB85C \uB0A8\uC740 \uC120\uD0DD\uC774 \uC5C6\uC74C, \uACE0\uCE58\uB294 \uBC29\uBC95\uC774 \uD558\uB098\uBFD0\uC784"
+      },
       howChecked: "\uAC80\uC99D\uC790\uAC00 \uD655\uC778\uD55C \uBC29\uBC95",
       basisSentences: {
         ran: "\uAC80\uC99D\uC790\uAC00 \uCF54\uB4DC\uB97C \uC2E4\uD589\uD574 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC744 \uC2E4\uD589\uD558\uACE0 \uBB34\uC5C7\uC744 \uBCF4\uC558\uB294\uC9C0\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.",
@@ -38451,11 +38618,13 @@ var init_pull_request_words = __esm({
       leaveReasons: {
         "outside-change-not-regression": "\uBCC0\uACBD \uBC94\uC704 \uBC16\uC774\uBA70 \uD68C\uADC0\uAC00 \uC544\uB2D8",
         superseded: "\uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uC218\uC815\uC73C\uB85C \uD574\uACB0\uB428",
-        intended: "\uC800\uC7A5\uC18C\uC5D0 \uC801\uD78C \uB300\uB85C \uC758\uB3C4\uB41C \uB3D9\uC791\uC784"
+        intended: "\uC800\uC7A5\uC18C\uC5D0 \uC801\uD78C \uB300\uB85C \uC758\uB3C4\uB41C \uB3D9\uC791\uC784",
+        settled: "\uCF54\uB4DC \uD615\uD0DC\uC758 \uC120\uD0DD\uC774\uBA70, \uC9C0\uAE08 \uCF54\uB4DC\uB97C \uC720\uC9C0\uD558\uB294 \uCABD\uC73C\uB85C \uC815\uD568"
       },
       leftBecause: (reason, by) => `deep-review\uAC00 \uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720: ${reason}${by === null ? "" : ` (${by})`}.`,
       groundsLabel: "\uD310\uB2E8 \uADFC\uAC70:",
       leftCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.`,
+      leftOthersCut: (count3) => `GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uADF8\uB300\uB85C \uB454 \uB098\uBA38\uC9C0 \uC9C0\uC801 \uC0AC\uD56D ${String(count3)}\uAC74\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.`,
       notExaminedHeading: "### \uC774 \uB9AC\uBDF0\uAC00 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83",
       noCheck: "\uC774 \uC2E4\uD589\uC740 \uB9AC\uBDF0\uB9CC \uD588\uC73C\uBBC0\uB85C \uC5B4\uB5A4 \uAC80\uC0AC\uB3C4 \uB3CC\uB9AC\uC9C0 \uC54A\uC558\uACE0, \uBCC0\uACBD\uC5D0 \uB300\uD574 \uD14C\uC2A4\uD2B8\uB3C4 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
       allExamined: "\uBAA8\uB4E0 \uB9AC\uBDF0 \uB2E8\uACC4\uAC00 \uC2E4\uD589\uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uAC80\uD1A0\uD588\uC2B5\uB2C8\uB2E4.",
@@ -38520,7 +38689,7 @@ function findingBlock(state, finding, entry, decision, numbers, scratch) {
     `Reason: ${said2(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? "none; the verifier of this group failed twice" : said2(resolution.evidence)}`,
     ...citedRunLines(resolution.basis, resolution.runs, said2),
-    ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2, scratch }),
+    ...decision === null ? [] : decisionBlockLines(review2, decision, { run: state.id, numbers, own: own2, scratch }, entry.resolution.authorChoice),
     ...review2.fix === null ? [] : fixBlockLines(review2, review2.fix, finding.id, { numbers, own: own2, scratch })
   ];
   return [
@@ -40298,11 +40467,13 @@ function questionBlocks(view, finding, question, grounds, say) {
   ];
   return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options2, ...standing];
 }
-function authorBlocks(view, finding, say) {
-  const { words } = view;
-  const leave = finding.decision?.decision === "leave" ? finding.decision : null;
-  const why = leave === null ? [] : [[`${words.whyLeft} ${leftBecauseOf(view, leave)} ${say.sentence(leave.grounds)}`]];
-  return [...why, [`${words.whyLook} ${words.authorChoice(say.sentence(finding.authorChoice ?? ""))}`]];
+function choiceLines2(view, finding, say) {
+  const settled4 = finding.decision?.settled ?? null;
+  if (settled4 === null && finding.authorChoice === null) return [];
+  return [view.words.choice({
+    verifier: finding.authorChoice === null ? null : say.sentence(finding.authorChoice),
+    settled: settled4 === null ? null : { choice: say.sentence(settled4.choice), step: view.words.settleSteps[settled4.by], source: say.sentence(settled4.source) }
+  })];
 }
 function leftBecauseOf(view, leave) {
   const by = leave.leave.supersededBy;
@@ -40312,10 +40483,10 @@ function decisionBlocks(view, finding, say, minor) {
   const { decision, departure, question } = finding;
   if (decision?.decision === "fix") {
     const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
-    return [...would, ...departure === null ? [] : [departureLines(view, departure, say)], decidedFixLines(view, decision, say)];
+    return [...would, choiceLines2(view, finding, say), ...departure === null ? [] : [departureLines(view, departure, say)], decidedFixLines(view, decision, say)];
   }
   if (decision?.decision === "ask" && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
-  return forAuthor(finding) ? authorBlocks(view, finding, say) : [];
+  return [];
 }
 function checkedLines(view, finding, say) {
   const { words } = view;
@@ -40374,8 +40545,7 @@ function summarySection(view, say) {
   const decided = {
     fixes: findings.filter((finding) => finding.finding.status === "planned" || finding.finding.status === "planned-against-rule").length,
     questions: findings.filter((finding) => finding.finding.status === "question").length,
-    left: findings.filter((finding) => finding.finding.status === "left").length,
-    authors: findings.filter(forAuthor).length
+    left: findings.filter((finding) => finding.finding.status === "left").length
   };
   const next = findings.length === 0 ? [] : [[words.summaryNext(decided, fixCommand(view))]];
   return { part: "summary", lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(" ")], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
@@ -40397,8 +40567,7 @@ function needsSection(view, say) {
     const tail = given === null ? words.departureStands : given.kind === "reject" ? words.answeredReject(given.at) : words.answeredAccept(given.at);
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence2(departure.rule), tail)}`];
   });
-  const authors = view.findings.filter(forAuthor).map((finding) => `- ${words.needsAuthor(finding.finding.number, hrefOf(view, finding), say.sentence(finding.authorChoice))}`);
-  const items = [...questions, ...departures, ...authors];
+  const items = [...questions, ...departures];
   if (items.length === 0) return { part: "needs", lines: [words.needsHeading, "", words.needsNothing] };
   const flags = [...questions.length === 0 ? [] : ["--option <k>"], ...departures.length === 0 ? [] : ["--accept", "--reject"]].map(codeSpan);
   const answer3 = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, "<n>", "").trimEnd()}`), flags)]];
@@ -40459,7 +40628,8 @@ function leftSection(view, say, cuts) {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: "left as is", lines: [] };
-  if (cuts.has("left")) return { part: "left as is", lines: [words.leftHeading, "", words.leftCut(left.length)] };
+  const shown = cuts.has("left") ? left.filter(keptByCut) : left;
+  if (shown.length === 0) return { part: "left as is", lines: [words.leftHeading, "", words.leftCut(left.length)] };
   const block = (finding) => {
     const leave = finding.decision?.decision === "leave" ? finding.decision : null;
     const { location } = finding.placement;
@@ -40468,10 +40638,12 @@ function leftSection(view, say, cuts) {
       [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
       [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
       leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
+      choiceLines2(view, finding, say),
       location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`]
     );
   };
-  return { part: "left as is", lines: blocks([words.leftHeading], details(words.leftSummary(left.length), ...left.map(block))) };
+  const others = left.length - shown.length;
+  return { part: "left as is", lines: blocks([words.leftHeading], details(words.leftSummary(shown.length), ...shown.map(block)), others === 0 ? [] : [words.leftOthersCut(others)]) };
 }
 function notExaminedSection(view, say, cuts) {
   const { words, scope } = view;
@@ -40548,7 +40720,7 @@ function cutApplies(view, cut) {
     case "refuted":
       return view.refuted.length > 0;
     case "left":
-      return leftAsIs(view).length > 0;
+      return leftAsIs(view).some((finding) => !keptByCut(finding));
     case "minor-table":
       return minorActing(view).length > 0;
     case "area-diagrams":
@@ -40667,7 +40839,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, forAuthor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, fixCommand, verdictMarks, verdictText, titleOf, joinedParts, majorActing, minorActing, leftAsIs;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, fixCommand, verdictMarks, verdictText, titleOf, joinedParts, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -40690,8 +40862,7 @@ var init_pull_request_form = __esm({
     bodyCuts = ["refuted", "left", "minor-table", "area-diagrams"];
     acts = (view) => asksToAct(view.decision?.decision);
     isMinor = (view) => view.finding.severity === "minor";
-    forAuthor = (view) => view.decision?.decision === "leave" && view.authorChoice !== null;
-    inFull = (view) => (acts(view) || forAuthor(view)) && view.placement.place === "body";
+    inFull = (view) => acts(view) && view.placement.place === "body";
     blocks = (...parts) => parts.filter((part) => part.length > 0).flatMap((part, index2) => index2 === 0 ? [...part] : ["", ...part]);
     details = (summary, ...parts) => blocks([`<details><summary>${summary}</summary>`], ...parts, ["</details>"]);
     urlPath = (path) => path.split("/").map((name) => encodeURIComponent(name).replace(/\(/g, "%28").replace(/\)/g, "%29")).join("/");
@@ -40708,7 +40879,8 @@ var init_pull_request_form = __esm({
       const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
       return [...minor.filter((finding) => finding.kind === "user"), ...minor.filter((finding) => finding.kind !== "user")];
     };
-    leftAsIs = (view) => view.findings.filter((finding) => !acts(finding) && !forAuthor(finding));
+    leftAsIs = (view) => view.findings.filter((finding) => !acts(finding));
+    keptByCut = (finding) => finding.authorChoice !== null;
   }
 });
 
