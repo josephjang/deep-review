@@ -5,7 +5,7 @@
  * merge and rank pass works on, and in what order the report lists the
  * findings.
  */
-import type { RankedFinding, Unconfirmed, VerdictRun } from '../checkpoint/events.ts';
+import type { CandidateChoice, RankedFinding, SettledChoice, Unconfirmed, VerdictRun } from '../checkpoint/events.ts';
 import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
@@ -111,13 +111,18 @@ export function mergeRankInput(review: ReviewState): Resolved[] {
   return [...survivors(review, 'verification'), ...survivors(review, 'sweep-verification')];
 }
 
-/** A finding as the report prints it: the ranked finding, its primary candidate, its members and the merged resolution. */
+/** A finding's resolution merged from its candidates': every part but the choice left to the author, which each candidate keeps as its own (PD9 of the settled choice). */
+export type MergedResolution = Omit<Resolution, 'authorChoice'>;
+
+/** A finding as the report prints it: the ranked finding, its primary candidate, its members, the merged resolution and the choice each candidate's verifier left to the author. */
 export interface ReportFinding {
   readonly finding: RankedFinding;
   readonly primary: CandidateState;
   readonly members: readonly CandidateState[];
   /** CONFIRMED when any member is, else PLAUSIBLE; unverified when every member is. */
-  readonly resolution: Resolution;
+  readonly resolution: MergedResolution;
+  /** Every candidate, primary first, with the choice its verifier left to the author or null, so no candidate's choice stands for another's (PD9 of the settled choice). */
+  readonly choices: readonly CandidateChoice[];
 }
 
 /**
@@ -126,16 +131,35 @@ export interface ReportFinding {
  * never shows a PLAUSIBLE member's 'Not CONFIRMED' line and keeps the confirming member's narrowed claim.
  * Its basis, runs and what keeps it from CONFIRMED are that same candidate's, so a finding never shows the evidence of
  * one candidate with the runs or the reason of another (R5 of runs on the record; R7 of the review that reads as a report).
- * The choice it leaves to the author is that candidate's or, when it names none, the first other candidate's, primary
- * first, since it is shown beside no evidence and a question one verifier raised must still reach the author (R9).
  */
-export function mergedResolution(candidates: readonly CandidateState[]): Resolution {
+export function mergedResolution(candidates: readonly CandidateState[]): MergedResolution {
   const resolutions = candidates.map(resolutionOf).filter((resolution): resolution is Resolution => resolution !== null);
   const verdict: Verdict = resolutions.some((resolution) => resolution.verdict === 'CONFIRMED') ? 'CONFIRMED' : 'PLAUSIBLE';
   const unverified = resolutions.length > 0 && resolutions.every((resolution) => resolution.unverified);
   const shown = resolutions.find((resolution) => resolution.verdict === verdict && resolution.evidence !== null);
-  const authorChoice = shown?.authorChoice ?? resolutions.find((resolution) => resolution.authorChoice !== null)?.authorChoice ?? null;
-  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [], unconfirmed: shown?.unconfirmed ?? null, authorChoice };
+  return { verdict, unverified, evidence: shown?.evidence ?? null, basis: shown?.basis ?? null, runs: shown?.runs ?? [], unconfirmed: shown?.unconfirmed ?? null };
+}
+
+/** The choices shown beside one settlement or its absence: the verifiers' choices, deduplicated by text, and the entry of `settled` that settles them, or null. */
+export interface ChoiceShown {
+  readonly verifiers: readonly string[];
+  readonly settled: SettledChoice | null;
+}
+
+/**
+ * The choices the review, the report and the writer's and the fixer's
+ * tasks show beside a decision of `fix` or `leave` (PD8, PD9 of the settled
+ * choice): for each entry of its `settled`, in order, the choices of the
+ * candidates its `for` names, none for a choice no verifier named, with
+ * the entry; then each choice a verifier named that no entry answers and
+ * no entry's line already shows, with no settlement.
+ */
+export function choicesShown(candidates: readonly CandidateChoice[], settled: readonly SettledChoice[]): ChoiceShown[] {
+  const choiceOf = new Map(candidates.map((candidate) => [candidate.id, candidate.choice]));
+  const answered = settled.map((entry) => ({ verifiers: [...new Set(entry.for.flatMap((id) => choiceOf.get(id) ?? []))], settled: entry }));
+  const shown = new Set(answered.flatMap((entry) => entry.verifiers));
+  const open = [...new Set(candidates.flatMap((candidate) => (candidate.choice === null || shown.has(candidate.choice) ? [] : [candidate.choice])))];
+  return [...answered, ...open.map((choice) => ({ verifiers: [choice], settled: null }))];
 }
 
 /** The number in a candidate id, for an order that puts `RIPPLE-2` before `RIPPLE-10`. */
@@ -163,7 +187,8 @@ export function rankedFindings(review: ReviewState, findings: readonly RankedFin
     const primary = review.candidates[finding.id];
     const members = finding.members.map((id) => review.candidates[id]);
     if (primary === undefined || members.some((member) => member === undefined)) throw new Error(`Ranking names a candidate the run never recorded: ${finding.id}`);
-    return { finding, primary, members: members as CandidateState[], resolution: mergedResolution([primary, ...(members as CandidateState[])]) };
+    const candidates = [primary, ...(members as CandidateState[])];
+    return { finding, primary, members: members as CandidateState[], resolution: mergedResolution(candidates), choices: candidates.map((candidate) => ({ id: candidate.id, choice: resolutionOf(candidate)?.authorChoice ?? null })) };
   });
   return resolved.sort(compareFindings);
 }

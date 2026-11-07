@@ -2881,22 +2881,25 @@ type SettleStepV13 = (typeof vocabularyV13.settleSteps)[number];
 type LeaveReasonV13 = (typeof vocabularyV13.leaveReasons)[number];
 
 /**
- * A choice a decision settles (R2 of the settled choice): the choice in
- * one sentence, the step that settles it, and the source that step rests
- * on, each sentence in plain words for a reader of the review.
+ * A choice a decision settles (R2, PD9 of the settled choice): the
+ * candidates of the finding whose verifiers named the choice it answers,
+ * none for a choice no verifier named; the choice in one sentence, the
+ * step that settles it, and the source that step rests on, each sentence
+ * in plain words for a reader of the review.
  */
-const settledChoiceSchemaV1 = z.strictObject({ choice: decisionText(400), by: z.enum(vocabularyV13.settleSteps), source: decisionText(400) });
+const settledChoiceSchemaV1 = z.strictObject({ for: z.array(candidateIdSchema), choice: decisionText(400), by: z.enum(vocabularyV13.settleSteps), source: decisionText(400) });
 export type SettledChoice = z.infer<typeof settledChoiceSchemaV1>;
 
 /** Whether a decision carries a settled choice: it must, it may, or it must not. */
 export type SettlementNeed = 'required' | 'optional' | 'refused';
 
 /**
- * What a decision of one case may hold of a settled choice (D1 of the
- * settled choice): whether it carries one when the finding's verifier
- * named a choice for the author and when it named none, the steps that
- * may settle it, what the case is in a sentence, and, for a case that
- * never carries one, why.
+ * What a decision of one case may hold of a settled choice (R2, PD9 of
+ * the settled choice): whether it settles the choice of each candidate
+ * whose verifier named one for the author, and whether it settles one
+ * when no verifier of the finding named any; the steps that may settle
+ * it, what the case is in a sentence, and, for a case that never carries
+ * one, why.
  */
 export interface SettlementRule {
   readonly named: SettlementNeed;
@@ -2912,7 +2915,10 @@ export type SettlementCase = 'fix' | 'fix-departing' | LeaveReasonV13 | 'ask';
 /**
  * The rules of the settled choice, one per case, which version 2 of the
  * decisions is held to by the decider's check and by the fold alike (D1,
- * TD3 of the settled choice). A fix may settle a choice by any step, and
+ * TD3, PD9 of the settled choice). `named: 'required'` asks an entry of
+ * `settled` for the choice of each candidate whose verifier named one,
+ * and `unnamed: 'required'` at least one entry when no verifier of the
+ * finding named any. A fix may settle a choice by any step, and
  * one with no departure must when its verifier named a choice, since the
  * departure is the record of a departing one. A leave as `intended` rests
  * on what the repository states, so on the intent or the contract; one as
@@ -2940,7 +2946,18 @@ interface SettlementFacts {
   readonly decision: 'fix' | 'leave' | 'ask';
   readonly departure: object | null;
   readonly leave: { readonly reason: LeaveReasonV13 } | null;
-  readonly settled: { readonly by: SettleStepV13 } | null;
+  readonly settled: readonly { readonly for: readonly string[]; readonly by: SettleStepV13 }[];
+}
+
+/**
+ * A candidate of a finding as the rules of the settled choice read it,
+ * and as the review shows its choice (PD9 of the settled choice): its id,
+ * and the choice its verifier left to the author, null when it named
+ * none, which every verdict before version 3 is.
+ */
+export interface CandidateChoice {
+  readonly id: string;
+  readonly choice: string | null;
 }
 
 /** The case of the rules of the settled choice a decision is. */
@@ -2952,22 +2969,39 @@ export function settlementCaseOf(decision: Omit<SettlementFacts, 'settled'>): Se
 }
 
 /**
- * The rule of `settlementRulesV1` a decision breaks by the settled choice
- * it carries or lacks, as what follows its name in a sentence, given
- * whether its finding's verifier named a choice for the author; null for
- * a decision that keeps them.
+ * Each rule of `settlementRulesV1` a decision breaks by the entries of
+ * `settled` it carries or lacks, as what follows its name in a sentence,
+ * given its finding's candidates (PD9 of the settled choice). A case that
+ * refuses a settlement carries no entry. Every entry names a step its
+ * case allows, and in `for` only candidates of the finding whose verifiers
+ * named a choice, each in one entry at most; an entry for a choice no
+ * verifier named has an empty `for`. A case that requires a settlement
+ * where a verifier named a choice names each such candidate in an entry,
+ * and one that requires it where none did carries at least one entry.
+ * None for a decision that keeps them all.
  */
-export function settlementFaultV1(decision: SettlementFacts, named: boolean): string | null {
+export function settlementFaultsV1(decision: SettlementFacts, candidates: readonly CandidateChoice[]): string[] {
   const rule = settlementRulesV1[settlementCaseOf(decision)];
-  const need = named ? rule.named : rule.unnamed;
+  const naming = candidates.filter((candidate) => candidate.choice !== null).map((candidate) => candidate.id);
+  const need = naming.length > 0 ? rule.named : rule.unnamed;
   const { settled } = decision;
-  if (settled === null) {
-    if (need !== 'required') return null;
-    return rule.unnamed === 'required' ? `is ${rule.what} and settles no choice, which ${rule.what} always does` : `is ${rule.what} of a finding whose verifier named a choice for the author, and settles no choice`;
+  if (need === 'refused') return settled.length === 0 ? [] : [`is ${rule.what} and settles a choice, which ${rule.what} never does: ${rule.why ?? ''}`];
+  const faults: string[] = [];
+  if (need === 'required' && naming.length === 0 && settled.length === 0) faults.push(`is ${rule.what} and settles no choice, which ${rule.what} always does`);
+  const ids = new Set(candidates.map((candidate) => candidate.id));
+  const answered = new Set<string>();
+  for (const entry of settled) {
+    if (!rule.steps.includes(entry.by)) faults.push(`is ${rule.what} and settles a choice by \`${entry.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(', ')}`);
+    for (const id of entry.for) {
+      if (!ids.has(id)) faults.push(`settles a choice for ${id}, which is not a candidate of its finding`);
+      else if (!naming.includes(id)) faults.push(`settles a choice for ${id}, whose verifier named no choice for the author; an entry for a choice no verifier named has an empty \`for\``);
+      else if (answered.has(id)) faults.push(`settles the choice of ${id} in two entries, where one settles it`);
+      answered.add(id);
+    }
   }
-  if (need === 'refused') return `is ${rule.what} and settles a choice, which ${rule.what} never does: ${rule.why ?? ''}`;
-  if (!rule.steps.includes(settled.by)) return `is ${rule.what} and settles its choice by \`${settled.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(', ')}`;
-  return null;
+  const open = need === 'required' ? naming.filter((id) => !answered.has(id)) : [];
+  if (open.length > 0) faults.push(`is ${rule.what} and settles no choice for ${open.join(', ')}, whose verifier named one for the author; name each such candidate in the \`for\` of one entry`);
+  return faults;
 }
 
 const [recordedFixV1, recordedLeaveV1, recordedAskV1] = recordedDecisionSchema.options;
@@ -2977,16 +3011,17 @@ const decidedLeaveV2 = z.strictObject({ reason: z.enum(vocabularyV13.leaveReason
 });
 
 /**
- * One finding as the decider decided it, with the choice it settles (R2,
- * R3 of the settled choice): version 1's variants, each with `settled`,
- * the choice its decision settles or null, and a leave with the reasons
- * of version 13, `settled` among them. Which decision carries one, and by
- * which step, is `settlementRulesV1`, which the fold holds.
+ * One finding as the decider decided it, with the choices it settles (R2,
+ * R3, PD9 of the settled choice): version 1's variants, each with
+ * `settled`, the choices its decision settles, none or more, and a leave
+ * with the reasons of version 13, `settled` among them. Which decision
+ * carries them, for which candidates and by which step, is
+ * `settlementRulesV1`, which the fold holds.
  */
 export const recordedDecisionSchemaV2 = z.discriminatedUnion('decision', [
-  z.strictObject({ ...recordedFixV1.shape, settled: settledChoiceSchemaV1.nullable() }),
-  z.strictObject({ ...recordedLeaveV1.shape, leave: decidedLeaveV2, settled: settledChoiceSchemaV1.nullable() }),
-  z.strictObject({ ...recordedAskV1.shape, settled: settledChoiceSchemaV1.nullable() }),
+  z.strictObject({ ...recordedFixV1.shape, settled: z.array(settledChoiceSchemaV1) }),
+  z.strictObject({ ...recordedLeaveV1.shape, leave: decidedLeaveV2, settled: z.array(settledChoiceSchemaV1) }),
+  z.strictObject({ ...recordedAskV1.shape, settled: z.array(settledChoiceSchemaV1) }),
 ]);
 /** A decision as the fold holds it, of either version: one of version 1 settles no choice. */
 export type RecordedDecision = z.infer<typeof recordedDecisionSchemaV2>;

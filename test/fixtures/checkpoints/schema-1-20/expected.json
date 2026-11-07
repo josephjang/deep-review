@@ -9037,7 +9037,7 @@
               "source": "src/changed.ts:1",
               "reason": "the comment came with a caller that is gone, and its reason does not reach the empty input"
             },
-            "settled": null
+            "settled": []
           },
           {
             "id": "SCAN-2",
@@ -9050,7 +9050,7 @@
             },
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "DESIGN-1",
@@ -9083,7 +9083,7 @@
               ]
             },
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -11685,7 +11685,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "RIPPLE-1",
@@ -11698,7 +11698,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "SCAN-2",
@@ -11711,7 +11711,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "RIPPLE-2",
@@ -11724,7 +11724,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -14456,7 +14456,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "DESIGN-1",
@@ -14469,7 +14469,7 @@
             },
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -16944,7 +16944,7 @@
               "source": "src/changed.ts:1",
               "reason": "the caller that made it safe is gone"
             },
-            "settled": null
+            "settled": []
           },
           {
             "id": "DESIGN-1",
@@ -16976,7 +16976,7 @@
               ]
             },
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -20121,7 +20121,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": null,
@@ -22224,7 +22224,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -24899,7 +24899,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -27399,7 +27399,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -29817,7 +29817,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": null,
@@ -31989,7 +31989,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "SCAN-2",
@@ -32002,7 +32002,7 @@
             },
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "DESIGN-1",
@@ -32033,7 +32033,7 @@
               ]
             },
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -34013,7 +34013,7 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           },
           {
             "id": "DESIGN-1",
@@ -34044,7 +34044,7 @@
               ]
             },
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {
@@ -35693,6 +35693,30 @@
             },
             "unverified": false
           },
+          "SCAN-3": {
+            "id": "SCAN-3",
+            "angle": "SCAN",
+            "file": "src/changed.ts",
+            "line": 5,
+            "located": true,
+            "inScope": true,
+            "rawFile": "src/changed.ts",
+            "rawLine": 5,
+            "summary": "SCAN-3: what is wrong at line 5",
+            "detail": "SCAN-3: the failure or the value, as the angle asks",
+            "phase": "triage",
+            "workerId": "00000000-0000-4000-8000-000000001b02",
+            "duplicateOf": null,
+            "verdict": {
+              "verdict": "CONFIRMED",
+              "evidence": "line 5 reads the same null in the helper",
+              "basis": "traced",
+              "runs": [],
+              "unconfirmed": null,
+              "authorChoice": "guard the helper too, or leave it to its callers"
+            },
+            "unverified": false
+          },
           "DESIGN-1": {
             "id": "DESIGN-1",
             "angle": "DESIGN",
@@ -35850,7 +35874,8 @@
                 "DESIGN-1",
                 "DUPLICATION-1",
                 "SCAN-1",
-                "SCAN-2"
+                "SCAN-2",
+                "SCAN-3"
               ]
             }
           ],
@@ -35863,10 +35888,12 @@
         "ranking": [
           {
             "id": "SCAN-1",
-            "members": [],
+            "members": [
+              "SCAN-3"
+            ],
             "severity": "major",
-            "summary": "changed() dereferences a null",
-            "reason": "a crash on reachable input"
+            "summary": "changed() and its helper dereference a null",
+            "reason": "a crash on reachable input, at lines 1 and 5"
           },
           {
             "id": "SCAN-2",
@@ -35902,11 +35929,24 @@
             "leave": null,
             "ask": null,
             "departure": null,
-            "settled": {
-              "choice": "An empty input gives an empty result rather than an error.",
-              "by": "intent",
-              "source": "The change says that an empty input gives an empty result."
-            }
+            "settled": [
+              {
+                "for": [
+                  "SCAN-1"
+                ],
+                "choice": "An empty input gives an empty result rather than an error.",
+                "by": "intent",
+                "source": "The change says that an empty input gives an empty result."
+              },
+              {
+                "for": [
+                  "SCAN-3"
+                ],
+                "choice": "The helper is guarded too, since the change added it.",
+                "by": "scope",
+                "source": "The helper is new in the change, so guarding it keeps the fix inside the change."
+              }
+            ]
           },
           {
             "id": "SCAN-2",
@@ -35919,11 +35959,16 @@
             },
             "ask": null,
             "departure": null,
-            "settled": {
-              "choice": "The output keeps its trailing newline.",
-              "by": "contract",
-              "source": "The documentation of the output says each line ends with a newline."
-            }
+            "settled": [
+              {
+                "for": [
+                  "SCAN-2"
+                ],
+                "choice": "The output keeps its trailing newline.",
+                "by": "contract",
+                "source": "The documentation of the output says each line ends with a newline."
+              }
+            ]
           },
           {
             "id": "DESIGN-1",
@@ -35936,11 +35981,16 @@
             },
             "ask": null,
             "departure": null,
-            "settled": {
-              "choice": "The guard stays written out at each site.",
-              "by": "shape",
-              "source": "Every other guard of the module is written out inline."
-            }
+            "settled": [
+              {
+                "for": [
+                  "DESIGN-1"
+                ],
+                "choice": "The guard stays written out at each site.",
+                "by": "shape",
+                "source": "Every other guard of the module is written out inline."
+              }
+            ]
           },
           {
             "id": "DUPLICATION-1",
@@ -35953,7 +36003,7 @@
             },
             "ask": null,
             "departure": null,
-            "settled": null
+            "settled": []
           }
         ],
         "report": {

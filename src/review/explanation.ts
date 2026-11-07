@@ -14,7 +14,7 @@
  */
 import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
+import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type CandidateChoice, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState, UnitFailure, UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
@@ -26,10 +26,10 @@ import { counted, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { writerOutputSchema, writerOutputSchemaV2, type CitedSide, type WriterOutput, type WriterOutputV2 } from './schemas.ts';
-import { findingNumbers, rankedFindings, refuted, resolutionOf, type ReportFinding } from './state.ts';
+import { choicesShown, findingNumbers, rankedFindings, refuted, resolutionOf, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
-import { asksToAct, settledChoiceWords, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
+import { asksToAct, shownChoiceLines, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
 
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
@@ -849,14 +849,16 @@ function fenced(text: string, info = ''): string {
 
 /**
  * What a decision says, as the writer's task gives it, each text of the
- * decider cleaned: its kind, grounds and part, and the choice it settles,
- * the step in words, which is the decision's and not the author's to
- * make (R5 of the settled choice).
+ * decider cleaned: its kind, grounds and part, and for a fix or a finding
+ * left as is each choice it settles, the step in words, which is the
+ * decision's and not the author's to make, beside the verifiers' choices
+ * it answers, and each verifier's choice it leaves unsettled (R5, PD9 of
+ * the settled choice).
  */
-function decisionLines(decision: RecordedDecision | undefined, clean: (text: string) => string): string[] {
+function decisionLines(decision: RecordedDecision | undefined, choices: readonly CandidateChoice[], clean: (text: string) => string): string[] {
   if (decision === undefined) return ['    decision: none recorded'];
   const grounds = `        grounds: ${clean(decision.grounds)}`;
-  const settled = decision.settled === null ? [] : [`        settled by the decision: ${settledChoiceWords(clean(decision.settled.choice), decision.settled.by, clean(decision.settled.source))}`];
+  const settled = shownChoiceLines(choicesShown(choices, decision.settled), clean, 'settled by the decision');
   switch (decision.decision) {
     case 'fix':
       return [
@@ -918,7 +920,7 @@ function findingLines(entry: ReportFinding, number: number, explained: string | 
     `    severity: ${entry.finding.severity}; verdict: ${verdict}`,
     `    summary: ${clean(entry.finding.summary)}`,
     `    reason: ${clean(entry.finding.reason)}`,
-    ...decisionLines(decision, clean),
+    ...decisionLines(decision, entry.choices, clean),
     '    candidates:',
     ...[entry.primary, ...entry.members].flatMap((candidate, index) => candidateLines(candidate, index === 0, clean, fence)),
   ];
@@ -990,7 +992,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     '',
     '### The findings',
     '',
-    `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked.some((entry) => (decided.get(entry.finding.id)?.settled ?? null) !== null) ? ' A choice a decision settles, on its line `settled by the decision`, is the decision\'s and not the author\'s to make, whatever a verifier\'s note says: explain it as decided.' : ''}`,
+    `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked.some((entry) => (decided.get(entry.finding.id)?.settled.length ?? 0) > 0) ? ' A choice a decision settles, on its line `settled by the decision`, is the decision\'s and not the author\'s to make, whatever a verifier\'s note says: explain it as decided.' : ''}`,
     '',
     ...ranked.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids.includes(entry.finding.id) ? explainWords(entry, version) : null, decided.get(entry.finding.id), clean, quote), '']),
     ...(report === null || refutedCandidates.length === 0 ? [] : [

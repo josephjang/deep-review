@@ -577,6 +577,26 @@ export const settleStepWords: Readonly<Record<SettleStep, string>> = {
 /** A choice a decision settles in English, as the report and the writer's and the fixer's tasks give it on one line: the choice, without its closing period, the step in words and the source, each text as the caller cleaned it. */
 export const settledChoiceWords = (choice: string, by: SettleStep, source: string): string => `${choice.replace(/[.\s]+$/, '')}; settled by ${settleStepWords[by]}: ${source}`;
 
+/** The choices shown beside one settlement or its absence, as `choicesShown` in `state.ts` gives them. */
+interface ShownChoice {
+  readonly verifiers: readonly string[];
+  readonly settled: { readonly choice: string; readonly by: SettleStep; readonly source: string } | null;
+}
+
+/**
+ * The choices beside a decision as the writer's and the fixer's tasks give
+ * them, one line each (PD8, PD9 of the settled choice): each verifier's
+ * choice an entry of `settled` answers, then that entry, the step in
+ * words; and each verifier's choice no entry answers, said to be
+ * unsettled. Each text as `said` cleans it, each settled choice after
+ * `label`.
+ */
+export function shownChoiceLines(shown: readonly ShownChoice[], said: (text: string) => string, label: string): string[] {
+  return shown.flatMap(({ verifiers, settled }) => (settled === null
+    ? verifiers.map((choice) => `        the verifier's choice for the author, which the decision did not settle: ${said(choice)}`)
+    : [...verifiers.map((choice) => `        the verifier's choice for the author: ${said(choice)}`), `        ${label}: ${settledChoiceWords(said(settled.choice), settled.by, said(settled.source))}`]));
+}
+
 /** The severities merge-rank assigns, most severe first. */
 export const severities = ['critical', 'major', 'minor'] as const;
 export const severitySchema = z.enum(severities);

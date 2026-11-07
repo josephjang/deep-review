@@ -22,7 +22,7 @@
  * parts, before anything is recorded.
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
-import type { ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState, Unconfirmed } from '../checkpoint/events.ts';
+import type { CandidateChoice, ExplanationRecorded, PullRequestFacts, RecordedDecision, ScopeState, Unconfirmed } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
@@ -36,7 +36,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
 import { pullRequestWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
-import { mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
+import { choicesShown, mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { asksToAct, verdictBases, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
@@ -203,8 +203,8 @@ interface FindingView {
   readonly kind: FindingKind | null;
   /** The verifier's reason for a PLAUSIBLE verdict (R7); null says that it gave none. */
   readonly unconfirmed: Unconfirmed | null;
-  /** The choice the verifier leaves to the author (R9), which the review shows beside the decision (D2 of the settled choice); null when it named none. */
-  readonly authorChoice: string | null;
+  /** Every candidate, primary first, with the choice its verifier left to the author or null (R9), which the review shows beside the decision (PD8, PD9 of the settled choice). */
+  readonly choices: readonly CandidateChoice[];
 }
 
 /** An area of the major findings that ask a person to act, as the writer gives it (R4): its title, its intro, a diagram or none, and its findings by id. */
@@ -449,19 +449,18 @@ function questionBlocks(view: FormView, finding: FindingView, question: BriefQue
 }
 
 /**
- * The choice beside a finding's decision, as one paragraph (R4, R5, D2 of
- * the settled choice): the choice its decision settles, with the step in
- * the review's words and the source, and the choice its verifier left to
- * the author when it named one, or with that choice that deep-review did
- * not settle it; none when neither is there.
+ * The choices beside a finding's decision, a paragraph each (R4, R5, PD8,
+ * PD9 of the settled choice): each choice its decision settles, with the
+ * step in the review's words and the source, after the choices of the
+ * candidates' verifiers it answers; then each choice a verifier left to
+ * the author that no settlement answers, with that deep-review did not
+ * settle it; none when there is neither.
  */
 function choiceLines(view: FormView, finding: FindingView, say: Speaker): string[] {
-  const settled = finding.decision?.settled ?? null;
-  if (settled === null && finding.authorChoice === null) return [];
-  return [view.words.choice({
-    verifier: finding.authorChoice === null ? null : say.sentence(finding.authorChoice),
-    settled: settled === null ? null : { choice: say.sentence(settled.choice), step: view.words.settleSteps[settled.by], source: say.sentence(settled.source) },
-  })];
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => view.words.choice({
+    verifiers: shown.verifiers.map((choice) => say.sentence(choice)),
+    settled: shown.settled === null ? null : { choice: say.sentence(shown.settled.choice), step: view.words.settleSteps[shown.settled.by], source: say.sentence(shown.settled.source) },
+  }));
 }
 
 /** The engine's words on why a finding is left as is, with the finding that supersedes it. */
@@ -659,7 +658,7 @@ const minorActing = (view: FormView): FindingView[] => {
 const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding));
 
 /** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4, D9 of the settled choice). */
-const keptByCut = (finding: FindingView): boolean => finding.authorChoice !== null;
+const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
 
 /** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
 function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
@@ -885,7 +884,7 @@ function formViewOf(input: PullRequestFormInput): FormView {
       checked: explained.kind === 'explained' ? explained.value.checked : null,
       kind: explained.kind === 'explained' ? explained.value.kind : null,
       unconfirmed: entry.resolution.unconfirmed,
-      authorChoice: entry.resolution.authorChoice,
+      choices: entry.choices,
     };
   });
   return {

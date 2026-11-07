@@ -592,11 +592,21 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const settled = { choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
     const folded = decided(fixture).start('explanation').fold();
     const task = (decisions: NonNullable<typeof folded.review>['decisions']): string => writerTask({ ...folded, review: { ...folded.review!, decisions } }, { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
-    const withSettled = task(folded.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, settled } : decision)));
+    const withSettled = task(folded.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, settled: [{ ...settled, for: [] }] } : decision)));
     assert.match(withSettled, /^ {8}approach: [^\n]*\n(?: {8}rejected: [^\n]*\n)* {8}settled by the decision: An empty input gives an empty result; settled by the stated intent of the change: The change says that an empty input gives an empty result\.$/m);
     assert.match(withSettled, /A choice a decision settles, on its line `settled by the decision`, is the decision's and not the author's to make, whatever a verifier's note says: explain it as decided\./);
     const without = task(folded.review!.decisions);
     assert.doesNotMatch(without, /settled by the decision/, 'a run whose decisions settle no choice is told nothing of it');
+  });
+
+  it('gives the writer, under a merged finding\'s decision, the choice each settled choice answers and the one no settled choice answers (PD9 of the settled choice)', () => {
+    const folded = decided(fixture).start('explanation').fold();
+    const named = (id: string, authorChoice: string) => ({ ...folded.review!.candidates[id]!, unverified: false, verdict: { verdict: 'CONFIRMED' as const, evidence: `${id} evidence`, basis: 'read' as const, runs: [], unconfirmed: null, authorChoice } });
+    const candidates = { ...folded.review!.candidates, 'RIPPLE-1': named('RIPPLE-1', 'Guard in parse, or in each caller.'), 'SWEEP-2': named('SWEEP-2', 'Keep the helper, or inline it.') };
+    const settled = [{ for: ['RIPPLE-1'], choice: 'Parse guards the null itself.', by: 'intent' as const, source: 'The change says parse accepts an empty input.' }];
+    const decisions = folded.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, settled } : decision));
+    const task = writerTask({ ...folded, review: { ...folded.review!, candidates, decisions } }, { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
+    assert.match(task, /^ {8}the verifier's choice for the author: Guard in parse, or in each caller\.\n {8}settled by the decision: Parse guards the null itself; settled by the stated intent of the change: The change says parse accepts an empty input\.\n {8}the verifier's choice for the author, which the decision did not settle: Keep the helper, or inline it\.$/m);
   });
 
   it('writes in the language the run recorded', () => {

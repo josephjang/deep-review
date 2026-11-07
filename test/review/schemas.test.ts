@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { changeReadingSchema, changeTextLengthV1, citedRunLimitsV1, verdictsRecordedV2 } from '../../src/checkpoint/events.ts';
+import { changeReadingSchema, changeTextLengthV1, citedRunLimitsV1, verdictsRecordedV2, type CandidateChoice } from '../../src/checkpoint/events.ts';
 import { StructuralCheckError, structuralCheckPrefix } from '../../src/review/errors.ts';
 import {
   changeSourceLimits,
@@ -374,8 +374,8 @@ describe('the fixer\'s output schema', () => {
 describe('the decider\'s output schema and its structural check (R3 of the decision step)', () => {
   const parsed = (decided: readonly DecidedFinding[]): DeciderOutput => deciderOutputSchema.parse(deciderAnswer(decided));
   const changed = (output: DeciderOutput, index: number, change: Record<string, unknown>): DeciderOutput => ({ decisions: output.decisions.map((entry) => (entry.index === index ? { ...entry, ...change } : entry)) as DeciderOutput['decisions'] });
-  /** A task of `count` findings, none of whose verifiers named a choice for the author. */
-  const unnamed = (count: number): boolean[] => Array.from({ length: count }, () => false);
+  /** A task of `count` findings of one candidate each, none of whose verifiers named a choice for the author. */
+  const unnamed = (count: number): CandidateChoice[][] => Array.from({ length: count }, (_, at) => [{ id: `RIPPLE-${String(at + 1)}`, choice: null }]);
 
   it('compiles for both runtimes, is the decider\'s, and accepts a fix, a leave, an ask and a departing fix', () => {
     assert.equal(outputSchemaOf('decider'), deciderOutputSchema);

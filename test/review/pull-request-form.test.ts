@@ -301,7 +301,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
   const leftIntended = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
   /** The state with the decision of finding `id` changed as `change` says, as a decider at version 2 records one. */
   const withDecision = (state: RunState, id: string, change: Record<string, unknown>): RunState => ({ ...state, review: { ...state.review!, decisions: state.review!.decisions!.map((decision) => (decision.id === id ? { ...decision, ...change } as typeof decision : decision)) } });
-  const settled = { choice: 'Parse keeps returning null on an empty file.', by: 'contract', source: 'The documentation of parse says that an empty file gives null.' };
+  const settled = { for: ['RIPPLE-1'], choice: 'Parse keeps returning null on an empty file.', by: 'contract', source: 'The documentation of parse says that an empty file gives null.' };
 
   it('folds a finding left as is whose verifier named a choice with the findings left as is, and shows the choice there as the verifier\'s, which deep-review did not settle (R4; D2, D3 of the settled choice)', () => {
     const state = withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice });
@@ -338,9 +338,9 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
   });
 
   it('shows beside a finding left as is the choice its decision settles, the step in the review\'s words and its source, after the verifier\'s choice (R4, D2 of the settled choice)', () => {
-    const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled });
+    const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [settled] });
     includes(leftOf(formOf(state).body), `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`);
-    const unnamed = withDecision(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { leave: { reason: 'settled', supersededBy: null }, settled: { ...settled, by: 'shape' } });
+    const unnamed = withDecision(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { leave: { reason: 'settled', supersededBy: null }, settled: [{ ...settled, for: [], by: 'shape' }] });
     const left = leftOf(formOf(unnamed).body);
     includes(left, 'deep-review leaves this as is: a choice of shape, settled in favor of the code as it is.');
     includes(left, '**The choice.** deep-review settles a choice: Parse keeps returning null on an empty file. What settles it: the shape the code around it already uses, or else the one that adds less.');
@@ -348,11 +348,51 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
   });
 
   it('shows in a fix\'s comment, after what deep-review would do, the choice it settles, and the verifier\'s choice beside it (R5, D2 of the settled choice)', () => {
-    const settledFix = withDecision(withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: { ...settled, by: 'intent' } });
+    const settledFix = withDecision(withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [{ ...settled, by: 'intent' }] });
     inOrder(formOf(settledFix).comments[0]!.body, ['**What deep-review would do.**', `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: the stated intent of the change.`, '**This fix goes against a written rule.**', '<details><summary>The fix as decided</summary>']);
     const departing = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
     includes(formOf(departing).comments[0]!.body, `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`);
     excludes(formOf(run().fold()).comments[0]!.body, '**The choice.**');
+  });
+
+  /** The state with SWEEP-2, the member of RIPPLE-1, verified CONFIRMED and naming its own choice beside RIPPLE-1's. */
+  const otherChoice = 'Whether the helper at line 7 guards the null too, or leaves it to its callers.';
+  const withTwoChoices = (state: RunState): RunState => {
+    const named = withVerdict(state, 'RIPPLE-1', { authorChoice: choice });
+    const primary = named.review!.candidates['RIPPLE-1']!.verdict!;
+    return withVerdict({ ...named, review: { ...named.review!, candidates: { ...named.review!.candidates, 'SWEEP-2': { ...named.review!.candidates['SWEEP-2']!, unverified: false, verdict: primary } } } }, 'SWEEP-2', { evidence: 'line 7 reads the null too', authorChoice: otherChoice });
+  };
+  const helperSettled = { for: ['SWEEP-2'], choice: 'The helper guards the null too.', by: 'scope', source: 'The helper is new in this change.' };
+
+  it('shows each choice of a merged finding left as is beside the settled choice that answers it, a paragraph each (PD9 of the settled choice)', () => {
+    const state = withDecision(withTwoChoices(run([leftIntended, decisions[1]]).fold()), 'RIPPLE-1', { settled: [settled, { ...helperSettled, by: 'intent' }] });
+    const left = leftOf(formOf(state).body);
+    inOrder(left, [
+      `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`,
+      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review settles it: The helper guards the null too. What settles it: the stated intent of the change. The helper is new in this change.`,
+    ]);
+    excludes(left, 'deep-review did not settle it');
+  });
+
+  it('shows in a merged finding\'s fix each choice its decision settles, and each choice it does not settle as not settled by deep-review (PD9 of the settled choice)', () => {
+    const partly = formOf(withDecision(withTwoChoices(run().fold()), 'RIPPLE-1', { settled: [helperSettled] })).comments[0]!.body;
+    inOrder(partly, [
+      '**What deep-review would do.**',
+      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review settles it: The helper guards the null too. What settles it: keeping the fix to the part inside the change. The helper is new in this change.`,
+      `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`,
+      '**This fix goes against a written rule.**',
+    ]);
+    const unsettled = formOf(withTwoChoices(run().fold())).comments[0]!.body;
+    inOrder(unsettled, [`**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`, `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review did not settle it.`]);
+  });
+
+  it('keeps, when it cuts the findings left as is, a merged finding whose member alone named a choice (R4, PD9 of the settled choice)', () => {
+    const folded = run([leftIntended, decisions[1]]).fold();
+    const primary = folded.review!.candidates['RIPPLE-1']!.verdict!;
+    const memberNamed = withVerdict({ ...folded, review: { ...folded.review!, candidates: { ...folded.review!.candidates, 'SWEEP-2': { ...folded.review!.candidates['SWEEP-2']!, unverified: false, verdict: primary } } } }, 'SWEEP-2', { authorChoice: otherChoice });
+    const form = formOf(withDecision(memberNamed, 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) }));
+    assert.ok(form.cuts.includes('left'), JSON.stringify(form.cuts));
+    includes(leftOf(form.body), `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review did not settle it.`);
   });
 
   it('keeps, when it cuts the findings left as is, those whose verifier named a choice, and gives the others their count (R4, D9 of the settled choice)', () => {
