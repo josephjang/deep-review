@@ -16,7 +16,7 @@ flowchart TD
     D -->|no| E["The command ends with the review"]
     D -->|yes| F["The same command continues the run<br/>into the fix pass"]
     F --> G["The fix report is written"]
-    C -.->|"the ledger before the continuation"| H["deep-review publish posts the review,<br/>before or after the fix pass"]
+    C -.->|"the ledger before the continuation"| H["deep-review publish posts the review<br/>once the command ends"]
 ```
 
 Figure 1. A run of a pull request with `--fix` after this change. The review that `publish` posts is the part of the run before the fix pass.
@@ -41,7 +41,7 @@ The body of a posted review says that the run "changed no file", and that nothin
 
 ## Goals
 
-A person who runs `review --pr <number> --fix` can post the review of that run on the pull request, before or after its fix pass, with no second review. The posted review is the same review that a read-only run of the same head would post, written by the same workers, and it says truthfully what happened after it: that deep-review went on to fix on the machine that ran it. Every run of a pull request gives its decider the verifier's choice as a field, and has its writer explain the review.
+A person who runs `review --pr <number> --fix` can post the review of that run on the pull request once the command ends, whether its fix pass finished, blocked or was refused, with no second review. The posted review is the same review that a read-only run of the same head would post, written by the same workers, and it says truthfully what happened after it: that deep-review went on to fix on the machine that ran it. Every run of a pull request gives its decider the verifier's choice as a field, and has its writer explain the review.
 
 ## Non-Goals
 
@@ -85,7 +85,7 @@ The command continues the run that it brought to its report, and no other. It re
 
 ### R5: `publish` posts the review of a continued run
 
-`publish` posts a run that `--fix` continued as the run stood when its read-only report was written: the events of the ledger before the continuation. Every refusal of R8 of the review on the pull request applies to that review, the checks of the head and the merge base included. The fix pass need not be finished: a run whose fix pass is blocked or was stopped is posted too, since its review is finished. A run that an engine is running is refused by its lock, as today. Without `--run`, `publish` chooses the newest run of the worktree whose review is finished: a run with a current report, or a run continued into its fix pass, whatever the state of that pass. Choosing only a run with a current report, as `report` does, would pass over a continued run whose fix pass is blocked, and post an older run of the worktree or none.
+`publish` posts a run that `--fix` continued as the run stood when its read-only report was written: the events of the ledger before the continuation. Every refusal of R8 of the review on the pull request applies to that review, the checks of the head and the merge base included. The fix pass need not be finished: a run whose fix pass is blocked or was stopped is posted too, since its review is finished. A run that an engine is running is refused by its lock, as today, so the review of `review --pr --fix` can be posted only once the command ends, and not while its fix pass runs. A person who wants the review on the pull request before any fixer edits a file still runs `review --pr <n>`, posts, and then continues with `--fix`. Without `--run`, `publish` chooses the newest run of the worktree whose review is finished: a run with a current report, or a run continued into its fix pass, whatever the state of that pass. Choosing only a run with a current report, as `report` does, would pass over a continued run whose fix pass is blocked, and post an older run of the worktree or none.
 
 ### R6: The posted review says that the run went on to fix
 
@@ -194,6 +194,10 @@ The proposal does not increase what the person reads, hides no question and no d
 ### RK1: A posted question that is already answered
 
 An answer recorded after the continuation and before the post is not in the posted review (NG3), so a reader of the pull request sees that question as open, with its default applied. The person who ran the review knows the answer and can say so in the thread.
+
+### RK6: The review waits for the fix pass to be posted
+
+The command holds the run's lock from the review to the end of the fix pass, so its review can be posted only after the fixes, though it was finished before them. The order of three commands remains for a person who wants it posted first.
 
 ### RK2: The writer costs every fix run of a pull request
 
