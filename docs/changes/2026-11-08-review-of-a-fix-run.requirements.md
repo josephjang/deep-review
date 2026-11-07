@@ -157,6 +157,8 @@ The proposal rejects recording that intent on the ledger. It would be a new even
 
 ## Against the vision note
 
+The proposal supersedes two parts of the review on the pull request: the non-goal "No review of a fix run" and the refusal of a fix run in its R8, and the last sentence of its R4, that a review to be posted is posted before its run is continued.
+
 ### Principle 2, record before action
 
 The proposal makes every run of a pull request record its whole review, with its decisions and its explanation, and write its read-only report before any fixer edits a file. The posted review is that record, not a part of a fix run taken apart afterwards.
@@ -164,6 +166,10 @@ The proposal makes every run of a pull request record its whole review, with its
 ### Principle 4, deep-review decides; the person answers and writes rules
 
 Each verifier's choice reaches the decider as a field in every run of a pull request, not only in a read-only one, so the decider settles it on the record in a fix run too.
+
+### Principle 4, not the same question 2 times
+
+The proposal departs from this principle in one case. An answer recorded after the continuation and before the post is not in the posted review (NG3), so the review on the pull request shows that question as open, and a reader may raise it again. The reason is PD2: the posted review is the record as it stood when the review was written, and carrying later answers into it is the same later work as an answer recorded after a post. RK1 names the gap.
 
 ### Principle 5, the core, the questions, and the departures come first, wherever the review reaches a reader
 
@@ -187,17 +193,13 @@ R9 makes one real run and one real post the gate.
 
 ### How to use this document
 
-The proposal does not increase what the person reads, hides no question and no departure, and makes no question block a run. NG3 can show a question that the person has already answered on the machine. It does not decide that question inside deep-review: the answer stays on the ledger and in the report, and the risk RK1 names the gap.
+The proposal does not increase what the person reads, hides no question and no departure, and makes no question block a run. NG3 can show a question that the person has already answered on the machine. It does not decide that question inside deep-review: the answer stays on the ledger and in the report, and the section on principle 4 above names the departure.
 
 ## Risks
 
 ### RK1: A posted question that is already answered
 
 An answer recorded after the continuation and before the post is not in the posted review (NG3), so a reader of the pull request sees that question as open, with its default applied. The person who ran the review knows the answer and can say so in the thread.
-
-### RK6: The review waits for the fix pass to be posted
-
-The command holds the run's lock from the review to the end of the fix pass, so its review can be posted only after the fixes, though it was finished before them. The order of three commands remains for a person who wants it posted first.
 
 ### RK2: The writer costs every fix run of a pull request
 
@@ -213,4 +215,8 @@ A run that `review --pr --fix` started before this change is configured with the
 
 ### RK5: The continuation is refused after the review
 
-A run budget that the review spent, or a survey that failed and left checks unsettled, makes the continuation refuse after the review is written (R4). The person then holds a finished review and no fixes, and the refusal says what to do. A fix run started with `--fix` meets the same two conditions differently today: a survey that fails with checks unsettled blocks it before it reviews, and a review that spends the budget leaves its fixers unattempted. Here the person keeps the review in both cases, and the review can be posted. The next `review --pr <n> --fix` continues the run only while the pull request is still at the head the run reviewed; when the head has moved, it reviews the new head in a new run, as any continuation asked for later does.
+A run budget that the review spent, or a survey that failed and left checks unsettled, makes the continuation refuse after the review is written (R4). An old Node is still refused at the start, before the review spends anything, but a warning that a fix run on Codex for Windows gives before its first worker, that its editors run under the unelevated sandbox, now comes after the review. The person then holds a finished review and no fixes, and the refusal says what to do. A fix run started with `--fix` meets the same two conditions differently today: a survey that fails with checks unsettled blocks it before it reviews, and a review that spends the budget leaves its fixers unattempted. Here the person keeps the review in both cases, and the review can be posted. The next `review --pr <n> --fix` continues the run only while the pull request is still at the head the run reviewed; when the head has moved, it reviews the new head in a new run, as any continuation asked for later does.
+
+### RK6: The review waits for the fix pass to be posted
+
+The command holds the run's lock from the review to the end of the fix pass, so its review can be posted only after the fixes, though it was finished before them. The order of three commands remains for a person who wants it posted first.
