@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { layers } from '../../src/config/settings.ts';
 import { briefOf, findingStatuses } from '../../src/review/brief.ts';
 import { pullRequestLanguages, pullRequestWords, pullRequestWordTables, type PullRequestWords } from '../../src/review/pull-request-words.ts';
-import { leaveReasons, verdictBases } from '../../src/review/vocabulary.ts';
+import { leaveReasons, settleSteps, verdictBases } from '../../src/review/vocabulary.ts';
 import { fragmentsDirectoryName, repositoryRolesRoot } from '../../src/roles/assemble.ts';
 import { formOf, pullRequestRun as run, withSettings } from '../helpers/pull-request-review.ts';
 
@@ -44,17 +44,32 @@ describe('the tables of the engine\'s words', () => {
     for (const language of pullRequestLanguages) assert.doesNotMatch(pullRequestWordTables[language].whyPlausible(null), /gave no reason|이유를 밝히지 않았/, language);
   });
 
-  it('say that nothing on the branch needs to change only when no finding left as is leaves a choice to the author (R1, R9)', () => {
+  it('say that nothing on the branch needs to change when no finding is fixed or asked about, since a finding left as is needs no person whatever its verifier named (R1; R4, D3 of the settled choice)', () => {
     const { en, ko } = pullRequestWordTables;
     const fix = '`deep-review review --pr 42 --fix`';
-    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 0 }, fix), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
-    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 1 }, fix), 'deep-review leaves 2 findings as is and changes nothing on this branch, but the verifier of 1 of them leaves a choice to the author, as "What needs a person" says.');
-    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 3, authors: 2 }, fix), 'deep-review leaves 3 findings as is and changes nothing on this branch, but the verifiers of 2 of them leave a choice to the author, as "What needs a person" says.');
-    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 1, authors: 1 }, fix), 'deep-review leaves 1 finding as is and changes nothing on this branch, but its verifier leaves a choice to the author, as "What needs a person" says.');
-    assert.equal(ko.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 0 }, fix), 'deep-review의 결정은 그대로 둘 것 2건입니다. 이 브랜치에서 바꿀 것은 없습니다.');
-    assert.equal(ko.summaryNext({ fixes: 0, questions: 0, left: 2, authors: 1 }, fix), 'deep-review의 결정은 그대로 둘 것 2건입니다. 이 브랜치에서 바꾸는 것은 없지만, 그중 1건은 "사람이 해야 할 일"에 적었듯 검증자가 작성자가 정할 선택을 남겼습니다.');
-    // A run that acts says what happens next with `--fix`, whatever its findings left for the author.
-    assert.equal(en.summaryNext({ fixes: 1, questions: 0, left: 1, authors: 1 }, fix), en.summaryNext({ fixes: 1, questions: 0, left: 1, authors: 0 }, fix));
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2 }, fix), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
+    assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 1 }, fix), 'deep-review leaves 1 finding as is, so nothing on this branch needs to change.');
+    assert.equal(ko.summaryNext({ fixes: 0, questions: 0, left: 2 }, fix), 'deep-review의 결정은 그대로 둘 것 2건입니다. 이 브랜치에서 바꿀 것은 없습니다.');
+    for (const language of pullRequestLanguages) assert.doesNotMatch(pullRequestWordTables[language].summaryNext({ fixes: 0, questions: 0, left: 2 }, fix), /What needs a person|사람이 해야 할 일/, language);
+  });
+
+  it('name each step that settles a choice in both languages, and show a settled choice, or the verifier\'s choice that deep-review did not settle, as one paragraph (R4, R5, D2 of the settled choice)', () => {
+    const { en, ko } = pullRequestWordTables;
+    for (const language of pullRequestLanguages) assert.deepEqual(Object.keys(pullRequestWordTables[language].settleSteps), [...settleSteps], language);
+    const settled = { choice: 'An empty input gives an empty result.', step: en.settleSteps.intent, source: 'The change says so.' };
+    assert.equal(en.choice({ verifier: null, settled }), '**The choice.** deep-review settles a choice: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
+    assert.equal(en.choice({ verifier: 'Throw or return null.', settled }), '**The choice.** Its verifier left this choice to the author: Throw or return null. deep-review settles it: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
+    assert.equal(en.choice({ verifier: 'Throw or return null.', settled: null }), '**The choice.** Its verifier left this choice to the author: Throw or return null. deep-review did not settle it.');
+    assert.equal(ko.choice({ verifier: 'Throw or return null.', settled: null }), '**선택.** 검증자는 작성자가 정할 선택을 남겼습니다: Throw or return null. deep-review는 이 선택을 정하지 않았습니다.');
+    assert.equal(ko.choice({ verifier: null, settled: { ...settled, step: ko.settleSteps.shape } }), '**선택.** deep-review가 정한 선택: An empty input gives an empty result. 정한 근거: 주변 코드가 이미 쓰는 형태, 없으면 덜 더하는 형태. The change says so.');
+  });
+
+  it('word a cut that keeps some findings left as is apart from one that takes them all (D9 of the settled choice)', () => {
+    const { en, ko } = pullRequestWordTables;
+    assert.equal(en.leftOthersCut(1), 'To fit the length GitHub takes, the other finding left as is is not listed here; the report of the run holds it.');
+    assert.equal(en.leftOthersCut(3), 'To fit the length GitHub takes, the other 3 findings left as is are not listed here; the report of the run holds each.');
+    assert.equal(ko.leftOthersCut(3), 'GitHub가 받는 길이에 맞추느라 그대로 둔 나머지 지적 사항 3건은 여기에 적지 않았습니다. 실행 보고서에 모두 있습니다.');
+    for (const language of pullRequestLanguages) assert.notEqual(pullRequestWordTables[language].leftOthersCut(2), pullRequestWordTables[language].leftCut(2), language);
   });
 
   it('name the option recommended and the one that stands as two facts, and one option once (R8)', () => {

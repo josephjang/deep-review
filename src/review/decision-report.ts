@@ -14,7 +14,7 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { codeSpan, findingNamed, inlineText, quoted, sentenceText as sentence } from './markdown.ts';
 import { terminalQuoted } from './shell.ts';
 import { answerArguments, answerCommand, optionLine } from './needs.ts';
-import type { LeaveReason } from './vocabulary.ts';
+import { settledChoiceWords, type LeaveReason } from './vocabulary.ts';
 
 /** Why a finding was left, as the report words it. */
 export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
@@ -85,20 +85,36 @@ export interface DecisionQuote {
 }
 
 /**
- * The lines of a finding's block on its decision (R6 of the report for the
- * person; R8 of the decision step): what was decided and on what grounds;
- * for a fix, its plan, the options it rejected and the rule it goes
- * against; for a question, why it asks, each option with its cost, the
- * rule it makes and its marks, and where deep-review looked; and the
- * answer a person gave, with what applied it, or the command that answers.
- * A decider's text is quoted with the numbers of the findings it names.
+ * The lines of a decision on the choice it makes (R6, D2 of the settled
+ * choice): the choice the finding's verifier left to the author, with
+ * that deep-review did not settle it when the decision settles none; and
+ * the choice the decision settles, the step in words and its source.
  */
-export function decisionBlockLines(review: ReviewState, decision: RecordedDecision, quote: DecisionQuote): string[] {
+function choiceLines(authorChoice: string | null, settled: RecordedDecision['settled'], said: (text: string) => string): string[] {
+  return [
+    ...(authorChoice === null ? [] : [`The verifier's choice for the author${settled === null ? ', which deep-review did not settle' : ''}: ${said(authorChoice)}`]),
+    ...(settled === null ? [] : [`Settled choice: ${settledChoiceWords(said(settled.choice), settled.by, said(settled.source))}`]),
+  ];
+}
+
+/**
+ * The lines of a finding's block on its decision (R6 of the report for the
+ * person; R8 of the decision step): what was decided and on what grounds,
+ * and for a fix or a finding left as is the choice it makes beside the
+ * one its verifier left to the author, `authorChoice` (R6, D2 of the
+ * settled choice); for a fix, its plan, the options it rejected and the
+ * rule it goes against; for a question, why it asks, each option with its
+ * cost, the rule it makes and its marks, and where deep-review looked; and
+ * the answer a person gave, with what applied it, or the command that
+ * answers. A decider's text is quoted with the numbers of the findings it
+ * names.
+ */
+export function decisionBlockLines(review: ReviewState, decision: RecordedDecision, quote: DecisionQuote, authorChoice: string | null): string[] {
   const said = (text: string): string => inlineText(quoted(text, { numbers: quote.numbers, own: quote.own, scratch: quote.scratch }));
   const standing = standingAnswer(review, decision.id);
   switch (decision.decision) {
     case 'leave':
-      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said(decision.grounds)}`];
+      return [`Decision: left, ${leaveWords(decision.leave, quote.numbers)}: ${said(decision.grounds)}`, ...choiceLines(authorChoice, decision.settled, said)];
     case 'fix': {
       const { fix, departure } = decision;
       const reviewed = departure === null ? [] : standing === null
@@ -106,6 +122,7 @@ export function decisionBlockLines(review: ReviewState, decision: RecordedDecisi
         : [`Answer: ${answerSummary(review, standing, standing.answer.kind === 'reject' ? 'the rule-following fix the tree held' : 'the departure the tree held')}`];
       return [
         `Decision: fix: ${said(decision.grounds)}`,
+        ...choiceLines(authorChoice, decision.settled, said),
         `Plan: ${sentence(said(fix.approach))}`,
         ...fix.rejected.map((option) => `Rejected: ${said(option.option)}: ${said(option.reason)}`),
         ...(departure === null ? [] : [`Against a written rule: ${said(departure.rule)} (${said(departure.source)}): ${said(departure.reason)}`]),

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { codexWindowsSandboxesV4, type ReviewConfiguration, type ValidationRun, type VerdictRun } from '../../src/checkpoint/events.ts';
+import { codexWindowsSandboxesV4, type RecordedDecision, type ReviewConfiguration, type ValidationRun, type VerdictRun } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { briefJson } from '../../src/review/brief-json.ts';
 import { briefMarkdown, briefOf } from '../../src/review/brief.ts';
@@ -343,6 +343,25 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
     const report = render(decidedOf(reported(), [departing, { ...decisions[1], leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } }]).fold());
     assert.match(block(report, 2), /^- Decision: left, superseded by finding 1: the helper would edit only lines the change does not touch$/m);
     assert.match(block(render(decidedOf(reported()).fold()), 2), /^- Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
+  });
+
+  it('gives a decision the choice it settles, the step in words, and the choice the finding\'s verifier left to the author beside it, or that deep-review did not settle it (R6, D2 of the settled choice)', () => {
+    const folded = decidedOf(reported()).fold();
+    const settled = { choice: 'The helper stays inline.', by: 'shape' as const, source: 'Every helper of the module is inline.' };
+    const decisionsOf = (change: (decision: RecordedDecision) => RecordedDecision): RunState => ({ ...folded, review: { ...folded.review!, decisions: folded.review!.decisions!.map(change) } });
+    const leftSettled = decisionsOf((decision) => (decision.decision === 'leave' ? { ...decision, leave: { reason: 'settled', supersededBy: null }, settled } : decision));
+    assert.ok(block(render(leftSettled), 2).includes([
+      '- Decision: left, a choice of shape, settled in favor of the code as it is: the helper would edit only lines the change does not touch',
+      '- Settled choice: The helper stays inline; settled by the shape the code around it already uses, or else the one that adds less: Every helper of the module is inline.',
+    ].join('\n')), block(render(leftSettled), 2));
+    const ripple = folded.review!.candidates['RIPPLE-1']!;
+    const named = { ...folded, review: { ...folded.review!, candidates: { ...folded.review!.candidates, 'RIPPLE-1': { ...ripple, verdict: { ...ripple.verdict!, authorChoice: 'Guard in parse, or in each caller.' } } } } };
+    assert.ok(block(render(named), 1).includes([
+      '- Decision: fix: parse reads the null on an empty input, at lines 4 and 7',
+      '- The verifier\'s choice for the author, which deep-review did not settle: Guard in parse, or in each caller.',
+      '- Plan: guard the null once, before parse reads it.',
+    ].join('\n')), block(render(named), 1));
+    assert.doesNotMatch(render(folded), /Settled choice|The verifier's choice/, 'a decision that settles none, of a finding whose verifier named none, says nothing of a choice');
   });
 
   it('gives a question why it asks, each option with its marks, cost and rule, where deep-review looked, and the command that answers', () => {

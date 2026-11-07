@@ -15,7 +15,7 @@
 import type { FindingStatus } from './brief.ts';
 import type { Layer } from '../config/settings.ts';
 import { capitalized, counted, findingWords, listed } from './markdown.ts';
-import type { LeaveReason, Severity, Verdict, VerdictBasis } from './vocabulary.ts';
+import { settleStepWords, type LeaveReason, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the last visible line of the body names: the engine, the runtime and its models, the run, and the commits it reviewed. */
 export interface LastLineFacts {
@@ -58,12 +58,24 @@ export interface ReviewCounts {
   readonly noBasis: number;
 }
 
-/** The findings by what deep-review decided, as the summary counts them, and those left as is whose verifier leaves a choice to the author (R9), which what needs a person lists. */
+/** The findings by what deep-review decided, as the summary counts them. */
 export interface DecisionCounts {
   readonly fixes: number;
   readonly questions: number;
   readonly left: number;
-  readonly authors: number;
+}
+
+/**
+ * The choice a decision of a finding settles, or the choice its verifier
+ * leaves to the author, as the review shows them beside the decision (R4,
+ * R5, D2 of the settled choice): the verifier's choice, or null when it
+ * named none; and the choice the decision settles with the step that
+ * settles it, in the review's words, and its source, or null when it
+ * settles none. One of the two is given; each text is already cleaned.
+ */
+export interface ChoiceWords {
+  readonly verifier: string | null;
+  readonly settled: { readonly choice: string; readonly step: string; readonly source: string } | null;
 }
 
 /** Why a verdict is PLAUSIBLE and not CONFIRMED, as its verifier gave it (R7): a fact it could not settle, or a choice that remains; its text already cleaned. */
@@ -93,12 +105,11 @@ export interface PullRequestWords {
   readonly summaryCounts: (counts: ReviewCounts) => string;
   readonly summaryNext: (counts: DecisionCounts, fix: string) => string;
 
-  /** What needs a person (R2): a question with its tail, a fix against a written rule with its tail, a finding left as is whose verifier leaves a choice to the author, the one command that answers, or that nothing does. */
+  /** What needs a person (R2): a question with its tail, a fix against a written rule with its tail, the one command that answers, or that nothing does. */
   readonly needsHeading: string;
   readonly needsQuestion: (finding: number, href: string, question: string, tail: string) => string;
   readonly needsDeparture: (finding: number, href: string, rule: string, tail: string) => string;
   readonly departureStands: string;
-  readonly needsAuthor: (finding: number, href: string, choice: string) => string;
   readonly needsAnswer: (command: string, flags: readonly string[]) => string;
   readonly needsNothing: string;
 
@@ -146,9 +157,9 @@ export interface PullRequestWords {
   readonly standing: (recommended: number, applied: number, edits: boolean, option: string | null) => string;
   readonly answerQuestion: (command: string, fix: string) => string;
   readonly answeredOption: (option: number, at: string) => string;
-  readonly whyLeft: string;
-  readonly whyLook: string;
-  readonly authorChoice: (choice: string) => string;
+  /** The choice a decision settles, or its verifier's choice and that deep-review did not settle it, as one paragraph (R4, R5, D2 of the settled choice), and each step that settles a choice. */
+  readonly choice: (given: ChoiceWords) => string;
+  readonly settleSteps: Readonly<Record<SettleStep, string>>;
   readonly howChecked: string;
   readonly basisSentences: Readonly<Record<VerdictBasis, string>>;
   readonly noBasis: string;
@@ -174,7 +185,9 @@ export interface PullRequestWords {
   readonly leaveReasons: Readonly<Record<LeaveReason, string>>;
   readonly leftBecause: (reason: string, by: string | null) => string;
   readonly groundsLabel: string;
+  /** The note in place of every finding left as is when a cut takes them all, or of the others when it keeps those whose verifier named a choice (D9 of the settled choice). */
   readonly leftCut: (count: number) => string;
+  readonly leftOthersCut: (count: number) => string;
 
   /** What the review did not examine (R11): no check, each gap, the patterns that left paths out, and the refuted candidates folded. */
   readonly notExaminedHeading: string;
@@ -235,11 +248,7 @@ const english: PullRequestWords = {
       ...(counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, 'question', 'questions')}`]),
     ];
     const left = counts.left === 0 ? '' : `${String(counts.left)} ${counts.left === 1 ? 'is' : 'are'} left as is`;
-    if (acting.length === 0 && counts.authors === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
-    if (acting.length === 0) {
-      const verifiers = counts.left === 1 ? 'its verifier leaves' : counts.authors === 1 ? 'the verifier of 1 of them leaves' : `the verifiers of ${String(counts.authors)} of them leave`;
-      return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is and changes nothing on this branch, but ${verifiers} a choice to the author, as "What needs a person" says.`;
-    }
+    if (acting.length === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
     return `deep-review ${acting.join(' and ')}${left === '' ? '' : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
   },
 
@@ -247,7 +256,6 @@ const english: PullRequestWords = {
   needsQuestion: (finding, href, question, tail) => `**[Question on finding ${String(finding)}](${href}).** ${question} ${tail}`,
   needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
   departureStands: '`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.',
-  needsAuthor: (finding, href, choice) => `**[Finding ${String(finding)}](${href}) is left as is, but its verifier leaves a choice to the author.** ${choice}`,
   needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0]! : `one of ${listed(flags, 'or')}`}. A reply on this pull request is not read yet.`,
   needsNothing: 'Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.',
 
@@ -318,9 +326,12 @@ const english: PullRequestWords = {
   },
   answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
   answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
-  whyLeft: '**Why it is left as is.**',
-  whyLook: '**Why a person should look anyway.**',
-  authorChoice: (choice) => `Its verifier leaves a choice to the author: ${choice}`,
+  choice: ({ verifier, settled }) => {
+    const left = verifier === null ? [] : [`Its verifier left this choice to the author: ${verifier}`];
+    const decided = settled === null ? 'deep-review did not settle it.' : `deep-review settles ${verifier === null ? 'a choice' : 'it'}: ${settled.choice} What settles it: ${settled.step}. ${settled.source}`;
+    return `**The choice.** ${[...left, decided].join(' ')}`;
+  },
+  settleSteps: settleStepWords,
   howChecked: 'How the verifier checked it',
   basisSentences: {
     ran: 'The verifier ran code to check it; the report of the run holds what it ran and what it saw.',
@@ -358,6 +369,7 @@ const english: PullRequestWords = {
   leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? '' : ` by ${by}`}.`,
   groundsLabel: 'Why:',
   leftCut: (count) => `To fit the length GitHub takes, ${count === 1 ? 'the finding left as is is' : `the ${String(count)} findings left as is are`} not listed here; the report of the run holds ${count === 1 ? 'it' : 'each'}.`,
+  leftOthersCut: (count) => `To fit the length GitHub takes, ${count === 1 ? 'the other finding left as is is' : `the other ${String(count)} findings left as is are`} not listed here; the report of the run holds ${count === 1 ? 'it' : 'each'}.`,
 
   notExaminedHeading: '### What this review did not examine',
   noCheck: 'No check ran: this run only reviewed, so no test ran against the change.',
@@ -421,8 +433,7 @@ const korean: PullRequestWords = {
       ...(counts.left === 0 ? [] : [`그대로 둘 것 ${String(counts.left)}건`]),
     ];
     const decided = `deep-review의 결정은 ${parts.join(', ')}입니다.`;
-    if (counts.fixes + counts.questions === 0 && counts.authors === 0) return `${decided} 이 브랜치에서 바꿀 것은 없습니다.`;
-    if (counts.fixes + counts.questions === 0) return `${decided} 이 브랜치에서 바꾸는 것은 없지만, 그중 ${String(counts.authors)}건은 "사람이 해야 할 일"에 적었듯 검증자가 작성자가 정할 선택을 남겼습니다.`;
+    if (counts.fixes + counts.questions === 0) return `${decided} 이 브랜치에서 바꿀 것은 없습니다.`;
     return `${decided} 이 리뷰를 실행한 사람이 ${fix} 명령으로 수정과 그때까지 받은 답을 자신의 클론에 적용하고 그 결과를 푸시하기 전까지, 이 브랜치에서는 아무것도 바뀌지 않습니다.`;
   },
 
@@ -430,7 +441,6 @@ const korean: PullRequestWords = {
   needsQuestion: (finding, href, question, tail) => `**[지적 사항 ${String(finding)}에 대한 질문](${href}).** ${question} ${tail}`,
   needsDeparture: (finding, href, rule, tail) => `**[지적 사항 ${String(finding)}](${href})의 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" ${tail}`,
   departureStands: '이 리뷰를 실행한 사람이 먼저 거부하지 않으면 `--fix`가 결정대로 고칩니다. 고친 뒤에 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.',
-  needsAuthor: (finding, href, choice) => `**[지적 사항 ${String(finding)}](${href})은 그대로 두지만, 검증자는 작성자가 정할 선택이 남았다고 봅니다.** ${choice}`,
   needsAnswer: (command, flags) => `이 리뷰를 실행한 사람이 ${command} 명령에 ${flags.length === 1 ? `${flags[0]!}를` : `${flags.join(', ')} 중 하나를`} 붙여 답합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
   needsNothing: '사람이 할 일은 없습니다. deep-review가 묻는 질문도, 명문화된 규칙과 다른 수정도 없습니다.',
 
@@ -501,9 +511,20 @@ const korean: PullRequestWords = {
   },
   answerQuestion: (command, fix) => `**답하는 방법.** 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그다음 ${fix}가 그 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
   answeredOption: (option, at) => `이 리뷰를 실행한 사람이 ${at}에 ${String(option)}번 선택지로 답했습니다.`,
-  whyLeft: '**그대로 두는 이유.**',
-  whyLook: '**그래도 사람이 봐야 하는 이유.**',
-  authorChoice: (choice) => `검증자는 작성자가 정할 선택을 남겼습니다: ${choice}`,
+  choice: ({ verifier, settled }) => {
+    const left = verifier === null ? [] : [`검증자는 작성자가 정할 선택을 남겼습니다: ${verifier}`];
+    const decided = settled === null ? 'deep-review는 이 선택을 정하지 않았습니다.' : `deep-review가 정한 선택: ${settled.choice} 정한 근거: ${settled.step}. ${settled.source}`;
+    return `**선택.** ${[...left, decided].join(' ')}`;
+  },
+  settleSteps: {
+    intent: '변경이 밝힌 의도',
+    contract: '저장소에 적힌 규칙',
+    before: '변경 전의 동작',
+    kept: '원래 있던 동작을 유지함',
+    shape: '주변 코드가 이미 쓰는 형태, 없으면 덜 더하는 형태',
+    scope: '수정을 변경 범위 안으로 한정함',
+    none: '실제로 남은 선택이 없음, 고치는 방법이 하나뿐임',
+  },
   howChecked: '검증자가 확인한 방법',
   basisSentences: {
     ran: '검증자가 코드를 실행해 확인했습니다. 무엇을 실행하고 무엇을 보았는지는 실행 보고서에 있습니다.',
@@ -540,6 +561,7 @@ const korean: PullRequestWords = {
   leftBecause: (reason, by) => `deep-review가 그대로 두는 이유: ${reason}${by === null ? '' : ` (${by})`}.`,
   groundsLabel: '판단 근거:',
   leftCut: (count) => `GitHub가 받는 길이에 맞추느라 그대로 둔 지적 사항 ${String(count)}건은 여기에 적지 않았습니다. 실행 보고서에 모두 있습니다.`,
+  leftOthersCut: (count) => `GitHub가 받는 길이에 맞추느라 그대로 둔 나머지 지적 사항 ${String(count)}건은 여기에 적지 않았습니다. 실행 보고서에 모두 있습니다.`,
 
   notExaminedHeading: '### 이 리뷰가 검토하지 않은 것',
   noCheck: '이 실행은 리뷰만 했으므로 어떤 검사도 돌리지 않았고, 변경에 대해 테스트도 실행하지 않았습니다.',
