@@ -2914,7 +2914,7 @@ export type SettlementCase = 'fix' | 'fix-departing' | LeaveReasonV13 | 'ask';
 
 /**
  * The rules of the settled choice, one per case, which version 2 of the
- * decisions is held to by the decider's check and by the fold alike (D1,
+ * decisions is held to by the decider's check and by the fold alike (R2,
  * TD3, PD9 of the settled choice). `named: 'required'` asks an entry of
  * `settled` for the choice of each candidate whose verifier named one,
  * and `unnamed: 'required'` at least one entry when no verifier of the

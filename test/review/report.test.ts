@@ -345,7 +345,7 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
     assert.match(block(render(decidedOf(reported()).fold()), 2), /^- Decision: left, outside the change, and not a regression: the helper would edit only lines the change does not touch$/m);
   });
 
-  it('gives a decision the choice it settles, the step in words, and the choice the finding\'s verifier left to the author beside it, or that deep-review did not settle it (R6, D2 of the settled choice)', () => {
+  it('gives a decision the choice it settles, the step in words, and the choice the finding\'s verifier left to the author beside it, or that deep-review did not settle it (R6, PD8 of the settled choice)', () => {
     const folded = decidedOf(reported()).fold();
     const settled = [{ for: [], choice: 'The helper stays inline.', by: 'shape' as const, source: 'Every helper of the module is inline.' }];
     const decisionsOf = (change: (decision: RecordedDecision) => RecordedDecision): RunState => ({ ...folded, review: { ...folded.review!, decisions: folded.review!.decisions!.map(change) } });

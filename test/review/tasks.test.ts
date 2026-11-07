@@ -378,7 +378,7 @@ describe('the task texts', () => {
     assert.match(task, /^ {8}evidence: line 7\n {8}choice left to the author by SWEEP-2's verifier: Whether the helper guards the null too\.$/m);
   });
 
-  it('defines for the decider each step that settles a choice and which decision settles one by which, the rules the engine refuses an answer by (D1, D6 of the settled choice)', () => {
+  it('defines for the decider each step that settles a choice and which decision settles one by which, the rules the engine refuses an answer by (R2, RK4 of the settled choice)', () => {
     const task = deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'CONFIRMED', summary: 's', reason: 'r', candidates: [] }]);
     const defined = task.slice(task.indexOf('The step that settles a choice'), task.indexOf('Which decision settles a choice'));
     const steps = [...defined.matchAll(/^- `([a-z]+)`: /gm)].map((match) => match[1]);
@@ -516,7 +516,7 @@ describe('the fixer\'s task', () => {
     assert.doesNotMatch(fixerTask({ ...input, findings: input.findings.map((finding) => ({ ...finding, supersedes: [] })) }), /removes also/);
   });
 
-  it('gives the fixer the choice its decision settles, and the one the decision of each finding it removes settles, the step in words, so it applies the choice decided (R5, D1 of the settled choice)', () => {
+  it('gives the fixer the choice its decision settles, and the one the decision of each finding it removes settles, the step in words, so it applies the choice decided (R5 of the settled choice)', () => {
     const settled = { for: [], choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
     const first = input.findings[0]!;
     const decided = { ...first, decision: { ...(first.decision as Extract<FixerDecision, { decision: 'fix' }>), settled: [settled] }, supersedes: first.supersedes.map((left) => ({ ...left, settled: [{ ...settled, by: 'kept' as const }] })) };

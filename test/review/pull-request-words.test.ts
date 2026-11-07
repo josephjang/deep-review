@@ -44,7 +44,7 @@ describe('the tables of the engine\'s words', () => {
     for (const language of pullRequestLanguages) assert.doesNotMatch(pullRequestWordTables[language].whyPlausible(null), /gave no reason|이유를 밝히지 않았/, language);
   });
 
-  it('say that nothing on the branch needs to change when no finding is fixed or asked about, since a finding left as is needs no person whatever its verifier named (R1; R4, D3 of the settled choice)', () => {
+  it('say that nothing on the branch needs to change when no finding is fixed or asked about, since a finding left as is needs no person whatever its verifier named (R1; R4, PD7 of the settled choice)', () => {
     const { en, ko } = pullRequestWordTables;
     const fix = '`deep-review review --pr 42 --fix`';
     assert.equal(en.summaryNext({ fixes: 0, questions: 0, left: 2 }, fix), 'deep-review leaves 2 findings as is, so nothing on this branch needs to change.');
@@ -66,7 +66,7 @@ describe('the tables of the engine\'s words', () => {
     assert.equal(ko.choice({ verifiers: [], settled: { ...settled, step: ko.settleSteps.shape } }), '**선택.** deep-review는 이렇게 정했습니다: An empty input gives an empty result. 정한 근거: 주변 코드가 이미 쓰는 형태, 없으면 덜 더하는 형태. The change says so.');
   });
 
-  it('word a cut that keeps some findings left as is apart from one that takes them all (D9 of the settled choice)', () => {
+  it('word a cut that keeps some findings left as is apart from one that takes them all (R4 of the settled choice)', () => {
     const { en, ko } = pullRequestWordTables;
     assert.equal(en.leftOthersCut(1), 'To fit the length GitHub takes, the other finding left as is is not listed here; the report of the run holds it.');
     assert.equal(en.leftOthersCut(3), 'To fit the length GitHub takes, the other 3 findings left as is are not listed here; the report of the run holds each.');

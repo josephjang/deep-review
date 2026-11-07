@@ -159,7 +159,7 @@ export interface PullRequestWords {
   readonly standing: (recommended: number, applied: number, edits: boolean, option: string | null) => string;
   readonly answerQuestion: (command: string, fix: string) => string;
   readonly answeredOption: (option: number, at: string) => string;
-  /** The choice a decision settles, or its verifier's choice and that deep-review did not settle it, as one paragraph (R4, R5, D2 of the settled choice), and each step that settles a choice. */
+  /** The choice a decision settles, or its verifier's choice and that deep-review did not settle it, as one paragraph (R4, R5, PD8 of the settled choice), and each step that settles a choice. */
   readonly choice: (given: ChoiceWords) => string;
   readonly settleSteps: Readonly<Record<SettleStep, string>>;
   readonly howChecked: string;
@@ -187,7 +187,7 @@ export interface PullRequestWords {
   readonly leaveReasons: Readonly<Record<LeaveReason, string>>;
   readonly leftBecause: (reason: string, by: string | null) => string;
   readonly groundsLabel: string;
-  /** The note in place of every finding left as is when a cut takes them all, or of the others when it keeps those whose verifier named a choice (D9 of the settled choice). */
+  /** The note in place of every finding left as is when a cut takes them all, or of the others when it keeps those whose verifier named a choice (R4 of the settled choice). */
   readonly leftCut: (count: number) => string;
   readonly leftOthersCut: (count: number) => string;
 
