@@ -16,8 +16,8 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { choicesShown } from './state.ts';
-import { failedOrTimedOut, finderAngles, settleSteps, shownChoiceLines, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
+import { shownChoiceLines } from './state.ts';
+import { failedOrTimedOut, finderAngles, settleSteps, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -745,7 +745,7 @@ function candidateLines(head: string, candidate: TaskCandidate): string[] {
 }
 
 /** The choices beside a decision, as a fixer's task gives them, each on a line of its own, the step in words (R5, PD9 of the settled choice). */
-const settledLines = (choices: readonly CandidateChoice[], settled: readonly SettledChoice[]): string[] => shownChoiceLines(choicesShown(choices, settled), (text) => text, 'settled');
+const settledLines = (choices: readonly CandidateChoice[], settled: readonly SettledChoice[]): string[] => shownChoiceLines(choices, settled, (text) => text, 'settled');
 
 /**
  * What a fixer is told was decided for a finding (R7 of the decision
