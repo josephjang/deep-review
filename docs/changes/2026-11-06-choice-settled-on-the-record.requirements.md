@@ -37,9 +37,9 @@ Figure 1. Where a choice that a verifier names ends after this change. The form 
 
 The decider's rubric says that "your decision names the choice and its answer", and its order says how a choice is settled: the change's stated intent, the repository's stated contract, the behavior before the change, keeping a behavior that was there before, and, for a shape only a maintainer would see, the shape the surrounding code uses. None of this is recorded apart from the free text of the grounds. A reader of #107 could not tell whether the decider had weighed the verifier's choice at all, and no code can tell either.
 
-### A verifier names a choice too readily
+### A verifier names a choice on many findings
 
-#115 says that "a choice remains" is given too readily: eight of nine English `PLAUSIBLE` verdicts said that a choice remains, three of them for the scope of a fix or for a choice that the design records as made, and 20 of 32 Korean findings carried a `Needs the author:` note. Those counts are of the verifiers' notes, not of the findings the author rule moved, which were only those decided `leave`. They show that a verifier's view of a choice is often one the repository answers, which the decider is there to settle, and that a rule which puts the verifier's view above the decider's moves many findings.
+In the Korean review of #115, 20 of 32 findings carried a `Needs the author:` note, the choice that a verifier leaves to the author, which a read-only run of a pull request also records as the field `authorChoice`. That count is of the verifiers' notes, not of the findings that the author rule moved, which were only those decided `leave`. It shows that the choice a verifier names reaches many findings, so whether the decider or the form settles it decides where many findings go in the review.
 
 ### A fix that edits nothing
 
@@ -53,7 +53,7 @@ Every judgment that decides where a finding goes in the review is made by a work
 
 ### NG1: The verifier's prompt and its fields
 
-The verifier still names a choice as it does today, and still writes the `Needs the author:` note in its evidence. #115 says it names one too readily; this proposal has the decider settle each choice, and a change to how readily the verifier names one is a change of the verifier's rubric, measured on its own.
+The verifier still names a choice as it does today, and still writes the `Needs the author:` note in its evidence. This proposal has the decider settle each choice that a verifier names; how readily a verifier names one is a matter of the verifier's rubric, and a change to it is measured on its own.
 
 ### NG2: The verifier's fields in other runs
 
@@ -79,7 +79,7 @@ The fixer's routes and `deep-review answer` stay as they are, and a finding left
 
 ### R1: The decider is given the verifier's choice as a field
 
-In a run whose verdicts record them, the decider's task gives, for each candidate of a finding, the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, each on a line of its own and labeled, beside the evidence. The rubric calls the choice a verifier's view that the decider settles or asks about, not an answer, as it calls the note today.
+In a run whose verdicts record it, the decider's task gives, for each candidate of a finding, the choice its verifier leaves to the author, on a line of its own and labeled, beside the evidence. The rubric calls the choice a verifier's view that the decider settles or asks about, not an answer, as it calls the note today. The verifier's other field of the same version, why a `PLAUSIBLE` verdict is not `CONFIRMED`, is not given as a field: no rule of this proposal reads it, and the evidence already holds it.
 
 ### R2: A decision that settles a choice records how
 
@@ -175,7 +175,7 @@ The report suggested recording on a fix whether it edits, as an option of a ques
 
 ### PD6: The step is a value, and its source is text
 
-The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways the rubric reaches `fix` outside that order, no choice remaining and the scope of the fix, since #115 shows that a verifier names a choice too readily and names the scope of a fix as one: without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule need not name a step, since its departure is already the record of the choice. The source a step rests on is the decider's sentence in plain words, which the review shows, while the grounds keep the citation that a reader who doubts it follows. The two say one fact at two depths, as a question and the places it names where the decider looked do.
+The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways that the rubric's own `fix` row reaches a fix outside that order: acting needs no choice (`none`), and the fix keeps to the part of a result inside the change (`scope`). Without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule need not name a step, since its departure is already the record of the choice. The source a step rests on is the decider's sentence in plain words, which the review shows, while the grounds keep the citation that a reader who doubts it follows. The two say one fact at two depths, as a question and the places it names where the decider looked do.
 
 ### PD7: Rejected: keep the author rule for runs decided before this change
 

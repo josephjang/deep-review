@@ -4,7 +4,7 @@ Product part: [2026-11-06-choice-settled-on-the-record.requirements.md](2026-11-
 
 ## Summary
 
-The decider's task gains two lines per candidate: the choice its verifier leaves to the author and why a `PLAUSIBLE` verdict is not `CONFIRMED`, from the fields that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` and the fold both hold the table of R2, which decision may carry a settled choice, must carry one or must not, and with which steps. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for every run, a run decided at version 1 included. Wherever the form or the report shows a decision of `fix` or `leave` of a finding whose verifier named a choice, it shows that choice beside the settled one, or says that deep-review did not settle it. The decider's rubric says that a fix edits, when a decision is left as `settled`, and that a choice between two behaviors that nothing stated settles is asked, with keeping the code as the default, even when the order would keep it.
+The decider's task gains one line per candidate: the choice its verifier leaves to the author, from the field `authorChoice` that `verdicts.recorded@3` already records. The decider's answer gains, on each decision, an optional settled choice `{choice, by, source}`, where `by` is one of seven steps, the five of the rubric's order and two the rubric gives a fix outside it, and a fourth reason to leave a finding, `settled`. `checkDecisions` and the fold both hold the table of R2, which decision may carry a settled choice, must carry one or must not, and with which steps. The ledger records the new answer as `decisions.recorded@2`, which any run may record, since a run records its decisions once, and the fold reads version 1 with no settled choice. The form drops the author rule, R9 of the review that reads as a report, for every run, a run decided at version 1 included. Wherever the form or the report shows a decision of `fix` or `leave` of a finding whose verifier named a choice, it shows that choice beside the settled one, or says that deep-review did not settle it. The decider's rubric says that a fix edits, when a decision is left as `settled`, and that a choice between two behaviors that nothing stated settles is asked, with keeping the code as the default, even when the order would keep it.
 
 ## Non-Goals
 
@@ -46,7 +46,7 @@ The decider's task gains two lines per candidate: the choice its verifier leaves
 
 ### The decider's task (R1)
 
-`DeciderTaskFinding` gives each candidate `authorChoice` and `unconfirmed`, read from the candidate's verdict, both null for a run whose verdicts lack them. `candidateLines` prints them when they are given, as `choice left to the author: <text>` and `why PLAUSIBLE: <fact or choice>: <text>`, after the evidence. The fixer's task passes neither, so its lines do not change. `deciderTask`'s text names the two lines and the settled choice of the answer.
+`DeciderTaskFinding` gives each candidate `authorChoice`, read from the candidate's verdict, null for a run whose verdicts lack it. `candidateLines` prints it when it is given, as `choice left to the author: <text>`, after the evidence. The verdict's `unconfirmed` is not passed: no rule reads it, and the evidence line already ends with what keeps a `PLAUSIBLE` verdict from `CONFIRMED` (`roles/fragments/rubrics.md`). The fixer's task passes no `authorChoice`, so its lines do not change. `deciderTask`'s text names the line and the settled choice of the answer.
 
 ### A refused answer, named to the next attempt (R9)
 
@@ -158,7 +158,7 @@ The decider now reads the choice as a field, so the note in the evidence is read
 
 ### R1: The decider's task
 
-A test of `deciderTask` that gives a candidate with both notes and holds their two lines, and one that gives the fixer's task the same candidate and holds that neither line is printed.
+A test of `deciderTask` that gives a candidate with an `authorChoice` and an `unconfirmed` and holds the line of the choice and no line of `unconfirmed`, and one that gives the fixer's task the same candidate and holds that the line of the choice is not printed.
 
 ### R2 and R3: The answer and its check
 
