@@ -206,6 +206,33 @@ describe('the candidates each settled choice answers, held alike by the decider\
   });
 });
 
+describe('the text of each settled choice, held alike by the decider\'s check and the fold (PD9 of the settled choice)', () => {
+  const settling = (text: Partial<Record<'choice' | 'source', string>>): Record<string, unknown>[] => decisionsOf(fix, 'RIPPLE-1', [{ ...entry('intent', ['RIPPLE-1', 'SWEEP-2']), ...text }]);
+
+  for (const blank of [' ', '.', ' . \n', '...']) {
+    it(`refuses a choice or a source of ${JSON.stringify(blank)}, which says nothing once its whitespace and periods are set aside`, () => {
+      holdsAlike(sweepChoice, settling({ choice: blank }), 'RIPPLE-1', false);
+      holdsAlike(sweepChoice, settling({ source: blank }), 'RIPPLE-1', false);
+    });
+  }
+
+  it('accepts a choice that ends in an ellipsis or `etc.`', () => {
+    holdsAlike(sweepChoice, settling({ choice: 'Keep the three steps...' }), 'RIPPLE-1', true);
+    holdsAlike(sweepChoice, settling({ choice: 'Keep the order, the names, etc.' }), 'RIPPLE-1', true);
+  });
+
+  it('names a blank choice and a blank source in the refusal, so the retry knows to write each', () => {
+    const output = deciderOutputSchema.parse(answerOf(settling({ choice: ' ', source: '.' })));
+    assert.throws(() => checkDecisions(output, candidatesOf(sweepChoice)), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.match(error.message, /Decision \[0\] settles a choice whose text is blank; state the side it settles in one sentence/);
+      assert.match(error.message, /Decision \[0\] settles a choice whose source is blank; name the statement, rule or code that settles it/);
+      return true;
+    });
+    assert.throws(() => decidedAt2(sweepChoice, settling({ choice: ' ' })).fold(), /records the decision of RIPPLE-1, which settles a choice whose text is blank/);
+  });
+});
+
 // A finding that merges a choice a statement settles and a choice between two shapes (OQ3 of the
 // settled choice): a leave as intended may settle the shape beside the statement, never alone,
 // and a leave as settled still settles by the rule for shapes only.

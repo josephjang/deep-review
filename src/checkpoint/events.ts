@@ -2951,8 +2951,11 @@ interface SettlementFacts {
   readonly decision: 'fix' | 'leave' | 'ask';
   readonly departure: object | null;
   readonly leave: { readonly reason: LeaveReasonV13 } | null;
-  readonly settled: readonly { readonly for: readonly string[]; readonly by: SettleStepV13 }[];
+  readonly settled: readonly { readonly for: readonly string[]; readonly choice: string; readonly by: SettleStepV13; readonly source: string }[];
 }
+
+/** Whether a text of a settled choice says nothing once its whitespace and periods are set aside, which its schema's minimum length does not catch. */
+const blankText = (text: string): boolean => /^[.\s]*$/.test(text);
 
 /**
  * A candidate of a finding as the rules of the settled choice read it,
@@ -2979,7 +2982,8 @@ export function settlementCaseOf(decision: Omit<SettlementFacts, 'settled'>): Se
  * given its finding's candidates (PD9 of the settled choice). A case that
  * refuses a settlement carries no entry. Every entry names a step its
  * case allows, at least one names a step its case rests on when it has
- * such steps, and in `for` only candidates of the finding whose verifiers
+ * such steps, says its choice and its source in more than whitespace and
+ * periods, and in `for` only candidates of the finding whose verifiers
  * named a choice, each in one entry at most and once in it; an entry for
  * a choice no verifier named has an empty `for`. A case that requires a settlement
  * where a verifier named a choice names each such candidate in an entry,
@@ -2998,6 +3002,8 @@ export function settlementFaultsV1(decision: SettlementFacts, candidates: readon
   const answered = new Set<string>();
   for (const entry of settled) {
     if (!rule.steps.includes(entry.by)) faults.push(`is ${rule.what} and settles a choice by \`${entry.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(', ')}`);
+    if (blankText(entry.choice)) faults.push('settles a choice whose text is blank; state the side it settles in one sentence');
+    if (blankText(entry.source)) faults.push('settles a choice whose source is blank; name the statement, rule or code that settles it');
     const named = new Set<string>();
     for (const id of entry.for) {
       if (named.has(id)) faults.push(`names ${id} twice in the \`for\` of one entry; name it once`);

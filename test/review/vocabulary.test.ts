@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answeredUnits, asksToAct, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, settleSteps, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, asksToAct, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, settledChoiceWords, settleSteps, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -62,6 +62,15 @@ describe('the decisions', () => {
 
   it('settle a choice by one of the five steps of the decider\'s order, in its order, then the scope of a fix and no choice remaining', () => {
     assert.deepEqual(settleSteps, ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']);
+  });
+
+  it('give a settled choice on one line without the period that closes its sentence or trailing whitespace, keeping an ellipsis and a closing `etc.`', () => {
+    const line = (choice: string): string => settledChoiceWords(choice, 'intent', 'the requirements say so');
+    assert.equal(line('Keep it as is.'), 'Keep it as is; settled by the stated intent of the change: the requirements say so');
+    assert.equal(line('Keep it as is. \n'), 'Keep it as is; settled by the stated intent of the change: the requirements say so');
+    assert.equal(line('Keep it as is'), 'Keep it as is; settled by the stated intent of the change: the requirements say so');
+    assert.equal(line('Keep the order, the names, etc.'), 'Keep the order, the names, etc.; settled by the stated intent of the change: the requirements say so');
+    assert.equal(line('Keep the three steps...'), 'Keep the three steps...; settled by the stated intent of the change: the requirements say so');
   });
 
   it('count each kind once, a kind none was decided as zero, in the one phrase the log, status and the report share', () => {
