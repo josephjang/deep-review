@@ -1,11 +1,13 @@
 /**
  * The controller (R1, R5, R6, R7 of the read-only review; TD1, TD5, TD6;
  * R1, R6, R7, R9 of the fix pass; R1, R6, R7 of the repository survey;
- * R1 to R3 of the Codex sandbox; R1 to R5 of fix pass continuation): find
- * the run, continue a finished read-only run into the fix pass, or create
- * one, take its lock,
+ * R1 to R3 of the Codex sandbox; R1 to R5 of fix pass continuation; R1
+ * to R4 of the review of a fix run): find the run, continue a finished
+ * read-only run into the fix pass, or create one, take its lock,
  * record the workers a previous engine lost, then loop over fold, plan,
- * execute and append until the report is written or the run blocks. It
+ * execute and append until the report is written or the run blocks. A
+ * command with `--fix` that brings a read-only run of a pull request to
+ * its report continues that run into the fix pass in a second pass. It
  * launches workers with the runtime options the run pinned, plans the
  * checks when the survey completes, runs them one at a time, and records
  * every edit as a revision of the tree. Every fact the planner needs is an
@@ -45,7 +47,7 @@ import { ghTokenVariables, type Gh } from '../github/gh.ts';
 import { closedState, listPullRequestFiles, pullRequestLabel, readCurrentMergeBase, readPullRequest, type PathDifference, type PullRequest, type PullRequestName, type PullRequestTarget } from '../github/pull-request.ts';
 import { captureScope, namesScope, pullRequestPathDifference, resolveScopeRequest, scopeBase, type CapturedPullRequest, type NamedScope, type ResolvedScope } from '../scope/capture.ts';
 import { EmptyChangeError, InvalidScopeRequestError } from '../scope/errors.ts';
-import { scopeMismatch } from '../scope/compare.ts';
+import { scopeMismatch, treeMismatch } from '../scope/compare.ts';
 import { commitMessages, hasCommit, head as gitHead, objectFormat, status as gitStatus } from '../scope/git.ts';
 import { hintChecks, isSettled, readRootManifests, unsettledKinds, type CheckSettings } from './checks/discover.ts';
 import { claimsDirectories } from './claims-directories.ts';
@@ -258,7 +260,9 @@ export interface ReviewOptions {
    * `--no-check` flags that settle their kinds over the survey (R5 of the
    * repository survey). Whether a run fixes is pinned at configuration;
    * the flags apply to every invocation until the checks are planned, and
-   * are named as ignored after.
+   * are named as ignored after. A run of a pull request is configured
+   * read-only whatever it says, and the command continues it into the fix
+   * pass once its report is written (R1 of the review of a fix run).
    */
   readonly fix?: CheckSettings | null;
   /**
@@ -505,11 +509,92 @@ export function claimCommandFor(engineEntry: string, unit: string, into: string)
   return `node ${shellQuoted(engineEntry)} claim --path '${claimPathPlaceholder}' --unit ${unit} --in ${shellQuoted(into)}`;
 }
 
-/** Run a review to its report or its blocker. */
+/**
+ * The run that a second pass continues into the fix pass (R1, R4 of the
+ * review of a fix run): the one the first pass brought to its read-only
+ * report, with the path of that report, the lock of the run, which the
+ * first pass still holds so no other command takes the run between the
+ * report and its `fix.pinned`, and the pull request it reviewed at its
+ * head, which a refusal names.
+ */
+interface Continuing {
+  readonly runId: string;
+  readonly reportPath: string;
+  readonly release: ReleaseLock;
+  readonly pullRequest: number;
+  readonly head: string;
+}
+
+/** What one pass ended with, and the release of the run's lock, which a pass that ends with an outcome leaves held for `runReview` to release. */
+interface Pass {
+  readonly outcome: ReviewOutcome;
+  readonly release: ReleaseLock;
+}
+
+/**
+ * Whether a command with `--fix` that brings this run to its read-only
+ * report continues it into the fix pass (R1, R3 of the review of a fix
+ * run): a read-only run of a pull request that `notContinuable` gives no
+ * reason against.
+ */
+function continuesAfterReport(run: RunState): boolean {
+  return run.review !== null && run.review.fix === null && (run.scope?.pullRequest ?? null) !== null && notContinuable(run) === null;
+}
+
+/**
+ * Run a review to its report or its blocker, in one pass or two (R1, R2,
+ * R4 of the review of a fix run). The first pass runs the run this
+ * command finds, continues or creates. When it ends with the read-only
+ * report of a run of a pull request and the command gives `--fix`, the
+ * run is continued into the fix pass by a second pass that names it,
+ * unless its decisions route no finding to a fixer, when the command ends
+ * with the read-only report and the log says why. The run's lock is held
+ * from the first pass to the end of the second.
+ */
 export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> {
   const log = options.log ?? ((line: string): void => {
     process.stderr.write(`${line}\n`);
   });
+  const first = await runPass(options, log, null);
+  try {
+    if (first.outcome.kind !== 'report' || (options.fix ?? null) === null) return first.outcome;
+    const run = options.checkpoint.fold(first.outcome.runId);
+    if (!continuesAfterReport(run)) return first.outcome;
+    const nothing = nothingToFix(run);
+    if (nothing !== null) {
+      log(`run ${run.id} has no finding to fix: ${nothing}; it ends with its read-only report, and its fix pass does not run`);
+      return first.outcome;
+    }
+    const second = await runPass(options, log, { runId: run.id, reportPath: first.outcome.reportPath, release: first.release, pullRequest: run.scope!.pullRequest!.number, head: run.scope!.head });
+    return second.outcome;
+  } finally {
+    // The second pass holds the first's lock, so this releases it once, however the command ends.
+    first.release();
+  }
+}
+
+/**
+ * The refusal of a second pass, with what the command leaves (R4 of the
+ * review of a fix run): the refusal's own words and action, then that the
+ * review is written, where its read-only report is, and that the same
+ * command continues the run once the action is taken, while the pull
+ * request is still at the head the run reviewed, since a later command
+ * reads the pull request again and reviews a head that moved in a new
+ * run. Nothing was appended, so the run stays complete and continuable.
+ * Any other error is given as it is.
+ */
+function continuationRefused(error: unknown, continuing: Continuing): unknown {
+  if (!(error instanceof ReviewRefusedError)) return error;
+  return new ReviewRefusedError(`${error.message}; the review of run ${continuing.runId} is written, and its read-only report is ${continuing.reportPath}; once that is done, \`deep-review review --pr ${String(continuing.pullRequest)} --fix\` continues the run into the fix pass while the pull request is still at ${continuing.head}, the head the run reviewed, and reviews it again in a new run once its head has moved`, error.code);
+}
+
+/**
+ * One pass of a review: open the run, or the one `continuing` names, and
+ * run it to its report or its blocker. A pass that ends with an outcome
+ * leaves the run's lock held and gives its release; one that throws
+ * releases it.
+ */
+async function runPass(options: ReviewOptions, log: (line: string) => void, continuing: Continuing | null): Promise<Pass> {
   const commandEnvironment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
   const adapter = options.runtimes.get(options.runtime);
@@ -520,7 +605,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
   // Every comparison with what the run expects, and every patch, sees a file as git would store it (R22 of the fix pass).
   const content = gitContent(options.worktree, (reference) => checkpoint.evidence.read(reference));
   const source = options.configuration ?? unconfiguredSource(options);
-  const opened = await openRun({ ...options, log, environment: commandEnvironment, platform, adapter, roles, match: content.match, source });
+  let opened: OpenedRun;
+  try {
+    opened = await openRun({ ...options, log, environment: commandEnvironment, platform, adapter, roles, match: content.match, source, continuing });
+  } catch (error) {
+    throw continuing === null ? error : continuationRefused(error, continuing);
+  }
   let state = opened.state;
   const runId = state.id;
   const { release, capture, configure, continuation } = opened;
@@ -683,6 +773,8 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     removeBaseTrees(baseTrees);
     onBase = null;
   };
+  // Whether the loop threw, which alone releases the run's lock here; a pass that ends with an outcome leaves it to runReview.
+  let threw = false;
   try {
     if (capture !== null) {
       // At the base the configuration was read at, which the capture holds it to (R4 of the configuration).
@@ -697,7 +789,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       state = append(checkpoint, state, [{ kind: 'review.configured', version: configure.version, payload: configure.payload }]);
       const pinnedNow = configure.payload;
       const language = configure.version === 11 ? `; it explains its review in ${configure.payload.settings.values['review.language']}` : '';
-      log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}`);
+      // A run of a pull request is configured read-only with --fix too, and this command continues it once its report is written (R1 of the review of a fix run).
+      const continues = configure.version === 11 && (options.fix ?? null) !== null ? '; this command continues it into the fix pass once its report is written' : '';
+      log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}${continues}`);
       for (const line of configuredLines(runId, configure.resolved)) log(line);
     }
     if (continuation !== null) {
@@ -890,12 +984,12 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       switch (step.kind) {
         case 'blocked':
           log(`run ${runId}: blocked in ${step.blocker.phase} (${step.blocker.code}): ${step.blocker.detail}`);
-          return { kind: 'blocked', runId, blocker: step.blocker };
+          return { outcome: { kind: 'blocked', runId, blocker: step.blocker }, release };
         case 'complete': {
           // A run complete before this invocation wrote nothing now; its copy is rendered from the ledger, as a later command renders it.
           const roles = namedRoles(options.rolesRoot) === null ? null : rolesPlaceholder;
           copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, continueRoles: () => roles, ...(options.home === undefined ? {} : { home: options.home }) }, log) };
-          return { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefChatForm(briefOf(state)) };
+          return { outcome: { kind: 'report', runId, reportPath: checkpoint.evidence.pathOf(review.report!.report), copyPath: copied.path, shortForm: briefChatForm(briefOf(state)) }, release };
         }
         case 'start-phase':
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
@@ -1056,6 +1150,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
       }
     }
   } catch (error) {
+    threw = true;
     // A worker's own preflight failed: the runtime stopped qualifying mid-run (an update, a removed binary), which is refused as at startup, with the action for the executable the run pinned; the run is active, a continued one too once pinned, so it can be abandoned.
     const configuration = state.review?.configuration ?? null;
     throw refusalOf(error, configuration === null ? null : { runId, executable: configuration.executable, use: 'resume' });
@@ -1076,7 +1171,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
     }
     // A throw in base-checks leaves no locked worktree of the base in the person's repository until a later command; the removal logs each failure and never throws, so the error that ended the loop still surfaces (R11 of the facts before a merge).
     if (onBase !== null) removeBase();
-    release();
+    if (threw) release();
   }
 }
 
@@ -1165,6 +1260,8 @@ interface OpenContext extends ReviewOptions {
   readonly match: ExpectedMatch;
   /** The invocation's configuration: the caller's, or the one of its flags alone (`unconfiguredSource`). */
   readonly source: ConfigurationSource;
+  /** The run a second pass continues, which the opening takes as it is named (`openContinuing`); null for a first pass, which finds its run. */
+  readonly continuing: Continuing | null;
 }
 
 /** What holding a configured run to its pin reads beside the run (`resumePinned`): the configuration only to compare a resumed run with what it recorded. */
@@ -1265,10 +1362,10 @@ function nothingToFix(run: RunState): string | null {
  *   configured resolves the policy and the command's executable and
  *   preflights it, before a new run is created so a refusal creates
  *   nothing. It is configured at `review.configured@11`, which plans the
- *   explanation, when it is read-only and its scope, captured now or
- *   before, has a pull request, and at version 9 otherwise (TD8 of the
- *   review on the pull request; TD1, TD2 of the review that reads as a
- *   report).
+ *   explanation, when its scope, captured now or before, has a pull
+ *   request, read-only whether or not the command gives `--fix`, and at
+ *   version 9 otherwise (TD8 of the review on the pull request; TD1, TD2
+ *   of the review that reads as a report; R1 of the review of a fix run).
  *
  * The run lock is taken before the preflight for a found run, so an
  * engine running it refuses this one at once, and is released on every
@@ -1292,8 +1389,12 @@ function nothingToFix(run: RunState): string | null {
  * created only while `HEAD` is still the head GitHub gave. An active run
  * that has no scope yet reads GitHub under the lock, the one case that
  * does.
+ *
+ * A second pass opens the run it names instead (`openContinuing`), with
+ * no look for another run and no read of GitHub.
  */
 async function openRun(context: OpenContext): Promise<OpenedRun> {
+  if (context.continuing !== null) return openContinuing(context, context.continuing);
   const { checkpoint, log } = context;
   const scopeRequestOf = once(() => context.scope.request());
   if (context.scope.pullRequest && readsGitHubFirst(checkpoint, context)) scopeRequestOf();
@@ -1399,18 +1500,18 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       }
       const policyResolved = resolvePolicy(policy, context.roles, context.adapter, context.flags, context.platform, policyOverridesOf(resolved));
       if (context.flags.codexWindowsSandbox !== undefined && policyResolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
-      const fix = context.fix ?? null;
-      // A fix run's fixers run the engine's own commands with the first node on PATH, which tools.path comes first on; the files are on this machine, whatever platform the run is configured for.
+      // A run whose scope has a pull request, the one this command captures or the one a run stopped before its configuration captured, explains its review: version 10 records the language it does so in (TD8, R20 of the review on the pull request), and version 11, the one written, also that its review reads as a report (TD1, TD2 of the review that reads as a report). The fold holds a configuration to a scope captured before it, so the pull request is known here. It is configured read-only whether or not the command gives --fix, which continues it into the fix pass once its report is written (R1 of the review of a fix run).
+      const explains = pullRequest !== null || (found?.scope?.pullRequest ?? null) !== null;
+      const fix = explains ? null : (context.fix ?? null);
+      // A fix run's fixers run the engine's own commands with the first node on PATH, which tools.path comes first on; the files are on this machine, whatever platform the run is configured for. A command with --fix is refused an old Node before the run exists, so a run of a pull request spends nothing on a review that could not be continued; continuationOf checks it again.
       const toolsPath = resolvedValue(resolved, 'tools.path') ?? [];
-      if (fix !== null) refuseOldNode(toolsPath, process.platform);
+      if ((context.fix ?? null) !== null) refuseOldNode(toolsPath, process.platform);
       const configured = executableOf(resolved);
       const executable = typeof context.executable === 'function' ? context.executable(configured.executable) : context.executable;
       const executableArgs = [...configured.args];
       const version = await qualify(context.adapter, executable, executableArgs, toolsPath, context, null);
       const { checks, fixes, survey, ...rest } = policyResolved;
       const payload = { ...rest, roles: [...policyResolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
-      // A read-only run whose scope has a pull request, the one this command captures or the one a run stopped before its configuration captured, explains its review: version 10 records the language it does so in (TD8, R20 of the review on the pull request), and version 11, the one written, also that its review reads as a report (TD1, TD2 of the review that reads as a report). The fold holds a configuration to a scope captured before it, so the pull request is known here.
-      const explains = fix === null && (pullRequest !== null || (found?.scope?.pullRequest ?? null) !== null);
       configure = explains ? { version: 11, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
       // Checked before the run exists: a configuration the ledger would refuse must not leave a run with its scope and no configuration behind.
       const recordable = (configure.version === 11 ? reviewConfiguredV11 : reviewConfiguredV9).safeParse(configure.payload);
@@ -1428,6 +1529,28 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
   } finally {
     releaseStart();
   }
+}
+
+/**
+ * Open the run that the first pass of this command brought to its
+ * read-only report, for its fix pass (R1, R4, PD4, TD4 of the review of a
+ * fix run), under the run's lock, which the first pass still holds, so no
+ * other command took the run in between. The run is folded again and
+ * refused when it is no longer a complete read-only run, when
+ * `notContinuable` names a reason, or when its files no longer hold what
+ * it froze or `HEAD` is not its head (`treeMismatch`), then held to every
+ * check of a continuation (`continuationOf`). It never looks for another
+ * run, never creates one and reads nothing from GitHub; a refusal appends
+ * nothing, so the run stays complete and continuable.
+ */
+async function openContinuing(context: OpenContext, continuing: Continuing): Promise<OpenedRun> {
+  const run = context.checkpoint.fold(continuing.runId);
+  const changed = reviewStatus(run) === 'complete' && run.review?.fix === null ? notContinuable(run) : `it is ${reviewStatus(run)}, no longer a finished read-only run`;
+  if (changed !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${changed}; \`deep-review status --run ${run.id}\` shows it`);
+  const scope = run.scope!;
+  const moved = treeMismatch(scope, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path), gitHead(context.worktree));
+  if (moved !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${moved}; restore the files it reviewed and check out its head ${scope.head}`);
+  return { state: run, release: continuing.release, capture: null, configure: null, continuation: await continuationOf(run, context) };
 }
 
 /**
@@ -1742,6 +1865,9 @@ function modelFlagsWords(runtime: string, source: ConfigurationSource | undefine
  * read-only run names `--fix` ignored and, when it was configured with the
  * decision step and so can be continued (`continuable`), how it is
  * continued once its report is written (R10 of fix pass continuation);
+ * a read-only run of a pull request that can be continued is continued by
+ * this command once its report is written, which it says instead (R3 of
+ * the review of a fix run);
  * the check flags settle their kinds until the checks are planned (TD6 of
  * the repository survey), and are named and ignored after.
  */
@@ -1750,7 +1876,11 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   const howContinued = run.review?.phases.decision.status === 'skipped' ? '' : '; once its report is written, run again with --fix to continue it into the fix pass';
-  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored${howContinued}`);
+  if (!pinned.fix && fix !== null) {
+    context.log(continuesAfterReport(run)
+      ? `run ${runId} is a read-only run of a pull request; this command continues it into the fix pass once its report is written`
+      : `run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored${howContinued}`);
+  }
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run.review?.fix?.checks.planned ?? null) !== null;
   // A run that recorded its check settings keeps them, so only the flags of a later invocation need giving again (R11 of the configuration).

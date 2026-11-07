@@ -150,17 +150,18 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     assert.ok(box.logs.some((line) => line.startsWith(`run ${state.id}: configured for `) && line.endsWith('; it explains its review in en')), box.logs.join('\n'));
   });
 
-  it('neither records version 11 nor plans the explanation for a --branch run or a fix run of a pull request', async (t) => {
+  it('neither records version 11 nor plans the explanation for a --branch run, and records both for a run of a pull request with --fix, which it configures read-only (R1 of the review of a fix run)', async (t) => {
     const branch = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     await branch.review('claude', { scope: scopeSource(() => ({ range: { from: 'HEAD~1', to: 'HEAD', mergeBase: true }, paths: [] })) });
+    assert.equal(kindsOf(branch).find((event) => event.kind === 'review.configured')!.version, 9);
+    assert.equal(branch.run().review!.phases.explanation.status, 'skipped');
+    assert.equal('review.language' in recordedSettings(branch).values, false);
     const fixing = pullRequestSandbox(t, { triage: { exit: 2 } });
     await fixing.box.review('claude', { scope: fixing.scope, configuration: sourceFor(fixing.box, { fix: true }), fix: ReviewSandbox.checkFlags() });
-    for (const box of [branch, fixing.box]) {
-      assert.equal(kindsOf(box).find((event) => event.kind === 'review.configured')!.version, 9);
-      assert.equal(box.run().review!.phases.explanation.status, 'skipped');
-      assert.equal('review.language' in recordedSettings(box).values, false);
-    }
-    assert.notEqual(fixing.box.run().scope!.pullRequest, null, 'the fix run is of the pull request');
+    const configured = kindsOf(fixing.box).find((event) => event.kind === 'review.configured')!;
+    assert.deepEqual([configured.version, (configured.payload as { fix: boolean }).fix], [11, false]);
+    assert.equal(fixing.box.run().review!.phases.explanation.status, 'pending');
+    assert.equal(recordedSettings(fixing.box).values['review.language'], 'en');
   });
 
   it('records each part dropped and writes the report when the writer fails twice', async (t) => {
