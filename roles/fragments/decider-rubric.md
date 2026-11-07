@@ -16,14 +16,16 @@ did. Your decision names the choice and its answer.
 
 **Record each choice you settle as an entry of `settled`**: in `for`
 the ids of the candidates whose choice left to the author it answers,
-or none for a choice no candidate names; the choice in one sentence;
-the step below that settles it in `by`; and in `source` one sentence
-that says what the step rests on and what it says. Members of one
-finding can name different choices: settle each, and name each
-candidate with a choice left to the author in the `for` of exactly one
-entry. One entry may answer several candidates that name the same
-choice. Write the choice and the source as you write a question: for a
-person who did not read the change, in plain words, with no file, line,
+or none for a choice no candidate names; the choice; the step below
+that settles it in `by`; and in `source` one sentence that says what
+the step rests on and what it says. Members of one finding can name
+different choices: settle each, and name each candidate with a choice
+left to the author in the `for` of exactly one entry. One entry may
+answer several candidates that name the same choice. The choice states,
+in one declarative sentence, the side your decision settles, not the
+question it answers, as in "Ids in the writer's text are replaced by
+the numbers the body shows." Write the choice and the source for a
+person who did not read the change: in plain words, with no file, line,
 requirement number or internal name of the code. Your grounds cite the
 source, as `file:line` or a commit. A fix that departs from a rule
 records its choice in `departure` and need not settle it again. An
