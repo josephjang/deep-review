@@ -242,6 +242,38 @@ describe('replayDecider', { timeout: 600_000 }, () => {
     assert.deepEqual(facts.choices.map((choice) => [choice.id, choice.decision, choice.settled, choice.unanswered]), [['SWEEP-1', 'leave', [], [{ candidate: 'SWEEP-1', choice: sweepChoice }]]]);
   });
 
+  it('launches the decider with the recorded decider\'s settings on its runtime, and with the roles\' policy on another', async () => {
+    const original = recordedRows().map((row) => ({ row, payload: JSON.parse(row.payload) as { label?: string; model?: string; runtime?: string } }));
+    const decider = original.find(({ row, payload }) => row.kind === 'worker.launched' && payload.label?.startsWith('decider decision:') === true);
+    assert.ok(decider !== undefined, 'the recorded run launched a decider');
+    const policyModel = decider.payload.model!;
+    const withLaunch = (change: Record<string, unknown>): EventRow[] => original.map(({ row, payload }) => (row === decider.row ? { ...row, payload: JSON.stringify({ ...payload, ...change }) } : row));
+    const launchedDecider = (output: string): { model: string; effort: string; timeoutMs: number; budgetUsd: number | null } => {
+      const replayed = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: '0.0.0-test' });
+      try {
+        const [run] = replayed.ledger.listRuns();
+        return Object.values(replayed.fold(run!.id).workers)[0]!.launch;
+      } finally {
+        replayed.close();
+      }
+    };
+    box.script({ decider: { output: deciderAnswer([{}, {}, { decision: 'leave', reason: 'settled', settledFor: ['SWEEP-1'] }]) } });
+
+    const recordedOutput = newDirectory('recorded-settings');
+    await replay({ checkpoint: checkpointOf(withLaunch({ model: 'claude-recorded-model', effort: 'low', timeoutMs: 123_456, budgetUsd: 1.5 })), output: recordedOutput });
+
+    const launched = launchedDecider(recordedOutput);
+    assert.deepEqual([launched.model, launched.effort, launched.timeoutMs, launched.budgetUsd], ['claude-recorded-model', 'low', 123_456, 1.5]);
+    const recordedFacts = JSON.parse(read(recordedOutput, factsFileName)) as { model: string; effort: string; settingsFrom: string };
+    assert.deepEqual([recordedFacts.model, recordedFacts.effort, recordedFacts.settingsFrom], ['claude-recorded-model', 'low', 'recorded']);
+
+    const otherOutput = newDirectory('policy-settings');
+    await replay({ checkpoint: checkpointOf(withLaunch({ runtime: 'codex', model: 'codex-recorded-model' })), output: otherOutput });
+
+    assert.equal(launchedDecider(otherOutput).model, policyModel, 'a decider recorded on another runtime gives the roles\' policy');
+    assert.equal((JSON.parse(read(otherOutput, factsFileName)) as { settingsFrom: string }).settingsFrom, 'policy');
+  });
+
   it('refuses a run that never reached the decision phase', async () => {
     const rows = recordedRows();
     const decision = rows.findIndex((row) => row.kind === 'phase.started' && (JSON.parse(row.payload) as { phase: string }).phase === 'decision');

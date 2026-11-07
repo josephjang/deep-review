@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Checkpoint, evidenceDirectoryName } from '../checkpoint/checkpoint.ts';
-import type { RecordedDecision, ScopeFile, ScopeState } from '../checkpoint/events.ts';
+import type { RecordedDecision, ScopeFile, ScopeState, WorkerLaunch } from '../checkpoint/events.ts';
 import { applyEvent, firstUnknownEvent, foldRun, type DecodedEvent, type RunState } from '../checkpoint/fold.ts';
 import { Ledger, ledgerFileName } from '../checkpoint/ledger.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
@@ -28,9 +28,9 @@ import { ghTokenVariables } from '../github/gh.ts';
 import type { PullRequestFile, PullRequestFileStatus } from '../github/pull-request.ts';
 import { briefOf } from '../review/brief.ts';
 import { StructuralCheckError, structuralCheckPrefix } from '../review/errors.ts';
-import { unitLabel } from '../review/labels.ts';
+import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { deciderFindings, recordedDecisions } from '../review/phases.ts';
-import { pinnedRole, readPolicy, resolvePolicy } from '../review/policy.ts';
+import { pinnedRole, readPolicy, resolvePolicy, type ResolvedPolicy } from '../review/policy.ts';
 import { composeWorkerPrompt, scopeBlock } from '../review/prompts.ts';
 import { machineContextOf } from '../review/public-text.ts';
 import { dryRunLines } from '../review/publish.ts';
@@ -44,6 +44,8 @@ import { maxRecordedTextLength, singleUnitKey } from '../review/vocabulary.ts';
 import { assembleRoles } from '../roles/assemble.ts';
 import { withoutVariables } from '../runtime/environment.ts';
 import { runWorker, type WorkerReceipt } from '../runtime/launcher.ts';
+import type { RuntimeAdapter } from '../runtime/adapter.ts';
+import type { WindowsSandbox } from '../runtime/codex.ts';
 import type { RuntimeRegistry } from '../runtime/registry.ts';
 import { defaultRuntimes } from '../runtime/runtimes.ts';
 import { ReplayRefusedError } from './errors.ts';
@@ -340,6 +342,49 @@ function renderedReview(state: RunState, scope: ScopeState, context: { readonly 
   return dryRunLines(state, places, form, []);
 }
 
+/** The settings a replayed decider runs with, and whether they are the recorded decider's launch's or the role policy's. */
+export interface DeciderSettings {
+  readonly from: 'recorded' | 'policy';
+  readonly model: string;
+  readonly effort: WorkerLaunch['effort'];
+  readonly timeoutMs: number;
+  readonly budgetUsd: number | null;
+  readonly pinned: { readonly codex?: { readonly windowsSandbox: WindowsSandbox } };
+}
+
+/** The last decider the run launched before its decision phase recorded anything, or null when it launched none there. */
+function recordedDeciderLaunch(state: RunState): WorkerLaunch | null {
+  const launches = Object.values(state.workers).map((worker) => worker.launch).filter((launch) => {
+    const unit = parseUnitLabel(launch.label);
+    return unit?.role === role && unit.phase === 'decision';
+  });
+  return launches.at(-1) ?? null;
+}
+
+/**
+ * The settings the replayed decider runs with, as `settingsOf` of the
+ * verifier's replay takes them: on the runtime the run's decider ran on,
+ * what that decider's launch recorded, so the replay differs from the
+ * record in nothing but the roles' prompt; on another runtime, or for a run
+ * that recorded no decider launch, the role policy's for the runtime.
+ */
+function deciderSettings(resolved: ResolvedPolicy, adapter: RuntimeAdapter, state: RunState): DeciderSettings {
+  const policy = pinnedRole(resolved.roles, role);
+  const recorded = recordedDeciderLaunch(state);
+  const policyCodex = resolved.codex === null ? {} : { codex: resolved.codex };
+  if (recorded === null || recorded.runtime !== adapter.name) return { from: 'policy', model: policy.model, effort: policy.effort, timeoutMs: policy.timeoutMs, budgetUsd: policy.budgetUsd, pinned: policyCodex };
+  if (!adapter.capabilities.effortLevels.includes(recorded.effort)) throw new ReplayRefusedError(`The run's decider ran at effort ${recorded.effort}, which runtime ${adapter.name} no longer has; it has ${adapter.capabilities.effortLevels.join(', ')}`);
+  const recordedCodex = state.review?.configuration.codex ?? null;
+  return {
+    from: 'recorded',
+    model: recorded.model,
+    effort: recorded.effort,
+    timeoutMs: recorded.timeoutMs,
+    budgetUsd: adapter.capabilities.budgetCap ? (recorded.budgetUsd ?? policy.budgetUsd) : null,
+    pinned: recordedCodex === null ? policyCodex : { codex: recordedCodex },
+  };
+}
+
 /** One decider launch of the replay: its worker, what became of its answer, and what it spent. */
 export interface DeciderAttempt {
   readonly attempt: number;
@@ -365,7 +410,12 @@ export interface DeciderReplayOptions {
   readonly runtime: string;
   readonly executable: string;
   readonly executableArgs?: readonly string[];
-  /** The roles directory whose decider prompt and policy the replay runs with, in place of the ones the run pinned. */
+  /**
+   * The roles directory whose decider prompt the replay runs with, in place
+   * of the one the run pinned. Its policy gives the launch settings only on
+   * another runtime than the run's decider ran on, or for a run that
+   * recorded no decider launch; otherwise the recorded launch's are kept.
+   */
   readonly rolesRoot: string;
   /** Write the first attempt's prompt and launch nothing. */
   readonly printTask?: boolean;
@@ -417,14 +467,13 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
   const roles = assembleRoles(options.rolesRoot);
   const assembled = roles.find((candidate) => candidate.key === role);
   if (assembled === undefined) throw new ReplayRefusedError(`The roles directory ${options.rolesRoot} assembles no ${role} role`);
-  const resolved = resolvePolicy(readPolicy(options.rolesRoot), roles, adapter, {}, platform);
-  const policy = pinnedRole(resolved.roles, role);
+  const settings = deciderSettings(resolvePolicy(readPolicy(options.rolesRoot), roles, adapter, {}, platform), adapter, state);
   const findings = rankedFindings(state.review!);
   const block = scopeBlockOf(state, scope, tree, evidence);
   const promptOf = (refused: readonly string[]): string => composeWorkerPrompt(assembled.prompt, { role, phase: 'decision', unitKey, task: deciderTask(deciderFindings(state.review!), refused) }, block);
 
   log(`replaying the decider of run ${state.id}: ${String(findings.length)} findings, read up to sequence ${String(state.lastSequence)}, before the decision phase recorded anything`);
-  log(`the decider runs with this engine and the roles in ${options.rolesRoot}, not the roles the run pinned: ${adapter.name} ${policy.model} at effort ${policy.effort}`);
+  log(`the decider runs with this engine and the roles in ${options.rolesRoot}, not the roles the run pinned, on ${adapter.name} ${settings.model} at effort ${settings.effort}, ${settings.from === 'recorded' ? 'as the run\'s decider ran' : 'as the roles\' policy has it, since the run recorded no decider launch on this runtime'}`);
   mkdirSync(output, { recursive: true });
   const write = (name: string, text: string): string => {
     const path = join(output, name);
@@ -454,18 +503,18 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
         runtime: adapter.name,
         executable: options.executable,
         executableArgs: [...(options.executableArgs ?? [])],
-        model: policy.model,
-        effort: policy.effort,
+        model: settings.model,
+        effort: settings.effort,
         access: 'read-only',
         shell: true,
         prompt,
         outputSchema: deciderOutputSchema,
-        timeoutMs: policy.timeoutMs,
-        ...(policy.budgetUsd === null ? {} : { budgetUsd: policy.budgetUsd }),
+        timeoutMs: settings.timeoutMs,
+        ...(settings.budgetUsd === null ? {} : { budgetUsd: settings.budgetUsd }),
         label: unitLabel(role, 'decision', unitKey),
       }, {
         runtimes,
-        pinned: resolved.codex === null ? {} : { codex: resolved.codex },
+        pinned: settings.pinned,
         platform,
         ...(environment === undefined ? {} : { environment }),
         ...(options.scratchRoot === undefined ? {} : { scratchRoot: options.scratchRoot }),
@@ -481,9 +530,17 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
       if (checked.kind === 'refused') refused.push(checked.reason);
     }
 
-    const settings = { run: state.id, runtime: adapter.name, model: policy.model, effort: policy.effort, roles: options.rolesRoot, roleNote: 'The decider ran with the roles above and this engine, not with the roles the run pinned.' };
+    const launch = {
+      run: state.id,
+      runtime: adapter.name,
+      model: settings.model,
+      effort: settings.effort,
+      settingsFrom: settings.from,
+      roles: options.rolesRoot,
+      roleNote: `The decider ran with the role prompt above and this engine, not with the roles the run pinned, and with ${settings.from === 'recorded' ? 'the model, effort, timeout and budget of the recorded decider\'s launch' : 'the model, effort, timeout and budget of the roles\' policy, since the run recorded no decider launch on this runtime'}.`,
+    };
     if (accepted === null) {
-      write(factsFileName, `${JSON.stringify({ ...settings, attempts, accepted: false }, null, 2)}\n`);
+      write(factsFileName, `${JSON.stringify({ ...launch, attempts, accepted: false }, null, 2)}\n`);
       log(`no answer was accepted in ${String(deciderAttempts)} attempts, so nothing is rendered`);
       return { runId: state.id, attempts, decisions: null };
     }
@@ -492,7 +549,7 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
     write(decisionsFileName, `${JSON.stringify(decisions, null, 2)}\n`);
     if (scope.pullRequest === null) log(`run ${state.id} reviewed no pull request, so there is no review to render`);
     else write(reviewFileName, `${renderedReview(decided, scope, { root, tree, evidence, engine: options.engine, environment: options.environment ?? process.env, platform }).join('\n')}\n`);
-    write(factsFileName, `${JSON.stringify({ ...settings, attempts, accepted: true, ...deciderFacts(decided) }, null, 2)}\n`);
+    write(factsFileName, `${JSON.stringify({ ...launch, attempts, accepted: true, ...deciderFacts(decided) }, null, 2)}\n`);
     return { runId: state.id, attempts, decisions };
   } finally {
     replay.close();
