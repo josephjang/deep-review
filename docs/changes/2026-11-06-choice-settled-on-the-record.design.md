@@ -28,7 +28,7 @@ The decider's task gains one line per candidate: the choice its verifier leaves 
 
 ### The decision and its record
 
-`deciderOutputSchema` (`src/review/schemas.ts:216`) gives each decision `{index, decision, grounds, fix, leave, ask, departure}`, with `edits` only on the options of a question. `checkDecisions` (`schemas.ts:597`) holds one part per decision kind, a departure on a fix only, the option indexes and the superseded rule. The decision phase records the checked answer as `decisions.recorded@1` (`phases.ts:893`), whose schema (`recordedDecisionSchema`, `src/checkpoint/events.ts:1350`) takes its leave reasons from the frozen `vocabularyV4.leaveReasons` (`events.ts:1227`). `decisionsRecorded` (`src/checkpoint/review-fold.ts:820`) holds them in the ranking's order. The engine's list of leave reasons is `leaveReasons` in `src/review/vocabulary.ts:544`, and a test of `test/roles/repository.test.ts` holds the rubric's list to it.
+`deciderOutputSchema` (`src/review/schemas.ts:216`) gives each decision `{index, decision, grounds, fix, leave, ask, departure}`, with `edits` only on the options of a question. `checkDecisions` (`schemas.ts:597`) holds one part per decision kind, a departure on a fix only, the option indexes and the superseded rule, and throws a `StructuralCheckError` at the first rule that an answer breaks, which the phase records as the reason of an `attempt.failed` that begins `structural check:` (`phases.ts:797`). The decision phase records the checked answer as `decisions.recorded@1` (`phases.ts:893`), whose schema (`recordedDecisionSchema`, `src/checkpoint/events.ts:1350`) takes its leave reasons from the frozen `vocabularyV4.leaveReasons` (`events.ts:1227`). `decisionsRecorded` (`src/checkpoint/review-fold.ts:820`) holds them in the ranking's order. The engine's list of leave reasons is `leaveReasons` in `src/review/vocabulary.ts:544`, and a test of `test/roles/repository.test.ts` holds the rubric's list to it.
 
 ### The verifier's choice in the state
 
@@ -50,7 +50,7 @@ The decider's task gains one line per candidate: the choice its verifier leaves 
 
 ### A refused answer, named to the next attempt (R9)
 
-The decision phase builds its task with the failures that the decision unit holds (`UnitFailure.reason` in `src/checkpoint/review-fold.ts:121`, which the fold keeps from each `attempt.failed`), and `deciderTask` names each under a section "What failed in the earlier answer" and asks for the whole answer again, as `writerTask` does for the parts it drops (`src/review/explanation.ts:998`). `checkDecisions` words each failure with the index of the decision and the rule it broke, so the section can name both. The failures are cleared when a blocked phase is resumed, so a resumed run starts its decider without them, as the fold does for every unit today. No event changes.
+`checkDecisions` collects every rule that an answer breaks, the rules of today and those of R2 and R3, each worded with the index of the decision and the rule, and throws one `StructuralCheckError` that lists them within `maxRecordedTextLength`, the limit of a recorded reason, in place of throwing at the first. The phase records it as today. The decision phase builds the next attempt's task from the failures that the decision unit holds (`UnitFailure` in `src/checkpoint/review-fold.ts:121`, which the fold keeps from each `attempt.failed`), keeping those whose `cause` is `unit` and whose reason is a structural-check failure, and `deciderTask` names their reasons under a section "What failed in the earlier answer" and asks for the whole answer again, as `writerTask` does for the parts it drops (`src/review/explanation.ts:998`). The failures are cleared when a blocked phase is resumed, so a resumed run starts its decider without them, as the fold does for every unit today; the requirements accept this (R9). No event changes.
 
 ### The answer and its check (R2, R3)
 
@@ -186,7 +186,7 @@ The gate's runs, recorded under Verification with the metrics of the requirement
 
 ### R9: A refused answer, named to the next attempt
 
-A test of the decision phase whose first answer leaves a choice unsettled, and that holds the second task to name the decision's index and the broken rule.
+A test of `checkDecisions` that gives an answer breaking two rules in two decisions and holds that one refusal names both, each with its decision's index. A test of the decision phase whose first answer is refused, and that holds the second task to name, under "What failed in the earlier answer", the refused rules with their indexes, and not a failure of another cause.
 
 ## Verification
 
