@@ -20,7 +20,7 @@
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { engineVersion } from '../src/engine.ts';
-import { decisionsFileName, factsFileName, replayDecider, reviewFileName } from '../src/replay/decider.ts';
+import { decisionsFileName, factsFileName, replayDecider } from '../src/replay/decider.ts';
 import { resolveExecutable } from '../src/review/executable.ts';
 import { repositoryRolesRoot } from '../src/roles/assemble.ts';
 
@@ -67,7 +67,7 @@ if (!values['print-task']) {
   if (outcome.decisions === null) process.exitCode = 1;
   else {
     console.log(`decisions: ${join(output, decisionsFileName)}`);
-    console.log(`review: ${join(output, reviewFileName)}`);
+    if (outcome.review !== null) console.log(`review: ${outcome.review}`);
   }
   console.log(`facts: ${join(output, factsFileName)}`);
 }
