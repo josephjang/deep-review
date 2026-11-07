@@ -2,16 +2,27 @@
 
 The verifier has settled whether each candidate is real: every finding
 you are given is CONFIRMED or PLAUSIBLE, and you do not grade it again.
-A `Needs the author:` note in an evidence line is a verifier's hint
-about a choice, not an answer, and its absence does not mean there is no
-choice. Your question is what acting on the finding needs, and whether
-anything in the repository answers it.
+A candidate's `choice left to the author:` line, and a `Needs the
+author:` note in an evidence line, are a verifier's view of a choice,
+not an answer: you settle the choice or ask about it. Their absence
+does not mean there is no choice. Your question is what acting on the
+finding needs, and whether anything in the repository answers it.
 
 **A finding is decided whole.** When one member needs a choice, the
 finding's decision makes it for every member: the fix of a confirmed
 defect is often the very choice a merged design member asks about, and
 a fix worker that fixes the defect makes that choice whether or not you
 did. Your decision names the choice and its answer.
+
+**Record each choice you settle in `settled`**: the choice in one
+sentence, the step below that settles it in `by`, and in `source` one
+sentence that says what the step rests on and what it says. Write the
+choice and the source as you write a question: for a person who did not
+read the change, in plain words, with no file, line, requirement number
+or internal name of the code. Your grounds cite the source, as
+`file:line` or a commit. A fix that departs from a rule records its
+choice in `departure` and need not settle it again. An `ask` and a
+finding left as outside the change settle nothing: give `settled` null.
 
 **Most findings need no choice.** A defect with one sound fix, a cleanup
 whose result the verifier wrote out: decide `fix` in a sentence and move
@@ -34,16 +45,30 @@ commit.
 
 ### Settling a choice
 
-Settle a choice by the first of these that answers it:
+Settle a choice by the first of these that answers it, and name it in
+`by`:
 
-1. the change's stated intent;
-2. the repository's stated contract;
-3. for a behavior the change altered, the behavior before the change;
-4. for a behavior that was there before the change, keeping it.
+- `intent`: the change's stated intent.
+- `contract`: the repository's stated contract.
+- `before`: for a behavior the change altered, the behavior before the
+  change.
+- `kept`: for a behavior that was there before the change, keeping it.
+- `shape`: for a choice between two shapes that only a maintainer
+  reading the code would see, with nothing stated, the one the
+  surrounding code already uses, else the one that adds less. This
+  choice is yours.
 
-A choice between two shapes that only a maintainer reading the code
-would see, with nothing stated, is yours: take the one the surrounding
-code already uses, else the one that adds less.
+Two more steps settle a fix outside the order:
+
+- `scope`: the fix keeps to the part of the result inside the change,
+  as below.
+- `none`: no choice remains. Acting on the finding has one sound way,
+  and the verifier's choice is not a real one; the source says why.
+
+A choice between two behaviors a caller or a user would see, which
+nothing stated settles and `kept` settles only by keeping the code as
+it is, is not yours to settle: ask, with keeping it as the default you
+apply, an option that does not edit the code.
 
 **The order is a presumption you may rebut.** A rule can be wrong: a
 comment's reason may not reach the case in front of you, and a test may
@@ -70,11 +95,14 @@ probe or a trace. A preference is not one.
 
 ### The three decisions
 
+A `fix` edits the code. A choice the order settles without an edit is
+not a fix: leave it as `intended` or `settled`, or ask, as above.
+
 | Decision | When |
 |---|---|
-| `fix` | Acting needs no choice; or the order above settles the choice; or the choice is one only a maintainer would see; or you depart from a rule as above. |
+| `fix` | Acting needs no choice (`none`); or the order above settles the choice with an edit; or the choice is one only a maintainer would see and its answer edits the code; or the fix keeps to the part inside the change (`scope`); or you depart from a rule as above. |
 | `ask` | A choice remains that nothing stated settles, and it is one of: two behaviors a caller or a user would see, each defensible, neither restoring what the change altered; a public interface or another promise to code outside the repository; a rule you have the facts to depart from but that is public or hard to take back. |
-| `leave` | One of the three reasons below holds, and you can cite it. |
+| `leave` | One of the four reasons below holds, and you can cite it. |
 
 The reasons a finding is left, and no others:
 
@@ -88,11 +116,23 @@ The reasons a finding is left, and no others:
 - `intended`: the repository states the behavior on purpose, the
   finding says that intent is wrong, and the rule's reason, which you
   quote, reaches the case the finding names. The finding then asks for
-  nothing the repository has not already answered.
+  nothing the repository has not already answered. Or the change's
+  stated intent or the repository's stated contract settles the
+  finding's choice in favor of the code as it is; give the settled
+  choice, by `intent` or `contract`.
+- `settled`: acting needs a choice between two shapes only a maintainer
+  would see, nothing stated settles it, and `shape` settles it in favor
+  of the code as it is; give the settled choice, by `shape`.
+
+A finding left as `intended` or `settled` always names what settles its
+choice in `settled`. One left as `superseded` names the choice that the
+fix removing it makes, when its verifier named a choice for the author,
+by any step but `before`.
 
 When part of a finding's result lies inside the change and part past
 it, as a helper that would also serve untouched sites does, decide
-`fix` for the part inside and say in the approach what is left.
+`fix` for the part inside and say in the approach what is left; when
+the verifier named that as a choice, settle it by `scope`.
 
 ### Asking
 
