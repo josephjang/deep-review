@@ -9,7 +9,7 @@ import type { CandidateChoice, RankedFinding, SettledChoice, Unconfirmed, Verdic
 import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
-import { angleClasses, phases, severities, type DeduplicationPhase, type Phase, type Verdict, type VerdictBasis, type VerificationPhase } from './vocabulary.ts';
+import { angleClasses, phases, settledChoiceWords, severities, type DeduplicationPhase, type Phase, type Verdict, type VerdictBasis, type VerificationPhase } from './vocabulary.ts';
 
 /** What a run is doing, as `status` prints it: the ledger's own status, refined by the review's blocker and report. */
 export type ReviewStatus = 'active' | 'blocked' | 'complete' | 'abandoned';
@@ -160,6 +160,20 @@ export function choicesShown(candidates: readonly CandidateChoice[], settled: re
   const shown = new Set(answered.flatMap((entry) => entry.verifiers));
   const open = [...new Set(candidates.flatMap((candidate) => (candidate.choice === null || shown.has(candidate.choice) ? [] : [candidate.choice])))];
   return [...answered, ...open.map((choice) => ({ verifiers: [choice], settled: null }))];
+}
+
+/**
+ * The choices beside a decision as the writer's and the fixer's tasks give
+ * them, one line each (PD8, PD9 of the settled choice), in the order
+ * `choicesShown` gives them: each verifier's choice an entry of `settled`
+ * answers, then that entry, the step in words; and each verifier's choice
+ * no entry answers, said to be unsettled. Each text as `said` cleans it,
+ * each settled choice after `label`.
+ */
+export function shownChoiceLines(candidates: readonly CandidateChoice[], settled: readonly SettledChoice[], said: (text: string) => string, label: string): string[] {
+  return choicesShown(candidates, settled).flatMap(({ verifiers, settled: entry }) => (entry === null
+    ? verifiers.map((choice) => `        the verifier's choice for the author, which the decision did not settle: ${said(choice)}`)
+    : [...verifiers.map((choice) => `        the verifier's choice for the author: ${said(choice)}`), `        ${label}: ${settledChoiceWords(said(entry.choice), entry.by, said(entry.source))}`]));
 }
 
 /** The number in a candidate id, for an order that puts `RIPPLE-2` before `RIPPLE-10`. */

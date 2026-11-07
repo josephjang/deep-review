@@ -4,7 +4,7 @@ import type { FixState } from '../../src/checkpoint/fix-state.ts';
 import type { VerdictRun } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { CandidateState } from '../../src/checkpoint/review-fold.ts';
-import { budgetStoppedRun, choicesShown, compareFindings, currentPhase, findingIdOf, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, noFindingPastTheLast, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
+import { budgetStoppedRun, choicesShown, compareFindings, currentPhase, findingIdOf, hasCurrentReport, mergeRankInput, mergedResolution, nextPendingPhase, noFindingPastTheLast, ranAgain, rankedFindings, refuted, resolutionOf, reviewStatus, shownChoiceLines, survivors, workingList, type ReportFinding } from '../../src/review/state.ts';
 import { baselined, configured, mergeRanked, ranked, reported, swept, triaged, verified, worker } from '../helpers/review-history.ts';
 
 const candidate = (id: string, angle: CandidateState['angle'], change: Partial<CandidateState> = {}): CandidateState => ({
@@ -162,6 +162,18 @@ describe('mergedResolution and the ranking order', () => {
     ]);
     assert.deepEqual(choicesShown(candidates, []), [{ verifiers: ['throw, or return null'], settled: null }, { verifiers: ['guard the helper, or not'], settled: null }]);
     assert.deepEqual(choicesShown([{ id: 'A-1', choice: 'x' }, { id: 'A-2', choice: 'x' }], [settled(['A-1'], 'X.')]), [{ verifiers: ['x'], settled: settled(['A-1'], 'X.') }], 'a choice an entry already shows is not shown again as unsettled');
+  });
+
+  it('gives the choices beside a decision one line each, in the order choicesShown gives them, each text as said cleans it (PD8, PD9 of the settled choice)', () => {
+    const candidates = [{ id: 'A-1', choice: 'throw, or return null' }, { id: 'A-2', choice: 'guard the helper, or not' }, { id: 'A-3', choice: null }];
+    const settled = [{ for: ['A-1'], choice: 'Parse returns null.', by: 'intent' as const, source: 'the change says so' }, { for: [], choice: 'The helper keeps its name.', by: 'shape' as const, source: 'the module names its helpers so' }];
+    assert.deepEqual(shownChoiceLines(candidates, settled, (text) => text.toUpperCase(), 'settled'), [
+      '        the verifier\'s choice for the author: THROW, OR RETURN NULL',
+      '        settled: PARSE RETURNS NULL; settled by the stated intent of the change: THE CHANGE SAYS SO',
+      '        settled: THE HELPER KEEPS ITS NAME; settled by the shape the code around it already uses, or else the one that adds less: THE MODULE NAMES ITS HELPERS SO',
+      '        the verifier\'s choice for the author, which the decision did not settle: GUARD THE HELPER, OR NOT',
+    ]);
+    assert.deepEqual(shownChoiceLines(candidates.slice(2), [], (text) => text, 'settled'), [], 'no line when no verifier named a choice and nothing is settled');
   });
 
   it('takes the evidence of a CONFIRMED member over a PLAUSIBLE primary, so the verdict and its evidence agree', () => {

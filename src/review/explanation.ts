@@ -26,10 +26,10 @@ import { counted, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { writerOutputSchema, writerOutputSchemaV2, type CitedSide, type WriterOutput, type WriterOutputV2 } from './schemas.ts';
-import { choicesShown, findingNumbers, rankedFindings, refuted, resolutionOf, type ReportFinding } from './state.ts';
+import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
-import { asksToAct, shownChoiceLines, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
+import { asksToAct, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
 
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
@@ -858,7 +858,7 @@ function fenced(text: string, info = ''): string {
 function decisionLines(decision: RecordedDecision | undefined, choices: readonly CandidateChoice[], clean: (text: string) => string): string[] {
   if (decision === undefined) return ['    decision: none recorded'];
   const grounds = `        grounds: ${clean(decision.grounds)}`;
-  const settled = shownChoiceLines(choicesShown(choices, decision.settled), clean, 'settled by the decision');
+  const settled = shownChoiceLines(choices, decision.settled, clean, 'settled by the decision');
   switch (decision.decision) {
     case 'fix':
       return [
