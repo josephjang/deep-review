@@ -385,7 +385,7 @@ describe('the task texts', () => {
     assert.deepEqual(steps, ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']);
     assert.match(task, /^- `fix` with no `departure`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by any step\.$/m);
     assert.match(task, /^- `fix` with a `departure`: may settle choices, by any step\.$/m);
-    assert.match(task, /^- `leave` as `intended`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by `intent` or `contract`\.$/m);
+    assert.match(task, /^- `leave` as `intended`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by `intent` or `contract` or `shape`, at least one entry by `intent` or `contract` when it settles any\.$/m);
     assert.match(task, /^- `leave` as `settled`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and settles one in an entry whose `for` is empty when no candidate has one, by `shape`\.$/m);
     assert.match(task, /^- `leave` as `superseded`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by `intent` or `contract` or `kept` or `shape` or `scope` or `none`\.$/m);
     assert.match(task, /^- `leave` as `outside-change-not-regression`: settles no choice; give `settled` empty, since deep-review does not act on such a finding\.$/m);

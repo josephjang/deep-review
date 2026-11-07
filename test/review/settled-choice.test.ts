@@ -16,6 +16,8 @@ interface Case {
   readonly named: Need;
   readonly unnamed: Need;
   readonly steps: readonly SettleStep[];
+  /** The steps at least one entry names when the decision carries any, null when any of `steps` will do. */
+  readonly restsOn: readonly SettleStep[] | null;
 }
 const fix = { decision: 'fix', fix: { approach: 'guard the null once', rejected: [] }, leave: null, ask: null, departure: null };
 const leave = (reason: string): Record<string, unknown> => ({ decision: 'leave', fix: null, leave: { reason, supersededBy: reason === 'superseded' ? 'other' : null }, ask: null, departure: null });
@@ -24,13 +26,13 @@ const ask = {
   ask: { question: 'Should parse accept an empty input?', options: [{ option: 'keep it', cost: 'c', rule: 'r', edits: false }, { option: 'refuse it', cost: 'c', rule: 'r', edits: true }], recommended: 0, applied: 0, searched: ['README.md'] },
 };
 const cases: readonly Case[] = [
-  { name: 'a fix with no departure', decision: fix, named: 'required', unnamed: 'optional', steps: settleSteps },
-  { name: 'a fix with a departure', decision: { ...fix, departure }, named: 'optional', unnamed: 'optional', steps: settleSteps },
-  { name: 'a leave as intended', decision: leave('intended'), named: 'required', unnamed: 'optional', steps: ['intent', 'contract'] },
-  { name: 'a leave as settled', decision: leave('settled'), named: 'required', unnamed: 'required', steps: ['shape'] },
-  { name: 'a leave as superseded', decision: leave('superseded'), named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'kept', 'shape', 'scope', 'none'] },
-  { name: 'a leave as outside-change-not-regression', decision: leave('outside-change-not-regression'), named: 'refused', unnamed: 'refused', steps: [] },
-  { name: 'an ask', decision: ask, named: 'refused', unnamed: 'refused', steps: [] },
+  { name: 'a fix with no departure', decision: fix, named: 'required', unnamed: 'optional', steps: settleSteps, restsOn: null },
+  { name: 'a fix with a departure', decision: { ...fix, departure }, named: 'optional', unnamed: 'optional', steps: settleSteps, restsOn: null },
+  { name: 'a leave as intended', decision: leave('intended'), named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'shape'], restsOn: ['intent', 'contract'] },
+  { name: 'a leave as settled', decision: leave('settled'), named: 'required', unnamed: 'required', steps: ['shape'], restsOn: null },
+  { name: 'a leave as superseded', decision: leave('superseded'), named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'kept', 'shape', 'scope', 'none'], restsOn: null },
+  { name: 'a leave as outside-change-not-regression', decision: leave('outside-change-not-regression'), named: 'refused', unnamed: 'refused', steps: [], restsOn: null },
+  { name: 'an ask', decision: ask, named: 'refused', unnamed: 'refused', steps: [], restsOn: null },
 ];
 
 const entry = (by: SettleStep, ids: readonly string[]): Record<string, unknown> => ({ for: ids, choice: 'Parse keeps accepting an empty input.', by, source: 'The documentation says an empty input gives an empty result.' });
@@ -103,12 +105,13 @@ function holdsAlike(sweep: string | null, decided: readonly Record<string, unkno
     assert.doesNotThrow(check, 'the decider\'s check');
     assert.doesNotThrow(fold, 'the fold');
   } else {
-    assert.throws(check, (error: unknown) => error instanceof StructuralCheckError && error.message.startsWith(`Decision [${String(indexOf[tested])}]`), 'the decider\'s check names the decision');
+    assert.throws(check, (error: unknown) => error instanceof StructuralCheckError && error.message.includes(`Decision [${String(indexOf[tested])}] `), 'the decider\'s check names the decision');
     assert.throws(fold, new RegExp(`records the decision of ${tested}, which `), 'the fold names the decision');
   }
 }
 
-const accepted = (need: Need, steps: readonly SettleStep[], by: SettleStep | null): boolean => (by === null ? need !== 'required' : need !== 'refused' && steps.includes(by));
+/** Whether a decision of the case is accepted with no entry, or with one entry by `by`, which is then the only step it names. */
+const accepted = ({ steps, restsOn }: Case, need: Need, by: SettleStep | null): boolean => (by === null ? need !== 'required' : need !== 'refused' && steps.includes(by) && (restsOn === null || restsOn.includes(by)));
 
 describe('the settled choice each decision may carry, held alike by the decider\'s check and the fold (R2, TD3 of the settled choice)', () => {
   it('is the base run: its first finding names a choice for the author and its second none, and a plain fix of each folds', () => {
@@ -121,7 +124,7 @@ describe('the settled choice each decision may carry, held alike by the decider\
     for (const finding of ['named', 'unnamed'] as const) {
       const need = entryCase[finding];
       for (const by of [null, ...settleSteps]) {
-        const expected = accepted(need, entryCase.steps, by);
+        const expected = accepted(entryCase, need, by);
         it(`${expected ? 'accepts' : 'refuses'} ${entryCase.name} of a finding whose verifier named ${finding === 'named' ? 'a choice' : 'none'}, ${by === null ? 'settling no choice' : `settled by ${by}`}`, () => {
           const settled = by === null ? [] : [entry(by, finding === 'named' ? ['RIPPLE-1'] : [])];
           holdsAlike(null, decisionsOf(entryCase.decision, tested[finding], settled), tested[finding], expected);
@@ -178,5 +181,35 @@ describe('the candidates each settled choice answers, held alike by the decider\
       assert.match(error.message, /Decision \[0\] is a fix with no departure and settles no choice for SWEEP-2, whose verifier named one for the author/);
       return true;
     });
+  });
+});
+
+// A finding that merges a choice a statement settles and a choice between two shapes (OQ3 of the
+// settled choice): a leave as intended may settle the shape beside the statement, never alone,
+// and a leave as settled still settles by the rule for shapes only.
+interface StepsCase {
+  readonly name: string;
+  readonly reason: 'intended' | 'settled';
+  readonly ripple: SettleStep;
+  readonly sweep: SettleStep;
+  readonly expected: boolean;
+}
+const stepsCases: readonly StepsCase[] = [
+  { name: 'a leave as intended that settles one candidate\'s choice by `contract` and the other\'s by `shape`', reason: 'intended', ripple: 'contract', sweep: 'shape', expected: true },
+  { name: 'a leave as intended that settles one candidate\'s choice by `intent` and the other\'s by `shape`', reason: 'intended', ripple: 'shape', sweep: 'intent', expected: true },
+  { name: 'a leave as intended that settles both candidates\' choices by `shape`', reason: 'intended', ripple: 'shape', sweep: 'shape', expected: false },
+  { name: 'a leave as settled that settles one candidate\'s choice by `contract` and the other\'s by `shape`', reason: 'settled', ripple: 'contract', sweep: 'shape', expected: false },
+];
+
+describe('the steps a leave settles a merged finding\'s choices by, held alike by the decider\'s check and the fold (OQ3 of the settled choice)', () => {
+  for (const stepsCase of stepsCases) {
+    it(`${stepsCase.expected ? 'accepts' : 'refuses'} ${stepsCase.name}`, () => {
+      holdsAlike(sweepChoice, decisionsOf(leave(stepsCase.reason), 'RIPPLE-1', [entry(stepsCase.ripple, ['RIPPLE-1']), entry(stepsCase.sweep, ['SWEEP-2'])]), 'RIPPLE-1', stepsCase.expected);
+    });
+  }
+
+  it('names in the refusal of a leave as intended with only shapes the steps it rests on', () => {
+    const output = deciderOutputSchema.parse(answerOf(decisionsOf(leave('intended'), 'RIPPLE-1', [entry('shape', ['RIPPLE-1', 'SWEEP-2'])])));
+    assert.throws(() => checkDecisions(output, candidatesOf(sweepChoice)), /Decision \[0\] is a leave as intended and settles none of its choices by `intent` or `contract`/);
   });
 });
