@@ -2898,13 +2898,16 @@ export type SettlementNeed = 'required' | 'optional' | 'refused';
  * the settled choice): whether it settles the choice of each candidate
  * whose verifier named one for the author, and whether it settles one
  * when no verifier of the finding named any; the steps that may settle
- * it, what the case is in a sentence, and, for a case that never carries
- * one, why.
+ * it, and those that at least one of its entries must name when it
+ * carries any, null when any of the steps will do (OQ3 of the settled
+ * choice); what the case is in a sentence, and, for a case that never
+ * carries one, why.
  */
 export interface SettlementRule {
   readonly named: SettlementNeed;
   readonly unnamed: SettlementNeed;
   readonly steps: readonly SettleStepV13[];
+  readonly restsOn: readonly SettleStepV13[] | null;
   readonly what: string;
   readonly why: string | null;
 }
@@ -2921,24 +2924,26 @@ export type SettlementCase = 'fix' | 'fix-departing' | LeaveReasonV13 | 'ask';
  * finding named any. A fix may settle a choice by any step, and
  * one with no departure must when its verifier named a choice, since the
  * departure is the record of a departing one. A leave as `intended` rests
- * on what the repository states, so on the intent or the contract; one as
- * `settled` is a choice between two shapes only a maintainer would see,
- * so it always settles one, by the rule for shapes; one as `superseded`
- * settles the choice its superseding fix makes, by any step but the
- * behavior before the change, which only an edit of this finding
+ * on what the repository states, so at least one entry is by the intent
+ * or the contract, and the others may be shapes the rule for shapes keeps
+ * on the same finding (OQ3 of the settled choice); one as `settled` is a
+ * choice between two shapes only a maintainer would see, with nothing
+ * stated, so it always settles one, by the rule for shapes alone; one as
+ * `superseded` settles the choice its superseding fix makes, by any step
+ * but the behavior before the change, which only an edit of this finding
  * restores. A leave outside the change is not acted on, and the question
  * of an ask is the record of its choice, so neither carries one. Frozen
  * with the event: an older ledger must always fold, so a new rule is a new
  * version of the decisions.
  */
 export const settlementRulesV1: Readonly<Record<SettlementCase, SettlementRule>> = {
-  fix: { named: 'required', unnamed: 'optional', steps: vocabularyV13.settleSteps, what: 'a fix with no departure', why: null },
-  'fix-departing': { named: 'optional', unnamed: 'optional', steps: vocabularyV13.settleSteps, what: 'a fix that departs from a rule', why: null },
-  intended: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract'], what: 'a leave as intended', why: null },
-  settled: { named: 'required', unnamed: 'required', steps: ['shape'], what: 'a leave as settled', why: null },
-  superseded: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'kept', 'shape', 'scope', 'none'], what: 'a leave as superseded', why: null },
-  'outside-change-not-regression': { named: 'refused', unnamed: 'refused', steps: [], what: 'a leave as outside-change-not-regression', why: 'deep-review does not act on such a finding' },
-  ask: { named: 'refused', unnamed: 'refused', steps: [], what: 'an ask', why: 'its question is the record of the choice' },
+  fix: { named: 'required', unnamed: 'optional', steps: vocabularyV13.settleSteps, restsOn: null, what: 'a fix with no departure', why: null },
+  'fix-departing': { named: 'optional', unnamed: 'optional', steps: vocabularyV13.settleSteps, restsOn: null, what: 'a fix that departs from a rule', why: null },
+  intended: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'shape'], restsOn: ['intent', 'contract'], what: 'a leave as intended', why: null },
+  settled: { named: 'required', unnamed: 'required', steps: ['shape'], restsOn: null, what: 'a leave as settled', why: null },
+  superseded: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'kept', 'shape', 'scope', 'none'], restsOn: null, what: 'a leave as superseded', why: null },
+  'outside-change-not-regression': { named: 'refused', unnamed: 'refused', steps: [], restsOn: null, what: 'a leave as outside-change-not-regression', why: 'deep-review does not act on such a finding' },
+  ask: { named: 'refused', unnamed: 'refused', steps: [], restsOn: null, what: 'an ask', why: 'its question is the record of the choice' },
 };
 
 /** A decision as the rules of the settled choice read it, the decider's answer and the ledger's alike. */
@@ -2973,7 +2978,8 @@ export function settlementCaseOf(decision: Omit<SettlementFacts, 'settled'>): Se
  * `settled` it carries or lacks, as what follows its name in a sentence,
  * given its finding's candidates (PD9 of the settled choice). A case that
  * refuses a settlement carries no entry. Every entry names a step its
- * case allows, and in `for` only candidates of the finding whose verifiers
+ * case allows, at least one names a step its case rests on when it has
+ * such steps, and in `for` only candidates of the finding whose verifiers
  * named a choice, each in one entry at most; an entry for a choice no
  * verifier named has an empty `for`. A case that requires a settlement
  * where a verifier named a choice names each such candidate in an entry,
@@ -2999,6 +3005,8 @@ export function settlementFaultsV1(decision: SettlementFacts, candidates: readon
       answered.add(id);
     }
   }
+  const { restsOn } = rule;
+  if (restsOn !== null && settled.length > 0 && !settled.some((entry) => restsOn.includes(entry.by))) faults.push(`is ${rule.what} and settles none of its choices by ${restsOn.map((step) => `\`${step}\``).join(' or ')}, where ${rule.what} settles at least one by one of them`);
   const open = need === 'required' ? naming.filter((id) => !answered.has(id)) : [];
   if (open.length > 0) faults.push(`is ${rule.what} and settles no choice for ${open.join(', ')}, whose verifier named one for the author; name each such candidate in the \`for\` of one entry`);
   return faults;

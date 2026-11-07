@@ -1237,13 +1237,15 @@ const settlementCaseWords: Readonly<Record<SettlementCase, string>> = {
   ask: '`ask`',
 };
 
-/** What a decision of one case holds of a settled choice, from the rules the engine refuses an answer by (R2, PD9 of the settled choice). */
+/** What a decision of one case holds of a settled choice, from the rules the engine refuses an answer by (R2, PD9, OQ3 of the settled choice). */
 function settlementLine(rule: (typeof settlementRulesV1)[SettlementCase], name: string): string {
   if (rule.named === 'refused') return `- ${name}: settles no choice; give \`settled\` empty, since ${rule.why ?? ''}.`;
   const others = rule.unnamed === 'required' ? 'and settles one in an entry whose `for` is empty when no candidate has one' : 'and may settle others';
   const when = rule.named === 'required' ? `settles the choice left to the author of each candidate that has one, naming the candidate in the \`for\` of one entry, ${others}` : 'may settle choices';
-  const by = rule.steps.length === settleSteps.length ? 'by any step' : `by ${rule.steps.map((step) => `\`${step}\``).join(' or ')}`;
-  return `- ${name}: ${when}, ${by}.`;
+  const alternatives = (steps: readonly SettleStep[]): string => steps.map((step) => `\`${step}\``).join(' or ');
+  const by = rule.steps.length === settleSteps.length ? 'by any step' : `by ${alternatives(rule.steps)}`;
+  const restsOn = rule.restsOn === null ? '' : `, at least one entry by ${alternatives(rule.restsOn)} when it settles any`;
+  return `- ${name}: ${when}, ${by}${restsOn}.`;
 }
 
 /**
