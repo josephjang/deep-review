@@ -327,33 +327,7 @@ design.
 
 ## The decision step
 
-Every run configured since the decision step, `--fix` or not, runs a
-`decision` phase after merge and rank: one `decider` worker, read-only
-with a shell, is given every ranked finding with each candidate merged
-into it and that candidate's own verdict and evidence, and decides each
-finding whole. It grades nothing again. A finding is decided `fix`,
-with the approach a fixer applies and the options rejected; `leave`,
-for one of three reasons and no other (acting on it would edit only
-code outside the change, which neither caused nor worsened it; another
-finding's fix removes it; or the repository states the behavior on
-purpose and the rule's reason reaches the case); or `ask`, one question
-the repository cannot answer, with its options, what each costs, the
-rule a convention source would state for it, the option recommended and
-the default applied, which is the option easiest to take back. An ask
-never stops the run. A choice is settled by the change's stated intent,
-then the repository's stated contract, then for a regression the
-behavior before the change, then keeping what was there; the order is a
-presumption the decider may rebut, with the rule's own reason found
-first and a fact, not a preference, against it, and a departure is
-named on the decision. A run with no finding launches no decider; a
-decider that fails twice blocks the run with `worker-failed`, since no
-fixer may act on a finding nobody decided. The brief at the top of the
-report asks the questions and names the fixes that depart from a rule;
-its Decisions section lists how each question stands, the findings to
-fix with their approach and any rule departed from, and the findings
-left with their reason. A run configured before the decision step records
-the phase as skipped and reads as it did. See
-`docs/changes/2026-10-08-decision-step.requirements.md` and its design.
+Every run configured since the decision step, `--fix` or not, runs a `decision` phase after merge and rank: one `decider` worker, read-only with a shell, is given every ranked finding with each candidate merged into it and that candidate's own verdict and evidence, and decides each finding whole. It grades nothing again. A finding is decided `fix`, with the approach a fixer applies and the options rejected; `leave`, for one of four reasons and no other (acting on it would edit only code outside the change, which neither caused nor worsened it; another finding's fix removes it; the repository states the behavior on purpose and the rule's reason reaches the case, or the change's stated intent or the repository's stated contract settles a choice in favor of the code as it is; or, the reason `settled`, acting needs a choice between two shapes only a maintainer would see, which the `shape` step settles in favor of the code as it is); or `ask`, one question the repository cannot answer, with its options, what each costs, the rule a convention source would state for it, the option recommended and the default applied, which is the option easiest to take back. An ask never stops the run. A choice is settled by the change's stated intent (`intent`), then the repository's stated contract (`contract`), then for a regression the behavior before the change (`before`), then keeping what was there (`kept`), then for two shapes only a maintainer would see the one the surrounding code uses, else the one that adds less (`shape`); the order is a presumption the decider may rebut, with the rule's own reason found first and a fact, not a preference, against it, and a departure is named on the decision. Two steps stand outside the order: `scope`, a fix that keeps to the part inside the change, and `none`, when no choice remains. Each decision records the choices it settles, each with the candidates whose verifiers named it, the step that settles it and the source that step rests on. One table of rules says, for each kind of decision, whether it must, may or must not settle a choice and by which steps: an ask and a leave of code outside the change settle none, and a leave as `settled` settles each choice by `shape`. The engine refuses a decider answer that breaks a rule, naming every fault, and the ledger refuses an event that breaks one when it folds. A run with no finding launches no decider; a decider that fails twice blocks the run with `worker-failed`, since no fixer may act on a finding nobody decided. The brief at the top of the report asks the questions and names the fixes that depart from a rule; its Decisions section lists how each question stands, the findings to fix with their approach and any rule departed from, and the findings left with their reason. A run configured before the decision step records the phase as skipped and reads as it did. See `docs/changes/2026-10-08-decision-step.requirements.md` and `docs/changes/2026-11-06-choice-settled-on-the-record.requirements.md`, each with its design.
 
 ## The fix pass
 
