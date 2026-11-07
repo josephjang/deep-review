@@ -26,10 +26,7 @@ chained before or after it.
    fixed or applied, add `--fix`. When a read-only run of the same
    change has finished and the change is unchanged since, the same
    command with `--fix` continues that run and reviews nothing again,
-   so the fixes are of the findings the user read. `publish` refuses a
-   run that `--fix` continued, so when the user wants the review of a
-   pull request posted, post it, as the paragraph on posting below
-   says, before you continue its run with `--fix`. The engine surveys
+   so the fixes are of the findings the user read. The engine surveys
    the repository for its checks itself; add
    `--check <kind>=<command>` only for a check command the user names,
    and `--no-check <kind>` only for a check the user says to skip (kind
@@ -105,7 +102,7 @@ chained before or after it.
    paths and commands as printed. After a run with `--fix`, also say
    that the fixes are in the working tree, uncommitted, one patch per
    finding as the report's Patches lists them, and offer to commit them.
-   After a run of `--pr` without `--fix`, also offer to post its review
+   After a run of `--pr`, with or without `--fix`, also offer to post its review
    on the pull request.
    When the user asks for more on one finding, run the `main.mjs` of
    step 3 with only `report --finding <number>`, with the number that
@@ -181,7 +178,7 @@ chooses. On exit code 2, show stderr verbatim.
 When the user asks to post the review on the pull request, run the
 `main.mjs` of step 3 with only `publish`, adding `--run <id>` when they
 name a run, and wait for it to exit. It posts the review of a finished
-run of `--pr` without `--fix` as a comment on the pull request, and the
+run of `--pr`, with or without `--fix`, as a comment on the pull request, and the
 last line it prints is the URL of the review. Exit code 0: show the
 user that line, as printed, with no summary of the review. On any other
 exit code, show stderr verbatim and stop. Run `publish` only when the

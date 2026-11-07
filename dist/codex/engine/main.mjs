@@ -24668,7 +24668,7 @@ function pinFix(state, payload, settings2, event, drafts) {
   for (const phase of configuredPhases(review2, fixPhases)) phaseStates[phase] = { status: "pending", attempt: 0 };
   for (const phase of reopened2) phaseStates[phase] = { status: "pending", attempt: review2.phases[phase].attempt };
   const configuration = { ...review2.configuration, fix: true, checks: payload.checks, fixes: payload.fixes, fixSettings: settings2 };
-  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: "continuation", continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length } }, event);
+  return withReview(current, { ...review2, configuration, phases: phaseStates, units, fix, report: null, reportSetAsideBy: "continuation", continuedFrom: { report: review2.report, at: event.recordedAt, checkCount: review2.checks.length, sequence: event.sequence } }, event);
 }
 function requireNextSeries(current, review2, fix, payload, event, verb) {
   if (review2.report === null) throw invalid(event, `${verb} commits before its report`);
@@ -25580,6 +25580,17 @@ var init_checkpoint = __esm({
       fold(runId) {
         if (!this.ledger.hasRun(runId)) throw new UnknownRunError(runId);
         return this.#readable(runId, this.ledger.events(runId).map(decode3));
+      }
+      /**
+       * The run's state from its events whose sequence is lower than
+       * `sequence`: the run as it stood before that event, as `publish` reads a
+       * run continued into the fix pass before its `fix.pinned` (R5 of the
+       * review of a fix run). An event this engine does not declare among them
+       * is refused by `UnreadableRunError`, as `fold` refuses it.
+       */
+      foldBefore(runId, sequence) {
+        if (!this.ledger.hasRun(runId)) throw new UnknownRunError(runId);
+        return this.#readable(runId, this.ledger.events(runId).map(decode3).filter((event) => event.sequence < sequence));
       }
       /**
        * Every run of the ledger, in ledger order: its state, or an unreadable
@@ -31133,9 +31144,12 @@ function scopeMismatch(resolved, scope, changedSince2) {
     const differences = [...added.length === 0 ? [] : [`${pathList(added)} changed since and not in it`], ...gone.length === 0 ? [] : [`${pathList(gone)} in it and no longer changed`]];
     return `its files are not the change named: ${differences.join("; ")}`;
   }
+  return treeMismatch(scope, changedSince2, resolved.guard.head);
+}
+function treeMismatch(scope, changedSince2, head2) {
   const changed = changedSince2(scope);
   if (changed.length > 0) return `${String(changed.length)} of its files changed since: ${pathList(changed)}`;
-  if (resolved.guard.head !== scope.head) return `HEAD is ${resolved.guard.head}, not ${scope.head}`;
+  if (head2 !== scope.head) return `HEAD is ${head2}, not ${scope.head}`;
   return null;
 }
 function matchesFrozen(frozen, bytes, symlink, frozenSymlink) {
@@ -38344,24 +38358,51 @@ function basesEnglish(counts) {
   const none = counts.noBasis === 0 ? [] : [`${String(counts.noBasis)} ${counts.noBasis === 1 ? "has" : "have"} no basis on record`];
   return told.length === 0 ? `no verdict records how it was checked` : `${listed(told)}${none.length === 0 ? "" : `, and ${none[0]}`}`;
 }
+function decidedEnglish(counts) {
+  const acting = [
+    ...counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, "finding", "findings")}`],
+    ...counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, "question", "questions")}`]
+  ];
+  const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
+  return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}.`;
+}
 function basesKorean(counts) {
   const ways = [["ran", "\uCF54\uB4DC\uB97C \uC2E4\uD589\uD574"], ["traced", "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00"], ["read", "\uCF54\uB4DC\uB97C \uC77D\uC5B4"]].filter(([basis]) => counts.bases[basis] > 0);
   const told = ways.length === 0 ? "\uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB41C \uD310\uC815\uC740 \uC5C6\uC2B5\uB2C8\uB2E4." : `${ways.map(([basis, how]) => `${String(counts.bases[basis])}\uAC74\uC740 ${how}`).join(", ")} \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`;
   return `${told}${counts.noBasis === 0 ? "" : ` ${String(counts.noBasis)}\uAC74\uC740 \uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`}`;
 }
+function decidedKorean(counts) {
+  const parts = [
+    ...counts.fixes === 0 ? [] : [`\uACE0\uCE60 \uAC83 ${String(counts.fixes)}\uAC74`],
+    ...counts.questions === 0 ? [] : [`\uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744 \uAC83 ${String(counts.questions)}\uAC74`],
+    ...counts.left === 0 ? [] : [`\uADF8\uB300\uB85C \uB458 \uAC83 ${String(counts.left)}\uAC74`]
+  ];
+  return `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
+}
 function pullRequestWords(language) {
   const primary = language.split("-")[0].toLowerCase();
   return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
 }
-var english, korean, pullRequestLanguages, pullRequestWordTables;
+var standingEnglish, reviewedEnglish, reviewNodesEnglish, english, standingKorean, reviewNodesKorean, korean, pullRequestLanguages, pullRequestWordTables;
 var init_pull_request_words = __esm({
   "src/review/pull-request-words.ts"() {
     "use strict";
     init_markdown();
     init_vocabulary();
+    standingEnglish = (edited) => (recommended, applied, edits, option) => {
+      const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
+      const result = edits ? edited : "the code stays as it is";
+      return recommended === applied ? `${recommendation} It also stands until someone answers: ${result}.` : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
+    };
+    reviewedEnglish = (head2, files, base) => `deep-review reviewed this pull request at its head ${head2}, ${files === 1 ? "the 1 file" : `the ${String(files)} files`} changed from the merge base ${base}`;
+    reviewNodesEnglish = [
+      '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
+      '    V --> D["A decider chooses: fix, ask or leave"]',
+      '    D --> W["The writer explains it in plain words"]'
+    ];
     english = {
       heading: "## deep-review's review of this pull request",
-      reviewed: (head2, files, base) => `deep-review reviewed this pull request at its head ${head2}, ${files === 1 ? "the 1 file" : `the ${String(files)} files`} changed from the merge base ${base}, and changed no file.`,
+      reviewed: (head2, files, base) => `${reviewedEnglish(head2, files, base)}, and changed no file.`,
       findingList: (numbers) => findingWords(numbers),
       summaryHeading: "### Summary",
       summaryCounts: (counts) => {
@@ -38374,13 +38415,8 @@ var init_pull_request_words = __esm({
         return `The review keeps ${counted(counts.findings, "finding", "findings")}. ${capitalized(parts.join("; "))}.`;
       },
       summaryNext: (counts, fix) => {
-        const acting = [
-          ...counts.fixes === 0 ? [] : [`would fix ${counted(counts.fixes, "finding", "findings")}`],
-          ...counts.questions === 0 ? [] : [`asks the author ${counted(counts.questions, "question", "questions")}`]
-        ];
-        const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
-        if (acting.length === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
-        return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
+        if (counts.fixes + counts.questions === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
+        return `${decidedEnglish(counts)} Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with ${fix} in their clone and pushes them.`;
       },
       needsHeading: "### What needs a person",
       needsQuestion: (finding, href, question, tail) => `**[Question on finding ${String(finding)}](${href}).** ${question} ${tail}`,
@@ -38393,9 +38429,7 @@ var init_pull_request_words = __esm({
       howDiagram: (pullRequest) => [
         "flowchart TD",
         `  subgraph RV["review --pr ${String(pullRequest)}, read-only: done"]`,
-        '    F["Finders propose candidates"] --> V["A verifier runs or traces each one"]',
-        '    V --> D["A decider chooses: fix, ask or leave"]',
-        '    D --> W["The writer explains it in plain words"]',
+        ...reviewNodesEnglish,
         "  end",
         '  W --> P["publish cleans the text and posts this review"]',
         '  P --> A["The person who ran the review answers the questions"]',
@@ -38444,11 +38478,7 @@ var init_pull_request_words = __esm({
       whyAsked: "**Why it is a question.**",
       question: (question) => `**The question.** ${question}`,
       option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
-      standing: (recommended, applied, edits, option) => {
-        const recommendation = option === null ? `deep-review recommends option ${String(recommended)}.` : `deep-review recommends option ${String(recommended)}: ${option}`;
-        const result = edits ? "`--fix` applies it" : "the code stays as it is";
-        return recommended === applied ? `${recommendation} It also stands until someone answers: ${result}.` : `${recommendation} Until someone answers, option ${String(applied)} stands, the easiest to take back: ${result}.`;
-      },
+      standing: standingEnglish("`--fix` applies it"),
       answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
       answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
       choice: ({ verifiers, settled: settled4 }) => {
@@ -38518,8 +38548,39 @@ var init_pull_request_words = __esm({
       noExplanation: "deep-review recorded no explanation by its writer for this run, so the review is in deep-review's own words.",
       predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
       areaDiagramsCut: "To fit the length GitHub takes, the diagrams of the areas are left out; the writer's answer on the machine that holds the run keeps them.",
-      lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`
+      lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`,
+      continued: {
+        reviewed: (head2, files, base) => `${reviewedEnglish(head2, files, base)}. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and the report of the run on that machine says what each fix did.`,
+        summaryNext: (counts) => {
+          if (counts.fixes + counts.questions === 0) return `deep-review leaves ${counted(counts.left, "finding", "findings")} as is, so nothing on this branch needs to change.`;
+          return `${decidedEnglish(counts)} What its fix pass changed reaches this branch only when the person who ran the review pushes it.`;
+        },
+        departureStands: "The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.",
+        departure: (rule, source, fact, accept, reject) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.`,
+        standing: standingEnglish("the fix pass makes its edit while this option stands"),
+        answerQuestion: (command) => `**How to answer.** Once the fix pass of the run has ended, the person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option, and that command applies the answer. A reply on this pull request is not read yet.`,
+        howDiagram: (pullRequest) => [
+          "flowchart TD",
+          `  subgraph RV["The review of pull request ${String(pullRequest)}: done"]`,
+          ...reviewNodesEnglish,
+          "  end",
+          '  W --> X["The fix pass started on the machine that ran the review, and its report there holds what it changed"]',
+          '  W --> P["publish cleans the text and posts this review"]',
+          '  P --> A["The person who ran the review answers the questions"]'
+        ].join("\n"),
+        noCheck: "No check ran in this review. The fix pass that followed runs the repository's checks on the machine that ran it, and its report there holds their results."
+      }
     };
+    standingKorean = (edited) => (recommended, applied, edits, option) => {
+      const recommendation = option === null ? `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4.` : `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${option}`;
+      const result = edits ? edited : "\uCF54\uB4DC\uB294 \uC9C0\uAE08 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4.";
+      return recommended === applied ? `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB3C4 \uC774 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}` : `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB294 \uB418\uB3CC\uB9AC\uAE30 \uAC00\uC7A5 \uC26C\uC6B4 ${String(applied)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}`;
+    };
+    reviewNodesKorean = [
+      '    F["\uCC3E\uB294 \uC791\uC5C5\uC790\uAC00 \uD6C4\uBCF4\uB97C \uB0C5\uB2C8\uB2E4"] --> V["\uAC80\uC99D\uC790\uAC00 \uAC01 \uD6C4\uBCF4\uB97C \uC2E4\uD589\uD558\uAC70\uB098 \uB530\uB77C\uAC00 \uBD05\uB2C8\uB2E4"]',
+      '    V --> D["\uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uAC00 \uACE0\uCE60\uC9C0, \uBB3C\uC744\uC9C0, \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4"]',
+      '    D --> W["\uC124\uBA85 \uBAA8\uB378\uC774 \uC26C\uC6B4 \uB9D0\uB85C \uC124\uBA85\uD569\uB2C8\uB2E4"]'
+    ];
     korean = {
       heading: "## deep-review\uC758 \uD480 \uB9AC\uD018\uC2A4\uD2B8 \uB9AC\uBDF0",
       reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC73C\uBA70, \uD30C\uC77C\uC740 \uD558\uB098\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`,
@@ -38534,14 +38595,8 @@ var init_pull_request_words = __esm({
         return `\uC774 \uB9AC\uBDF0\uB294 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC744 \uB0A8\uAE41\uB2C8\uB2E4. ${parts.length === 2 ? `${parts[0]}\uC774\uACE0, ${parts[1]}\uC785\uB2C8\uB2E4.` : `${parts[0]}\uC785\uB2C8\uB2E4.`}`;
       },
       summaryNext: (counts, fix) => {
-        const parts = [
-          ...counts.fixes === 0 ? [] : [`\uACE0\uCE60 \uAC83 ${String(counts.fixes)}\uAC74`],
-          ...counts.questions === 0 ? [] : [`\uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744 \uAC83 ${String(counts.questions)}\uAC74`],
-          ...counts.left === 0 ? [] : [`\uADF8\uB300\uB85C \uB458 \uAC83 ${String(counts.left)}\uAC74`]
-        ];
-        const decided = `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
-        if (counts.fixes + counts.questions === 0) return `${decided} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
-        return `${decided} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${fix} \uBA85\uB839\uC73C\uB85C \uC218\uC815\uACFC \uADF8\uB54C\uAE4C\uC9C0 \uBC1B\uC740 \uB2F5\uC744 \uC790\uC2E0\uC758 \uD074\uB860\uC5D0 \uC801\uC6A9\uD558\uACE0 \uADF8 \uACB0\uACFC\uB97C \uD478\uC2DC\uD558\uAE30 \uC804\uAE4C\uC9C0, \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C\uB294 \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
+        if (counts.fixes + counts.questions === 0) return `${decidedKorean(counts)} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+        return `${decidedKorean(counts)} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${fix} \uBA85\uB839\uC73C\uB85C \uC218\uC815\uACFC \uADF8\uB54C\uAE4C\uC9C0 \uBC1B\uC740 \uB2F5\uC744 \uC790\uC2E0\uC758 \uD074\uB860\uC5D0 \uC801\uC6A9\uD558\uACE0 \uADF8 \uACB0\uACFC\uB97C \uD478\uC2DC\uD558\uAE30 \uC804\uAE4C\uC9C0, \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C\uB294 \uC544\uBB34\uAC83\uB3C4 \uBC14\uB00C\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`;
       },
       needsHeading: "### \uC0AC\uB78C\uC774 \uD574\uC57C \uD560 \uC77C",
       needsQuestion: (finding, href, question, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}\uC5D0 \uB300\uD55C \uC9C8\uBB38](${href}).** ${question} ${tail}`,
@@ -38554,9 +38609,7 @@ var init_pull_request_words = __esm({
       howDiagram: (pullRequest) => [
         "flowchart TD",
         `  subgraph RV["review --pr ${String(pullRequest)}, \uC77D\uAE30 \uC804\uC6A9: \uC644\uB8CC"]`,
-        '    F["\uCC3E\uB294 \uC791\uC5C5\uC790\uAC00 \uD6C4\uBCF4\uB97C \uB0C5\uB2C8\uB2E4"] --> V["\uAC80\uC99D\uC790\uAC00 \uAC01 \uD6C4\uBCF4\uB97C \uC2E4\uD589\uD558\uAC70\uB098 \uB530\uB77C\uAC00 \uBD05\uB2C8\uB2E4"]',
-        '    V --> D["\uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uAC00 \uACE0\uCE60\uC9C0, \uBB3C\uC744\uC9C0, \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4"]',
-        '    D --> W["\uC124\uBA85 \uBAA8\uB378\uC774 \uC26C\uC6B4 \uB9D0\uB85C \uC124\uBA85\uD569\uB2C8\uB2E4"]',
+        ...reviewNodesKorean,
         "  end",
         '  W --> P["publish\uAC00 \uAE00\uC744 \uC815\uB9AC\uD574 \uC774 \uB9AC\uBDF0\uB97C \uC62C\uB9BD\uB2C8\uB2E4"]',
         '  P --> A["\uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC9C8\uBB38\uC5D0 \uB2F5\uD569\uB2C8\uB2E4"]',
@@ -38605,11 +38658,7 @@ var init_pull_request_words = __esm({
       whyAsked: "**\uC9C8\uBB38\uD558\uB294 \uC774\uC720.**",
       question: (question) => `**\uC9C8\uBB38.** ${question}`,
       option: (number5, option, cost) => `${String(number5)}. **${option}** ${cost}`,
-      standing: (recommended, applied, edits, option) => {
-        const recommendation = option === null ? `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4.` : `deep-review\uB294 ${String(recommended)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uAD8C\uD569\uB2C8\uB2E4: ${option}`;
-        const result = edits ? "`--fix`\uAC00 \uC774\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4." : "\uCF54\uB4DC\uB294 \uC9C0\uAE08 \uADF8\uB300\uB85C\uC785\uB2C8\uB2E4.";
-        return recommended === applied ? `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB3C4 \uC774 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}` : `${recommendation} \uB204\uAD70\uAC00 \uB2F5\uD560 \uB54C\uAE4C\uC9C0\uB294 \uB418\uB3CC\uB9AC\uAE30 \uAC00\uC7A5 \uC26C\uC6B4 ${String(applied)}\uBC88 \uC120\uD0DD\uC9C0\uB97C \uB530\uB985\uB2C8\uB2E4. ${result}`;
-      },
+      standing: standingKorean("`--fix`\uAC00 \uC774\uB97C \uC801\uC6A9\uD569\uB2C8\uB2E4."),
       answerQuestion: (command, fix) => `**\uB2F5\uD558\uB294 \uBC29\uBC95.** \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${command} \uBA85\uB839\uC73C\uB85C \uB2F5\uD569\uB2C8\uB2E4. \`<k>\`\uC5D0\uB294 \uACE0\uB978 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638\uB97C \uC501\uB2C8\uB2E4. \uADF8\uB2E4\uC74C ${fix}\uAC00 \uADF8 \uB2F5\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
       answeredOption: (option, at) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${at}\uC5D0 ${String(option)}\uBC88 \uC120\uD0DD\uC9C0\uB85C \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`,
       choice: ({ verifiers, settled: settled4 }) => {
@@ -38690,7 +38739,28 @@ var init_pull_request_words = __esm({
       noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0 \uC804\uCCB4\uB97C deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       predates: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC740 ${findings}\uC5D0 \uB300\uD55C \uB2F5\uC774 \uAE30\uB85D\uB418\uAE30 \uC804\uC5D0 \uC4F0\uC600\uC2B5\uB2C8\uB2E4. \uAC01 \uB2F5\uC740 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
       areaDiagramsCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC601\uC5ED\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
-      lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (\uBAA8\uB378 ${facts.strong}, ${facts.fast}), \uC2E4\uD589 ${facts.run}, \uB9AC\uBDF0\uD55C \uCEE4\uBC0B ${facts.base}..${facts.head}.`
+      lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (\uBAA8\uB378 ${facts.strong}, ${facts.fast}), \uC2E4\uD589 ${facts.run}, \uB9AC\uBDF0\uD55C \uCEE4\uBC0B ${facts.base}..${facts.head}.`,
+      continued: {
+        reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC2B5\uB2C8\uB2E4. \uADF8 \uB4A4 deep-review\uB294 \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC758 \uCEF4\uD4E8\uD130\uC5D0\uC11C \uAC19\uC740 \uC2E4\uD589\uC758 \uC218\uC815 \uB2E8\uACC4\uB85C \uB118\uC5B4\uAC00, \uACE0\uCE58\uAE30\uB85C \uD55C \uC9C0\uC801 \uC0AC\uD56D\uC744 \uACE0\uCE58\uAE30 \uC2DC\uC791\uD588\uC2B5\uB2C8\uB2E4. \uADF8 \uC218\uC815\uC740 \uC774 \uB9AC\uBDF0\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC73C\uBA70, \uAC01 \uC218\uC815\uC774 \uD55C \uC77C\uC740 \uADF8 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.`,
+        summaryNext: (counts) => {
+          if (counts.fixes + counts.questions === 0) return `${decidedKorean(counts)} \uC774 \uBE0C\uB79C\uCE58\uC5D0\uC11C \uBC14\uAFC0 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
+          return `${decidedKorean(counts)} \uC218\uC815 \uB2E8\uACC4\uAC00 \uBC14\uAFBC \uB0B4\uC6A9\uC740 \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uD478\uC2DC\uD574\uC57C \uC774 \uBE0C\uB79C\uCE58\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.`;
+        },
+        departureStands: "\uC774 \uB9AC\uBDF0 \uB4A4\uC5D0 \uC774\uC5B4\uC9C4 \uC218\uC815 \uB2E8\uACC4\uB294 \uC774 \uC218\uC815\uC744 \uACB0\uC815\uB300\uB85C \uD558\uB824 \uD569\uB2C8\uB2E4. \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
+        departure: (rule, source, fact, accept, reject) => `**\uC774 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" \uCD9C\uCC98: ${source} \uADDC\uCE59\uACFC \uB9DE\uC9C0 \uC54A\uB294 \uC0AC\uC2E4: ${fact} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${accept} \uBA85\uB839\uC73C\uB85C \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC774\uAC70\uB098 ${reject} \uBA85\uB839\uC73C\uB85C \uAC70\uBD80\uD569\uB2C8\uB2E4. \uC774 \uB9AC\uBDF0 \uB4A4\uC5D0 \uC774\uC5B4\uC9C4 \uC218\uC815 \uB2E8\uACC4\uB294 \uC774 \uC218\uC815\uC744 \uACB0\uC815\uB300\uB85C \uD558\uB824 \uD558\uBA70, \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.`,
+        standing: standingKorean("\uC774 \uC120\uD0DD\uC9C0\uAC00 \uC720\uC9C0\uB418\uB294 \uB3D9\uC548 \uC218\uC815 \uB2E8\uACC4\uAC00 \uADF8 \uC218\uC815\uC744 \uD569\uB2C8\uB2E4."),
+        answerQuestion: (command) => `**\uB2F5\uD558\uB294 \uBC29\uBC95.** \uADF8 \uC2E4\uD589\uC758 \uC218\uC815 \uB2E8\uACC4\uAC00 \uB05D\uB09C \uB4A4, \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${command} \uBA85\uB839\uC73C\uB85C \uB2F5\uD569\uB2C8\uB2E4. \`<k>\`\uC5D0\uB294 \uACE0\uB978 \uC120\uD0DD\uC9C0\uC758 \uBC88\uD638\uB97C \uC501\uB2C8\uB2E4. \uADF8 \uBA85\uB839\uC774 \uB2F5\uC744 \uC801\uC6A9\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
+        howDiagram: (pullRequest) => [
+          "flowchart TD",
+          `  subgraph RV["\uD480 \uB9AC\uD018\uC2A4\uD2B8 ${String(pullRequest)}\uC758 \uB9AC\uBDF0: \uC644\uB8CC"]`,
+          ...reviewNodesKorean,
+          "  end",
+          '  W --> X["\uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC5D0\uC11C \uC218\uC815 \uB2E8\uACC4\uAC00 \uC2DC\uC791\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uBC14\uAFBC \uB0B4\uC6A9\uC740 \uADF8 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4"]',
+          '  W --> P["publish\uAC00 \uAE00\uC744 \uC815\uB9AC\uD574 \uC774 \uB9AC\uBDF0\uB97C \uC62C\uB9BD\uB2C8\uB2E4"]',
+          '  P --> A["\uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC9C8\uBB38\uC5D0 \uB2F5\uD569\uB2C8\uB2E4"]'
+        ].join("\n"),
+        noCheck: "\uC774 \uB9AC\uBDF0\uC5D0\uC11C\uB294 \uC5B4\uB5A4 \uAC80\uC0AC\uB3C4 \uB3CC\uB9AC\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC774\uC5B4\uC9C4 \uC218\uC815 \uB2E8\uACC4\uAC00 \uADF8 \uCEF4\uD4E8\uD130\uC5D0\uC11C \uC800\uC7A5\uC18C\uC758 \uAC80\uC0AC\uB97C \uC2E4\uD589\uD558\uBA70, \uADF8 \uACB0\uACFC\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4."
+      }
     };
     pullRequestLanguages = ["en", "ko"];
     pullRequestWordTables = { en: english, ko: korean };
@@ -39229,11 +39299,35 @@ function snapshotCommandFor(engineEntry, into) {
 function claimCommandFor(engineEntry, unit, into) {
   return `node ${shellQuoted(engineEntry)} claim --path '${claimPathPlaceholder}' --unit ${unit} --in ${shellQuoted(into)}`;
 }
+function continuesAfterReport(run2) {
+  return run2.review !== null && run2.review.fix === null && (run2.scope?.pullRequest ?? null) !== null && notContinuable(run2) === null;
+}
 async function runReview(options2) {
   const log = options2.log ?? ((line) => {
     process.stderr.write(`${line}
 `);
   });
+  const first = await runPass(options2, log, null);
+  try {
+    if (first.outcome.kind !== "report" || (options2.fix ?? null) === null) return first.outcome;
+    const run2 = options2.checkpoint.fold(first.outcome.runId);
+    if (!continuesAfterReport(run2)) return first.outcome;
+    const nothing = nothingToFix(run2);
+    if (nothing !== null) {
+      log(`run ${run2.id} has no finding to fix: ${nothing}; it ends with its read-only report, and its fix pass does not run`);
+      return first.outcome;
+    }
+    const second = await runPass(options2, log, { runId: run2.id, reportPath: first.outcome.reportPath, release: first.release, pullRequest: run2.scope.pullRequest.number, head: run2.scope.head });
+    return second.outcome;
+  } finally {
+    first.release();
+  }
+}
+function continuationRefused(error62, continuing) {
+  if (!(error62 instanceof ReviewRefusedError)) return error62;
+  return new ReviewRefusedError(`${error62.message}; the review of run ${continuing.runId} is written, and its read-only report is ${continuing.reportPath}; once that is done, \`deep-review review --pr ${String(continuing.pullRequest)} --fix\` continues the run into the fix pass while the pull request is still at ${continuing.head}, the head the run reviewed, and reviews it again in a new run once its head has moved`, error62.code);
+}
+async function runPass(options2, log, continuing) {
   const commandEnvironment = options2.environment ?? process.env;
   const platform = options2.platform ?? process.platform;
   const adapter = options2.runtimes.get(options2.runtime);
@@ -39242,7 +39336,12 @@ async function runReview(options2) {
   const { checkpoint } = options2;
   const content = gitContent(options2.worktree, (reference) => checkpoint.evidence.read(reference));
   const source = options2.configuration ?? unconfiguredSource(options2);
-  const opened = await openRun({ ...options2, log, environment: commandEnvironment, platform, adapter, roles, match: content.match, source });
+  let opened;
+  try {
+    opened = await openRun({ ...options2, log, environment: commandEnvironment, platform, adapter, roles, match: content.match, source, continuing });
+  } catch (error62) {
+    throw continuing === null ? error62 : continuationRefused(error62, continuing);
+  }
   let state = opened.state;
   const runId = state.id;
   const { release, capture, configure: configure2, continuation } = opened;
@@ -39344,6 +39443,7 @@ async function runReview(options2) {
     removeBaseTrees(baseTrees);
     onBase = null;
   };
+  let threw = false;
   try {
     if (capture !== null) {
       state = refusingEmptyChange(() => captureScope(checkpoint, runId, capture.request, { exclude: capture.exclude, base: capture.base, ...capture.pullRequest === null ? {} : { pullRequest: capture.pullRequest } }));
@@ -39355,7 +39455,8 @@ async function runReview(options2) {
       state = append(checkpoint, state, [{ kind: "review.configured", version: configure2.version, payload: configure2.payload }]);
       const pinnedNow = configure2.payload;
       const language = configure2.version === 11 ? `; it explains its review in ${configure2.payload.settings.values["review.language"]}` : "";
-      log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}`);
+      const continues = configure2.version === 11 && (options2.fix ?? null) !== null ? "; this command continues it into the fix pass once its report is written" : "";
+      log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}${continues}`);
       for (const line of configuredLines(runId, configure2.resolved)) log(line);
     }
     if (continuation !== null) {
@@ -39477,11 +39578,11 @@ async function runReview(options2) {
       switch (step.kind) {
         case "blocked":
           log(`run ${runId}: blocked in ${step.blocker.phase} (${step.blocker.code}): ${step.blocker.detail}`);
-          return { kind: "blocked", runId, blocker: step.blocker };
+          return { outcome: { kind: "blocked", runId, blocker: step.blocker }, release };
         case "complete": {
           const roles2 = namedRoles(options2.rolesRoot) === null ? null : rolesPlaceholder;
           copied ??= { path: refreshReportCopy(checkpoint, state, { engineEntry, adapter, continueRoles: () => roles2, ...options2.home === void 0 ? {} : { home: options2.home } }, log) };
-          return { kind: "report", runId, reportPath: checkpoint.evidence.pathOf(review2.report.report), copyPath: copied.path, shortForm: briefChatForm(briefOf(state)) };
+          return { outcome: { kind: "report", runId, reportPath: checkpoint.evidence.pathOf(review2.report.report), copyPath: copied.path, shortForm: briefChatForm(briefOf(state)) }, release };
         }
         case "start-phase":
           log(`phase ${step.phase}: started (attempt ${String(step.attempt)}); ${progressWords(state, adapter, Date.now())}`);
@@ -39610,8 +39711,8 @@ async function runReview(options2) {
           const patches = fixState === null ? [] : storedPatches(fixState, fixState.revisions).map((patch) => patch.reference);
           const statistics = statisticsOf(state, adapter);
           const stoppedSpend = fixState === null || budgetStoppedUnits(fixState).length === 0 ? null : budgetSpendOf(state, adapter).usd;
-          const continuing = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options2.rolesRoot), stoppedSpend);
-          const fix = state.review.fix === null ? {} : { fix: { patches, continueCommand: continuing } };
+          const continuing2 = stoppedSpend === null ? null : continueCommand(state, engineEntry, namedRoles(options2.rolesRoot), stoppedSpend);
+          const fix = state.review.fix === null ? {} : { fix: { patches, continueCommand: continuing2 } };
           const text3 = renderReport(state, { engine: checkpoint.engine, engineEntry, statistics, budgetCheck: statistics.budgetApplied ? budgetSpendOf(state, adapter) : null, store: checkpoint.evidence.root, home: options2.home ?? homedir5(), ...fix });
           const report2 = checkpoint.evidence.put(text3);
           state = append(checkpoint, state, [
@@ -39621,12 +39722,13 @@ async function runReview(options2) {
           ]);
           log(`run ${runId}: report written to ${checkpoint.evidence.pathOf(report2)}${patches.length === 0 ? "" : `, with ${String(patches.length)} patch${patches.length === 1 ? "" : "es"}`}`);
           copied = { path: writeReportCopy(reportCopyPath(checkpoint.root, state), text3, runId, log) };
-          if (continuing !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continuing} continues it`);
+          if (continuing2 !== null) log(`run ${runId}: the run budget stopped its fix pass; ${continuing2} continues it`);
           break;
         }
       }
     }
   } catch (error62) {
+    threw = true;
     const configuration = state.review?.configuration ?? null;
     throw refusalOf(error62, configuration === null ? null : { runId, executable: configuration.executable, use: "resume" });
   } finally {
@@ -39640,7 +39742,7 @@ async function runReview(options2) {
       }
     }
     if (onBase !== null) removeBase();
-    release();
+    if (threw) release();
   }
 }
 function refusalOf(error62, pinned) {
@@ -39699,6 +39801,7 @@ function nothingToFix(run2) {
   return `${String(counts.fix)} decided fix, ${String(counts.leave)} left, ${String(counts.ask)} asked with the code kept`;
 }
 async function openRun(context) {
+  if (context.continuing !== null) return openContinuing(context, context.continuing);
   const { checkpoint, log } = context;
   const scopeRequestOf2 = once2(() => context.scope.request());
   if (context.scope.pullRequest && readsGitHubFirst(checkpoint, context)) scopeRequestOf2();
@@ -39788,16 +39891,16 @@ async function openRun(context) {
       }
       const policyResolved = resolvePolicy(policy, context.roles, context.adapter, context.flags, context.platform, policyOverridesOf(resolved));
       if (context.flags.codexWindowsSandbox !== void 0 && policyResolved.codex === null) log(`--codex-windows-sandbox applies on Windows only; it is ignored on ${context.platform}, where every Codex worker runs as without it`);
-      const fix = context.fix ?? null;
+      const explains = pullRequest !== null || (found?.scope?.pullRequest ?? null) !== null;
+      const fix = explains ? null : context.fix ?? null;
       const toolsPath = resolvedValue(resolved, "tools.path") ?? [];
-      if (fix !== null) refuseOldNode(toolsPath, process.platform);
+      if ((context.fix ?? null) !== null) refuseOldNode(toolsPath, process.platform);
       const configured2 = executableOf(resolved);
       const executable = typeof context.executable === "function" ? context.executable(configured2.executable) : context.executable;
       const executableArgs = [...configured2.args];
       const version2 = await qualify2(context.adapter, executable, executableArgs, toolsPath, context, null);
       const { checks, fixes, survey, ...rest2 } = policyResolved;
       const payload = { ...rest2, roles: [...policyResolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
-      const explains = fix === null && (pullRequest !== null || (found?.scope?.pullRequest ?? null) !== null);
       configure2 = explains ? { version: 11, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
       const recordable = (configure2.version === 11 ? reviewConfiguredV11 : reviewConfiguredV9).safeParse(configure2.payload);
       if (!recordable.success) throw new Error(`The engine built a configuration its ledger refuses, so no run is created: ${recordable.error.message}`);
@@ -39814,6 +39917,15 @@ async function openRun(context) {
   } finally {
     releaseStart();
   }
+}
+async function openContinuing(context, continuing) {
+  const run2 = context.checkpoint.fold(continuing.runId);
+  const changed = reviewStatus(run2) === "complete" && run2.review?.fix === null ? notContinuable(run2) : `it is ${reviewStatus(run2)}, no longer a finished read-only run`;
+  if (changed !== null) throw new ReviewRefusedError(`run ${run2.id} is not continued into the fix pass: ${changed}; \`deep-review status --run ${run2.id}\` shows it`);
+  const scope = run2.scope;
+  const moved = treeMismatch(scope, () => findDrift(run2, context.worktree, context.match).files.map((file2) => file2.path), head(context.worktree));
+  if (moved !== null) throw new ReviewRefusedError(`run ${run2.id} is not continued into the fix pass: ${moved}; restore the files it reviewed and check out its head ${scope.head}`);
+  return { state: run2, release: continuing.release, capture: null, configure: null, continuation: await continuationOf(run2, context) };
 }
 function chooseContinuation(runs, context, request) {
   if (context.fresh === true) {
@@ -39997,7 +40109,9 @@ function resumedFixFlags(run2, pinned, context) {
   const fix = context.fix ?? null;
   const checkFlags = fix !== null && checkKinds.some((kind) => isSettled(fix, kind));
   const howContinued = run2.review?.phases.decision.status === "skipped" ? "" : "; once its report is written, run again with --fix to continue it into the fix pass";
-  if (!pinned.fix && fix !== null) context.log(`run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored${howContinued}`);
+  if (!pinned.fix && fix !== null) {
+    context.log(continuesAfterReport(run2) ? `run ${runId} is a read-only run of a pull request; this command continues it into the fix pass once its report is written` : `run ${runId} is pinned without the fix pass; --fix${checkFlags ? ", --check and --no-check are" : " is"} ignored${howContinued}`);
+  }
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
   const planned = (run2.review?.fix?.checks.planned ?? null) !== null;
   const recorded = recordedCheckSettings(pinned) !== null;
@@ -40424,6 +40538,20 @@ ${fence}`;
 function blobUrl(pullRequest, commit2, path, from, to) {
   return `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}/blob/${commit2}/${urlPath(path)}#L${String(from)}${to === from ? "" : `-L${String(to)}`}`;
 }
+function followingOf(words, fixPass, pullRequest) {
+  if (fixPass === "continued") return words.continued;
+  const fix = codeSpan(`deep-review review --pr ${String(pullRequest)} --fix`);
+  return {
+    reviewed: words.reviewed,
+    summaryNext: (counts) => words.summaryNext(counts, fix),
+    departureStands: words.departureStands,
+    departure: (rule, source, fact, accept, reject) => words.departure(rule, source, fact, accept, reject, fix),
+    standing: words.standing,
+    answerQuestion: (command) => words.answerQuestion(command, fix),
+    howDiagram: words.howDiagram,
+    noCheck: words.noCheck
+  };
+}
 function diffNote(view, placement) {
   const { words } = view;
   if (placement.reason === "no-place") return words.noPlaceNote;
@@ -40489,7 +40617,7 @@ function decidedFixLines(view, decision, say) {
 function departureLines(view, departure, say) {
   const { words } = view;
   const sentence2 = (text3) => sentenceText(say.words(text3));
-  const paragraph = words.departure(sentence2(departure.rule), sentence2(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject), fixCommand(view));
+  const paragraph = view.following.departure(sentence2(departure.rule), sentence2(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject));
   const given = departure.review;
   const answered2 = given === null ? [] : [given.kind === "reject" ? words.answeredReject(given.at) : words.answeredAccept(given.at)];
   return [[paragraph, ...answered2].join(" ")];
@@ -40499,8 +40627,8 @@ function questionBlocks(view, finding, question, grounds, say) {
   const options2 = question.options.map((option) => words.option(option.number, say.sentence(option.option), say.sentence(option.cost)));
   const given = question.answer;
   const standing = given !== null && given.option !== null ? [[words.answeredOption(given.option, given.at)]] : [
-    [words.standing(question.choice, question.default, question.options[question.default - 1].edits, null)],
-    [words.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, "--option <k>")), fixCommand(view))]
+    [view.following.standing(question.choice, question.default, question.options[question.default - 1].edits, null)],
+    [view.following.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, "--option <k>")))]
   ];
   return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options2, ...standing];
 }
@@ -40571,7 +40699,7 @@ function commentOf(view, finding) {
 }
 function headingSection(view) {
   const { words, scope } = view;
-  return { part: "heading", lines: [words.heading, "", words.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
+  return { part: "heading", lines: [words.heading, "", view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 function summarySection(view, say) {
   const { words, findings } = view;
@@ -40582,7 +40710,7 @@ function summarySection(view, say) {
     questions: findings.filter((finding) => finding.finding.status === "question").length,
     left: findings.filter((finding) => finding.finding.status === "left").length
   };
-  const next = findings.length === 0 ? [] : [[words.summaryNext(decided, fixCommand(view))]];
+  const next = findings.length === 0 ? [] : [[view.following.summaryNext(decided)]];
   return { part: "summary", lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(" ")], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
 }
 function needsSection(view, say) {
@@ -40592,14 +40720,14 @@ function needsSection(view, say) {
     const { question } = finding;
     if (finding.decision?.decision !== "ask" || question === null) return [];
     const given = question.answer;
-    const tail = given !== null && given.option !== null ? words.answeredOption(given.option, given.at) : words.standing(question.choice, question.default, question.options[question.default - 1].edits, say.sentence(question.options[question.choice - 1].option));
+    const tail = given !== null && given.option !== null ? words.answeredOption(given.option, given.at) : view.following.standing(question.choice, question.default, question.options[question.default - 1].edits, say.sentence(question.options[question.choice - 1].option));
     return [`- ${words.needsQuestion(finding.finding.number, hrefOf(view, finding), say.sentence(question.question), tail)}`];
   });
   const departures = view.findings.flatMap((finding) => {
     const { departure } = finding;
     if (departure === null) return [];
     const given = departure.review;
-    const tail = given === null ? words.departureStands : given.kind === "reject" ? words.answeredReject(given.at) : words.answeredAccept(given.at);
+    const tail = given === null ? view.following.departureStands : given.kind === "reject" ? words.answeredReject(given.at) : words.answeredAccept(given.at);
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence2(departure.rule), tail)}`];
   });
   const items = [...questions, ...departures];
@@ -40611,7 +40739,7 @@ function needsSection(view, say) {
 function howSection(view) {
   const { words, counts } = view;
   const meanings = [words.verdictMeanings, ...counts.unverified === 0 ? [] : [words.unverifiedMeaning], words.severityMeanings, words.severityValues].join(" ");
-  return { part: "how", lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced2(words.howDiagram(view.pullRequest.number))], [meanings]) };
+  return { part: "how", lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced2(view.following.howDiagram(view.pullRequest.number))], [meanings]) };
 }
 function areasOf(view, say) {
   const major = majorActing(view);
@@ -40688,7 +40816,7 @@ function notExaminedSection(view, say, cuts) {
   const cut = cuts.has("refuted");
   const count3 = view.refuted.length;
   const refutedLine = count3 === 0 ? [] : [cut ? words.refutedCut(count3) : words.refutedLine(count3)];
-  const items = [words.noCheck, ...excluded2, ...gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text))), ...refutedLine].map((item) => `- ${item}`);
+  const items = [view.following.noCheck, ...excluded2, ...gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text))), ...refutedLine].map((item) => `- ${item}`);
   if (count3 === 0 || cut) return { part: "not examined", lines: blocks([words.notExaminedHeading], items) };
   const entries = view.refuted.map(({ candidate, claim: claim3, why }) => {
     const location = repositoryLocation(candidate) === null ? null : { path: candidate.file, line: candidate.line };
@@ -40800,6 +40928,7 @@ function formViewOf(input2) {
   const scope = state.scope;
   if (review2 === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
   const brief = briefOf(state);
+  const words = pullRequestWords(reviewLanguage(review2));
   const placements = new Map(input2.places.map((placement) => [placement.finding, placement]));
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
@@ -40831,7 +40960,8 @@ function formViewOf(input2) {
     scope,
     pullRequest: scope.pullRequest,
     brief,
-    words: pullRequestWords(reviewLanguage(review2)),
+    words,
+    following: followingOf(words, input2.fixPass, scope.pullRequest.number),
     findings,
     areas: input2.answer?.areas ?? null,
     refuted: refuted(review2).map(({ candidate }) => {
@@ -40874,7 +41004,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, fixCommand, verdictMarks, verdictText, titleOf, joinedParts, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -40904,7 +41034,6 @@ var init_pull_request_form = __esm({
     headUrl = (view, location) => blobUrl(view.pullRequest, view.scope.head, location.path, location.line, location.line);
     locationLink = (view, location) => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
     hrefOf = (view, finding) => finding.placement.place === "line" ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`;
-    fixCommand = (view) => codeSpan(`deep-review review --pr ${String(view.pullRequest.number)} --fix`);
     verdictMarks = (view, finding) => finding.entry.resolution.unverified ? [view.words.unverifiedMark] : [];
     verdictText = (view, finding) => [finding.finding.verdict, ...verdictMarks(view, finding)].join(", ");
     titleOf = (finding, say) => finding.explained.kind === "explained" ? say.prose(finding.explained.value.title) : say.words(firstSentence(finding.entry.finding.summary));
@@ -40940,7 +41069,7 @@ function noReportWords(state) {
       return "is in progress";
   }
 }
-function chooseReportRun(checkpoint, worktree, log) {
+function chooseReportRun(checkpoint, worktree, log, shown = hasCurrentReport) {
   const weighed = [];
   for (const listed2 of checkpoint.listRuns()) {
     if (isUnreadable(listed2)) {
@@ -40951,7 +41080,7 @@ function chooseReportRun(checkpoint, worktree, log) {
     }
   }
   const ordered = latestFirst(weighed);
-  const index2 = ordered.findIndex((entry) => entry.state !== null && hasCurrentReport(entry.state));
+  const index2 = ordered.findIndex((entry) => entry.state !== null && shown(entry.state));
   const newest = ordered[0];
   const passed = (entry) => ({ run: entry.id, state: entry.words });
   return {
@@ -40984,7 +41113,7 @@ import { dirname as dirname7 } from "node:path";
 function chooseRun2(options2, log) {
   const { checkpoint, worktree } = options2;
   if (options2.runId !== void 0) return checkpoint.fold(runIdOf(checkpoint, options2.runId));
-  const choice = chooseReportRun(checkpoint, worktree, log);
+  const choice = chooseReportRun(checkpoint, worktree, log, hasFinishedReview);
   if (choice.run !== null) return choice.run;
   if (choice.newest === null) throw new ReviewRefusedError(`no run of worktree ${worktree} has a report, so there is no review to post; deep-review status shows the run that is active`);
   throw new ReviewRefusedError(`no run of worktree ${worktree} has a report, so there is no review to post; the newest, run ${choice.newest.run}, ${choice.newest.state}; deep-review status --all lists the runs`);
@@ -41037,14 +41166,19 @@ function settleFailure(error62, run2, prepared) {
   if (kind === "missing" || kind === "no-account") return new ReviewRefusedError(`${error62.message}; the publication ${prepared.marker} of run ${run2.id}, which a stop left open, stays open until publish can read the reviews of the pull request`);
   return new PublicationOpenError(`run ${run2.id}: the publication ${prepared.marker}, which a stop left open, is not settled, since ${error62.message}; nothing is recorded, and deep-review publish looks for its review again`);
 }
-function whyNotPostable(run2) {
-  const review2 = run2.review;
-  const scope = run2.scope;
-  if (review2 === null || !hasCurrentReport(run2)) return `run ${run2.id} has no current report, since it ${noReportWords(run2)}; publish posts a finished run`;
-  if (review2.continuedFrom !== null) return `run ${run2.id} was continued into the fix pass with --fix, and the review of a fix run is not posted; review the pull request again with deep-review review --pr <number>, and post that run before you continue it`;
-  if (review2.fix !== null) return `run ${run2.id} is a fix run, and the review of a fix run is not posted; review the pull request with deep-review review --pr <number>, without --fix`;
+function reviewedOf(checkpoint, run2) {
+  const continuedFrom = run2.review?.continuedFrom ?? null;
+  return continuedFrom === null ? run2 : checkpoint.foldBefore(run2.id, continuedFrom.sequence);
+}
+function whyNotPostable(run2, reviewed) {
+  const review2 = reviewed.review;
+  const scope = reviewed.scope;
+  if (review2 === null || !hasCurrentReport(reviewed)) return `run ${run2.id} has no current report, since it ${noReportWords(run2)}; publish posts a finished run`;
   if (scope === null || scope.pullRequest === null) return `run ${run2.id} reviewed no pull request, so there is none to post its review to; review the pull request with deep-review review --pr <number>`;
-  if (scope.request.paths.length > 0) return `run ${run2.id} reviewed only the paths --path named (${scope.request.paths.join(", ")}), so its review could not say what it left out of the pull request; review the whole pull request with deep-review review --pr ${String(scope.pullRequest.number)}`;
+  const number5 = String(scope.pullRequest.number);
+  if (review2.fix !== null) return `run ${run2.id} reviewed and fixed in one pass, as an engine before this one ran review --pr --fix, so it holds no review written for a reader of the pull request; review the pull request again with deep-review review --pr ${number5}, with or without --fix`;
+  if (scope.request.paths.length > 0) return `run ${run2.id} reviewed only the paths --path named (${scope.request.paths.join(", ")}), so its review could not say what it left out of the pull request; review the whole pull request with deep-review review --pr ${number5}`;
+  if (run2.status === "abandoned") return `run ${run2.id} was abandoned in its fix pass, and an abandoned run records nothing more, so its review cannot be recorded as posted; review the pull request again with deep-review review --pr ${number5}`;
   return null;
 }
 function requireUnmoved(gh, run2, unrecorded2) {
@@ -41151,25 +41285,27 @@ function publishLocked(options2, runId, log) {
   }
   const earlier = run2.publications.find((publication) => publication.status === "posted");
   if (earlier?.status === "posted") return { kind: "posted", runId: run2.id, url: earlier.posted.review.url, how: "earlier", comments: earlier.posted.comments.length };
-  const why = whyNotPostable(run2);
+  const reviewed = reviewedOf(checkpoint, run2);
+  const why = whyNotPostable(run2, reviewed);
   if (why !== null) throw new ReviewRefusedError(why);
-  const target = targetOf(run2);
+  const target = targetOf(reviewed);
   const unrecorded2 = unrecordedWords(settled4);
-  const changedFiles = requireUnmoved(ghOf(), run2, unrecorded2);
-  const scope = run2.scope;
+  const changedFiles = requireUnmoved(ghOf(), reviewed, unrecorded2);
+  const scope = reviewed.scope;
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded2));
-  const placements = placeFindings(run2.review, files);
+  const placements = placeFindings(reviewed.review, files);
   const serial = run2.publications.length + 1;
   const form = pullRequestForm({
-    state: run2,
-    answer: run2.explanation === null ? null : recordedAnswerOf(run2.explanation, checkpoint.evidence),
+    state: reviewed,
+    fixPass: run2.review.continuedFrom === null ? "to-come" : "continued",
+    answer: reviewed.explanation === null ? null : recordedAnswerOf(reviewed.explanation, checkpoint.evidence),
     places: placements,
     machine: machineContextOf({ worktree: run2.worktree, checkpoint: checkpoint.root, gitCommon: options2.gitCommon, engine: dirname7(options2.engineEntry), workers: run2.workers, environment: options2.environment, platform: options2.platform ?? process.platform }),
     engine: checkpoint.engine,
     serial
   });
   if (form.kind === "refused") throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded2}, and the report of the run holds all of it`);
-  if (dryRun) return { kind: "dry-run", runId: run2.id, lines: dryRunLines(run2, placements, form, notes) };
+  if (dryRun) return { kind: "dry-run", runId: run2.id, lines: dryRunLines(reviewed, placements, form, notes) };
   if (form.cuts.length > 0) log(`run ${run2.id}: the body of the review is cut to fit: ${form.cuts.map((cut) => cutWords[cut]).join(", then ")}; the report of the run holds all of it`);
   const review2 = { commit: scope.head, body: form.body, comments: form.comments.map(({ path, line, body }) => ({ path, line, body })) };
   const prepared = {
@@ -41206,7 +41342,7 @@ function publishLocked(options2, runId, log) {
   if (posted.comments.length !== form.comments.length) log(`run ${run2.id}: the review has ${counted(posted.comments.length, "comment", "comments")} that carry the marker of a finding, of the ${String(form.comments.length)} posted`);
   return { kind: "posted", runId: run2.id, url: made.url, how: "posted", comments: posted.comments.length };
 }
-var targetOf, unrecordedWords, readRefusal, cutWords, recordedMessage;
+var targetOf, hasFinishedReview, unrecordedWords, readRefusal, cutWords, recordedMessage;
 var init_publish = __esm({
   "src/review/publish.ts"() {
     "use strict";
@@ -41229,6 +41365,7 @@ var init_publish = __esm({
       const { host, owner, repository, number: number5 } = run2.scope.pullRequest;
       return { host, owner, repository, number: number5 };
     };
+    hasFinishedReview = (run2) => hasCurrentReport(run2) || (run2.review?.continuedFrom ?? null) !== null;
     unrecordedWords = (settled4) => settled4 === null ? "nothing was posted or recorded" : `nothing was posted, and only that no review carries the publication ${settled4}, which a stop left open, was recorded`;
     readRefusal = (target, unrecorded2) => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded2 });
     cutWords = {
@@ -42561,7 +42698,7 @@ var init_command2 = __esm({
   deep-review report  [--run <id>] [--json | --brief | --fixes | --stats | --finding <number>] [--repo <dir>]   (the brief of a finished run, its block of one finding, a line for each fix, or its statistics; writes its copy again)
   deep-review abandon --reason <text> [--run <id>] [--repo <dir>]
   deep-review commit  [--run <id>] [--change-message <text>] [--repo <dir>]
-  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]   (posts a finished run of --pr without --fix as one review of its pull request, a comment; --dry-run prints it and records nothing)
+  deep-review publish [--run <id>] [--dry-run] [--repo <dir>]   (posts the review of a finished run of --pr, with or without --fix, as one review of its pull request, a comment; --dry-run prints it and records nothing)
   deep-review answer  --finding <number> (--option <n> | --accept | --reject) [--note <text>]
                       [--record-only] [--run <id>] [--budget-usd <usd>] [--roles <dir>] [--repo <dir>]
   deep-review snapshot --finding <index> --into <dir> [--repo <dir>]   (run by a fix worker after each finding, by its index in its batch from 0)
