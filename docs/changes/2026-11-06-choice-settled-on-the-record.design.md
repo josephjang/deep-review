@@ -182,7 +182,7 @@ A test of `decision-report.ts` that gives a `settled` leave whose verifier named
 
 ### R8: The gate
 
-The gate's runs, recorded under Verification with the metrics of the requirements.
+The gate's runs, recorded under Verification with the metrics of the requirements, whether each met its target, and whether the run of #96's change reached the finding of #107 or left that case untested.
 
 ### R9: A refused answer, named to the next attempt
 

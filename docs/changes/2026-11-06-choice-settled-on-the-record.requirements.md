@@ -133,6 +133,8 @@ A run whose decisions were recorded before this change has no settled choices, a
 
 The gate is a real run (principle 12). deep-review reviews this pull request on Claude Code and posts the review with `publish --dry-run`. The engine of this branch then reviews again the change whose reviews #115 counted: #114, which the gate of the review that reads as a report reviewed twice, once in English and once with `review.language = "ko"`. #114 is merged, and `review --pr` and `publish` refuse a pull request that is not open, while a run with `--from` and `--to` has no pull request to post to and no writer. So the two runs review a pull request that holds #114's commits on the base they had, opened in a copy of this repository under an account the author controls, as R17 of the review on the pull request opened one with the commits of pallets/click #3878, and each posts with `publish --dry-run`. A third run reviews #96's change the same way, in English, since #96 holds the finding of #107, the case that the author rule was made for, and records what the decider decides for it and what the review shows. The gate records each metric below for each run, and the author reads each decision that settles a choice a verifier named and says whether it was a question of direction; the record keeps their word.
 
+The gate passes when each run meets the targets of M1, M2 and M3, and fails when one misses a target; the record says which. The run of #96's change passes when the finding of #107 is asked, or fixed, or left with a settlement that the author judges not to be a question of direction. If that rerun does not surface the finding, the gate says so, and the case of #107 stays untested and is named as untested in the record, not counted as passed.
+
 ### R9: A refused answer is named to the next attempt
 
 When the engine refuses the decider's answer, it names in one refusal every rule that the answer broke, each with the decision it concerns, within the length that the ledger keeps for the reason of a failed attempt. The decider's next attempt is given that refusal under a section that says what failed in the earlier answer, as the writer's next attempt is given the parts of its earlier answer that failed, and the task says to give the whole answer again. The section holds only the refusals of the rules of the decisions, not a failure of another kind. Resuming a run clears the failures of the phase it stopped in, so the first decider attempt after a resume starts without them. The proposal accepts this, since a resume already gives the phase fresh attempts, and each refusal stays on the ledger.
@@ -141,7 +143,7 @@ When the engine refuses the decider's answer, it names in one refusal every rule
 
 ### M1: The length of what needs a person
 
-The questions and the departures in what needs a person in each review, against the English review of #115, which held 11 items where the template of the review that reads as a report held 4. R4 makes every item a question or a departure, so the count measures RK2, the decider asking more, and not the form. The author reads each question and says whether only a person could answer it. The target is fewer items than #115's 11 in the English run of #114, and no question that the author judges the repository answers.
+The questions and the departures in what needs a person in each review. The baseline is the questions and the departures of the English review of #115, whose list of what needs a person held 11 items where the template of the review that reads as a report held 4. W6 of the report counts 5 of the 11 as findings left for the author, so the proposal infers that 6 were questions and departures. The 6 is inferred from those two counts, not counted in the review itself. R4 makes every item a question or a departure, so the count measures RK2, the decider asking more, and not the form. The author reads each question and says whether only a person could answer it. The target, in the English run of #114, is no more than 6 items plus the questions that the author judges only a person could answer.
 
 ### M2: Fixes that edit nothing
 
@@ -149,7 +151,7 @@ The decisions of `fix` whose approach makes no edit, read by hand on the gate's 
 
 ### M3: Where the verifier's choices end
 
-Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, fixed with a departure, left as `intended`, `settled` or `superseded` with a settled choice, and left as outside the change with no settled choice, with the steps that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked.
+Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, fixed with a departure, left as `intended`, `settled` or `superseded` with a settled choice, and left as outside the change with no settled choice, with the steps that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked. The target is no settled choice that the author judges a question of direction that deep-review should have asked.
 
 ## Product Decisions
 
@@ -197,7 +199,7 @@ One gap is accepted. A fix with a departure need not settle the verifier's choic
 
 ### Principle 4, deep-review decides; the person answers and writes rules
 
-The proposal serves this principle: a choice that the repository answers is settled by the decider and reported, not held for the person, and a choice that nothing stated settles is asked. A choice between two behaviors that a caller or a user would see is asked even when the order would keep the code as it is, with keeping the code as the default, since that choice is a question of direction (R3, PD4); only a choice between two shapes that a maintainer alone would see is left as `settled`. The vision note counts against a proposal one that "decides a question of direction inside deep-review and does not record an ask". The risk is still real, since a decider can settle a choice that was the person's by a step that does not reach it. The proposal accepts it because each settlement is recorded with the step and the source it rests on, shown in the review beside the verifier's choice (PD8), and read by the author at the gate (M3).
+The proposal serves this principle: a choice that the repository answers is settled by the decider and reported, not held for the person, and a choice that nothing stated settles is asked. A choice between two behaviors that a caller or a user would see is asked even when the order would keep the code as it is, with keeping the code as the default, since that choice is a question of direction (R3, PD4); only a choice between two shapes that a maintainer alone would see is left as `settled`. The vision note counts against a proposal one that "decides a question of direction inside deep-review and does not record an ask". The risk is still real, since a decider can settle a choice that was the person's by a step that does not reach it. The proposal accepts it because each settlement is recorded with the step and the source it rests on, shown in the review beside the verifier's choice (PD8), and read by the author at the gate against a target that the gate can miss (M3).
 
 ### Principles 5 and 6, the questions first, easy to understand with little context
 
@@ -217,7 +219,7 @@ The proposal departs from this principle in one case it adds. The rules of R2 an
 
 ### Principle 12, a real run is the gate
 
-R8 is a real run of this pull request, two of #114's change, in English and in Korean, and one of #96's change, each on an open pull request that holds the change's commits, since the engine refuses to review or post a merged one.
+R8 is a real run of this pull request, two of #114's change, in English and in Korean, and one of #96's change, each on an open pull request that holds the change's commits, since the engine refuses to review or post a merged one. Each metric has a target that a run can miss, so the gate can fail, and a case that a rerun does not reach, such as the finding of #107, is named as untested rather than counted as passed.
 
 ## Risks
 
@@ -239,4 +241,4 @@ The decider's role prompt changes, so a run configured before the change and res
 
 ### RK5: A rerun differs for reasons other than the decider
 
-The gate's runs review #114's and #96's changes again from the start, so their finders and verifiers may surface other findings and name other choices than the runs that #115 and #107 describe. A count against #115 mixes the decider's change with that difference. The author's word on each question and each settlement, not the count alone, is what the gate keeps.
+The gate's runs review #114's and #96's changes again from the start, so their finders and verifiers may surface other findings and name other choices than the runs that #115 and #107 describe. A count against #115 mixes the decider's change with that difference, and M1's baseline is itself inferred. The author's word on each question and each settlement, not the count alone, is what the gate keeps. A rerun of #96's change may not surface the finding of #107 at all, and the gate then names that case as untested (R8).
