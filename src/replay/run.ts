@@ -137,7 +137,7 @@ interface VerifierSettings {
 }
 
 /** A path as the file system names it: the real path of its nearest existing ancestor, with the parts not created yet joined on. */
-export function canonicalPath(path: string): string {
+function canonicalPath(path: string): string {
   const missing: string[] = [];
   let existing = resolve(path);
   for (let parent = dirname(existing); !existsSync(existing) && parent !== existing; parent = dirname(existing)) {
@@ -148,7 +148,7 @@ export function canonicalPath(path: string): string {
 }
 
 /** Whether `path` is `directory` or lies under it. */
-export function isWithin(directory: string, path: string): boolean {
+function isWithin(directory: string, path: string): boolean {
   const relation = relative(directory, path);
   return relation === '' || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
 }
