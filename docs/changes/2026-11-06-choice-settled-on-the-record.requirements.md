@@ -10,17 +10,19 @@ Two judgments of one choice can therefore disagree, and today the engine settles
 
 The same report names a second fault of the decision, W5. In #115, three English findings were decided `fix` with an approach that begins "Make no edit, and keep ...". The review posted them as "deep-review would fix this" and counted them among the fixes. The decider's rubric leads there: it says to decide `fix` when its order of what settles a choice settles it, and that order can settle a choice in favor of the code as it is, for which no reason to leave a finding exists.
 
-After this change the decider receives the verifier's choice as a field, and each decision that settles a choice records the choice, the step that settles it, and the source it rests on. A choice settled in favor of the code as it is becomes a finding left as is with a reason of its own, and a `fix` always edits. The form stops deciding: what needs a person holds only the questions and the departures from rules, and a finding left as is shows beside its reason the choice it settles and what settles it, or, when deep-review does not act on it, the verifier's choice.
+After this change the decider receives the verifier's choice as a field, and each decision that settles a choice records the choice, the step that settles it, and the source it rests on. A choice kept as the code is, is no longer a fix. It is left as is when the repository states the behavior, or when it is a choice between two shapes that only a maintainer would see; it is a question for the person, with keeping the code as the default, when it is a choice between two behaviors that a caller or a user would see and nothing stated settles it. A `fix` always edits. The form stops deciding: what needs a person holds only the questions and the departures from rules, and a finding left as is shows beside its reason the choice it settles and what settles it, or, when deep-review does not act on it, the verifier's choice.
 
 ```mermaid
 flowchart TD
     V["Verifier: a verdict, and the choice it leaves to the author"] --> D["Decider: reads the choice as a field"]
-    D -->|"nothing stated settles it"| A["ask: a question for the person"]
+    D -->|"nothing stated settles a behavior that a user sees"| A["ask: a question for the person"]
     D -->|"the order settles it with an edit"| F["fix, with the settled choice"]
-    D -->|"the order settles it as the code is"| L["leave, settled, with the settled choice"]
+    D -->|"a statement or the rule for shapes keeps the code, or another fix removes the finding"| L["leave as intended, settled or superseded, with the settled choice"]
+    D -->|"acting would edit only code outside the change"| O["leave as outside the change, with no settled choice"]
     A --> N["What needs a person"]
     F --> C["The comment says the choice and what settles it"]
     L --> E["Left as is, with the choice and what settles it"]
+    O --> U["Left as is, with the verifier's choice, not settled by deep-review"]
 ```
 
 Figure 1. Where a choice that a verifier names ends after this change. The form places each finding by its recorded decision alone.
@@ -45,7 +47,7 @@ The decision schema gives each option of a question an `edits` flag and gives a 
 
 ## Goals
 
-Every judgment that decides where a finding goes in the review is made by a worker and recorded on the ledger before the form reads it. A reader sees, for each choice that a verifier named, a question for the person, the step and the source that settle it, or, for a finding that deep-review does not act on at all, the verifier's choice itself beside the reason it is left. What needs a person holds only questions and departures from rules. No decision of `fix` leaves the code as it is.
+Every judgment that decides where a finding goes in the review is made by a worker and recorded on the ledger before the form reads it. A reader sees, for each choice that a verifier named, a question for the person, the step and the source that settle it, or, for a finding that deep-review does not act on at all, the verifier's choice itself beside the reason it is left. What needs a person holds only questions and departures from rules. A choice between two behaviors that a caller or a user would see, which nothing stated settles, is a question for the person, even when the order would keep the code as it is. No decision of `fix` leaves the code as it is.
 
 ## Non-Goals
 
@@ -71,7 +73,7 @@ Posting the core of the change and the conditions of principle 8 is a proposal o
 
 ### NG6: The fixer and the answers
 
-The fixer's routes and `deep-review answer` stay as they are, and a finding left as is goes to no fixer, as today. The fixer's task gains only the settled choice of its decision (R5).
+The fixer's routes and `deep-review answer` stay as they are, and a finding left as is goes to no fixer, as today. The fixer's task gains only the settled choice of its decision and of each finding that its fix removes (R5).
 
 ## Requirements
 
@@ -81,19 +83,43 @@ In a run whose verdicts record them, the decider's task gives, for each candidat
 
 ### R2: A decision that settles a choice records how
 
-A decision may carry a settled choice: the choice in one sentence; the step that settles it; and the source that the step rests on, in one sentence that names what the source is and what it says. Both sentences are written as a question is written, for a person who did not read the change: in plain words, with no file, line, requirement number or internal name of the code, since the review shows them to such a reader. The grounds keep the citation, as `file:line` or a commit, one step below. A step is one of the five of the rubric's order, the stated intent of the change, the stated contract of the repository, the behavior before the change, keeping a behavior that was there before, or, for a choice between two shapes that only a maintainer would see, the one the surrounding code already uses, else the one that adds less; or one of two that the rubric gives a fix outside that order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one, which the source says; or the scope, since the fix keeps to the part of the result inside the change, as the rubric decides when part of it lies past the change. In a run whose verdicts record the verifier's choice as a field (R1), a decision of `fix` without a departure, or of `leave` as `intended` or `settled`, on a finding whose verifier named a choice carries one, and a decision of `leave` as `settled` always carries one. A `fix` with a departure needs none, since the departure records how the decision went against the order. The engine refuses an answer that breaks this, as it refuses an answer that breaks any other rule of the decisions today. A decision of `ask` carries none, since its question is the record of the choice. In every other run the engine sees no choice as a fact and holds only the rules that need none; the rubric still asks the decider to record each choice it settles, and R3 applies in every run.
+A decision may carry a settled choice: the choice in one sentence; the step that settles it; and the source that the step rests on, in one sentence that names what the source is and what it says. Both sentences are written as a question is written, for a person who did not read the change: in plain words, with no file, line, requirement number or internal name of the code, since the review shows them to such a reader. The grounds keep the citation, as `file:line` or a commit, one step below.
 
-### R3: A choice kept as the code is, is left as settled
+A step is one of seven. Five are the rubric's order: the stated intent of the change (`intent`); the stated contract of the repository (`contract`); the behavior before the change (`before`); keeping a behavior that was there before (`kept`); and, for a choice between two shapes that only a maintainer would see, the one the surrounding code already uses, else the one that adds less (`shape`). Two are the ways the rubric's `fix` row reaches a fix outside that order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one, which the source says (`none`); and the scope, since the fix keeps to the part of the result inside the change, as the rubric decides when part of it lies past the change (`scope`).
 
-A fourth reason to leave a finding, `settled`, says that acting on the finding needs a choice and the rubric's order settles it in favor of the code as it is with nothing stated: by keeping a behavior that was there before, or by the rule for a choice between two shapes that only a maintainer would see. A choice that the change's stated intent or the repository's stated contract settles in favor of the code as it is, is left as `intended`, since the repository then states the behavior on purpose; `intended` keeps its other case, a finding that says a stated intent is wrong. The rubric says that a `fix` edits the code, and that a choice the order settles without an edit is left, not fixed. The engine refuses a `settled` leave whose step is not `kept` or `shape`, and an `intended` leave whose settled choice has a step other than `intent` or `contract`. The step `before`, the behavior before the change, restores what the change altered, which is an edit, so it settles only a fix.
+Whether a decision may carry a settled choice, must carry one or must not, and which steps it may name, depend on the decision, as the table below gives. A finding's verifier named a choice when its verdict gives the choice it leaves to the author as a field (R1); in a run whose verdicts do not record that field, every finding falls under the column "Otherwise".
+
+| Decision | Settled choice when the verifier named a choice | Otherwise | Steps it may name |
+|---|---|---|---|
+| `fix` without a departure | required | optional | all seven |
+| `fix` with a departure | optional | optional | all seven |
+| `leave` as `intended` | required | optional | `intent`, `contract` |
+| `leave` as `settled` | required | required | `shape` |
+| `leave` as `superseded` | required | optional | all but `before` |
+| `leave` as `outside-change-not-regression` | refused | refused | no settled choice |
+| `ask` | refused | refused | no settled choice |
+
+A fix acts on the finding, so it records the choice it makes. A fix with a departure need not, since its departure records how the decision went against the order. `intended` names one of the two steps that are statements, and `settled` always names `shape` (R3). A finding left as `superseded` is acted on by the fix that removes what it names, so it records the choice that fix makes for it, with the steps of a fix but `before`: that step restores what the change altered by an edit of the finding's own, which would make the finding a fix of its own. A finding left as outside the change is one that deep-review does not act on, so no choice is settled for it, and an ask's question is the record of its choice. The engine refuses an answer that breaks the table, as it refuses an answer that breaks any other rule of the decisions today. Where the table makes a settled choice optional, the rubric still asks the decider to record each choice it settles.
+
+### R3: A choice kept as the code is, is never a fix
+
+The rubric says that a `fix` edits the code, and that a choice the order settles without an edit is not fixed. Such a choice goes one of three ways, by what settles it.
+
+When the change's stated intent or the repository's stated contract settles it in favor of the code as it is, the finding is left as `intended`, since the repository then states the behavior on purpose. `intended` keeps its other case, a finding that says a stated intent is wrong.
+
+When it is a choice between two shapes that only a maintainer reading the code would see, nothing stated settles it, and the rubric's rule for shapes, the one the surrounding code already uses, else the one that adds less, keeps the code as it is, the finding is left as `settled`, a fourth reason to leave a finding.
+
+When it is a choice between two behaviors that a caller or a user would see, nothing stated settles it, and the order settles it only by keeping a behavior that was there before, the decision is an `ask`. Its default, the option that deep-review applies, keeps the code and does not edit (`edits: false`). Such an ask reaches no fixer, and the review already says that the code stays as it is until the person answers. A leave would decide inside deep-review which behavior a user sees when the repository does not say, which the vision note names a question of direction (PD4).
+
+The step `before` restores what the change altered, which is an edit, so it settles a fix and never a leave. The engine holds the steps of each reason as R2's table gives them.
 
 ### R4: The form places each finding by its decision alone
 
-What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. A finding left as is whose verifier named a choice and whose decision settles none, as one left as outside the change or superseded may be, gives on its line the verifier's choice, marked as the verifier's and not settled by deep-review, so no choice that a verifier named is missing from the review. When the body is too long and the engine cuts the findings left as is, it keeps the lines of those whose verifier named a choice and replaces only the others with their count, since those lines are what PD2 and the principle-4 risk rely on. The summary no longer counts findings left for the author.
+What needs a person lists the questions and the fixes that depart from a written rule, and nothing else. A finding left as is goes in the folded section of findings left as is, whatever its verifier named, and its line there gives its reason, its grounds and, when its decision settles a choice, the choice, the step that settles it and the source. A finding left as is whose verifier named a choice and whose decision settles none, as one left as outside the change, gives on its line the verifier's choice, marked as the verifier's and not settled by deep-review, so no choice that a verifier named is missing from the review. When the body is too long and the engine cuts the findings left as is, it keeps the lines of those whose verifier named a choice and replaces only the others with their count, since those lines are what PD2 and the principle-4 risk rely on. The summary no longer counts findings left for the author.
 
 ### R5: A fix says which choice it makes
 
-The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line. The writer, whose text explains the fix in the same comment and who is given the verifier's choice, is given the settled choice as the decision's too, so its text does not present as the author's a choice that the decision settled. The fixer that applies the fix, whose evidence can still hold the verifier's note, is given the settled choice with its decision, so it applies the choice the decision made.
+The comment of a fix whose decision settles a choice, or its text in the body when it has no line in the diff, says under what deep-review would do the choice it makes, the step that settles it and the source, in one line. The writer, whose text explains the fix in the same comment and who is given the verifier's choice, is given the settled choice as the decision's too, so its text does not present as the author's a choice that the decision settled. The fixer that applies the fix, whose evidence can still hold the verifier's note, is given the settled choice with its decision, so it applies the choice the decision made. A fix that removes what a finding left as `superseded` names acts on that finding too, so its fixer is given, beside each finding that the fix removes, that finding's settled choice when it has one.
 
 ### R6: The report on the machine
 
@@ -123,7 +149,7 @@ The decisions of `fix` whose approach makes no edit, read by hand on the gate's 
 
 ### M3: Where the verifier's choices end
 
-Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, left as `intended` or `settled`, and left as outside the change or superseded with no settled choice, with the steps that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked.
+Of the findings whose verifier named a choice, how many the decider asked about, fixed with a settled choice, fixed with a departure, left as `intended`, `settled` or `superseded` with a settled choice, and left as outside the change with no settled choice, with the steps that settled them. For each settled one, the author's word on whether it was a question of direction that deep-review should have asked.
 
 ## Product Decisions
 
@@ -133,15 +159,15 @@ The choice a verifier names is evidence for the decider, which owns the decision
 
 ### PD2: Rejected: keep the author rule as a safety net
 
-The report left open whether the form should still send to what needs a person a finding that the decider left as is while its verifier named a choice. The proposal rejects it for new runs. With the rule kept, the decider's settlement would be overruled whenever a verifier disagreed, which is the disagreement this change removes, and the first screen would keep the items that #115 counted. The case of #107 is covered without it: the decider now sees the choice as a field, and a decision to leave it as `intended` or `settled` must say what settles it, which the review shows beside the reason. A decision to leave it as outside the change or superseded need not settle it, since deep-review does not act on the finding, and the review then shows the verifier's choice itself beside the reason, so the reader of #107 would still see the choice next to the decision.
+The report left open whether the form should still send to what needs a person a finding that the decider left as is while its verifier named a choice. The proposal rejects it for new runs. With the rule kept, the decider's settlement would be overruled whenever a verifier disagreed, which is the disagreement this change removes, and the first screen would keep the items that #115 counted. The case of #107 is covered without it: the decider now sees the choice as a field, and a decision to leave it as `intended`, `settled` or `superseded` must say what settles it, which the review shows beside the reason. A decision to leave it as outside the change settles nothing, since deep-review does not act on the finding, and the review then shows the verifier's choice itself beside the reason, so the reader of #107 would still see the choice next to the decision.
 
 ### PD3: The settlement is a field, not the text of the grounds
 
 The grounds could be asked to name the choice and what settles it. Text is not a contract, which is why the verifier's reasons became fields (PD5 of the review that reads as a report): the engine cannot tell whether free text answered the choice, and the form cannot show the step in the review's language. A field that the engine checks is a contract, at the cost of a new version of the decisions on the ledger.
 
-### PD4: A choice kept as the code is, is a reason to leave
+### PD4: A choice kept as the code is, is left or asked, never fixed
 
-A decision that keeps the code as it is, is a decision not to act, and the review must say so rather than count it as a fix. The steps that can keep the code split by whether the repository states anything. The stated intent and the stated contract are statements, and a behavior the repository states is one it states on purpose, which is what `intended` says, so `intended` takes them. Keeping a behavior that was there before and the shape the surrounding code uses rest on no statement, which `intended` cannot say, so they take the new reason `settled`. The step `before` restores the behavior the change altered, which is an edit, so it settles a fix and never a leave. Each reason then has its own steps, the decider has one rule for choosing between them, and M3 can count them apart.
+A decision that keeps the code as it is, is a decision not to act, and the review must say so rather than count it as a fix. Which decision it becomes depends on who may make the choice. The stated intent and the stated contract are statements, and a behavior the repository states is one it states on purpose, which is what `intended` says, so `intended` takes them. A choice between two shapes that only a maintainer would see is deep-review's to make, as the rubric already says, so the rule for shapes settles it, and when that rule keeps the code the finding takes the new reason `settled`. A choice between two behaviors that a caller or a user would see, which nothing stated settles, is the first question of direction that the vision note names: which behavior a change must have when the repository does not say. Keeping a behavior that was there before answers it only by presumption, so a leave by that step would decide the question inside deep-review and record no ask, which the note counts against a proposal. Such a choice is asked instead, and its default keeps the code, the option easiest to reverse that principle 4 asks deep-review to apply. The step `before` restores the behavior the change altered, which is an edit, so it settles a fix and never a leave. Each reason then has its own steps, the decider has one rule for choosing between a leave and an ask, and M3 can count them apart.
 
 ### PD5: Rejected: an `edits` flag on a fix
 
@@ -149,7 +175,7 @@ The report suggested recording on a fix whether it edits, as an option of a ques
 
 ### PD6: The step is a value, and its source is text
 
-The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways the rubric reaches `fix` outside that order, no choice remaining and the scope of the fix, since #115 shows that a verifier names a choice too readily and names the scope of a fix as one: without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule is not given a step, since its departure is already the record of the choice. The source a step rests on is the decider's sentence in plain words, which the review shows, while the grounds keep the citation that a reader who doubts it follows. The two say one fact at two depths, as a question and the places it names where the decider looked do.
+The step that settles a choice is one of seven, so the engine can name it in the review's language and count it across runs. Five are the rubric's order. The other two are the ways the rubric reaches `fix` outside that order, no choice remaining and the scope of the fix, since #115 shows that a verifier names a choice too readily and names the scope of a fix as one: without them, a decider that judges the verifier's choice unreal, or keeps a fix inside the change, could pass the check only by naming a step that did not settle anything. A fix that departs from a rule need not name a step, since its departure is already the record of the choice. The source a step rests on is the decider's sentence in plain words, which the review shows, while the grounds keep the citation that a reader who doubts it follows. The two say one fact at two depths, as a question and the places it names where the decider looked do.
 
 ### PD7: An older run keeps the author rule
 
@@ -161,11 +187,11 @@ This proposal is read against the vision note of 2026-11-05.
 
 ### Principle 2, record before action
 
-The form no longer makes a judgment that no worker recorded. Every placement of a finding in the review follows from its recorded decision, and the settlement of each choice that a verifier named is recorded with its step and its source before the form reads it.
+The form no longer makes a judgment that no worker recorded. Every placement of a finding in the review follows from its recorded decision, and the settlement of each choice that a verifier named is recorded with its step and its source before the form reads it. Each fixer that acts on a finding is given the choice its decision settled, the fixer of a fix that removes a finding left as `superseded` included, so no fixer makes a choice that the decision made.
 
 ### Principle 4, deep-review decides; the person answers and writes rules
 
-The proposal serves this principle: a choice that the repository answers is settled by the decider and reported, not held for the person, and a choice that nothing stated settles is asked. The vision note counts against a proposal one that "decides a question of direction inside deep-review and does not record an ask". The risk is real here, since a decider can settle a choice that was the person's. The proposal accepts it because each settlement is recorded with the step and the source it rests on, shown in the review beside the decision, and read by the author at the gate (M3).
+The proposal serves this principle: a choice that the repository answers is settled by the decider and reported, not held for the person, and a choice that nothing stated settles is asked. A choice between two behaviors that a caller or a user would see is asked even when the order would keep the code as it is, with keeping the code as the default, since that choice is a question of direction (R3, PD4); only a choice between two shapes that a maintainer alone would see is left as `settled`. The vision note counts against a proposal one that "decides a question of direction inside deep-review and does not record an ask". The risk is still real, since a decider can settle a choice that was the person's by a step that does not reach it. The proposal accepts it because each settlement is recorded with the step and the source it rests on, shown in the review beside the decision, and read by the author at the gate (M3).
 
 ### Principles 5 and 6, the questions first, easy to understand with little context
 
@@ -195,7 +221,7 @@ A decider can cite a step of the order that does not reach the case. The step an
 
 ### RK2: The decider asks more
 
-A decider that now sees the choice as a field may ask about it more often, and lengthen what needs a person. Each question still has to say where the decider looked and found nothing, and the gate counts the items (M1).
+A decider that now sees the choice as a field may ask about it more often, and a choice between two behaviors that it would have kept as the code is, is now a question (R3); both lengthen what needs a person. Each question still has to say where the decider looked and found nothing, and the gate counts the items (M1).
 
 ### RK3: More answers refused
 
