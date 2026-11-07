@@ -513,7 +513,7 @@ interface FindingParts {
   readonly code: string[];
 }
 
-/** The parts of the block of a finding in R5's order: a major one with its problem, diagram, decision and folded check; a minor one with its problem and action in one paragraph, its departure and its folded fix. */
+/** The parts of the block of a finding in R5's order: a major one with its problem, diagram, decision and folded check; a minor one with its problem and action in one paragraph, a paragraph for each choice its verifiers named or its decision settles, its departure and its folded fix. */
 function findingParts(view: FormView, finding: FindingView, say: Speaker): FindingParts {
   const minor = isMinor(finding);
   return {
