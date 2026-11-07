@@ -21353,10 +21353,15 @@ function settlementFaultsV1(decision, candidates) {
   const answered2 = /* @__PURE__ */ new Set();
   for (const entry of settled4) {
     if (!rule.steps.includes(entry.by)) faults.push(`is ${rule.what} and settles a choice by \`${entry.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(", ")}`);
+    if (blankText(entry.choice)) faults.push("settles a choice whose text is blank; state the side it settles in one sentence");
+    if (blankText(entry.source)) faults.push("settles a choice whose source is blank; name the statement, rule or code that settles it");
+    const named = /* @__PURE__ */ new Set();
     for (const id of entry.for) {
-      if (!ids2.has(id)) faults.push(`settles a choice for ${id}, which is not a candidate of its finding`);
+      if (named.has(id)) faults.push(`names ${id} twice in the \`for\` of one entry; name it once`);
+      else if (!ids2.has(id)) faults.push(`settles a choice for ${id}, which is not a candidate of its finding`);
       else if (!naming.includes(id)) faults.push(`settles a choice for ${id}, whose verifier named no choice for the author; an entry for a choice no verifier named has an empty \`for\``);
       else if (answered2.has(id)) faults.push(`settles the choice of ${id} in two entries, where one settles it`);
+      named.add(id);
       answered2.add(id);
     }
   }
@@ -21366,7 +21371,7 @@ function settlementFaultsV1(decision, candidates) {
   if (open2.length > 0) faults.push(`is ${rule.what} and settles no choice for ${open2.join(", ")}, whose verifier named one for the author; name each such candidate in the \`for\` of one entry`);
   return faults;
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, reviewVocabularyV13, vocabularyV13, settledChoiceSchemaV1, settlementRulesV1, recordedFixV1, recordedLeaveV1, recordedAskV1, decidedLeaveV2, recordedDecisionSchemaV2, decisionsRecordedV2, eventRegistry;
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, reviewVocabularyV13, vocabularyV13, settledChoiceSchemaV1, settlementRulesV1, blankText, recordedFixV1, recordedLeaveV1, recordedAskV1, decidedLeaveV2, recordedDecisionSchemaV2, decisionsRecordedV2, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -23040,6 +23045,7 @@ var init_events = __esm({
       "outside-change-not-regression": { named: "refused", unnamed: "refused", steps: [], restsOn: null, what: "a leave as outside-change-not-regression", why: "deep-review does not act on such a finding" },
       ask: { named: "refused", unnamed: "refused", steps: [], restsOn: null, what: "an ask", why: "its question is the record of the choice" }
     };
+    blankText = (text3) => /^[.\s]*$/.test(text3);
     [recordedFixV1, recordedLeaveV1, recordedAskV1] = recordedDecisionSchema.options;
     decidedLeaveV2 = external_exports.strictObject({ reason: external_exports.enum(vocabularyV13.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => leave.reason === "superseded" === (leave.supersededBy !== null), {
       message: "a superseded finding names the finding that supersedes it, and no other left finding names one",
@@ -23129,16 +23135,13 @@ function pinnedRuntimeAction(runId, executable, use) {
 function decisionCounts(decisions) {
   return Object.fromEntries(decisionKinds.map((kind) => [kind, decisions.filter((entry) => entry.decision === kind).length]));
 }
-function shownChoiceLines(shown, said2, label) {
-  return shown.flatMap(({ verifiers, settled: settled4 }) => settled4 === null ? verifiers.map((choice) => `        the verifier's choice for the author, which the decision did not settle: ${said2(choice)}`) : [...verifiers.map((choice) => `        the verifier's choice for the author: ${said2(choice)}`), `        ${label}: ${settledChoiceWords(said2(settled4.choice), settled4.by, said2(settled4.source))}`]);
-}
 function candidateIdPrefix(phase, key) {
   return phase === "sweep" ? sweepIdPrefix : key;
 }
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, settleSteps, settleStepSchema, settleStepWords, settledChoiceWords, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, leaveReasonWords, settleSteps, settleStepSchema, settleStepWords, settledChoiceWords, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -23277,6 +23280,12 @@ var init_vocabulary = __esm({
     decisionCountWords = (counts) => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
     leaveReasons = ["outside-change-not-regression", "superseded", "intended", "settled"];
     leaveReasonSchema = external_exports.enum(leaveReasons);
+    leaveReasonWords = {
+      "outside-change-not-regression": "outside the change, and not a regression",
+      superseded: "superseded",
+      intended: "intended, as the repository states",
+      settled: "a choice of shape, settled in favor of the code as it is"
+    };
     settleSteps = ["intent", "contract", "before", "kept", "shape", "scope", "none"];
     settleStepSchema = external_exports.enum(settleSteps);
     settleStepWords = {
@@ -23288,7 +23297,7 @@ var init_vocabulary = __esm({
       scope: "keeping the fix to the part inside the change",
       none: "no real choice remains, since there is one sound way to act"
     };
-    settledChoiceWords = (choice, by, source) => `${choice.replace(/[.\s]+$/, "")}; settled by ${settleStepWords[by]}: ${source}`;
+    settledChoiceWords = (choice, by, source) => `${choice.trimEnd().replace(/(?<!\.|\betc)\.$/, "")}; settled by ${settleStepWords[by]}: ${source}`;
     severities = ["critical", "major", "minor"];
     severitySchema2 = external_exports.enum(severities);
     candidateIdSchema2 = external_exports.string().regex(/^[A-Z]+-[1-9][0-9]*$/, "a candidate id is an upper-case prefix, a dash and a number from 1");
@@ -30206,6 +30215,9 @@ function choicesShown(candidates, settled4) {
   const open2 = [...new Set(candidates.flatMap((candidate) => candidate.choice === null || shown.has(candidate.choice) ? [] : [candidate.choice]))];
   return [...answered2, ...open2.map((choice) => ({ verifiers: [choice], settled: null }))];
 }
+function shownChoiceLines(candidates, settled4, said2, label) {
+  return choicesShown(candidates, settled4).flatMap(({ verifiers, settled: entry }) => entry === null ? verifiers.map((choice) => `        the verifier's choice for the author, which the decision did not settle: ${said2(choice)}`) : [...verifiers.map((choice) => `        the verifier's choice for the author: ${said2(choice)}`), `        ${label}: ${settledChoiceWords(said2(entry.choice), entry.by, said2(entry.source))}`]);
+}
 function compareFindings(a, b) {
   const severity = severities.indexOf(a.finding.severity) - severities.indexOf(b.finding.severity);
   if (severity !== 0) return severity;
@@ -30223,7 +30235,7 @@ function rankedFindings(review2, findings = review2.ranking ?? []) {
     const members2 = finding.members.map((id) => review2.candidates[id]);
     if (primary === void 0 || members2.some((member) => member === void 0)) throw new Error(`Ranking names a candidate the run never recorded: ${finding.id}`);
     const candidates = [primary, ...members2];
-    return { finding, primary, members: members2, resolution: mergedResolution(candidates), choices: candidates.map((candidate) => ({ id: candidate.id, choice: resolutionOf(candidate)?.authorChoice ?? null })) };
+    return { finding, primary, members: members2, resolution: mergedResolution(candidates), choices: candidateChoices(review2, finding) };
   });
   return resolved.sort(compareFindings);
 }
@@ -31593,12 +31605,16 @@ function faultsMessage(faults) {
   if (faults.length === 1) return faults[0];
   const room = maxRecordedTextLength - structuralCheckPrefix.length;
   const head2 = `The answer breaks ${String(faults.length)} rules: `;
+  const more = (count3) => count3 === 0 ? "" : `; and ${String(count3)} more`;
   const listed2 = [];
   for (const [position, fault] of faults.entries()) {
-    const left = faults.length - position - 1;
-    const tail = left === 0 ? "" : `; and ${String(left)} more`;
-    if ((head2 + [...listed2, fault].join("; ") + tail).length > room) return `${head2}${listed2.join("; ")}; and ${String(faults.length - position)} more`;
-    listed2.push(fault);
+    const tail = more(faults.length - position - 1);
+    if ((head2 + [...listed2, fault].join("; ") + tail).length <= room) {
+      listed2.push(fault);
+      continue;
+    }
+    if (position === 0) return `${head2}${truncated(fault, room - head2.length - tail.length)}${tail}`;
+    return `${head2}${listed2.join("; ")}${more(faults.length - position)}`;
   }
   return `${head2}${listed2.join("; ")}`;
 }
@@ -31627,6 +31643,7 @@ var init_schemas3 = __esm({
     init_events();
     init_cited_runs();
     init_errors7();
+    init_steps();
     init_vocabulary();
     candidateFields = {
       /** The path as the finder gives it; the engine normalizes it against the scope. */
@@ -34829,7 +34846,7 @@ function answeringLine(review2, engineEntry, run2) {
   const offers = (review2.decisions ?? []).some((decision) => decision.decision === "ask" || decision.decision === "fix" && decision.departure !== null);
   return offers ? [answerAtTerminal(engineEntry, run2)] : [];
 }
-var leaveReasonWords, leaveWords, answerAtTerminal;
+var leaveWords, answerAtTerminal;
 var init_decision_report = __esm({
   "src/review/decision-report.ts"() {
     "use strict";
@@ -34840,12 +34857,6 @@ var init_decision_report = __esm({
     init_needs();
     init_state();
     init_vocabulary();
-    leaveReasonWords = {
-      "outside-change-not-regression": "outside the change, and not a regression",
-      superseded: "superseded",
-      intended: "intended, as the repository states",
-      settled: "a choice of shape, settled in favor of the code as it is"
-    };
     leaveWords = (leave, numbers) => leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`;
     answerAtTerminal = (engineEntry, run2) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run2, "<number>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
   }
@@ -37017,7 +37028,7 @@ var init_tasks = __esm({
     fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
     verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
     evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
-    settledLines = (choices, settled4) => shownChoiceLines(choicesShown(choices, settled4), (text3) => text3, "settled");
+    settledLines = (choices, settled4) => shownChoiceLines(choices, settled4, (text3) => text3, "settled");
     answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
     decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
     repairTailBytes = 16 * 1024;
@@ -37468,7 +37479,7 @@ ${text3.endsWith("\n") ? text3 : `${text3}
 function decisionLines(decision, choices, clean) {
   if (decision === void 0) return ["    decision: none recorded"];
   const grounds = `        grounds: ${clean(decision.grounds)}`;
-  const settled4 = shownChoiceLines(choicesShown(choices, decision.settled), clean, "settled by the decision");
+  const settled4 = shownChoiceLines(choices, decision.settled, clean, "settled by the decision");
   switch (decision.decision) {
     case "fix":
       return [
@@ -37747,7 +37758,8 @@ function deciderFindings(review2) {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map((candidate) => ({ ...taskCandidate(candidate), authorChoice: resolutionOf(candidate)?.authorChoice ?? null }))
+    // `entry.choices` holds each candidate's choice in this same order, primary first, and is what `checkDecisions` holds the decider to.
+    candidates: [entry.primary, ...entry.members].map((candidate, index2) => ({ ...taskCandidate(candidate), authorChoice: entry.choices[index2].choice }))
   }));
 }
 function refusedDecisions(review2) {
@@ -38472,12 +38484,7 @@ var init_pull_request_words = __esm({
       minorCut: "To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.",
       leftHeading: "### The findings left as is",
       leftSummary: (count3) => count3 === 1 ? "The finding left as is" : `The ${String(count3)} findings left as is`,
-      leaveReasons: {
-        "outside-change-not-regression": "outside the change, and not a regression",
-        superseded: "superseded",
-        intended: "intended, as the repository states",
-        settled: "a choice of shape, settled in favor of the code as it is"
-      },
+      leaveReasons: leaveReasonWords,
       leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? "" : ` by ${by}`}.`,
       groundsLabel: "Why:",
       leftCut: (count3) => `To fit the length GitHub takes, ${count3 === 1 ? "the finding left as is is" : `the ${String(count3)} findings left as is are`} not listed here; the report of the run holds ${count3 === 1 ? "it" : "each"}.`,
@@ -40497,11 +40504,11 @@ function questionBlocks(view, finding, question, grounds, say) {
   ];
   return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options2, ...standing];
 }
-function choiceLines2(view, finding, say) {
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => view.words.choice({
+function choiceBlocks(view, finding, say) {
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => [view.words.choice({
     verifiers: shown.verifiers.map((choice) => say.sentence(choice)),
     settled: shown.settled === null ? null : { choice: say.sentence(shown.settled.choice), step: view.words.settleSteps[shown.settled.by], source: say.sentence(shown.settled.source) }
-  }));
+  })]);
 }
 function leftBecauseOf(view, leave) {
   const by = leave.leave.supersededBy;
@@ -40511,7 +40518,7 @@ function decisionBlocks(view, finding, say, minor) {
   const { decision, departure, question } = finding;
   if (decision?.decision === "fix") {
     const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
-    return [...would, choiceLines2(view, finding, say), ...departure === null ? [] : [departureLines(view, departure, say)], decidedFixLines(view, decision, say)];
+    return [...would, ...choiceBlocks(view, finding, say), ...departure === null ? [] : [departureLines(view, departure, say)], decidedFixLines(view, decision, say)];
   }
   if (decision?.decision === "ask" && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
   return [];
@@ -40666,7 +40673,7 @@ function leftSection(view, say, cuts) {
       [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
       [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
       leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
-      choiceLines2(view, finding, say),
+      ...choiceBlocks(view, finding, say),
       location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`]
     );
   };
@@ -41226,7 +41233,7 @@ var init_publish = __esm({
     readRefusal = (target, unrecorded2) => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded2 });
     cutWords = {
       refuted: "the refuted candidates",
-      left: "the findings left as is",
+      left: "the findings left as is whose verifiers named no choice",
       "minor-table": "the table of the minor findings",
       "area-diagrams": "the diagrams of the areas"
     };
