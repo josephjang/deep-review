@@ -15,7 +15,7 @@
 import type { FindingStatus } from './brief.ts';
 import type { Layer } from '../config/settings.ts';
 import { capitalized, counted, findingWords, listed } from './markdown.ts';
-import { settleStepWords, type LeaveReason, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
+import { leaveReasonWords, settleStepWords, type LeaveReason, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the last visible line of the body names: the engine, the runtime and its models, the run, and the commits it reviewed. */
 export interface LastLineFacts {
@@ -363,12 +363,7 @@ const english: PullRequestWords = {
 
   leftHeading: '### The findings left as is',
   leftSummary: (count) => (count === 1 ? 'The finding left as is' : `The ${String(count)} findings left as is`),
-  leaveReasons: {
-    'outside-change-not-regression': 'outside the change, and not a regression',
-    superseded: 'superseded',
-    intended: 'intended, as the repository states',
-    settled: 'a choice of shape, settled in favor of the code as it is',
-  },
+  leaveReasons: leaveReasonWords,
   leftBecause: (reason, by) => `deep-review leaves this as is: ${reason}${by === null ? '' : ` by ${by}`}.`,
   groundsLabel: 'Why:',
   leftCut: (count) => `To fit the length GitHub takes, ${count === 1 ? 'the finding left as is is' : `the ${String(count)} findings left as is are`} not listed here; the report of the run holds ${count === 1 ? 'it' : 'each'}.`,

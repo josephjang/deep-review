@@ -15,15 +15,7 @@ import { codeSpan, findingNamed, inlineText, quoted, sentenceText as sentence } 
 import { terminalQuoted } from './shell.ts';
 import { answerArguments, answerCommand, optionLine } from './needs.ts';
 import { choicesShown } from './state.ts';
-import { settledChoiceWords, type LeaveReason } from './vocabulary.ts';
-
-/** Why a finding was left, as the report words it. */
-export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
-  'outside-change-not-regression': 'outside the change, and not a regression',
-  superseded: 'superseded',
-  intended: 'intended, as the repository states',
-  settled: 'a choice of shape, settled in favor of the code as it is',
-};
+import { leaveReasonWords, settledChoiceWords } from './vocabulary.ts';
 
 /** The words for a left finding's reason, naming the finding that supersedes one by its number. */
 export const leaveWords = (leave: NonNullable<RecordedDecision['leave']>, numbers: ReadonlyMap<string, number>): string => (leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`);
