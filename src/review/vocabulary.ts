@@ -574,8 +574,8 @@ export const settleStepWords: Readonly<Record<SettleStep, string>> = {
   none: 'no real choice remains, since there is one sound way to act',
 };
 
-/** A choice a decision settles in English, as the report and the writer's and the fixer's tasks give it on one line: the choice, without its closing period, the step in words and the source, each text as the caller cleaned it. */
-export const settledChoiceWords = (choice: string, by: SettleStep, source: string): string => `${choice.replace(/[.\s]+$/, '')}; settled by ${settleStepWords[by]}: ${source}`;
+/** A choice a decision settles in English, as the report and the writer's and the fixer's tasks give it on one line: the choice, without its trailing whitespace and the one period that closes its sentence, the step in words and the source, each text as the caller cleaned it. The period of an ellipsis or of a closing `etc.` stays, since it says more than the sentence's end. */
+export const settledChoiceWords = (choice: string, by: SettleStep, source: string): string => `${choice.trimEnd().replace(/(?<!\.|\betc)\.$/, '')}; settled by ${settleStepWords[by]}: ${source}`;
 
 /** The severities merge-rank assigns, most severe first. */
 export const severities = ['critical', 'major', 'minor'] as const;
