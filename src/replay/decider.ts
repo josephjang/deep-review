@@ -450,6 +450,8 @@ export interface DeciderReplayOutcome {
   readonly attempts: readonly DeciderAttempt[];
   /** The accepted decisions in the ranking's order, or null when no answer was accepted or nothing was launched. */
   readonly decisions: readonly RecordedDecision[] | null;
+  /** The path of the review written, or null when none was: no answer was accepted, nothing was launched, or the run reviewed no pull request. */
+  readonly review: string | null;
 }
 
 /**
@@ -501,7 +503,7 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
     const prompt = promptOf([]);
     const path = write(promptFileName(1), prompt);
     log(`print task: the prompt of the first attempt, ${String(Buffer.byteLength(prompt, 'utf8'))} bytes, at ${path}; nothing was launched`);
-    return { runId: state.id, attempts: [], decisions: null };
+    return { runId: state.id, attempts: [], decisions: null, review: null };
   }
 
   const replay = Checkpoint.open(join(output, replayCheckpointDirectoryName), { engine: options.engine });
@@ -558,15 +560,16 @@ export async function replayDecider(options: DeciderReplayOptions): Promise<Deci
     if (accepted === null) {
       write(factsFileName, `${JSON.stringify({ ...launch, attempts, accepted: false }, null, 2)}\n`);
       log(`no answer was accepted in ${String(deciderAttempts)} attempts, so nothing is rendered`);
-      return { runId: state.id, attempts, decisions: null };
+      return { runId: state.id, attempts, decisions: null, review: null };
     }
     const decided = withDecisions(state, accepted.workerId, accepted.decisions, options.engine);
     const decisions = decided.review!.decisions!;
     write(decisionsFileName, `${JSON.stringify(decisions, null, 2)}\n`);
+    let review: string | null = null;
     if (scope.pullRequest === null) log(`run ${state.id} reviewed no pull request, so there is no review to render`);
-    else write(reviewFileName, `${renderedReview(decided, scope, { root, tree, evidence, engine: options.engine, environment: options.environment ?? process.env, platform }).join('\n')}\n`);
+    else review = write(reviewFileName, `${renderedReview(decided, scope, { root, tree, evidence, engine: options.engine, environment: options.environment ?? process.env, platform }).join('\n')}\n`);
     write(factsFileName, `${JSON.stringify({ ...launch, attempts, accepted: true, ...deciderFacts(decided) }, null, 2)}\n`);
-    return { runId: state.id, attempts, decisions };
+    return { runId: state.id, attempts, decisions, review };
   } finally {
     replay.close();
   }
