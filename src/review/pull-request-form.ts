@@ -454,13 +454,14 @@ function questionBlocks(view: FormView, finding: FindingView, question: BriefQue
  * step in the review's words and the source, after the choices of the
  * candidates' verifiers it answers; then each choice a verifier left to
  * the author that no settlement answers, with that deep-review did not
- * settle it; none when there is neither.
+ * settle it; none when there is neither. Each is a block of its own, so
+ * a blank line parts two choices.
  */
-function choiceLines(view: FormView, finding: FindingView, say: Speaker): string[] {
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => view.words.choice({
+function choiceBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => [view.words.choice({
     verifiers: shown.verifiers.map((choice) => say.sentence(choice)),
     settled: shown.settled === null ? null : { choice: say.sentence(shown.settled.choice), step: view.words.settleSteps[shown.settled.by], source: say.sentence(shown.settled.source) },
-  }));
+  })]);
 }
 
 /** The engine's words on why a finding is left as is, with the finding that supersedes it. */
@@ -474,7 +475,7 @@ function decisionBlocks(view: FormView, finding: FindingView, say: Speaker, mino
   const { decision, departure, question } = finding;
   if (decision?.decision === 'fix') {
     const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
-    return [...would, choiceLines(view, finding, say), ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
+    return [...would, ...choiceBlocks(view, finding, say), ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
   }
   if (decision?.decision === 'ask' && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
   return [];
@@ -696,7 +697,7 @@ function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): 
       [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
       [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
       leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
-      choiceLines(view, finding, say),
+      ...choiceBlocks(view, finding, say),
       location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`],
     );
   };
