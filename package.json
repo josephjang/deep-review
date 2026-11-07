@@ -14,6 +14,7 @@
     "smoke": "node scripts/smoke-runtime.ts",
     "roles": "node scripts/roles.ts",
     "replay": "node scripts/replay-verifier.ts",
+    "replay-decider": "node scripts/replay-decider.ts",
     "replay-score": "node scripts/score-replay.ts",
     "resume-test": "node --import ./test/setup.ts scripts/resume-test.ts",
     "review": "node src/cli.ts",
