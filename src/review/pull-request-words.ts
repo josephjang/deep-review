@@ -331,7 +331,7 @@ const english: PullRequestWords = {
   choice: ({ verifiers, settled }) => {
     const many = verifiers.length > 1;
     const left = verifiers.length === 0 ? [] : [many ? `Its verifiers left these choices to the author: ${verifiers.join(' ')}` : `Its verifier left this choice to the author: ${verifiers[0]!}`];
-    const decided = settled === null ? `deep-review did not settle ${many ? 'them' : 'it'}.` : `deep-review settles ${verifiers.length === 0 ? 'a choice' : many ? 'them' : 'it'}: ${settled.choice} What settles it: ${settled.step}. ${settled.source}`;
+    const decided = settled === null ? `deep-review did not settle ${many ? 'them' : 'it'}.` : `deep-review decided: ${settled.choice} What settles it: ${settled.step}. ${settled.source}`;
     return `**The choice.** ${[...left, decided].join(' ')}`;
   },
   settleSteps: settleStepWords,
@@ -517,7 +517,7 @@ const korean: PullRequestWords = {
   choice: ({ verifiers, settled }) => {
     const many = verifiers.length > 1;
     const left = verifiers.length === 0 ? [] : [many ? `검증자들은 작성자가 정할 선택을 남겼습니다: ${verifiers.join(' ')}` : `검증자는 작성자가 정할 선택을 남겼습니다: ${verifiers[0]!}`];
-    const decided = settled === null ? `deep-review는 ${many ? '이 선택들을' : '이 선택을'} 정하지 않았습니다.` : `deep-review가 정한 선택: ${settled.choice} 정한 근거: ${settled.step}. ${settled.source}`;
+    const decided = settled === null ? `deep-review는 ${many ? '이 선택들을' : '이 선택을'} 정하지 않았습니다.` : `deep-review는 이렇게 정했습니다: ${settled.choice} 정한 근거: ${settled.step}. ${settled.source}`;
     return `**선택.** ${[...left, decided].join(' ')}`;
   },
   settleSteps: {

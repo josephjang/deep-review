@@ -57,13 +57,13 @@ describe('the tables of the engine\'s words', () => {
     const { en, ko } = pullRequestWordTables;
     for (const language of pullRequestLanguages) assert.deepEqual(Object.keys(pullRequestWordTables[language].settleSteps), [...settleSteps], language);
     const settled = { choice: 'An empty input gives an empty result.', step: en.settleSteps.intent, source: 'The change says so.' };
-    assert.equal(en.choice({ verifiers: [], settled }), '**The choice.** deep-review settles a choice: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
-    assert.equal(en.choice({ verifiers: ['Throw or return null.'], settled }), '**The choice.** Its verifier left this choice to the author: Throw or return null. deep-review settles it: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
-    assert.equal(en.choice({ verifiers: ['Throw or return null.', 'Guard the helper or not.'], settled }), '**The choice.** Its verifiers left these choices to the author: Throw or return null. Guard the helper or not. deep-review settles them: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
+    assert.equal(en.choice({ verifiers: [], settled }), '**The choice.** deep-review decided: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
+    assert.equal(en.choice({ verifiers: ['Throw or return null.'], settled }), '**The choice.** Its verifier left this choice to the author: Throw or return null. deep-review decided: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
+    assert.equal(en.choice({ verifiers: ['Throw or return null.', 'Guard the helper or not.'], settled }), '**The choice.** Its verifiers left these choices to the author: Throw or return null. Guard the helper or not. deep-review decided: An empty input gives an empty result. What settles it: the stated intent of the change. The change says so.');
     assert.equal(en.choice({ verifiers: ['Throw or return null.'], settled: null }), '**The choice.** Its verifier left this choice to the author: Throw or return null. deep-review did not settle it.');
     assert.equal(ko.choice({ verifiers: ['Throw or return null.'], settled: null }), '**선택.** 검증자는 작성자가 정할 선택을 남겼습니다: Throw or return null. deep-review는 이 선택을 정하지 않았습니다.');
     assert.equal(ko.choice({ verifiers: ['Throw or return null.', 'Guard the helper or not.'], settled: null }), '**선택.** 검증자들은 작성자가 정할 선택을 남겼습니다: Throw or return null. Guard the helper or not. deep-review는 이 선택들을 정하지 않았습니다.');
-    assert.equal(ko.choice({ verifiers: [], settled: { ...settled, step: ko.settleSteps.shape } }), '**선택.** deep-review가 정한 선택: An empty input gives an empty result. 정한 근거: 주변 코드가 이미 쓰는 형태, 없으면 덜 더하는 형태. The change says so.');
+    assert.equal(ko.choice({ verifiers: [], settled: { ...settled, step: ko.settleSteps.shape } }), '**선택.** deep-review는 이렇게 정했습니다: An empty input gives an empty result. 정한 근거: 주변 코드가 이미 쓰는 형태, 없으면 덜 더하는 형태. The change says so.');
   });
 
   it('word a cut that keeps some findings left as is apart from one that takes them all (D9 of the settled choice)', () => {
