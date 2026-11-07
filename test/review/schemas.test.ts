@@ -453,4 +453,14 @@ describe('the decider\'s output schema and its structural check (R3 of the decis
       return true;
     });
   });
+
+  it('truncates a first fault too long to fit on its own, so the refusal still names the start of it', () => {
+    const named = Array.from({ length: 600 }, (_, at) => ({ id: `RIPPLE-${String(at + 1)}`, choice: 'keep the code or change it' }));
+    assert.throws(() => checkDecisions(parsed([{}]), [named, ...unnamed(1)]), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.equal(`${structuralCheckPrefix}${error.message}`.length, maxRecordedTextLength);
+      assert.match(error.message, /^The answer breaks 2 rules: Decision \[0\] is a fix with no departure and settles no choice for RIPPLE-1, RIPPLE-2, .* \[truncated\]; and 1 more$/);
+      return true;
+    });
+  });
 });

@@ -11,6 +11,7 @@ import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, 
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
+import { truncated } from './steps.ts';
 import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, maxRecordedTextLength, settleStepSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type DecisionKind, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
@@ -621,18 +622,23 @@ function decisionFaults(entry: DeciderOutput['decisions'][number], findings: rea
  * The faults of an answer as the message of one refusal, within what a
  * failed attempt records of it after `structuralCheckPrefix`: one fault
  * alone, or each in turn, with the count of those left out when the rest
- * would not fit.
+ * would not fit. A first fault too long to fit on its own is truncated, so
+ * the refusal still names the start of what the next attempt must change.
  */
 function faultsMessage(faults: readonly string[]): string {
   if (faults.length === 1) return faults[0]!;
   const room = maxRecordedTextLength - structuralCheckPrefix.length;
   const head = `The answer breaks ${String(faults.length)} rules: `;
+  const more = (count: number): string => (count === 0 ? '' : `; and ${String(count)} more`);
   const listed: string[] = [];
   for (const [position, fault] of faults.entries()) {
-    const left = faults.length - position - 1;
-    const tail = left === 0 ? '' : `; and ${String(left)} more`;
-    if ((head + [...listed, fault].join('; ') + tail).length > room) return `${head}${listed.join('; ')}; and ${String(faults.length - position)} more`;
-    listed.push(fault);
+    const tail = more(faults.length - position - 1);
+    if ((head + [...listed, fault].join('; ') + tail).length <= room) {
+      listed.push(fault);
+      continue;
+    }
+    if (position === 0) return `${head}${truncated(fault, room - head.length - tail.length)}${tail}`;
+    return `${head}${listed.join('; ')}${more(faults.length - position)}`;
   }
   return `${head}${listed.join('; ')}`;
 }
