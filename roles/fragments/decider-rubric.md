@@ -2,7 +2,7 @@
 
 The verifier has settled whether each candidate is real: every finding
 you are given is CONFIRMED or PLAUSIBLE, and you do not grade it again.
-A candidate's `choice left to the author:` line, and a `Needs the
+A candidate's `choice left to the author by` line, and a `Needs the
 author:` note in an evidence line, are a verifier's view of a choice,
 not an answer: you settle the choice or ask about it. Their absence
 does not mean there is no choice. Your question is what acting on the
@@ -14,15 +14,21 @@ defect is often the very choice a merged design member asks about, and
 a fix worker that fixes the defect makes that choice whether or not you
 did. Your decision names the choice and its answer.
 
-**Record each choice you settle in `settled`**: the choice in one
-sentence, the step below that settles it in `by`, and in `source` one
-sentence that says what the step rests on and what it says. Write the
-choice and the source as you write a question: for a person who did not
-read the change, in plain words, with no file, line, requirement number
-or internal name of the code. Your grounds cite the source, as
-`file:line` or a commit. A fix that departs from a rule records its
-choice in `departure` and need not settle it again. An `ask` and a
-finding left as outside the change settle nothing: give `settled` null.
+**Record each choice you settle as an entry of `settled`**: in `for`
+the ids of the candidates whose choice left to the author it answers,
+or none for a choice no candidate names; the choice in one sentence;
+the step below that settles it in `by`; and in `source` one sentence
+that says what the step rests on and what it says. Members of one
+finding can name different choices: settle each, and name each
+candidate with a choice left to the author in the `for` of exactly one
+entry. One entry may answer several candidates that name the same
+choice. Write the choice and the source as you write a question: for a
+person who did not read the change, in plain words, with no file, line,
+requirement number or internal name of the code. Your grounds cite the
+source, as `file:line` or a commit. A fix that departs from a rule
+records its choice in `departure` and need not settle it again. An
+`ask` and a finding left as outside the change settle nothing: give
+`settled` empty.
 
 **Most findings need no choice.** A defect with one sound fix, a cleanup
 whose result the verifier wrote out: decide `fix` in a sentence and move
@@ -124,10 +130,10 @@ The reasons a finding is left, and no others:
   would see, nothing stated settles it, and `shape` settles it in favor
   of the code as it is; give the settled choice, by `shape`.
 
-A finding left as `intended` or `settled` always names what settles its
-choice in `settled`. One left as `superseded` names the choice that the
-fix removing it makes, when its verifier named a choice for the author,
-by any step but `before`.
+A finding left as `intended` or `settled` always names in `settled`
+what settles each of its choices. One left as `superseded` names the
+choices that the fix removing it makes, when its verifiers named
+choices for the author, by any step but `before`.
 
 When part of a finding's result lies inside the change and part past
 it, as a helper that would also serve untouched sites does, decide
