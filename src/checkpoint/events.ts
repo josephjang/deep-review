@@ -1352,7 +1352,7 @@ export const recordedDecisionSchema = z.discriminatedUnion('decision', [
   z.strictObject({ id: candidateIdSchema, decision: z.literal('leave'), grounds: decisionText(1000), fix: z.null(), leave: decidedLeave, ask: z.null(), departure: z.null() }),
   z.strictObject({ id: candidateIdSchema, decision: z.literal('ask'), grounds: decisionText(1000), fix: z.null(), leave: z.null(), ask: decidedAsk, departure: z.null() }),
 ]);
-export type RecordedDecision = z.infer<typeof recordedDecisionSchema>;
+export type RecordedDecisionV1 = z.infer<typeof recordedDecisionSchema>;
 
 /**
  * The decider's decisions, one per ranked finding, in the order its answer
@@ -1367,7 +1367,7 @@ export const decisionsRecordedV1 = z.strictObject({
   message: 'each finding is decided once',
   path: ['decisions'],
 });
-export type DecisionsRecorded = z.infer<typeof decisionsRecordedV1>;
+export type DecisionsRecordedV1 = z.infer<typeof decisionsRecordedV1>;
 
 /**
  * The vocabulary version 5 of the review events records, and version 1 of
@@ -2864,6 +2864,148 @@ export const publishDroppedV1 = z.discriminatedUnion('reason', [
 ]);
 export type PublishDropped = z.infer<typeof publishDroppedV1>;
 
+/**
+ * The vocabulary version 13 of the review events records, and version 2
+ * of the decisions (R2, R3, TD4 of the settled choice): why a finding is
+ * left, with `settled`, and the step that settles a choice a decision
+ * makes. Frozen here for the reason `reviewVocabularyV1` is: a test holds
+ * it equal to today's vocabulary.
+ */
+export const reviewVocabularyV13 = {
+  leaveReasons: ['outside-change-not-regression', 'superseded', 'intended', 'settled'],
+  settleSteps: ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none'],
+} as const;
+
+const vocabularyV13 = reviewVocabularyV13;
+type SettleStepV13 = (typeof vocabularyV13.settleSteps)[number];
+type LeaveReasonV13 = (typeof vocabularyV13.leaveReasons)[number];
+
+/**
+ * A choice a decision settles (R2 of the settled choice): the choice in
+ * one sentence, the step that settles it, and the source that step rests
+ * on, each sentence in plain words for a reader of the review.
+ */
+const settledChoiceSchemaV1 = z.strictObject({ choice: decisionText(400), by: z.enum(vocabularyV13.settleSteps), source: decisionText(400) });
+export type SettledChoice = z.infer<typeof settledChoiceSchemaV1>;
+
+/** Whether a decision carries a settled choice: it must, it may, or it must not. */
+export type SettlementNeed = 'required' | 'optional' | 'refused';
+
+/**
+ * What a decision of one case may hold of a settled choice (D1 of the
+ * settled choice): whether it carries one when the finding's verifier
+ * named a choice for the author and when it named none, the steps that
+ * may settle it, what the case is in a sentence, and, for a case that
+ * never carries one, why.
+ */
+export interface SettlementRule {
+  readonly named: SettlementNeed;
+  readonly unnamed: SettlementNeed;
+  readonly steps: readonly SettleStepV13[];
+  readonly what: string;
+  readonly why: string | null;
+}
+
+/** The cases a settlement rule is kept for: a fix, with no departure or with one; a leave, by its reason; and an ask. */
+export type SettlementCase = 'fix' | 'fix-departing' | LeaveReasonV13 | 'ask';
+
+/**
+ * The rules of the settled choice, one per case, which version 2 of the
+ * decisions is held to by the decider's check and by the fold alike (D1,
+ * TD3 of the settled choice). A fix may settle a choice by any step, and
+ * one with no departure must when its verifier named a choice, since the
+ * departure is the record of a departing one. A leave as `intended` rests
+ * on what the repository states, so on the intent or the contract; one as
+ * `settled` is a choice between two shapes only a maintainer would see,
+ * so it always settles one, by the rule for shapes; one as `superseded`
+ * settles the choice its superseding fix makes, by any step but the
+ * behavior before the change, which only an edit of this finding
+ * restores. A leave outside the change is not acted on, and the question
+ * of an ask is the record of its choice, so neither carries one. Frozen
+ * with the event: an older ledger must always fold, so a new rule is a new
+ * version of the decisions.
+ */
+export const settlementRulesV1: Readonly<Record<SettlementCase, SettlementRule>> = {
+  fix: { named: 'required', unnamed: 'optional', steps: vocabularyV13.settleSteps, what: 'a fix with no departure', why: null },
+  'fix-departing': { named: 'optional', unnamed: 'optional', steps: vocabularyV13.settleSteps, what: 'a fix that departs from a rule', why: null },
+  intended: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract'], what: 'a leave as intended', why: null },
+  settled: { named: 'required', unnamed: 'required', steps: ['shape'], what: 'a leave as settled', why: null },
+  superseded: { named: 'required', unnamed: 'optional', steps: ['intent', 'contract', 'kept', 'shape', 'scope', 'none'], what: 'a leave as superseded', why: null },
+  'outside-change-not-regression': { named: 'refused', unnamed: 'refused', steps: [], what: 'a leave as outside-change-not-regression', why: 'deep-review does not act on such a finding' },
+  ask: { named: 'refused', unnamed: 'refused', steps: [], what: 'an ask', why: 'its question is the record of the choice' },
+};
+
+/** A decision as the rules of the settled choice read it, the decider's answer and the ledger's alike. */
+interface SettlementFacts {
+  readonly decision: 'fix' | 'leave' | 'ask';
+  readonly departure: object | null;
+  readonly leave: { readonly reason: LeaveReasonV13 } | null;
+  readonly settled: { readonly by: SettleStepV13 } | null;
+}
+
+/** The case of the rules of the settled choice a decision is. */
+export function settlementCaseOf(decision: Omit<SettlementFacts, 'settled'>): SettlementCase {
+  if (decision.decision === 'fix') return decision.departure === null ? 'fix' : 'fix-departing';
+  if (decision.decision === 'ask') return 'ask';
+  if (decision.leave === null) throw new Error('A leave decision has no reason');
+  return decision.leave.reason;
+}
+
+/**
+ * The rule of `settlementRulesV1` a decision breaks by the settled choice
+ * it carries or lacks, as what follows its name in a sentence, given
+ * whether its finding's verifier named a choice for the author; null for
+ * a decision that keeps them.
+ */
+export function settlementFaultV1(decision: SettlementFacts, named: boolean): string | null {
+  const rule = settlementRulesV1[settlementCaseOf(decision)];
+  const need = named ? rule.named : rule.unnamed;
+  const { settled } = decision;
+  if (settled === null) {
+    if (need !== 'required') return null;
+    return rule.unnamed === 'required' ? `is ${rule.what} and settles no choice, which ${rule.what} always does` : `is ${rule.what} of a finding whose verifier named a choice for the author, and settles no choice`;
+  }
+  if (need === 'refused') return `is ${rule.what} and settles a choice, which ${rule.what} never does: ${rule.why ?? ''}`;
+  if (!rule.steps.includes(settled.by)) return `is ${rule.what} and settles its choice by \`${settled.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(', ')}`;
+  return null;
+}
+
+const [recordedFixV1, recordedLeaveV1, recordedAskV1] = recordedDecisionSchema.options;
+const decidedLeaveV2 = z.strictObject({ reason: z.enum(vocabularyV13.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => (leave.reason === 'superseded') === (leave.supersededBy !== null), {
+  message: 'a superseded finding names the finding that supersedes it, and no other left finding names one',
+  path: ['supersededBy'],
+});
+
+/**
+ * One finding as the decider decided it, with the choice it settles (R2,
+ * R3 of the settled choice): version 1's variants, each with `settled`,
+ * the choice its decision settles or null, and a leave with the reasons
+ * of version 13, `settled` among them. Which decision carries one, and by
+ * which step, is `settlementRulesV1`, which the fold holds.
+ */
+export const recordedDecisionSchemaV2 = z.discriminatedUnion('decision', [
+  z.strictObject({ ...recordedFixV1.shape, settled: settledChoiceSchemaV1.nullable() }),
+  z.strictObject({ ...recordedLeaveV1.shape, leave: decidedLeaveV2, settled: settledChoiceSchemaV1.nullable() }),
+  z.strictObject({ ...recordedAskV1.shape, settled: settledChoiceSchemaV1.nullable() }),
+]);
+/** A decision as the fold holds it, of either version: one of version 1 settles no choice. */
+export type RecordedDecision = z.infer<typeof recordedDecisionSchemaV2>;
+
+/**
+ * The decider's decisions with the choice each settles (R2, TD1 of the
+ * settled choice): version 1 with each decision at version 2. Any run may
+ * record it, since a run records its decisions once; the engine of the
+ * settled choice records no other.
+ */
+export const decisionsRecordedV2 = z.strictObject({
+  workerId: z.uuid(),
+  decisions: z.array(recordedDecisionSchemaV2).min(1),
+}).refine((recorded) => new Set(recorded.decisions.map((decided) => decided.id)).size === recorded.decisions.length, {
+  message: 'each finding is decided once',
+  path: ['decisions'],
+});
+export type DecisionsRecorded = z.infer<typeof decisionsRecordedV2>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -2900,7 +3042,7 @@ export const eventRegistry = defineRegistry({
   'commits.dropped': { 1: { schema: commitsDroppedV1 } },
   'survey.recorded': { 1: { schema: surveyRecordedV1 } },
   'survey.failed': { 1: { schema: surveyFailedV1 } },
-  'decisions.recorded': { 1: { schema: decisionsRecordedV1 } },
+  'decisions.recorded': { 1: { schema: decisionsRecordedV1 }, 2: { schema: decisionsRecordedV2 } },
   'files.claimed': { 1: { schema: filesClaimedV1 } },
   'claims.lost': { 1: { schema: claimsLostV1 } },
   'fix.pinned': { 1: { schema: fixPinnedV1 }, 2: { schema: fixPinnedV2 } },

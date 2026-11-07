@@ -425,12 +425,12 @@ describe('contributionOf', () => {
     assert.deepEqual((ranking.payload as { findings: { id: string; members: string[] }[] }).findings.map((finding) => [finding.id, finding.members]), [['RIPPLE-1', ['SWEEP-2']], ['SWEEP-1', []]]);
   });
 
-  it('records the decider\'s answer under decisions.recorded@1, each index resolved to the finding it numbered and a superseding index to its finding, in the answer\'s order (R10 of the decision step)', () => {
+  it('records the decider\'s answer under decisions.recorded@2, each index resolved to the finding it numbered and a superseding index to its finding, in the answer\'s order, with the choice each settles (R10 of the decision step; R2 of the settled choice)', () => {
     const state = decidedOf(mergeRanked(), null).start('decision').fold();
-    const answer = deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1 }, { departs: true }]) as { decisions: unknown[] };
+    const answer = deciderAnswer([{ decision: 'leave', reason: 'superseded', supersededBy: 1, settledBy: 'kept' }, { departs: true }]) as { decisions: unknown[] };
     const event = contribution(unit('decision', 'decision', 'decider'), receipt({ decisions: [...answer.decisions].reverse() }), state, worktree);
     assert.equal(event.kind, 'decisions.recorded');
-    assert.equal(event.version, 1);
+    assert.equal(event.version, 2);
     assert.ok(lookupEvent(eventRegistry, event.kind, event.version)?.schema.safeParse(event.payload).success === true, JSON.stringify(event.payload));
     const decided = (event.payload as { decisions: { id: string; decision: string; leave: unknown; departure: unknown }[] }).decisions;
     // The fold holds them in the ranking's order, so the event keeps the decider's.
@@ -438,6 +438,18 @@ describe('contributionOf', () => {
     assert.deepEqual(decided[1]!.leave, { reason: 'superseded', supersededBy: 'SWEEP-1' });
     assert.notEqual(decided[0]!.departure, null);
     assert.ok(!('index' in decided[0]!), 'the ledger records ids, never the task\'s indexes');
+    assert.deepEqual((event.payload as { decisions: { settled: unknown }[] }).decisions.map((decision) => decision.settled), [null, { choice: 'fake choice settled for [0]', by: 'kept', source: 'fake source of the step for [0]' }]);
+  });
+
+  it('holds the answer to the choice each finding\'s verifier named, refusing a fix that settles none of a finding whose verifier named one (R2 of the settled choice)', () => {
+    const folded = decidedOf(mergeRanked(), null).start('decision').fold();
+    const ripple = folded.review!.candidates['RIPPLE-1']!;
+    const state = { ...folded, review: { ...folded.review!, candidates: { ...folded.review!.candidates, 'RIPPLE-1': { ...ripple, verdict: { ...ripple.verdict!, authorChoice: 'Whether parse should throw or return null on an empty input.' } } } } };
+    const unsettled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{}, {}])), state, worktree);
+    assert.equal(unsettled.kind, 'attempt.failed');
+    assert.match((unsettled.payload as { reason: string }).reason, /^structural check: Decision \[0\] is a fix with no departure of a finding whose verifier named a choice for the author, and settles no choice$/);
+    const settled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ settledBy: 'intent' }, {}])), state, worktree);
+    assert.equal(settled.kind, 'decisions.recorded', 'the finding whose verifier named none needs no settled choice');
   });
 
   it('turns a decider answer the structural check refuses into a failed attempt naming the check', () => {

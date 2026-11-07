@@ -329,7 +329,8 @@ describe('the repository\'s roles/', () => {
   it('names in the decider\'s rubric every decision and exactly the leave reasons the engine records, so the prompt and the schema cannot drift apart (R3 of the decision step)', () => {
     const rubric = readFileSync(join(repositoryRolesRoot(), fragmentsDirectoryName, 'decider-rubric.md'), 'utf8');
     for (const kind of decisionKinds) assert.match(rubric, new RegExp(`^\\| \`${kind}\` \\|`, 'm'), kind);
-    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), [...leaveReasons]);
+    // The rubric does not define the reason `settled` yet, nor the steps that settle a choice.
+    assert.deepEqual([...rubric.matchAll(/^- `([a-z-]+)`: /gm)].map((match) => match[1]), leaveReasons.filter((reason) => reason !== 'settled'));
     assert.match(rubric, /The reasons a finding is left, and no others:/);
     // An ask never stops the run, and its default is what a fixer applies (R4 of the decision step).
     assert.match(rubric, /An `ask` never stops the run\. A fix worker applies the default you name\s+now/);

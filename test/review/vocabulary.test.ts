@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { angleClasses, angles, answeredUnits, asksToAct, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
+import { angleClasses, angles, answeredUnits, asksToAct, answerPhases, answersFindings, budgetDegradingPhases, angleSchema, claimingPhases, candidateIdPrefix, candidatePhases, checkKinds, checkOutcomes, checkPhases, clusterIdSchema, decisionCounts, decisionCountWords, decisionKinds, deduplicationPhases, documentationUnitKey, editingPhases, failedOrTimedOut, finderAngles, finderAngleSchema, fixPhases, isBudgetDegradingPhase, isCheckPhase, isClaimingPhase, isEditingPhase, isFinderRole, isTreeCheckPhase, leaveReasons, lostClaimWords, phases, reviewRoles, roleOfAngle, settleSteps, singleUnitKey, triageUnitKey, verificationPhases } from '../../src/review/vocabulary.ts';
 
 describe('the angles', () => {
   it('are SCAN, run by the triage, then the nine finder angles in launch order', () => {
@@ -55,9 +55,13 @@ describe('candidateIdPrefix', () => {
 });
 
 describe('the decisions', () => {
-  it('make a finding one of fix, leave and ask, and leave one for one of three reasons', () => {
+  it('make a finding one of fix, leave and ask, and leave one for one of four reasons', () => {
     assert.deepEqual(decisionKinds, ['fix', 'leave', 'ask']);
-    assert.deepEqual(leaveReasons, ['outside-change-not-regression', 'superseded', 'intended']);
+    assert.deepEqual(leaveReasons, ['outside-change-not-regression', 'superseded', 'intended', 'settled']);
+  });
+
+  it('settle a choice by one of the five steps of the decider\'s order, in its order, then the scope of a fix and no choice remaining', () => {
+    assert.deepEqual(settleSteps, ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']);
   });
 
   it('count each kind once, a kind none was decided as zero, in the one phrase the log, status and the report share', () => {

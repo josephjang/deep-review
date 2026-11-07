@@ -381,7 +381,7 @@ describe('the fixer\'s task', () => {
         id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 'parse dereferences null', reason: 'one root cause',
         primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!', cited: null },
         members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller', cited: null }],
-        decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' } },
+        decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' }, settled: null },
         supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
         firstRound: null,
         answered: null,
@@ -391,7 +391,7 @@ describe('the fixer\'s task', () => {
         primary: { id: 'SWEEP-1', angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 'own s', detail: 'd', verdict: 'PLAUSIBLE', unverified: true, evidence: null, cited: null },
         members: [],
         decision: {
-          id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+          id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
           ask: { question: 'Should b log?', options: [{ option: 'log once', cost: 'c', rule: 'r', edits: true }, { option: 'stay quiet', cost: 'c', rule: 'r', edits: false }, { option: 'log always', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
         },
         supersedes: [],
@@ -592,9 +592,9 @@ describe('the fixer\'s task', () => {
 describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE' as const, location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED' as const, unverified: false, evidence: 'line 4 uses text!', cited: null };
-  const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' } };
+  const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' }, settled: null };
   const asking: FixerDecision = {
-    id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+    id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
     ask: { question: 'Should b log?', options: [{ option: 'stay quiet', cost: 'c', rule: 'b never logs', edits: false }, { option: 'log once', cost: 'one line per run', rule: 'b logs once per run', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
   };
   const finding = (id: string, decision: FixerDecision, answered: AnsweredFinding | null): FixerTaskFinding => ({
@@ -842,7 +842,7 @@ describe('the repair task', () => {
 describe('the documentation step\'s task', () => {
   const checks = [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }];
   const keepAsk: RecordedDecision = {
-    id: 'SCAN-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null,
+    id: 'SCAN-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
     ask: { question: 'Keep the bytes?', options: [{ option: 'drop them', cost: 'c', rule: 'r', edits: true }, { option: 'keep them', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 1, searched: ['docs'] },
   };
   const input = (change: Partial<DocumentationTaskInput> = {}): DocumentationTaskInput => ({
@@ -919,14 +919,14 @@ describe('the documentation step\'s task', () => {
     const owedTail = ', which no fix of the run has applied yet, so the tree does not hold it yet';
     assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: false }), '    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"');
     assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: true }), `    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"${owedTail}`);
-    const fix: RecordedDecision = { id: 'SCAN-1', decision: 'fix', grounds: 'g', fix: { approach: 'guard once', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse throws', source: 'docs/parse.md', reason: 'r' } };
+    const fix: RecordedDecision = { id: 'SCAN-1', decision: 'fix', grounds: 'g', fix: { approach: 'guard once', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse throws', source: 'docs/parse.md', reason: 'r' }, settled: null };
     const departs = '    decided: fix: guard once, departing from the rule "parse throws" (docs/parse.md), which the fix amends';
     assert.equal(decided({ decision: fix, answer: null, owed: false }), departs);
     assert.equal(decided({ decision: { ...fix, departure: null }, answer: null, owed: false }), '    decided: fix: guard once');
     assert.equal(decided({ decision: fix, answer: { kind: 'accept' }, owed: false }), `${departs}; the author accepted the departure`);
     assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: false }), `${departs}; the author rejected the departure, so the rule stands as its source states it`);
     assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: true }), `${departs}; the author rejected the departure${owedTail}`);
-    const leave: RecordedDecision = { id: 'SCAN-1', decision: 'leave', grounds: 'g', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-2' }, ask: null, departure: null };
+    const leave: RecordedDecision = { id: 'SCAN-1', decision: 'leave', grounds: 'g', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-2' }, ask: null, departure: null, settled: null };
     assert.equal(decided({ decision: leave, answer: null, owed: false }), '    decided: leave');
   });
 

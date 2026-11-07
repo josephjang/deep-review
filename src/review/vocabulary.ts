@@ -536,14 +536,32 @@ export function decisionCounts(decisions: readonly { readonly decision: Decision
 export const decisionCountWords = (counts: Readonly<Record<DecisionKind, number>>): string => `${String(counts.fix)} to fix, ${String(counts.leave)} to leave, ${String(counts.ask)} to ask the author`;
 
 /**
- * Why a finding is left, and no other reason (R3 of the decision step):
- * acting on it would edit only code outside the change, which did not
- * cause or worsen it; another finding's fix removes it; or the repository
- * states the behavior on purpose and the rule's reason reaches the case.
+ * Why a finding is left, and no other reason (R3 of the decision step;
+ * R3 of the settled choice): acting on it would edit only code outside
+ * the change, which did not cause or worsen it; another finding's fix
+ * removes it; the repository states the behavior on purpose and the
+ * rule's reason reaches the case, or its stated intent or contract
+ * settles a choice in favor of the code as it is; or acting needs a
+ * choice between two shapes only a maintainer would see, which the rule
+ * for shapes settles in favor of the code as it is.
  */
-export const leaveReasons = ['outside-change-not-regression', 'superseded', 'intended'] as const;
+export const leaveReasons = ['outside-change-not-regression', 'superseded', 'intended', 'settled'] as const;
 export const leaveReasonSchema = z.enum(leaveReasons);
 export type LeaveReason = z.infer<typeof leaveReasonSchema>;
+
+/**
+ * The step that settles a choice a decision makes (R2 of the settled
+ * choice): the five of the decider's order, in its order, the change's
+ * stated intent, the repository's stated contract, the behavior before
+ * the change, keeping a behavior that was there before, and for two
+ * shapes only a maintainer would see the one the surrounding code uses,
+ * else the one that adds less; then the two its rubric gives a fix
+ * outside the order, the scope of a fix that keeps to the part inside the
+ * change, and no choice remaining.
+ */
+export const settleSteps = ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none'] as const;
+export const settleStepSchema = z.enum(settleSteps);
+export type SettleStep = z.infer<typeof settleStepSchema>;
 
 /** The severities merge-rank assigns, most severe first. */
 export const severities = ['critical', 'major', 'minor'] as const;

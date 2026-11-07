@@ -32,6 +32,7 @@ import {
   commitsDroppedV1,
   commitsPreparedV1,
   decisionsRecordedV1,
+  decisionsRecordedV2,
   documentationPlannedV1,
   explanationRecordedV1,
   explanationRecordedV2,
@@ -96,6 +97,7 @@ import {
   reviewVocabularyV10,
   reviewVocabularyV11,
   reviewVocabularyV12,
+  reviewVocabularyV13,
   scopeCapturedV2,
   scopeCapturedV3,
   surveyFailedV1,
@@ -158,6 +160,7 @@ import {
   phases,
   placeReasons,
   publicationDropReasons,
+  settleSteps,
   recordedBlockerCodes,
   repairUnitKey,
   severities,
@@ -379,7 +382,7 @@ describe('the review vocabulary frozen by the v4 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
 
   it('is today\'s vocabulary in every word the answers, the documentation step, the checks on the base and the explanation did not widen', () => {
-    assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons });
+    assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons: ['outside-change-not-regression', 'superseded', 'intended'] });
   });
 
   it('caps a recorded reason at the same length as version 1', () => {
@@ -504,7 +507,7 @@ describe('the review vocabulary frozen by the v5 events', () => {
   });
 
   it('leaves the version 4 vocabulary as the decision step froze it', () => {
-    assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons });
+    assert.deepEqual(reviewVocabularyV4, { phases: phasesBeforeAnswers, decisionKinds, leaveReasons: ['outside-change-not-regression', 'superseded', 'intended'] });
   });
 });
 
@@ -1160,5 +1163,35 @@ describe('documentation.planned@1', () => {
     const items = documentationPlannedV1.parse({ items: [testing, outside, search] }).items;
     assert.deepEqual(items.filter(isDocumentItem).map((item) => item.file), ['./docs/testing.md', '../outside.md']);
     assert.deepEqual(items.filter((item) => !isDocumentItem(item)).map((item) => item.id), ['search']);
+  });
+});
+
+// Version 13 of the review events and version 2 of the decisions record
+// the words the settled choice added; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v13 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const settled = { choice: 'keep the helper private', by: 'shape', source: 'every helper of the module is private' };
+  const fix = { id: 'RIPPLE-1', decision: 'fix', grounds: 'one sound fix', fix: { approach: 'guard it', rejected: [] }, leave: null, ask: null, departure: null, settled: null };
+  const left = { id: 'SCAN-1', decision: 'leave', grounds: 'the module keeps helpers private', fix: null, leave: { reason: 'settled', supersededBy: null }, ask: null, departure: null, settled };
+  const accepts = (...decisions: unknown[]): boolean => decisionsRecordedV2.safeParse({ workerId, decisions }).success;
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV13, { leaveReasons, settleSteps });
+  });
+
+  it('records the choice a decision settles, by a step of the vocabulary, or none, on every decision of version 2', () => {
+    assert.equal(accepts(fix, left), true);
+    for (const by of settleSteps) assert.equal(accepts({ ...fix, settled: { ...settled, by } }), true, by);
+    assert.equal(accepts({ ...fix, settled: undefined }), false, 'version 2 names the settled choice, or null');
+    assert.equal(accepts({ ...fix, settled: { ...settled, by: 'guess' } }), false, 'a step of the vocabulary');
+    assert.equal(accepts({ ...fix, settled: { ...settled, choice: 'x'.repeat(401) } }), false, 'at most 400 characters');
+    assert.equal(accepts({ ...fix, settled: { ...settled, source: '' } }), false, 'a source says something');
+  });
+
+  it('leaves a finding as settled only from version 2, which version 1 neither reads nor carries a settled choice in', () => {
+    const withoutSettled = { id: left.id, decision: left.decision, grounds: left.grounds, fix: null, leave: left.leave, ask: null, departure: null };
+    assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [withoutSettled] }).success, false, 'version 1 has three reasons');
+    assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [{ ...withoutSettled, leave: { reason: 'intended', supersededBy: null } }] }).success, true, 'and reads each of them');
+    assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [{ ...fix, settled: null }] }).success, false, 'version 1 has no settled choice');
   });
 });

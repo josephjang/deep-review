@@ -21,6 +21,7 @@ export const leaveReasonWords: Readonly<Record<LeaveReason, string>> = {
   'outside-change-not-regression': 'outside the change, and not a regression',
   superseded: 'superseded',
   intended: 'intended, as the repository states',
+  settled: 'a choice of shape, settled in favor of the code as it is',
 };
 
 /** The words for a left finding's reason, naming the finding that supersedes one by its number. */

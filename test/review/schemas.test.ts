@@ -374,12 +374,14 @@ describe('the fixer\'s output schema', () => {
 describe('the decider\'s output schema and its structural check (R3 of the decision step)', () => {
   const parsed = (decided: readonly DecidedFinding[]): DeciderOutput => deciderOutputSchema.parse(deciderAnswer(decided));
   const changed = (output: DeciderOutput, index: number, change: Record<string, unknown>): DeciderOutput => ({ decisions: output.decisions.map((entry) => (entry.index === index ? { ...entry, ...change } : entry)) as DeciderOutput['decisions'] });
+  /** A task of `count` findings, none of whose verifiers named a choice for the author. */
+  const unnamed = (count: number): boolean[] => Array.from({ length: count }, () => false);
 
   it('compiles for both runtimes, is the decider\'s, and accepts a fix, a leave, an ask and a departing fix', () => {
     assert.equal(outputSchemaOf('decider'), deciderOutputSchema);
     assert.equal(compileOutputSchema(deciderOutputSchema).json.additionalProperties, false);
     const output = parsed([{}, { decision: 'leave', reason: 'superseded', supersededBy: 0 }, { decision: 'ask' }, { departs: true }, { decision: 'leave', reason: 'intended' }]);
-    assert.doesNotThrow(() => checkDecisions(output, 5));
+    assert.doesNotThrow(() => checkDecisions(output, unnamed(5)));
   });
 
   it('refuses an unknown decision or leave reason, an ask with one option or none looked for, and an over-long grounds', () => {
@@ -395,47 +397,47 @@ describe('the decider\'s output schema and its structural check (R3 of the decis
   });
 
   it('refuses an answer that misses, repeats or exceeds an index', () => {
-    assert.throws(() => checkDecisions(parsed([{}]), 2), /leaves out finding \[1\] of the 2/);
-    assert.throws(() => checkDecisions(parsed([{}, {}, {}]), 2), /Decision \[2\] is outside the task, whose findings are numbered \[0\] to \[1\]/);
+    assert.throws(() => checkDecisions(parsed([{}]), unnamed(2)), /leaves out finding \[1\] of the 2/);
+    assert.throws(() => checkDecisions(parsed([{}, {}, {}]), unnamed(2)), /Decision \[2\] is outside the task, whose findings are numbered \[0\] to \[1\]/);
     const twice = parsed([{}, {}]);
-    assert.throws(() => checkDecisions({ decisions: [twice.decisions[0]!, { ...twice.decisions[1]!, index: 0 }] }, 2), /Decision \[0\] is given twice/);
+    assert.throws(() => checkDecisions({ decisions: [twice.decisions[0]!, { ...twice.decisions[1]!, index: 0 }] }, unnamed(2)), /Decision \[0\] is given twice/);
   });
 
   it('refuses a decision without its own part, or with another\'s', () => {
     const output = parsed([{}, { decision: 'leave' }, { decision: 'ask' }]);
-    assert.throws(() => checkDecisions(changed(output, 0, { fix: null }), 3), /Decision \[0\] is fix and has no `fix`/);
-    assert.throws(() => checkDecisions(changed(output, 0, { leave: { reason: 'intended', supersededBy: null } }), 3), /Decision \[0\] is fix and carries `leave`, which only a leave decision does/);
-    assert.throws(() => checkDecisions(changed(output, 1, { ask: output.decisions[2]!.ask }), 3), /Decision \[1\] is leave and carries `ask`/);
-    assert.throws(() => checkDecisions(changed(output, 2, { decision: 'fix' }), 3), /Decision \[2\] is fix and has no `fix`/);
+    assert.throws(() => checkDecisions(changed(output, 0, { fix: null }), unnamed(3)), /Decision \[0\] is fix and has no `fix`/);
+    assert.throws(() => checkDecisions(changed(output, 0, { leave: { reason: 'intended', supersededBy: null } }), unnamed(3)), /Decision \[0\] is fix and carries `leave`, which only a leave decision does/);
+    assert.throws(() => checkDecisions(changed(output, 1, { ask: output.decisions[2]!.ask }), unnamed(3)), /Decision \[1\] is leave and carries `ask`/);
+    assert.throws(() => checkDecisions(changed(output, 2, { decision: 'fix' }), unnamed(3)), /Decision \[2\] is fix and has no `fix`/);
   });
 
   it('refuses a departure on anything but a fix', () => {
     const output = parsed([{}, { decision: 'ask' }]);
     const departure = { rule: 'r', source: 's', reason: 'r' };
-    assert.throws(() => checkDecisions(changed(output, 1, { departure }), 2), /Decision \[1\] is ask and departs from a rule, which only a fix does/);
+    assert.throws(() => checkDecisions(changed(output, 1, { departure }), unnamed(2)), /Decision \[1\] is ask and departs from a rule, which only a fix does/);
   });
 
   it('refuses an ask that recommends or applies an option it does not offer', () => {
     const output = parsed([{ decision: 'ask' }]);
     const ask = output.decisions[0]!.ask!;
-    assert.throws(() => checkDecisions(changed(output, 0, { ask: { ...ask, applied: 2 } }), 1), /Decision \[0\] applies option 2, but its question offers options 0 to 1/);
-    assert.throws(() => checkDecisions(changed(output, 0, { ask: { ...ask, recommended: 5 } }), 1), /Decision \[0\] recommends option 5/);
+    assert.throws(() => checkDecisions(changed(output, 0, { ask: { ...ask, applied: 2 } }), unnamed(1)), /Decision \[0\] applies option 2, but its question offers options 0 to 1/);
+    assert.throws(() => checkDecisions(changed(output, 0, { ask: { ...ask, recommended: 5 } }), unnamed(1)), /Decision \[0\] recommends option 5/);
   });
 
   it('holds a superseded finding to another finding of the task decided fix, and only a superseded one to naming one', () => {
     const superseded = (by: number | null, kinds: readonly DecidedFinding[] = [{}]): DeciderOutput => parsed([...kinds, { decision: 'leave', reason: 'superseded', ...(by === null ? {} : { supersededBy: by }) }]);
-    assert.throws(() => checkDecisions(superseded(null), 2), /Decision \[1\] is superseded and names no finding that supersedes it/);
-    assert.throws(() => checkDecisions(superseded(1), 2), /Decision \[1\] is superseded by \[1\], which is not another finding of the task decided fix/);
-    assert.throws(() => checkDecisions(superseded(7), 2), /superseded by \[7\]/);
-    assert.throws(() => checkDecisions(superseded(0, [{ decision: 'ask' }]), 2), /superseded by \[0\], which is not another finding of the task decided fix/);
+    assert.throws(() => checkDecisions(superseded(null), unnamed(2)), /Decision \[1\] is superseded and names no finding that supersedes it/);
+    assert.throws(() => checkDecisions(superseded(1), unnamed(2)), /Decision \[1\] is superseded by \[1\], which is not another finding of the task decided fix/);
+    assert.throws(() => checkDecisions(superseded(7), unnamed(2)), /superseded by \[7\]/);
+    assert.throws(() => checkDecisions(superseded(0, [{ decision: 'ask' }]), unnamed(2)), /superseded by \[0\], which is not another finding of the task decided fix/);
     const intended = parsed([{}, { decision: 'leave', reason: 'intended', supersededBy: 0 }]);
-    assert.throws(() => checkDecisions(intended, 2), /Decision \[1\] is left as intended and names a superseding finding, which only a superseded one does/);
+    assert.throws(() => checkDecisions(intended, unnamed(2)), /Decision \[1\] is left as intended and names a superseding finding, which only a superseded one does/);
   });
 
   it('names every fault of an answer in one refusal, each with its decision, so the next attempt is told all of them at once', () => {
     const output = parsed([{}, { decision: 'ask' }, {}]);
     const broken = changed(changed(output, 0, { fix: null }), 1, { departure: { rule: 'r', source: 's', reason: 'r' } });
-    assert.throws(() => checkDecisions({ decisions: broken.decisions.slice(0, 2) }, 3), (error: unknown) => {
+    assert.throws(() => checkDecisions({ decisions: broken.decisions.slice(0, 2) }, unnamed(3)), (error: unknown) => {
       assert.ok(error instanceof StructuralCheckError);
       assert.equal(error.message, 'The answer breaks 3 rules: Decision [0] is fix and has no `fix`; Decision [1] is ask and departs from a rule, which only a fix does; The answer leaves out finding [2] of the 3 the task gave');
       return true;
@@ -444,7 +446,7 @@ describe('the decider\'s output schema and its structural check (R3 of the decis
 
   it('keeps a refusal of many faults within what a failed attempt records, counting those it leaves out', () => {
     const output = parsed(Array.from({ length: 300 }, () => ({ decision: 'leave' as const, reason: 'superseded' as const })));
-    assert.throws(() => checkDecisions(output, 300), (error: unknown) => {
+    assert.throws(() => checkDecisions(output, unnamed(300)), (error: unknown) => {
       assert.ok(error instanceof StructuralCheckError);
       assert.ok(`${structuralCheckPrefix}${error.message}`.length <= maxRecordedTextLength, String(error.message.length));
       assert.match(error.message, /^The answer breaks 300 rules: Decision \[0\] is superseded and names no finding that supersedes it; .*; and [0-9]+ more$/);
