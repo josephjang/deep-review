@@ -228,15 +228,16 @@ describe('the skill texts', () => {
       assert.ok(!continuedCheckUnavailableAction.includes('clone\'s file'));
     });
 
-    // R16 of the review on the pull request: posting is a public act the user chooses, its result is the URL alone, and a run that --fix continued can no longer be posted.
-    it(`${name}: reviews a pull request with --pr, posts it with publish only when asked, and posts before --fix continues its run`, () => {
+    // R16 of the review on the pull request: posting is a public act the user chooses, and its result is the URL alone. R8 of the review of a fix run: publish posts the review of a run of --pr with or without --fix, so no order of posting and fixing is asked for.
+    it(`${name}: reviews a pull request with --pr, posts it with publish only when asked, and offers to post after a run of --pr with or without --fix`, () => {
       const text = read(path);
       const step1 = text.slice(text.indexOf('1. Decide the scope'), text.indexOf('2. Decide whether to fix'));
       assert.match(step1, /- a pull request on GitHub: `--pr <number>`, or `--pr <URL>` when the\s+user gives the pull request's URL/);
       const step2 = text.slice(text.indexOf('2. Decide whether to fix'), text.indexOf('3. '));
-      assert.match(step2, /`publish` refuses a\s+run that `--fix` continued, so when the user wants the review of a\s+pull request posted, post it, as the paragraph on posting below\s+says, before you continue its run with `--fix`\./);
+      assert.ok(!step2.includes('publish'), 'deciding whether to fix asks for no order of posting');
       const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
-      assert.match(step4, /After a run of `--pr` without `--fix`, also offer to post its review\s+on the pull request\./);
+      assert.match(step4, /After a run of `--pr`, with or without `--fix`, also offer to post its review\s+on the pull request\./);
+      assert.match(text, /It posts the review of a finished\s+run of `--pr`, with or without `--fix`, as a comment on the pull request, and the\s+last line it prints is the URL of the review\./);
       assert.match(text, /When the user asks to post the review on the pull request, run the\s+`main\.mjs` of step 3 with only `publish`, adding `--run <id>` when they\s+name a run, and wait for it to exit\./);
       assert.match(text, /Exit code 0: show the\s+user that line, as printed, with no summary of the review\./);
       assert.match(text, /Run `publish` only when the\s+user asks to post the review, since `review --pr` posts nothing, and\s+post nothing to the pull request another way\./);
