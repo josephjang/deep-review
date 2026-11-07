@@ -128,4 +128,27 @@ For each language, a continued run's body and comments hold the entries of `cont
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+Six commits implement the design, from "feat(checkpoint): Fold a run before a sequence" to "chore(dist): Rebuild for the review of a fix run". `runReview` runs `runPass` once or twice. A pass that ends with an outcome keeps the run's lock, and `runReview` releases it once, so the lock is held from the first pass to the end of the second. The second pass opens its run in `openContinuing`, which returns before every read of GitHub and every search for a run, holds the run to `treeMismatch`, the part of `scopeMismatch` that reads the tree, which `src/scope/compare.ts` now exports, and then calls `continuationOf`. `publish` chooses its run with `chooseReportRun` and a rule of its own, a current report or a `continuedFrom`, and renders `reviewedOf(run)`.
+
+Choices made in the work, within the requirements:
+
+- The refusal of the second pass wraps only the refusals of `openRun`. A refusal later in the fix pass, after `fix.pinned`, keeps its own words.
+- The words of what follows a review share one type, `FollowingWords`, which the form chooses once, in `followingOf`. `fixCommand` is gone, and a read-only review's text is unchanged byte for byte.
+- The diagram of a continued run hangs the fix pass beside `publish`, not after the answers, since the fix pass starts before a person answers.
+- `publish` refuses a run abandoned in its fix pass, since the ledger takes no publication on a closed run.
+- The refusal of a run of another scope comes before the refusal of R7, so a fix run of `--branch` is told that it reviewed no pull request.
+- The usage line of `publish` in `src/command.ts` and the replay of the decider in `src/replay/decider.ts` change with the form's input.
+- The contract test's new scenario, a stop before `fix.pinned`, is not in the list that `npm run resume-test` runs, so the cost of that gate does not change.
+- `npm run golden` into a scratch directory wrote a ledger, identity and artifacts byte for byte the same as `schema-1-20`. Only its `expected.json` differed, by the two `sequence` fields, and that file is written again.
+
+The Korean words have been read by the author's agent but not yet by a native speaker on GitHub.
+
+### Checks
+
+At the head of the series, `npm run check` passed (3,657 tests: 3,644 pass, 13 skipped, none fail), `npm run test:contract` passed (109 of 109), and `npm run verify` found `dist/claude` and `dist/codex` matching the sources. Every commit of the implementation passed `npm run typecheck` and `npm run lint`.
+
+### The gate
+
+The gate of R9 has not run. `review --pr` and `publish` read and post through `gh`, and the machine that did the work had no valid GitHub token for `gh`.
