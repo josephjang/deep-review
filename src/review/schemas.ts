@@ -7,7 +7,7 @@
  * prompt (TD4), never by id; ids are assigned by the engine.
  */
 import { z } from 'zod';
-import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, settlementFaultV1, verifierNoteLengthV1, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
+import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, settlementFaultsV1, verifierNoteLengthV1, type CandidateChoice, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
 import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
@@ -209,10 +209,11 @@ export type MergeRankOutput = z.infer<typeof mergeRankOutputSchema>;
  * options each with its cost, the rule that would settle it for good and
  * whether it edits the code, and the indexes of the option recommended and
  * the default applied, with where the decider looked. A fix alone may
- * name the rule it departs from. Any decision may give the choice it
- * settles, the step that settles it and its source (R2 of the settled
- * choice). `checkDecisions` holds the parts to the decision, the settled
- * choice to `settlementRulesV1` and the indexes to the task.
+ * name the rule it departs from. Any decision may give the choices it
+ * settles, each with the candidates whose verifiers named it, by id, the
+ * step that settles it and its source (R2, PD9 of the settled choice).
+ * `checkDecisions` holds the parts to the decision, the settled choices
+ * to `settlementRulesV1` and the indexes and ids to the task.
  */
 const decisionText = (max: number) => z.string().min(1).max(max);
 export const deciderOutputSchema = z.strictObject({
@@ -230,7 +231,7 @@ export const deciderOutputSchema = z.strictObject({
       searched: z.array(decisionText(400)).min(1).max(10),
     }).nullable(),
     departure: z.strictObject({ rule: decisionText(400), source: decisionText(400), reason: decisionText(1000) }).nullable(),
-    settled: z.strictObject({ choice: decisionText(400), by: settleStepSchema, source: decisionText(400) }).nullable(),
+    settled: z.array(z.strictObject({ for: z.array(decisionText(40)), choice: decisionText(400), by: settleStepSchema, source: decisionText(400) })),
   })),
 });
 export type DeciderOutput = z.infer<typeof deciderOutputSchema>;
@@ -590,9 +591,9 @@ export function checkMergeRank(output: MergeRankOutput, count: number): void {
 }
 
 /** What one decision of a decider's answer breaks, each fault a sentence that names the decision by its index and the rule. */
-function decisionFaults(entry: DeciderOutput['decisions'][number], namesChoice: readonly boolean[], kindOf: ReadonlyMap<number, DecisionKind>): string[] {
+function decisionFaults(entry: DeciderOutput['decisions'][number], findings: readonly (readonly CandidateChoice[])[], kindOf: ReadonlyMap<number, DecisionKind>): string[] {
   const what = `Decision [${String(entry.index)}]`;
-  const count = namesChoice.length;
+  const count = findings.length;
   if (entry.index >= count) return [`${what} is outside the task, whose findings are numbered [0] to [${String(count - 1)}]`];
   const faults: string[] = [];
   for (const kind of decisionKinds) {
@@ -611,10 +612,9 @@ function decisionFaults(entry: DeciderOutput['decisions'][number], namesChoice: 
     if (entry.leave.reason !== 'superseded' && by !== null) faults.push(`${what} is left as ${entry.leave.reason} and names a superseding finding, which only a superseded one does`);
     else if (by !== null && (by === entry.index || by >= count || kindOf.get(by) !== 'fix')) faults.push(`${what} is superseded by [${String(by)}], which is not another finding of the task decided fix`);
   }
-  // A leave names its case by its reason, so the settled choice of one without its part has no rule to be read against.
-  const settlement = entry.decision === 'leave' && entry.leave === null ? null : settlementFaultV1(entry, namesChoice[entry.index]!);
-  if (settlement !== null) faults.push(`${what} ${settlement}`);
-  return faults;
+  // A leave names its case by its reason, so the settled choices of one without its part have no rule to be read against.
+  const settlement = entry.decision === 'leave' && entry.leave === null ? [] : settlementFaultsV1(entry, findings[entry.index]!);
+  return [...faults, ...settlement.map((fault) => `${what} ${fault}`)];
 }
 
 /**
@@ -643,14 +643,14 @@ function faultsMessage(faults: readonly string[]): string {
  * departs from a rule on anything but a fix, that recommends or applies
  * an option the question does not offer, that leaves a finding as
  * superseded without naming another finding it decides `fix`, or names
- * one for another reason, or whose settled choice breaks
- * `settlementRulesV1` (R2, R3 of the settled choice), given for each
- * finding of the task, by its index, whether its verifier named a choice
- * for the author. Every fault of the answer is named in the one refusal,
- * so the next attempt is told all it must change at once.
+ * one for another reason, or whose settled choices break
+ * `settlementRulesV1` (R2, R3, PD9 of the settled choice), given for each
+ * finding of the task, by its index, its candidates with the choice each
+ * verifier left to the author. Every fault of the answer is named in the
+ * one refusal, so the next attempt is told all it must change at once.
  */
-export function checkDecisions(output: DeciderOutput, namesChoice: readonly boolean[]): void {
-  const count = namesChoice.length;
+export function checkDecisions(output: DeciderOutput, findings: readonly (readonly CandidateChoice[])[]): void {
+  const count = findings.length;
   const seen = new Set<number>();
   const kindOf = new Map(output.decisions.map((entry) => [entry.index, entry.decision]));
   const faults: string[] = [];
@@ -660,7 +660,7 @@ export function checkDecisions(output: DeciderOutput, namesChoice: readonly bool
       continue;
     }
     seen.add(entry.index);
-    faults.push(...decisionFaults(entry, namesChoice, kindOf));
+    faults.push(...decisionFaults(entry, findings, kindOf));
   }
   const missing = missingIndexes(seen, count);
   if (missing.length > 0) faults.push(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(', ')} of the ${String(count)} the task gave`);

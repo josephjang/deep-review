@@ -70,7 +70,7 @@ import type {
   WorktreeCheckV1,
   WorktreeCheckV9,
 } from './events.ts';
-import { settlementFaultV1 } from './events.ts';
+import { settlementFaultsV1, type CandidateChoice } from './events.ts';
 import type { AnswerState } from './answer-state.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
@@ -814,13 +814,13 @@ const rankingRecorded: Reducer<RankingRecorded> = (state, payload, event, drafts
 };
 
 /**
- * Whether the verifier of a ranked finding named a choice for the author:
- * the verdict of its primary or of one of its members, as the ranking
- * records them, gives one, which only a verdict at version 3 does (TD3 of
- * the settled choice).
+ * The candidates of a ranked finding, its primary and its members as the
+ * ranking records them, each with the choice its verdict leaves to the
+ * author, which only a verdict at version 3 gives (TD3, PD9 of the
+ * settled choice).
  */
-function namesChoice(review: ReviewState, finding: RankedFinding): boolean {
-  return [finding.id, ...finding.members].some((id) => (review.candidates[id]?.verdict?.authorChoice ?? null) !== null);
+function candidateChoices(review: ReviewState, finding: RankedFinding): CandidateChoice[] {
+  return [finding.id, ...finding.members].map((id) => ({ id, choice: review.candidates[id]?.verdict?.authorChoice ?? null }));
 }
 
 /**
@@ -828,9 +828,9 @@ function namesChoice(review: ReviewState, finding: RankedFinding): boolean {
  * decision phase runs, from its one unit, and exactly one per ranked
  * finding. A finding left as superseded names another finding, decided
  * `fix`, whose fix removes it. At version 2 each decision holds the
- * settled choice `settlementRulesV1` asks of its case, which for some
- * depends on whether its finding's verifier named a choice (TD3 of the
- * settled choice); version 1 settles none.
+ * settled choices `settlementRulesV1` asks of its case, which for some
+ * depends on which of its finding's candidates' verifiers named a choice
+ * (TD3, PD9 of the settled choice); version 1 settles none.
  */
 function recordDecisions(state: RunState | undefined, payload: DecisionsRecorded, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2): RunState {
   const { current, review } = requireReview(state, event);
@@ -848,20 +848,20 @@ function recordDecisions(state: RunState | undefined, payload: DecisionsRecorded
   for (const decision of payload.decisions) {
     const by = decision.leave?.supersededBy ?? null;
     if (by !== null && (by === decision.id || kindOf.get(by) !== 'fix')) throw invalid(event, `leaves ${decision.id} as superseded by ${by}, which is not another finding decided fix`);
-    const fault = version === 2 ? settlementFaultV1(decision, namesChoice(review, findings.get(decision.id)!)) : null;
-    if (fault !== null) throw invalid(event, `records the decision of ${decision.id}, which ${fault}`);
+    const faults = version === 2 ? settlementFaultsV1(decision, candidateChoices(review, findings.get(decision.id)!)) : [];
+    if (faults.length > 0) throw invalid(event, `records the decision of ${decision.id}, which ${faults.join('; and ')}`);
   }
   // Held in the ranking's order, so every reader lists them as the findings are listed.
   const decisions = ranked.map((id) => payload.decisions.find((decision) => decision.id === id)!);
   return withReview(current, { ...review, decisions, units: answered(review, drafts, unit, payload.workerId) }, event);
 }
 
-/** Version 2: each decision with the choice it settles, or null (R2 of the settled choice). */
+/** Version 2: each decision with the choices it settles, none or more (R2, PD9 of the settled choice). */
 const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, drafts) => recordDecisions(state, payload, event, drafts, 2);
 
 /** Version 1, recorded before the settled choice: no decision settles a choice. */
 const decisionsRecordedV1: Reducer<DecisionsRecordedV1> = (state, payload, event, drafts) =>
-  recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: null })) }, event, drafts, 1);
+  recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: [] })) }, event, drafts, 1);
 
 /**
  * The writer's explanation (R18, R19 of the review on the pull request),

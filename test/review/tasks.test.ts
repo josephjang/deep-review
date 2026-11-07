@@ -363,17 +363,19 @@ describe('the task texts', () => {
     assert.match(task, /^\[1\] SWEEP-1 \[minor\] PLAUSIBLE: a helper\n {4}merge and rank: one improvement\n {4}- SWEEP-1 \(DESIGN\) primary at src\/a\.ts:7: PLAUSIBLE \(unverified\)\n[\s\S]* {8}evidence: none; the group's verifier failed twice$/m);
     assert.match(task, /`leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise\./);
     assert.match(task, /the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer\./);
-    assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. `settled` is the choice the decision settles/);
+    assert.match(task, /`departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing\. `settled` lists the choices the decision settles, as above, one entry each: in `for` the ids of the candidates whose choice left to the author it settles/);
     assert.match(task, /Every index appears exactly once\. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing\.$/);
     assert.match(deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [member('A-1', 'SCAN', 'PLAUSIBLE', 'e')] }]), /^The review's 1 finding, numbered \[0\] to \[0\]/);
-    assert.doesNotMatch(task, /choice left to the author:/, 'no candidate names a choice');
+    assert.doesNotMatch(task, /choice left to the author by/, 'no candidate names a choice');
     assert.doesNotMatch(task, /What failed in the earlier answer/, 'a first attempt is told of no refusal');
   });
 
-  it('gives the decider each candidate\'s choice left to the author on a line of its own after its evidence, and the fixer none (R1 of the settled choice)', () => {
+  it('gives the decider each candidate\'s choice left to the author on a line of its own after its evidence, with the candidate\'s id that `for` names (R1, PD9 of the settled choice)', () => {
     const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 's', detail: 'd', verdict: 'PLAUSIBLE' as const, unverified: false, evidence: 'line 4. Needs the author: throw or return null', cited: null, authorChoice: 'Whether parse should throw or return null on an empty input.' };
-    const task = deciderTask([{ id: 'RIPPLE-1', severity: 'major', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [candidate] }]);
-    assert.match(task, /^ {8}evidence: line 4\. Needs the author: throw or return null\n {8}choice left to the author: Whether parse should throw or return null on an empty input\.$/m);
+    const member = { ...candidate, id: 'SWEEP-2', evidence: 'line 7', authorChoice: 'Whether the helper guards the null too.' };
+    const task = deciderTask([{ id: 'RIPPLE-1', severity: 'major', verdict: 'PLAUSIBLE', summary: 's', reason: 'r', candidates: [candidate, member] }]);
+    assert.match(task, /^ {8}evidence: line 4\. Needs the author: throw or return null\n {8}choice left to the author by RIPPLE-1's verifier: Whether parse should throw or return null on an empty input\.$/m);
+    assert.match(task, /^ {8}evidence: line 7\n {8}choice left to the author by SWEEP-2's verifier: Whether the helper guards the null too\.$/m);
   });
 
   it('defines for the decider each step that settles a choice and which decision settles one by which, the rules the engine refuses an answer by (D1, D6 of the settled choice)', () => {
@@ -381,13 +383,13 @@ describe('the task texts', () => {
     const defined = task.slice(task.indexOf('The step that settles a choice'), task.indexOf('Which decision settles a choice'));
     const steps = [...defined.matchAll(/^- `([a-z]+)`: /gm)].map((match) => match[1]);
     assert.deepEqual(steps, ['intent', 'contract', 'before', 'kept', 'shape', 'scope', 'none']);
-    assert.match(task, /^- `fix` with no `departure`: settles its choice when a candidate has a choice left to the author, and may otherwise, by any step\.$/m);
-    assert.match(task, /^- `fix` with a `departure`: may settle its choice, by any step\.$/m);
-    assert.match(task, /^- `leave` as `intended`: settles its choice when a candidate has a choice left to the author, and may otherwise, by `intent` or `contract`\.$/m);
-    assert.match(task, /^- `leave` as `settled`: always settles its choice, by `shape`\.$/m);
-    assert.match(task, /^- `leave` as `superseded`: settles its choice when a candidate has a choice left to the author, and may otherwise, by `intent` or `contract` or `kept` or `shape` or `scope` or `none`\.$/m);
-    assert.match(task, /^- `leave` as `outside-change-not-regression`: settles no choice; give `settled` null, since deep-review does not act on such a finding\.$/m);
-    assert.match(task, /^- `ask`: settles no choice; give `settled` null, since its question is the record of the choice\.$/m);
+    assert.match(task, /^- `fix` with no `departure`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by any step\.$/m);
+    assert.match(task, /^- `fix` with a `departure`: may settle choices, by any step\.$/m);
+    assert.match(task, /^- `leave` as `intended`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by `intent` or `contract`\.$/m);
+    assert.match(task, /^- `leave` as `settled`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and settles one in an entry whose `for` is empty when no candidate has one, by `shape`\.$/m);
+    assert.match(task, /^- `leave` as `superseded`: settles the choice left to the author of each candidate that has one, naming the candidate in the `for` of one entry, and may settle others, by `intent` or `contract` or `kept` or `shape` or `scope` or `none`\.$/m);
+    assert.match(task, /^- `leave` as `outside-change-not-regression`: settles no choice; give `settled` empty, since deep-review does not act on such a finding\.$/m);
+    assert.match(task, /^- `ask`: settles no choice; give `settled` empty, since its question is the record of the choice\.$/m);
   });
 
   it('tells a decider after a refused answer what the engine refused it for, and to give the whole answer again (R9 of the settled choice)', () => {
@@ -415,8 +417,9 @@ describe('the fixer\'s task', () => {
         id: 'RIPPLE-1', severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 'parse dereferences null', reason: 'one root cause',
         primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!', cited: null },
         members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller', cited: null }],
-        decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' }, settled: null },
-        supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing', settled: null }],
+        decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' }, settled: [] },
+        choices: [{ id: 'RIPPLE-1', choice: null }, { id: 'SWEEP-2', choice: null }],
+        supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing', choices: [{ id: 'SCAN-3', choice: null }], settled: [] }],
         firstRound: null,
         answered: null,
       },
@@ -425,9 +428,10 @@ describe('the fixer\'s task', () => {
         primary: { id: 'SWEEP-1', angle: 'SCAN', location: 'lib/b.ts:9 (unlocated: no file of the repository has this path and line)', summary: 'own s', detail: 'd', verdict: 'PLAUSIBLE', unverified: true, evidence: null, cited: null },
         members: [],
         decision: {
-          id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
+          id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: [],
           ask: { question: 'Should b log?', options: [{ option: 'log once', cost: 'c', rule: 'r', edits: true }, { option: 'stay quiet', cost: 'c', rule: 'r', edits: false }, { option: 'log always', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
         },
+        choices: [{ id: 'SWEEP-1', choice: null }],
         supersedes: [],
         firstRound: null,
         answered: null,
@@ -508,13 +512,20 @@ describe('the fixer\'s task', () => {
   });
 
   it('gives the fixer the choice its decision settles, and the one the decision of each finding it removes settles, the step in words, so it applies the choice decided (R5, D1 of the settled choice)', () => {
-    const settled = { choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
+    const settled = { for: [], choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
     const first = input.findings[0]!;
-    const decided = { ...first, decision: { ...(first.decision as Extract<FixerDecision, { decision: 'fix' }>), settled }, supersedes: first.supersedes.map((left) => ({ ...left, settled: { ...settled, by: 'kept' as const } })) };
+    const decided = { ...first, decision: { ...(first.decision as Extract<FixerDecision, { decision: 'fix' }>), settled: [settled] }, supersedes: first.supersedes.map((left) => ({ ...left, settled: [{ ...settled, by: 'kept' as const }] })) };
     const task = fixerTask({ ...input, findings: [decided] });
     assert.match(task, /^ {8}departs from: [^\n]*\n {8}settled: An empty input gives an empty result; settled by the stated intent of the change: The change says that an empty input gives an empty result\.$/m);
     assert.match(task, /^ {4}removes also: SCAN-3 [^\n]*\n {8}settled: An empty input gives an empty result; settled by keeping a behavior that was there before: The change says/m);
     assert.doesNotMatch(fixerTask(input), /settled:/, 'a decision that settles no choice gives no line');
+  });
+
+  it('gives the fixer of a merged finding the choice each settled choice answers before it, and the choice no settled choice answers as not settled (PD9 of the settled choice)', () => {
+    const first = input.findings[0]!;
+    const settled = [{ for: ['RIPPLE-1'], choice: 'Parse guards the null itself.', by: 'intent' as const, source: 'The change says parse accepts an empty input.' }];
+    const decided = { ...first, choices: [{ id: 'RIPPLE-1', choice: 'Guard in parse, or in each caller.' }, { id: 'SWEEP-2', choice: 'Keep the helper, or inline it.' }], decision: { ...(first.decision as Extract<FixerDecision, { decision: 'fix' }>), settled } };
+    assert.match(fixerTask({ ...input, findings: [decided] }), /^ {8}departs from: [^\n]*\n {8}the verifier's choice for the author: Guard in parse, or in each caller\.\n {8}settled: Parse guards the null itself; settled by the stated intent of the change: The change says parse accepts an empty input\.\n {8}the verifier's choice for the author, which the decision did not settle: Keep the helper, or inline it\.$/m);
   });
 
   it('says nothing of decisions to a fixer of a run configured before the decision step, whose findings have none', () => {
@@ -636,13 +647,13 @@ describe('the fixer\'s task', () => {
 describe('the fixer\'s task with the author\'s answers (R4, R5, R7 of answers)', () => {
   const snapshot = `node "/engine/main.mjs" snapshot --finding ${snapshotIndexPlaceholder} --into "/scratch/w1/snapshots"`;
   const candidate = { id: 'RIPPLE-1', angle: 'RIPPLE' as const, location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED' as const, unverified: false, evidence: 'line 4 uses text!', cited: null };
-  const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' }, settled: null };
+  const departing: FixerDecision = { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'docs/parse.md', reason: 'other() is a caller it never trusted' }, settled: [] };
   const asking: FixerDecision = {
-    id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
+    id: 'SWEEP-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: [],
     ask: { question: 'Should b log?', options: [{ option: 'stay quiet', cost: 'c', rule: 'b never logs', edits: false }, { option: 'log once', cost: 'one line per run', rule: 'b logs once per run', edits: true }], recommended: 1, applied: 0, searched: ['docs'] },
   };
   const finding = (id: string, decision: FixerDecision, answered: AnsweredFinding | null): FixerTaskFinding => ({
-    id, severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 's', reason: 'r', primary: { ...candidate, id }, members: [], decision, supersedes: [], firstRound: null, answered,
+    id, severity: 'major', verdict: 'CONFIRMED', unverified: false, summary: 's', reason: 'r', primary: { ...candidate, id }, members: [], choices: [{ id, choice: null }], decision, supersedes: [], firstRound: null, answered,
   });
   const option: AnsweredFinding = { kind: 'option', option: 1, chosen: { option: 'log once', rule: 'b logs once per run', edits: true }, note: 'the operator reads the log', before: null, appliedByPass: null };
   const rejected: AnsweredFinding = { kind: 'reject', departure: departing.departure!, note: null, before: { status: 'applied', note: 'guarded the null', files: ['docs/parse.md', 'src/a.ts'] }, appliedByPass: null };
@@ -886,7 +897,7 @@ describe('the repair task', () => {
 describe('the documentation step\'s task', () => {
   const checks = [{ kind: 'test' as const, command: 'npm run test', origin: 'package' as const, layer: null, reason: null, source: null }];
   const keepAsk: RecordedDecision = {
-    id: 'SCAN-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: null,
+    id: 'SCAN-1', decision: 'ask', grounds: 'nothing states it', fix: null, leave: null, departure: null, settled: [],
     ask: { question: 'Keep the bytes?', options: [{ option: 'drop them', cost: 'c', rule: 'r', edits: true }, { option: 'keep them', cost: 'c', rule: 'r', edits: true }], recommended: 1, applied: 1, searched: ['docs'] },
   };
   const input = (change: Partial<DocumentationTaskInput> = {}): DocumentationTaskInput => ({
@@ -963,14 +974,14 @@ describe('the documentation step\'s task', () => {
     const owedTail = ', which no fix of the run has applied yet, so the tree does not hold it yet';
     assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: false }), '    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"');
     assert.equal(decided({ decision: keepAsk, answer: { kind: 'option', option: 0 }, owed: true }), `    decided: ask the author "Keep the bytes?"; answered by the author: option 1, "drop them"${owedTail}`);
-    const fix: RecordedDecision = { id: 'SCAN-1', decision: 'fix', grounds: 'g', fix: { approach: 'guard once', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse throws', source: 'docs/parse.md', reason: 'r' }, settled: null };
+    const fix: RecordedDecision = { id: 'SCAN-1', decision: 'fix', grounds: 'g', fix: { approach: 'guard once', rejected: [] }, leave: null, ask: null, departure: { rule: 'parse throws', source: 'docs/parse.md', reason: 'r' }, settled: [] };
     const departs = '    decided: fix: guard once, departing from the rule "parse throws" (docs/parse.md), which the fix amends';
     assert.equal(decided({ decision: fix, answer: null, owed: false }), departs);
     assert.equal(decided({ decision: { ...fix, departure: null }, answer: null, owed: false }), '    decided: fix: guard once');
     assert.equal(decided({ decision: fix, answer: { kind: 'accept' }, owed: false }), `${departs}; the author accepted the departure`);
     assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: false }), `${departs}; the author rejected the departure, so the rule stands as its source states it`);
     assert.equal(decided({ decision: fix, answer: { kind: 'reject' }, owed: true }), `${departs}; the author rejected the departure${owedTail}`);
-    const leave: RecordedDecision = { id: 'SCAN-1', decision: 'leave', grounds: 'g', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-2' }, ask: null, departure: null, settled: null };
+    const leave: RecordedDecision = { id: 'SCAN-1', decision: 'leave', grounds: 'g', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-2' }, ask: null, departure: null, settled: [] };
     assert.equal(decided({ decision: leave, answer: null, owed: false }), '    decided: leave');
   });
 

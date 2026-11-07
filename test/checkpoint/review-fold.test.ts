@@ -374,7 +374,7 @@ describe('the review fold', () => {
 
   it('folds the decisions in the ranking\'s order, answers the decision\'s unit, and completes the phase', () => {
     const review = decidedOf(reported(), [...decisions].reverse()).review();
-    assert.deepEqual(review.decisions, decisions.map((decision) => ({ ...decision, settled: null })), 'held in the order the ranking lists the findings, whatever order they were recorded in, and at version 1 with no settled choice');
+    assert.deepEqual(review.decisions, decisions.map((decision) => ({ ...decision, settled: [] })), 'held in the order the ranking lists the findings, whatever order they were recorded in, and at version 1 with no settled choice');
     assert.deepEqual(review.phases.decision, { status: 'completed', attempt: 1 });
     assert.deepEqual(review.units.decision, { decision: { answeredBy: worker(45), failures: [] } });
     assert.equal(isAnswered(review, 'decision', 'decision'), true);
@@ -384,12 +384,12 @@ describe('the review fold', () => {
     const superseded = { ...decisions[1]!, leave: { reason: 'superseded', supersededBy: 'RIPPLE-1' } };
     assert.deepEqual(decidedOf(reported(), [decisions[0]!, superseded]).review().decisions?.[1]?.leave, { reason: 'superseded', supersededBy: 'RIPPLE-1' });
     const asked = askDecision('SWEEP-1', false);
-    assert.deepEqual(decidedOf(reported(), [decisions[0]!, asked]).review().decisions?.[1], { ...asked, settled: null });
+    assert.deepEqual(decidedOf(reported(), [decisions[0]!, asked]).review().decisions?.[1], { ...asked, settled: [] });
   });
 
-  it('keeps the choice each decision of version 2 settles, and a decision that settles none as null (R2 of the settled choice)', () => {
-    const settled = { choice: 'guard the null once, in parse', by: 'intent', source: 'the change says parse accepts an empty input' };
-    const recorded = [{ ...decisions[0]!, settled }, { ...decisions[1]!, settled: null }];
+  it('keeps the choices each decision of version 2 settles, and a decision that settles none with none (R2 of the settled choice)', () => {
+    const settled = { for: [], choice: 'guard the null once, in parse', by: 'intent', source: 'the change says parse accepts an empty input' };
+    const recorded = [{ ...decisions[0]!, settled: [settled] }, { ...decisions[1]!, settled: [] }];
     const history = new History();
     for (const event of decidedOf(reported()).events) history.add(event.kind, event.kind === 'decisions.recorded' ? { workerId: worker(45), decisions: recorded } : event.payload, event.kind === 'decisions.recorded' ? 2 : event.version);
     assert.deepEqual(history.review().decisions, recorded);

@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import { comparisonWordsLengthV1, settlementRulesV1, type Answer, type Lead, type RecordedDecision, type SettledChoice, type SettlementCase, type SurveyedSources } from '../checkpoint/events.ts';
+import { comparisonWordsLengthV1, settlementRulesV1, type Answer, type CandidateChoice, type Lead, type RecordedDecision, type SettledChoice, type SettlementCase, type SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
@@ -16,7 +16,8 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { failedOrTimedOut, finderAngles, settledChoiceWords, settleSteps, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
+import { choicesShown } from './state.ts';
+import { failedOrTimedOut, finderAngles, settleSteps, shownChoiceLines, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -620,10 +621,12 @@ export interface FixerTaskFinding {
   readonly primary: TaskCandidate;
   /** The candidates merged into it, each with its own verdict and evidence (R7 of the decision step). */
   readonly members: readonly TaskCandidate[];
+  /** Every candidate of it, primary first, with the choice its verifier left to the author or null, which the task shows beside the choices its decision settles (PD9 of the settled choice). */
+  readonly choices: readonly CandidateChoice[];
   /** What the decision step decided for it, which the fixer applies; null for a run configured before the decision step, whose plan predates it. */
   readonly decision: FixerDecision | null;
-  /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step), each with the choice its decision settles, which this fix makes (D1 of the settled choice). */
-  readonly supersedes: readonly (Pick<TaskCandidate, 'id' | 'location' | 'summary'> & { readonly settled: SettledChoice | null })[];
+  /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step), each with its candidates' choices and the choices its decision settles, which this fix makes (R5, PD9 of the settled choice). */
+  readonly supersedes: readonly (Pick<TaskCandidate, 'id' | 'location' | 'summary'> & { readonly choices: readonly CandidateChoice[]; readonly settled: readonly SettledChoice[] })[];
   /**
    * For a second-round finding, what the first round said: its blocked
    * note and the files it needed (R21 of the fix pass), each with the
@@ -741,8 +744,8 @@ function candidateLines(head: string, candidate: TaskCandidate): string[] {
   ];
 }
 
-/** The choice a decision settles, as a fixer's task gives it on a line of its own, the step in words (R5 of the settled choice); none for a decision that settles none. */
-const settledLines = (settled: SettledChoice | null): string[] => (settled === null ? [] : [`        settled: ${settledChoiceWords(settled.choice, settled.by, settled.source)}`]);
+/** The choices beside a decision, as a fixer's task gives them, each on a line of its own, the step in words (R5, PD9 of the settled choice). */
+const settledLines = (choices: readonly CandidateChoice[], settled: readonly SettledChoice[]): string[] => shownChoiceLines(choicesShown(choices, settled), (text) => text, 'settled');
 
 /**
  * What a fixer is told was decided for a finding (R7 of the decision
@@ -751,7 +754,7 @@ const settledLines = (settled: SettledChoice | null): string[] => (settled === n
  * settles, which the fixer applies (R5 of the settled choice); then, for
  * a finding the author answered, the answer (`answeredLines`).
  */
-function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null): string[] {
+function decidedLines(decision: FixerDecision, choices: readonly CandidateChoice[], answered: AnsweredFinding | null): string[] {
   if (decision.decision === 'fix') {
     const { fix, departure } = decision;
     return [
@@ -759,7 +762,7 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
       `        approach: ${fix.approach}`,
       ...(fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
       ...(departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]),
-      ...settledLines(decision.settled),
+      ...settledLines(choices, decision.settled),
       ...(answered === null ? [] : answeredLines(answered)),
     ];
   }
@@ -907,8 +910,8 @@ export function fixerTask(input: FixerTaskInput): string {
     `    reason: ${finding.reason}`,
     ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
-    ...(finding.decision === null ? [] : decidedLines(finding.decision, finding.answered)),
-    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.settled)]),
+    ...(finding.decision === null ? [] : decidedLines(finding.decision, finding.choices, finding.answered)),
+    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.choices, left.settled)]),
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file) => (file.claimedBy === null ? file.path : `${file.path} (which ${file.claimedBy} had claimed)`)).join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
@@ -1234,10 +1237,11 @@ const settlementCaseWords: Readonly<Record<SettlementCase, string>> = {
   ask: '`ask`',
 };
 
-/** What a decision of one case holds of a settled choice, from the rules the engine refuses an answer by (D1 of the settled choice). */
+/** What a decision of one case holds of a settled choice, from the rules the engine refuses an answer by (R2, PD9 of the settled choice). */
 function settlementLine(rule: (typeof settlementRulesV1)[SettlementCase], name: string): string {
-  if (rule.named === 'refused') return `- ${name}: settles no choice; give \`settled\` null, since ${rule.why ?? ''}.`;
-  const when = rule.unnamed === 'required' ? 'always settles its choice' : rule.named === 'required' ? 'settles its choice when a candidate has a choice left to the author, and may otherwise' : 'may settle its choice';
+  if (rule.named === 'refused') return `- ${name}: settles no choice; give \`settled\` empty, since ${rule.why ?? ''}.`;
+  const others = rule.unnamed === 'required' ? 'and settles one in an entry whose `for` is empty when no candidate has one' : 'and may settle others';
+  const when = rule.named === 'required' ? `settles the choice left to the author of each candidate that has one, naming the candidate in the \`for\` of one entry, ${others}` : 'may settle choices';
   const by = rule.steps.length === settleSteps.length ? 'by any step' : `by ${rule.steps.map((step) => `\`${step}\``).join(' or ')}`;
   return `- ${name}: ${when}, ${by}.`;
 }
@@ -1257,7 +1261,7 @@ export function deciderTask(findings: readonly DeciderTaskFinding[], refused: re
     `    merge and rank: ${finding.reason}`,
     ...finding.candidates.flatMap((candidate, at) => [
       ...candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? ' primary' : ''} at ${candidate.location}: ${verdictWords(candidate)}`, candidate),
-      ...(candidate.authorChoice === null ? [] : [`        choice left to the author: ${candidate.authorChoice}`]),
+      ...(candidate.authorChoice === null ? [] : [`        choice left to the author by ${candidate.id}'s verifier: ${candidate.authorChoice}`]),
     ]),
   ].join('\n'));
   return [
@@ -1265,7 +1269,7 @@ export function deciderTask(findings: readonly DeciderTaskFinding[], refused: re
     '',
     ...list,
     '',
-    'The step that settles a choice, `by` in `settled`: the first of the order that answers it, or one of the two outside it.',
+    'The step that settles a choice, `by` in an entry of `settled`: the first of the order that answers it, or one of the two outside it.',
     ...settleSteps.map((step) => `- \`${step}\`: ${settleStepMeanings[step]}.`),
     '',
     'Which decision settles a choice, and by which step; the engine refuses an answer that breaks one of these:',
@@ -1279,7 +1283,7 @@ export function deciderTask(findings: readonly DeciderTaskFinding[], refused: re
       ...refused.map((reason) => `- ${inlineText(reason)}`),
       '',
     ]),
-    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` is the choice the decision settles, as above: the `choice` in one sentence, the step `by` that settles it, and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite; or null. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.',
+    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` lists the choices the decision settles, as above, one entry each: in `for` the ids of the candidates whose choice left to the author it settles, as `RIPPLE-2`, each candidate in one entry at most and none whose verifier named no choice, or empty for a choice no candidate has; the `choice` in one sentence; the step `by` that settles it; and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite. It is empty when the decision settles no choice. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.',
   ].join('\n');
 }
 

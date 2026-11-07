@@ -347,7 +347,7 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
 
   it('gives a decision the choice it settles, the step in words, and the choice the finding\'s verifier left to the author beside it, or that deep-review did not settle it (R6, D2 of the settled choice)', () => {
     const folded = decidedOf(reported()).fold();
-    const settled = { choice: 'The helper stays inline.', by: 'shape' as const, source: 'Every helper of the module is inline.' };
+    const settled = [{ for: [], choice: 'The helper stays inline.', by: 'shape' as const, source: 'Every helper of the module is inline.' }];
     const decisionsOf = (change: (decision: RecordedDecision) => RecordedDecision): RunState => ({ ...folded, review: { ...folded.review!, decisions: folded.review!.decisions!.map(change) } });
     const leftSettled = decisionsOf((decision) => (decision.decision === 'leave' ? { ...decision, leave: { reason: 'settled', supersededBy: null }, settled } : decision));
     assert.ok(block(render(leftSettled), 2).includes([
@@ -362,6 +362,20 @@ describe('the block of each finding (R6 of the report for the person; R8 of the 
       '- Plan: guard the null once, before parse reads it.',
     ].join('\n')), block(render(named), 1));
     assert.doesNotMatch(render(folded), /Settled choice|The verifier's choice/, 'a decision that settles none, of a finding whose verifier named none, says nothing of a choice');
+  });
+
+  it('gives a merged finding each candidate\'s choice: the one a settled choice answers before it, and the other as not settled by deep-review (R6, PD9 of the settled choice)', () => {
+    const folded = decidedOf(reported()).fold();
+    const named = (id: string, authorChoice: string) => ({ ...folded.review!.candidates[id]!, unverified: false, verdict: { verdict: 'CONFIRMED' as const, evidence: `${id} evidence`, basis: 'read' as const, runs: [], unconfirmed: null, authorChoice } });
+    const candidates = { ...folded.review!.candidates, 'RIPPLE-1': named('RIPPLE-1', 'Guard in parse, or in each caller.'), 'SWEEP-2': named('SWEEP-2', 'Keep the helper, or inline it.') };
+    const settled = [{ for: ['RIPPLE-1'], choice: 'Parse guards the null itself.', by: 'intent' as const, source: 'The change says parse accepts an empty input.' }];
+    const decisions = folded.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, settled } : decision));
+    const report = render({ ...folded, review: { ...folded.review!, candidates, decisions } });
+    assert.ok(block(report, 1).includes([
+      '- The verifier\'s choice for the author: Guard in parse, or in each caller.',
+      '- Settled choice: Parse guards the null itself; settled by the stated intent of the change: The change says parse accepts an empty input.',
+      '- The verifier\'s choice for the author, which deep-review did not settle: Keep the helper, or inline it.',
+    ].join('\n')), block(report, 1));
   });
 
   it('gives a question why it asks, each option with its marks, cost and rule, where deep-review looked, and the command that answers', () => {

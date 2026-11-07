@@ -2575,10 +2575,12 @@ try {
   });
 
   // A read-only run of the same pull request whose decider settles the
-  // choices its verifier named (R2, R3, TD1 of the settled choice):
-  // configured as the run above, each of its four findings' verifiers
-  // names a choice for the author, and the decider records version 2 of
-  // its decisions, a fix settled by the stated intent, a leave as
+  // choices its verifiers named (R2, R3, TD1, PD9 of the settled choice):
+  // configured as the run above, each of its five candidates' verifiers
+  // names a choice for the author, two of them different choices of one
+  // finding, and the decider records version 2 of its decisions, a fix
+  // that settles each of its two candidates' choices in its own entry,
+  // by the stated intent and by the scope of the fix, a leave as
   // intended settled by the stated contract, a leave as settled by the
   // shape the code uses, and a leave as outside the change that settles
   // none; its writer gives no answer, so the explanation degrades.
@@ -2593,7 +2595,7 @@ try {
   settling.phaseV6('triage', () => {
     settling.launch('1b02', 'triage triage:SCAN');
     settling.finishWorker('1b02');
-    settling.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: settling.id('1b02'), candidates: [settling.candidate('SCAN-1', 'SCAN', 1), settling.candidate('SCAN-2', 'SCAN', 2)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+    settling.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: settling.id('1b02'), candidates: [settling.candidate('SCAN-1', 'SCAN', 1), settling.candidate('SCAN-2', 'SCAN', 2), settling.candidate('SCAN-3', 'SCAN', 5)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
   });
   settling.phaseV6('finders', () => {
     for (const angle of finderAngles) {
@@ -2610,7 +2612,7 @@ try {
     settling.add('deduplication.recorded', { phase: 'deduplication', workerId: settling.id('1b20'), groups: [] });
   });
   settling.phaseV6('verification', () => {
-    settling.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'DUPLICATION-1', 'SCAN-1', 'SCAN-2'] }] });
+    settling.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'DUPLICATION-1', 'SCAN-1', 'SCAN-2', 'SCAN-3'] }] });
     settling.launch('1b21', 'verifier verification:g1');
     settling.finishWorker('1b21');
     settling.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: settling.id('1b21'), verdicts: [
@@ -2618,6 +2620,7 @@ try {
       { id: 'DUPLICATION-1', verdict: 'CONFIRMED', evidence: 'an untouched module repeats the parser', basis: 'read', runs: [], unconfirmed: null, authorChoice: 'merge the two parsers, or keep them apart' },
       { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [], unconfirmed: null, authorChoice: 'return an empty result on an empty input, or reject it' },
       { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 2 keeps the trailing newline', basis: 'read', runs: [], unconfirmed: null, authorChoice: 'keep the trailing newline, or strip it' },
+      { id: 'SCAN-3', verdict: 'CONFIRMED', evidence: 'line 5 reads the same null in the helper', basis: 'traced', runs: [], unconfirmed: null, authorChoice: 'guard the helper too, or leave it to its callers' },
     ] }, 3);
   });
   settling.phaseV6('sweep', () => {
@@ -2631,7 +2634,7 @@ try {
     settling.launch('1b31', 'merge-rank merge-rank:merge-rank');
     settling.finishWorker('1b31');
     settling.add('ranking.recorded', { workerId: settling.id('1b31'), findings: [
-      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'SCAN-1', members: ['SCAN-3'], severity: 'major', summary: 'changed() and its helper dereference a null', reason: 'a crash on reachable input, at lines 1 and 5' },
       { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() keeps the trailing newline', reason: 'a stray newline in the output' },
       { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'the guard is written out twice', reason: 'two copies to keep in step' },
       { id: 'DUPLICATION-1', members: [], severity: 'minor', summary: 'an untouched module repeats the parser', reason: 'two parsers to keep in step' },
@@ -2643,17 +2646,20 @@ try {
     settling.add('decisions.recorded', { workerId: settling.id('1b32'), decisions: [
       {
         id: 'SCAN-1', decision: 'fix', grounds: 'the change says an empty input gives an empty result', fix: { approach: 'return an empty result before changed() reads the input', rejected: [] }, leave: null, ask: null, departure: null,
-        settled: { choice: 'An empty input gives an empty result rather than an error.', by: 'intent', source: 'The change says that an empty input gives an empty result.' },
+        settled: [
+          { for: ['SCAN-1'], choice: 'An empty input gives an empty result rather than an error.', by: 'intent', source: 'The change says that an empty input gives an empty result.' },
+          { for: ['SCAN-3'], choice: 'The helper is guarded too, since the change added it.', by: 'scope', source: 'The helper is new in the change, so guarding it keeps the fix inside the change.' },
+        ],
       },
       {
         id: 'SCAN-2', decision: 'leave', grounds: 'the documentation states the trailing newline', fix: null, leave: { reason: 'intended', supersededBy: null }, ask: null, departure: null,
-        settled: { choice: 'The output keeps its trailing newline.', by: 'contract', source: 'The documentation of the output says each line ends with a newline.' },
+        settled: [{ for: ['SCAN-2'], choice: 'The output keeps its trailing newline.', by: 'contract', source: 'The documentation of the output says each line ends with a newline.' }],
       },
       {
         id: 'DESIGN-1', decision: 'leave', grounds: 'the module writes each guard inline', fix: null, leave: { reason: 'settled', supersededBy: null }, ask: null, departure: null,
-        settled: { choice: 'The guard stays written out at each site.', by: 'shape', source: 'Every other guard of the module is written out inline.' },
+        settled: [{ for: ['DESIGN-1'], choice: 'The guard stays written out at each site.', by: 'shape', source: 'Every other guard of the module is written out inline.' }],
       },
-      { id: 'DUPLICATION-1', decision: 'leave', grounds: 'the parser is outside the change, which did not touch it', fix: null, leave: { reason: 'outside-change-not-regression', supersededBy: null }, ask: null, departure: null, settled: null },
+      { id: 'DUPLICATION-1', decision: 'leave', grounds: 'the parser is outside the change, which did not touch it', fix: null, leave: { reason: 'outside-change-not-regression', supersededBy: null }, ask: null, departure: null, settled: [] },
     ] }, 2);
   });
   settling.add('phase.started', { phase: 'explanation', attempt: 1 }, 8);

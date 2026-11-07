@@ -1170,22 +1170,26 @@ describe('documentation.planned@1', () => {
 // the words the settled choice added; the same rule holds them to today's.
 describe('the review vocabulary frozen by the v13 events', () => {
   const workerId = '00000000-0000-4000-8000-000000000001';
-  const settled = { choice: 'keep the helper private', by: 'shape', source: 'every helper of the module is private' };
-  const fix = { id: 'RIPPLE-1', decision: 'fix', grounds: 'one sound fix', fix: { approach: 'guard it', rejected: [] }, leave: null, ask: null, departure: null, settled: null };
-  const left = { id: 'SCAN-1', decision: 'leave', grounds: 'the module keeps helpers private', fix: null, leave: { reason: 'settled', supersededBy: null }, ask: null, departure: null, settled };
+  const settled = { for: ['SCAN-1'], choice: 'keep the helper private', by: 'shape', source: 'every helper of the module is private' };
+  const fix = { id: 'RIPPLE-1', decision: 'fix', grounds: 'one sound fix', fix: { approach: 'guard it', rejected: [] }, leave: null, ask: null, departure: null, settled: [] };
+  const left = { id: 'SCAN-1', decision: 'leave', grounds: 'the module keeps helpers private', fix: null, leave: { reason: 'settled', supersededBy: null }, ask: null, departure: null, settled: [settled] };
   const accepts = (...decisions: unknown[]): boolean => decisionsRecordedV2.safeParse({ workerId, decisions }).success;
 
   it('is today\'s vocabulary, word for word and in order', () => {
     assert.deepEqual(reviewVocabularyV13, { leaveReasons, settleSteps });
   });
 
-  it('records the choice a decision settles, by a step of the vocabulary, or none, on every decision of version 2', () => {
+  it('records the choices a decision settles, each by a step of the vocabulary for the candidates it names, or none, on every decision of version 2', () => {
     assert.equal(accepts(fix, left), true);
-    for (const by of settleSteps) assert.equal(accepts({ ...fix, settled: { ...settled, by } }), true, by);
-    assert.equal(accepts({ ...fix, settled: undefined }), false, 'version 2 names the settled choice, or null');
-    assert.equal(accepts({ ...fix, settled: { ...settled, by: 'guess' } }), false, 'a step of the vocabulary');
-    assert.equal(accepts({ ...fix, settled: { ...settled, choice: 'x'.repeat(401) } }), false, 'at most 400 characters');
-    assert.equal(accepts({ ...fix, settled: { ...settled, source: '' } }), false, 'a source says something');
+    for (const by of settleSteps) assert.equal(accepts({ ...fix, settled: [{ ...settled, by }] }), true, by);
+    assert.equal(accepts({ ...fix, settled: [settled, { ...settled, for: [] }] }), true, 'several entries, one for a choice no verifier named');
+    assert.equal(accepts({ ...fix, settled: undefined }), false, 'version 2 lists the settled choices, or none');
+    assert.equal(accepts({ ...fix, settled: null }), false, 'none is an empty list');
+    assert.equal(accepts({ ...fix, settled: [{ ...settled, for: undefined }] }), false, 'each entry names the candidates it answers');
+    assert.equal(accepts({ ...fix, settled: [{ ...settled, for: ['scan one'] }] }), false, 'by their ids');
+    assert.equal(accepts({ ...fix, settled: [{ ...settled, by: 'guess' }] }), false, 'a step of the vocabulary');
+    assert.equal(accepts({ ...fix, settled: [{ ...settled, choice: 'x'.repeat(401) }] }), false, 'at most 400 characters');
+    assert.equal(accepts({ ...fix, settled: [{ ...settled, source: '' }] }), false, 'a source says something');
   });
 
   it('leaves a finding as settled only from version 2, which version 1 neither reads nor carries a settled choice in', () => {

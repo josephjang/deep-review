@@ -438,7 +438,7 @@ describe('contributionOf', () => {
     assert.deepEqual(decided[1]!.leave, { reason: 'superseded', supersededBy: 'SWEEP-1' });
     assert.notEqual(decided[0]!.departure, null);
     assert.ok(!('index' in decided[0]!), 'the ledger records ids, never the task\'s indexes');
-    assert.deepEqual((event.payload as { decisions: { settled: unknown }[] }).decisions.map((decision) => decision.settled), [null, { choice: 'fake choice settled for [0]', by: 'kept', source: 'fake source of the step for [0]' }]);
+    assert.deepEqual((event.payload as { decisions: { settled: unknown }[] }).decisions.map((decision) => decision.settled), [[], [{ for: [], choice: 'fake choice settled for [0]', by: 'kept', source: 'fake source of the step for [0]' }]]);
   });
 
   it('holds the answer to the choice each finding\'s verifier named, refusing a fix that settles none of a finding whose verifier named one (R2 of the settled choice)', () => {
@@ -447,11 +447,13 @@ describe('contributionOf', () => {
     const state = { ...folded, review: { ...folded.review!, candidates: { ...folded.review!.candidates, 'RIPPLE-1': { ...ripple, verdict: { ...ripple.verdict!, authorChoice: 'Whether parse should throw or return null on an empty input.' } } } } };
     const unsettled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{}, {}])), state, worktree);
     assert.equal(unsettled.kind, 'attempt.failed');
-    assert.match((unsettled.payload as { reason: string }).reason, /^structural check: Decision \[0\] is a fix with no departure of a finding whose verifier named a choice for the author, and settles no choice$/);
-    const settled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ settledBy: 'intent' }, {}])), state, worktree);
+    assert.match((unsettled.payload as { reason: string }).reason, /^structural check: Decision \[0\] is a fix with no departure and settles no choice for RIPPLE-1, whose verifier named one for the author; name each such candidate in the `for` of one entry$/);
+    const unnamed = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ settledBy: 'intent' }, {}])), state, worktree);
+    assert.equal(unnamed.kind, 'attempt.failed', 'a settled choice whose `for` does not name the candidate answers no verifier');
+    const settled = contribution(unit('decision', 'decision', 'decider'), receipt(deciderAnswer([{ settledBy: 'intent', settledFor: ['RIPPLE-1'] }, {}])), state, worktree);
     assert.equal(settled.kind, 'decisions.recorded', 'the finding whose verifier named none needs no settled choice');
     const task = taskFor(unit('decision', 'decision', 'decider'), state.review);
-    assert.equal(task.split('choice left to the author: Whether parse should throw or return null on an empty input.').length, 2, 'the decider is told the choice, once, on its candidate');
+    assert.equal(task.split('choice left to the author by RIPPLE-1\'s verifier: Whether parse should throw or return null on an empty input.').length, 2, 'the decider is told the choice, once, on its candidate');
   });
 
   it('turns a decider answer the structural check refuses into a failed attempt naming the check', () => {

@@ -145,7 +145,7 @@ function findingBlock(state: RunState, finding: BriefFinding, entry: ReportFindi
     `Reason: ${said(entry.finding.reason)}`,
     `Evidence: ${resolution.evidence === null ? 'none; the verifier of this group failed twice' : said(resolution.evidence)}`,
     ...citedRunLines(resolution.basis, resolution.runs, said),
-    ...(decision === null ? [] : decisionBlockLines(review, decision, { run: state.id, numbers, own, scratch }, entry.resolution.authorChoice)),
+    ...(decision === null ? [] : decisionBlockLines(review, decision, { run: state.id, numbers, own, scratch }, entry.choices)),
     ...(review.fix === null ? [] : fixBlockLines(review, review.fix, finding.id, { numbers, own, scratch })),
   ];
   return [

@@ -66,15 +66,17 @@ export interface DecisionCounts {
 }
 
 /**
- * The choice a decision of a finding settles, or the choice its verifier
- * leaves to the author, as the review shows them beside the decision (R4,
- * R5, D2 of the settled choice): the verifier's choice, or null when it
- * named none; and the choice the decision settles with the step that
- * settles it, in the review's words, and its source, or null when it
- * settles none. One of the two is given; each text is already cleaned.
+ * A choice a decision of a finding settles, or a choice its candidates'
+ * verifiers leave to the author, as the review shows them beside the
+ * decision, a paragraph each (R4, R5, PD8, PD9 of the settled choice): the
+ * verifiers' choices the paragraph is about, deduplicated, none for a
+ * choice no verifier named; and the choice the decision settles with the
+ * step that settles it, in the review's words, and its source, or null
+ * when it settles none. A verifier's choice or a settled one is given;
+ * each text is already cleaned.
  */
 export interface ChoiceWords {
-  readonly verifier: string | null;
+  readonly verifiers: readonly string[];
   readonly settled: { readonly choice: string; readonly step: string; readonly source: string } | null;
 }
 
@@ -326,9 +328,10 @@ const english: PullRequestWords = {
   },
   answerQuestion: (command, fix) => `**How to answer.** The person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option. ${fix} then applies the answer. A reply on this pull request is not read yet.`,
   answeredOption: (option, at) => `The person who ran this review answered it with option ${String(option)}, on ${at}.`,
-  choice: ({ verifier, settled }) => {
-    const left = verifier === null ? [] : [`Its verifier left this choice to the author: ${verifier}`];
-    const decided = settled === null ? 'deep-review did not settle it.' : `deep-review settles ${verifier === null ? 'a choice' : 'it'}: ${settled.choice} What settles it: ${settled.step}. ${settled.source}`;
+  choice: ({ verifiers, settled }) => {
+    const many = verifiers.length > 1;
+    const left = verifiers.length === 0 ? [] : [many ? `Its verifiers left these choices to the author: ${verifiers.join(' ')}` : `Its verifier left this choice to the author: ${verifiers[0]!}`];
+    const decided = settled === null ? `deep-review did not settle ${many ? 'them' : 'it'}.` : `deep-review settles ${verifiers.length === 0 ? 'a choice' : many ? 'them' : 'it'}: ${settled.choice} What settles it: ${settled.step}. ${settled.source}`;
     return `**The choice.** ${[...left, decided].join(' ')}`;
   },
   settleSteps: settleStepWords,
@@ -511,9 +514,10 @@ const korean: PullRequestWords = {
   },
   answerQuestion: (command, fix) => `**답하는 방법.** 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그다음 ${fix}가 그 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
   answeredOption: (option, at) => `이 리뷰를 실행한 사람이 ${at}에 ${String(option)}번 선택지로 답했습니다.`,
-  choice: ({ verifier, settled }) => {
-    const left = verifier === null ? [] : [`검증자는 작성자가 정할 선택을 남겼습니다: ${verifier}`];
-    const decided = settled === null ? 'deep-review는 이 선택을 정하지 않았습니다.' : `deep-review가 정한 선택: ${settled.choice} 정한 근거: ${settled.step}. ${settled.source}`;
+  choice: ({ verifiers, settled }) => {
+    const many = verifiers.length > 1;
+    const left = verifiers.length === 0 ? [] : [many ? `검증자들은 작성자가 정할 선택을 남겼습니다: ${verifiers.join(' ')}` : `검증자는 작성자가 정할 선택을 남겼습니다: ${verifiers[0]!}`];
+    const decided = settled === null ? `deep-review는 ${many ? '이 선택들을' : '이 선택을'} 정하지 않았습니다.` : `deep-review가 정한 선택: ${settled.choice} 정한 근거: ${settled.step}. ${settled.source}`;
     return `**선택.** ${[...left, decided].join(' ')}`;
   },
   settleSteps: {

@@ -240,7 +240,8 @@ export function writerAnswer(ids: readonly string[], explained: Readonly<Record<
  * finding that supersedes it; an `ask` whose applied default edits the
  * code unless `edits` says it keeps it; and the step of the choice it
  * settles, which a leave as `settled` gives as `shape` unless told
- * otherwise, and no other decision gives unless told.
+ * otherwise, and no other decision gives unless told, for the candidates
+ * `settledFor` names, none unless told.
  */
 export interface DecidedFinding {
   readonly decision?: 'fix' | 'leave' | 'ask';
@@ -249,12 +250,13 @@ export interface DecidedFinding {
   readonly edits?: boolean;
   readonly departs?: boolean;
   readonly settledBy?: SettleStep | null;
+  readonly settledFor?: readonly string[];
 }
 
-/** The settled choice a scripted decision gives: by the step it names, or by `shape` for a leave as `settled`, which always gives one; null otherwise. */
-function settledOf(finding: DecidedFinding, index: number): { choice: string; by: SettleStep; source: string } | null {
+/** The settled choices a scripted decision gives: one by the step it names, or by `shape` for a leave as `settled`, which always gives one; none otherwise. */
+function settledOf(finding: DecidedFinding, index: number): { for: readonly string[]; choice: string; by: SettleStep; source: string }[] {
   const by = finding.settledBy === undefined ? (finding.decision === 'leave' && finding.reason === 'settled' ? 'shape' : null) : finding.settledBy;
-  return by === null ? null : { choice: `fake choice settled for [${String(index)}]`, by, source: `fake source of the step for [${String(index)}]` };
+  return by === null ? [] : [{ for: finding.settledFor ?? [], choice: `fake choice settled for [${String(index)}]`, by, source: `fake source of the step for [${String(index)}]` }];
 }
 
 /** A decider's answer with one decision per finding, by index, in the shape its output schema demands. */

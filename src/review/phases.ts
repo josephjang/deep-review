@@ -346,10 +346,11 @@ function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFind
     reason: entry.finding.reason,
     primary: taskCandidate(entry.primary, evidence),
     members: entry.members.map((member) => taskCandidate(member, evidence)),
+    choices: entry.choices,
     decision,
     supersedes: (review.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked.get(left.id);
-      return leftEntry === undefined ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary, settled: left.settled }];
+      return leftEntry === undefined ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary, choices: leftEntry.choices, settled: left.settled }];
     }),
     answered: answeredFor(review, decision, id),
   };
@@ -904,7 +905,7 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     case 'decision': {
       const output = receipt.output as DeciderOutput;
       const findings = rankedFindings(review);
-      checkDecisions(output, findings.map((entry) => entry.resolution.authorChoice !== null));
+      checkDecisions(output, findings.map((entry) => entry.choices));
       return { kind: 'decisions.recorded', version: 2, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
     }
     case 'explanation':
