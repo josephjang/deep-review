@@ -23,7 +23,12 @@
  * "A stop" of the design of the review on the pull request); `publish`
  * then posts it, and the stand-in stops it after it records the
  * publication and before the post, or after the post and before its
- * record (R13).
+ * record (R13). The scenario of a fix run of a pull request is
+ * `review --pr --fix`, which reviews the pull request as a read-only run,
+ * writes its read-only report and continues the same run into the fix
+ * pass; a later `review --pr --fix` reads the pull request again from the
+ * stand-in to continue a run that a stop left with its read-only report
+ * (R1, R4 of the review of a fix run).
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -128,12 +133,13 @@ export const contractScript: Script = {
 /** The rules of the stand-in checks: lint removes the line c1's fixer leaves, and every check passes. */
 export const contractChecks = { lint: { replace: { 'src/a.ts': { from: unformatted, to: '' } } } };
 
-/** A run of the contract: the script of the fakes and the rules of the stand-in checks, and whether it is the read-only run of a pull request rather than a fix run of the last commit. */
+/** A run of the contract: the script of the fakes and the rules of the stand-in checks, whether it is a run of a pull request rather than a fix run of the last commit, and for a run of a pull request whether the command gives `--fix`. */
 export interface Scenario {
   readonly name: string;
   readonly script: Script;
   readonly checks: Readonly<Record<string, unknown>>;
   readonly pullRequest?: boolean;
+  readonly fix?: boolean;
 }
 
 /** The scenario of the fix pass: every check passes before the fixes, so no check runs on the base. */
@@ -162,6 +168,16 @@ export const baseScenario: Scenario = {
  */
 export const pullRequestScenario: Scenario = { name: 'pull-request', script: reviewScript, checks: {}, pullRequest: true };
 
+/**
+ * The scenario of a fix run of a pull request (R1 of the review of a fix
+ * run): `review --pr 42 --fix` of the change and the fakes of the fix
+ * pass, which reviews it read-only with its writer, writes the read-only
+ * report and continues the same run into the fix pass. `npm run
+ * resume-test` does not run it, since its points are those of the two
+ * scenarios it joins; the contract stops it between the two passes.
+ */
+export const pullRequestFixScenario: Scenario = { name: 'pull-request-fix', script: contractScript, checks: contractChecks, pullRequest: true, fix: true };
+
 /** The scenarios the contract runs, each with its own run with no stop. */
 export const scenarios: readonly Scenario[] = [fixScenario, baseScenario, pullRequestScenario];
 
@@ -172,7 +188,9 @@ const pullRequestNumber = 42;
  * What the stand-in for `gh` answers for the pull request whose change is
  * the last commit of `repo`: the pull request, the head of its base
  * branch, the merge base and its files, the change of every scenario with
- * the file no finding names, for `review --pr`; then for two runs of
+ * the file no finding names, for `review --pr` and for one more
+ * `review --pr --fix`, which reads it again to continue a run a stop left
+ * with its read-only report; then for two runs of
  * `publish` the pull request by its URL, the same reads and a post, the
  * first post stopping the engine as `stop` says, and what GitHub holds.
  * The patches give src/a.ts:2 and src/b.ts:1, where the two findings the
@@ -197,6 +215,7 @@ function pullRequestSteps(repo: string, stop: 'before' | 'after' | null = null):
   ];
   const held: FakeGhStep[] = [{ endpoint: `${pull}/reviews?per_page=100`, held: true }, { endpoint: `${pull}/reviews/1/comments?per_page=100`, held: true }];
   return [
+    ...reads(`repos/{owner}/{repo}/pulls/${String(pullRequestNumber)}`),
     ...reads(`repos/{owner}/{repo}/pulls/${String(pullRequestNumber)}`),
     ...reads(pull),
     { method: 'POST', endpoint: `${pull}/reviews`, held: true, ...(stop === null ? {} : { stop }) },
@@ -309,10 +328,11 @@ export class ContractSandbox {
     };
   }
 
-  /** The arguments of `review --fix`, or of `review --pr` in the scenario of a pull request, whose stand-in for `gh` the operator's file names, the same for every command of the run. */
+  /** The arguments of `review --fix`, or of `review --pr`, with `--fix` in the scenario of a fix run of a pull request, whose stand-in for `gh` the operator's file names, the same for every command of the run. */
   reviewArgs(): string[] {
     const checks = checkKinds.flatMap((kind) => ['--check', `${kind}=${fakeCheckCommand(kind)}`]);
-    const scope = this.scenario.pullRequest === true ? ['--pr', String(pullRequestNumber)] : ['--last-commit', '--fix', ...checks];
+    const fix = ['--fix', ...checks];
+    const scope = this.scenario.pullRequest === true ? ['--pr', String(pullRequestNumber), ...(this.scenario.fix === true ? fix : [])] : ['--last-commit', ...fix];
     // One worker at a time, so a stop meets the same workers in flight in every run, and they end in the same order.
     return ['review', '--runtime', 'claude', '--executable', process.execPath, '--executable-arg', fakeClaude, '--roles', this.box.rolesRoot, '--concurrency', '1', ...scope];
   }
@@ -393,6 +413,7 @@ const runId = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
  * The report with what a resume changes by its nature left out (R1): the
  * header lines that name the run, the repository and its commits, the
  * first 8 characters of the run's id that the brief and its commands name,
+ * the time of a continuation into the fix pass,
  * every duration, path of the evidence and commit hash, the Statistics table
  * of an older report and the line of the totals, the spend, the workers
  * with no reported cost, the count of the checks of the tree, and the
@@ -417,7 +438,7 @@ export function normalizedReport(text: string, sandbox: string): string {
     .filter((line) => !/^- (Worktree checks|Run budget|Workers with no reported cost): /.test(line))
     .filter((line) => !/^- (Ran again after|Built again on the base|Cut|Cut by a stop|Lost with the engine|Written back after|The run budget stopped|A stop cut|A stop ended|Dropped: )/.test(line))
     .filter((line) => !/^The run budget stopped the fix pass: /.test(line))
-    .map((line) => line.split(sandbox).join('<sandbox>'))
+    .map((line) => line.split(sandbox).join('<sandbox>').replace(/^Continued: into the fix pass on \S+,/, 'Continued: into the fix pass on <time>,'))
     .map((line) => line.replace(/<sandbox>[^\s|)]*artifacts[\\/][0-9a-f]{64}/g, '<artifact>').replace(/\bartifacts\/[0-9a-f]{64}\b/g, '<artifact>'))
     .map((line) => line.replace(/, [\d.]+ (s|min)\b/g, '').replace(/\b[0-9a-f]{40}\b/g, '<sha>').replace(runId, '<run>').replace(/\b(run|--run) [0-9a-f]{8}\b/g, '$1 <run>'))
     .filter((line) => !/^\d+\. .*: <artifact>$/.test(line))

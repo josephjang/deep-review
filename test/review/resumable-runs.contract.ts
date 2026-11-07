@@ -18,11 +18,14 @@
 // answered and before its answer is recorded, and after the record (R18,
 // "A stop" of the design of the review on the pull request), and `publish`
 // after it records the publication and before the post, and after the post
-// and before its record (R13).
-// `npm run resume-test` runs every point of the three.
+// and before its record (R13). The fixed set of a fix run of a pull request
+// holds the step between the read-only report of `review --pr --fix` and
+// the continuation of its run into the fix pass (R4 of the review of a fix
+// run).
+// `npm run resume-test` runs every point of the first three.
 import assert from 'node:assert/strict';
 import { before, describe, it } from 'node:test';
-import { baseScenario, brokenParts, fixScenario, hasPoint, pointOf, pullRequestScenario, reference, stopAndResume, waysAt, type Reference, type Scenario } from '../helpers/resume-contract.ts';
+import { baseScenario, brokenParts, fixScenario, hasPoint, pointOf, pullRequestFixScenario, pullRequestScenario, reference, stopAndResume, waysAt, type Reference, type Scenario } from '../helpers/resume-contract.ts';
 import { marksOf, unexpected } from '../helpers/resume-marks.ts';
 import { sandboxConcurrency } from '../helpers/review-sandbox.ts';
 
@@ -87,6 +90,9 @@ const pullRequestPoints = [
   'post after',
 ] as const;
 
+/** The point the suite stops the engine at in a fix run of a pull request: after the read-only report and before the continuation is pinned, after which the same command continues the run (R4 of the review of a fix run). */
+const pullRequestFixPoints = ['before fix.pinned'] as const;
+
 /** Stop the run of `scenario` at each of `points` in each way that applies there, against its run with no stop, which it gives. */
 function contractOf(scenario: Scenario, points: readonly string[]): () => Reference {
   let expected: Reference | null = null;
@@ -148,5 +154,18 @@ describe('the contract of resumable runs, in the explanation of a pull request',
 
   it('posts the run with no stop as one review, whose URL publish prints last', () => {
     assert.equal(expected().published, 'https://github.com/acme/widgets/pull/42#pullrequestreview-1');
+  });
+});
+
+describe('the contract of resumable runs, in a fix run of a pull request', { timeout: 1_800_000, concurrency: sandboxConcurrency }, () => {
+  const expected = contractOf(pullRequestFixScenario, pullRequestFixPoints);
+
+  it('reviews the pull request with its writer, writes the read-only report and continues the same run into the fix pass in one command in the run with no stop (R1 of the review of a fix run)', () => {
+    const { outcome } = expected();
+    const review = outcome.state.review!;
+    assert.equal(review.explanationStep, true, 'the run explains its review');
+    assert.notEqual(review.continuedFrom, null, 'the run was continued');
+    assert.equal(outcome.events.filter(([kind]) => kind === 'report.written').length, 2, 'the read-only report, then the fix report');
+    assert.equal(outcome.ran.status, 0);
   });
 });

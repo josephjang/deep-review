@@ -15,11 +15,13 @@ import { resolvePullRequestScope, type ScopeSource } from '../../src/review/cont
 import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { githubExecutableAdvice, resolveExecutable } from '../../src/review/executable.ts';
 import { acquireStartLock } from '../../src/review/lock.ts';
+import { reviewStatus } from '../../src/review/state.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { captureScope, namesScope, type NamedScope } from '../../src/scope/capture.ts';
 import { fakeGhCalls, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
-import { reviewScript } from '../helpers/fix-pass-fixture.ts';
+import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
+import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { baseEnvironment, fakeClaude } from '../helpers/launcher.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
@@ -421,6 +423,99 @@ describe('the continuation of a run of a pull request (R4 of the review on the p
     assert.ok(box.logs.includes(`run ${branch.id}: not continued: it reviewed no pull request, and this command names pull request #42 of acme/widgets`), box.logs.join('\n'));
     for (const run of [otherPullRequest, branch]) assert.equal(box.checkpoint.fold(run.id).review!.fix, null, `run ${run.id} stays read-only`);
     assert.equal(box.checkpoint.foldRuns().length, 4, 'a new run for each --pr --fix');
+  });
+});
+
+describe('the review of a fix run (R1 to R4 of the review of a fix run)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
+  /** The review of fix-pass-fixture.ts, which decides two fixes and leaves one finding, with a fixer for each of its two clusters. */
+  const fixingScript: Script = {
+    ...reviewScript,
+    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+    'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+  };
+
+  /** The index of the first event of `runId` that `matches`, which must hold one. */
+  const indexOf = (box: ReviewSandbox, runId: string, matches: (kind: string, payload: Record<string, unknown>) => boolean): number => {
+    const index = box.events(runId).findIndex(([kind, payload]) => matches(kind, payload));
+    assert.notEqual(index, -1, 'the run holds the event');
+    return index;
+  };
+
+  it('reviews a pull request with --fix as a read-only run with its writer, writes the read-only report, then continues the same run into the fix pass, reading GitHub only before the review (R1, R4)', async (t) => {
+    const { box, gh, script } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    box.script(fixingScript);
+    const outcome = await box.fix('claude', { scope: pullRequestSource(box, gh) });
+    const [run, ...more] = box.checkpoint.foldRuns();
+    assert.deepEqual(more, [], 'one run');
+    const configured = box.checkpoint.ledger.events(run!.id).find((event) => event.kind === 'review.configured')!;
+    assert.deepEqual([configured.version, (JSON.parse(configured.payload) as { fix: boolean }).fix], [11, false], 'configured as a read-only run of a pull request');
+    // The writer explains the review before the read-only report, which comes before the pin and every phase of the fix pass.
+    const explained = indexOf(box, run!.id, (kind) => kind === 'explanation.recorded');
+    const readOnlyReport = indexOf(box, run!.id, (kind) => kind === 'report.written');
+    const pinned = indexOf(box, run!.id, (kind) => kind === 'fix.pinned');
+    const fixPass = indexOf(box, run!.id, (kind, payload) => kind === 'phase.started' && payload.phase === 'baseline-checks');
+    assert.ok(explained < readOnlyReport && readOnlyReport < pinned && pinned < fixPass, JSON.stringify([explained, readOnlyReport, pinned, fixPass]));
+    const review = run!.review!;
+    assert.equal(review.continuedFrom!.sequence, box.checkpoint.ledger.events(run!.id)[pinned]!.sequence);
+    // The command ends as a fix run ends, with the fix report.
+    assert.equal(outcome.kind, 'report');
+    assert.equal(outcome.kind === 'report' ? outcome.reportPath : null, box.checkpoint.evidence.pathOf(review.report!.report));
+    assert.notDeepEqual(review.report!.report, review.continuedFrom!.report.report, 'the fix report follows the read-only one');
+    assert.equal(review.fix!.revisions.length, 2, 'both fixers revised the tree');
+    assert.equal(fakeGhCalls(script).length, 4, 'GitHub was read once, for the capture');
+    assert.ok(box.logs.some((line) => line.startsWith(`run ${run!.id}: configured for `) && line.endsWith('; this command continues it into the fix pass once its report is written')), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => line.startsWith(`run ${run!.id}: continued into the fix pass; its read-only report is ${box.checkpoint.evidence.pathOf(review.continuedFrom!.report.report)}; `)), box.logs.join('\n'));
+  });
+
+  it('ends with the read-only report, exit 0, when the decisions route no finding to a fixer, and says why (R2)', async (t) => {
+    const { box, gh } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    box.script({ ...fixingScript, decider: { output: deciderAnswer([{ decision: 'leave' }, { decision: 'leave' }, { decision: 'leave' }]) } });
+    const outcome = await box.fix('claude', { scope: pullRequestSource(box, gh) });
+    const run = box.run();
+    assert.equal(outcome.kind, 'report');
+    assert.equal(outcome.kind === 'report' ? outcome.reportPath : null, box.checkpoint.evidence.pathOf(run.review!.report!.report));
+    assert.equal(run.review!.fix, null, 'the run stays read-only');
+    assert.equal(box.events(run.id).some(([kind]) => kind === 'fix.pinned'), false);
+    assert.ok(box.logs.includes(`run ${run.id} has no finding to fix: 0 decided fix, 3 left, 0 asked with the code kept; it ends with its read-only report, and its fix pass does not run`), box.logs.join('\n'));
+  });
+
+  it('refuses a continuation that its run budget no longer allows, naming the read-only report, creating no second run and leaving the run complete, which the same command continues once the budget is raised (R4)', async (t) => {
+    const { box, gh, script } = sandboxWithGh(t, (sandbox) => [...sandboxSteps(sandbox), ...sandboxSteps(sandbox)]);
+    // The writer, the review's last worker, spends past the budget, which its launch was still under.
+    box.script({ ...fixingScript, writer: { costUsd: 10 } });
+    let message = '';
+    await assert.rejects(box.fix('claude', { scope: pullRequestSource(box, gh), flags: { budgetUsd: 5 } }), (error: unknown) => {
+      message = error instanceof Error ? error.message : '';
+      return error instanceof ReviewRefusedError;
+    });
+    const run = box.run();
+    const report = box.checkpoint.evidence.pathOf(run.review!.report!.report);
+    const { head } = commitsOf(box);
+    assert.match(message, new RegExp(`^run ${run.id} spent \\d+\\.\\d\\d USD of the 5\\.00 USD run budget, so no fixer could launch; nothing to continue; run it again with --budget-usd above \\d+\\.\\d\\d, or start a new run with --fresh; `));
+    assert.ok(message.endsWith(`; the review of run ${run.id} is written, and its read-only report is ${report}; once that is done, \`deep-review review --pr 42 --fix\` continues the run into the fix pass while the pull request is still at ${head}, the head the run reviewed, and reviews it again in a new run once its head has moved`), message);
+    assert.equal(reviewStatus(run), 'complete');
+    assert.equal(run.review!.fix, null, 'nothing was pinned');
+    assert.equal(fakeGhCalls(script).length, 4, 'the refused continuation read nothing from GitHub');
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh), flags: { budgetUsd: 100 } }));
+    assert.equal(box.run().id, run.id, 'the same run, continued, and no second run');
+    assert.notEqual(box.run().review!.continuedFrom, null);
+  });
+
+  it('continues a read-only run of a pull request that a stop cut short, resumed with --fix, once its report is written, and says so (R3)', async (t) => {
+    const { box, gh, script } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
+    box.script({ triage: { exit: 2 } });
+    assert.equal((await box.review('claude', { scope: pullRequestSource(box, gh) })).kind, 'blocked');
+    const blocked = box.run();
+    box.script(fixingScript);
+    box.logs.length = 0;
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    assert.ok(box.logs.includes(`run ${blocked.id} is a read-only run of a pull request; this command continues it into the fix pass once its report is written`), box.logs.join('\n'));
+    assert.ok(!box.logs.some((line) => /--fix\b.* ignored/.test(line)), 'no line says --fix is ignored');
+    const run = box.run();
+    assert.equal(run.id, blocked.id);
+    assert.notEqual(run.review!.continuedFrom, null, 'the run was continued once its report was written');
+    assert.equal(run.review!.fix!.revisions.length, 2);
+    assert.equal(fakeGhCalls(script).length, 4, 'the resume read nothing from GitHub');
   });
 });
 
