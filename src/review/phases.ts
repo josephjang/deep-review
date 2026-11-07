@@ -63,7 +63,7 @@ import { mergeRankInput, rankedFindings, refutedIn, resolutionOf, survivors, typ
 import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskDecided, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskBase, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
-import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, singleUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
 
 /**
  * Where a fixes-phase unit claims files (R1, R2 of commit series
@@ -210,7 +210,7 @@ function taskCandidate(candidate: CandidateState, evidence: Pick<EvidenceStore, 
   return { id: candidate.id, angle: candidate.angle, location: describeLocation(candidate), summary: candidate.summary, detail: candidate.detail, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence, cited };
 }
 
-/** The ranked findings as the decider's task numbers them, in rank order, each with every candidate of it. */
+/** The ranked findings as the decider's task numbers them, in rank order, each with every candidate of it and the choice its verifier leaves to the author (R1 of the settled choice). */
 export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
   return rankedFindings(review).map((entry): DeciderTaskFinding => ({
     id: entry.finding.id,
@@ -218,8 +218,19 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map((candidate) => taskCandidate(candidate)),
+    candidates: [entry.primary, ...entry.members].map((candidate) => ({ ...taskCandidate(candidate), authorChoice: resolutionOf(candidate)?.authorChoice ?? null })),
   }));
+}
+
+/**
+ * What the engine refused the decision unit's earlier answers for (R9 of
+ * the settled choice): the reason of each failure of the unit's own whose
+ * answer a structural check refused, without its prefix, in order. A
+ * resume clears the unit's failures, so a resumed decider is told none.
+ */
+export function refusedDecisions(review: ReviewState): string[] {
+  const failures = review.units.decision[singleUnitKey('decision')]?.failures ?? [];
+  return failures.filter((failure) => failure.cause === 'unit' && failure.reason.startsWith(structuralCheckPrefix)).map((failure) => failure.reason.slice(structuralCheckPrefix.length));
 }
 
 /**
@@ -613,7 +624,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
     case 'merge-rank':
       return mergeRankTask(mergeRankInput(review).map(({ candidate, resolution }) => ({ candidate, verdict: resolution.verdict, unverified: resolution.unverified, evidence: resolution.evidence })));
     case 'decision':
-      return deciderTask(deciderFindings(review));
+      return deciderTask(deciderFindings(review), refusedDecisions(review));
     case 'fixes':
       if (evidence === null) throw new Error('The fixer task names the baseline checks\' frozen outputs and needs the evidence store');
       return fixerTaskOf(unit, review, requireEditing(), evidence);
