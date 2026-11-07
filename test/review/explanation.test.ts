@@ -588,6 +588,17 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.ok(!task.includes('/home/me'), 'no local path');
   });
 
+  it('gives the writer the choice each decision settles, the step in words, as the decision\'s and not the author\'s to make (R5 of the settled choice)', () => {
+    const settled = { choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
+    const folded = decided(fixture).start('explanation').fold();
+    const task = (decisions: NonNullable<typeof folded.review>['decisions']): string => writerTask({ ...folded, review: { ...folded.review!, decisions } }, { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
+    const withSettled = task(folded.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, settled } : decision)));
+    assert.match(withSettled, /^ {8}approach: [^\n]*\n(?: {8}rejected: [^\n]*\n)* {8}settled by the decision: An empty input gives an empty result; settled by the stated intent of the change: The change says that an empty input gives an empty result\.$/m);
+    assert.match(withSettled, /A choice a decision settles, on its line `settled by the decision`, is the decision's and not the author's to make, whatever a verifier's note says: explain it as decided\./);
+    const without = task(folded.review!.decisions);
+    assert.doesNotMatch(without, /settled by the decision/, 'a run whose decisions settle no choice is told nothing of it');
+  });
+
   it('writes in the language the run recorded', () => {
     const history = new History();
     for (const event of decided(fixture).start('explanation').events) {

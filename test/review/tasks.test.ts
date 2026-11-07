@@ -416,7 +416,7 @@ describe('the fixer\'s task', () => {
         primary: { id: 'RIPPLE-1', angle: 'RIPPLE', location: 'src/a.ts:4', summary: 'line 4 dereferences null', detail: 'other() passes null', verdict: 'CONFIRMED', unverified: false, evidence: 'line 4 uses text!', cited: null },
         members: [{ id: 'SWEEP-2', angle: 'ALTITUDE', location: 'src/a.ts:7', summary: 'guard once', detail: 'one guard serves both sites', verdict: 'PLAUSIBLE', unverified: false, evidence: 'Needs the author: guard in parse or in each caller', cited: null }],
         decision: { id: 'RIPPLE-1', decision: 'fix', grounds: 'the changelog says parse accepts null', fix: { approach: 'guard in parse', rejected: [{ option: 'guard in each caller', reason: 'two copies of one rule' }] }, leave: null, ask: null, departure: { rule: 'parse trusts its callers', source: 'src/a.ts:2', reason: 'other() is a caller it never trusted' }, settled: null },
-        supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing' }],
+        supersedes: [{ id: 'SCAN-3', location: 'src/a.ts:9', summary: 'the guard is missing', settled: null }],
         firstRound: null,
         answered: null,
       },
@@ -505,6 +505,16 @@ describe('the fixer\'s task', () => {
   it('names a finding left as superseded under the finding whose fix removes it, so the fixer checks it is gone', () => {
     assert.match(fixerTask(input), /^ {8}departs from: [^\n]*\n {4}removes also: SCAN-3 at src\/a\.ts:9: the guard is missing \(left because this fix removes it, and given to no fixer: check it is gone\)$/m);
     assert.doesNotMatch(fixerTask({ ...input, findings: input.findings.map((finding) => ({ ...finding, supersedes: [] })) }), /removes also/);
+  });
+
+  it('gives the fixer the choice its decision settles, and the one the decision of each finding it removes settles, the step in words, so it applies the choice decided (R5, D1 of the settled choice)', () => {
+    const settled = { choice: 'An empty input gives an empty result.', by: 'intent' as const, source: 'The change says that an empty input gives an empty result.' };
+    const first = input.findings[0]!;
+    const decided = { ...first, decision: { ...(first.decision as Extract<FixerDecision, { decision: 'fix' }>), settled }, supersedes: first.supersedes.map((left) => ({ ...left, settled: { ...settled, by: 'kept' as const } })) };
+    const task = fixerTask({ ...input, findings: [decided] });
+    assert.match(task, /^ {8}departs from: [^\n]*\n {8}settled: An empty input gives an empty result; settled by the stated intent of the change: The change says that an empty input gives an empty result\.$/m);
+    assert.match(task, /^ {4}removes also: SCAN-3 [^\n]*\n {8}settled: An empty input gives an empty result; settled by keeping a behavior that was there before: The change says/m);
+    assert.doesNotMatch(fixerTask(input), /settled:/, 'a decision that settles no choice gives no line');
   });
 
   it('says nothing of decisions to a fixer of a run configured before the decision step, whose findings have none', () => {

@@ -7,7 +7,7 @@
  */
 import { appliedOptionOf, type PlannedCheck, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import { rawLocation, repositoryLocation, type CandidateState } from '../checkpoint/review-fold.ts';
-import { comparisonWordsLengthV1, settlementRulesV1, type Answer, type Lead, type RecordedDecision, type SettlementCase, type SurveyedSources } from '../checkpoint/events.ts';
+import { comparisonWordsLengthV1, settlementRulesV1, type Answer, type Lead, type RecordedDecision, type SettledChoice, type SettlementCase, type SurveyedSources } from '../checkpoint/events.ts';
 import type { CheckHint } from './checks/discover.ts';
 import type { ReviewerAuthorship } from './conventions.ts';
 import { codeSpan, inlineText } from './markdown.ts';
@@ -16,7 +16,7 @@ import type { Layer } from '../config/settings.ts';
 import type { CommitMessage } from '../scope/git.ts';
 import { endedByKill, killMarkWords } from '../runtime/kill-marks.ts';
 import { checkSettingWords, droppedReasonOf } from './survey.ts';
-import { failedOrTimedOut, finderAngles, settleSteps, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
+import { failedOrTimedOut, finderAngles, settledChoiceWords, settleSteps, verdictBasisWords, type CheckKind, type FinderAngle, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
 /** What the surveyor's task names that the surveyor cannot see (R2 to R5, R11 of the repository survey). */
 export interface SurveyTaskInput {
@@ -622,8 +622,8 @@ export interface FixerTaskFinding {
   readonly members: readonly TaskCandidate[];
   /** What the decision step decided for it, which the fixer applies; null for a run configured before the decision step, whose plan predates it. */
   readonly decision: FixerDecision | null;
-  /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step). */
-  readonly supersedes: readonly Pick<TaskCandidate, 'id' | 'location' | 'summary'>[];
+  /** The findings left as superseded by this one, which no fixer is given and this fix must remove too (R7 of the decision step), each with the choice its decision settles, which this fix makes (D1 of the settled choice). */
+  readonly supersedes: readonly (Pick<TaskCandidate, 'id' | 'location' | 'summary'> & { readonly settled: SettledChoice | null })[];
   /**
    * For a second-round finding, what the first round said: its blocked
    * note and the files it needed (R21 of the fix pass), each with the
@@ -741,11 +741,15 @@ function candidateLines(head: string, candidate: TaskCandidate): string[] {
   ];
 }
 
+/** The choice a decision settles, as a fixer's task gives it on a line of its own, the step in words (R5 of the settled choice); none for a decision that settles none. */
+const settledLines = (settled: SettledChoice | null): string[] => (settled === null ? [] : [`        settled: ${settledChoiceWords(settled.choice, settled.by, settled.source)}`]);
+
 /**
  * What a fixer is told was decided for a finding (R7 of the decision
  * step): the approach, or the default an ask applied, with the grounds,
- * what was rejected and any rule departed from; then, for a finding the
- * author answered, the answer (`answeredLines`).
+ * what was rejected, any rule departed from and the choice the decision
+ * settles, which the fixer applies (R5 of the settled choice); then, for
+ * a finding the author answered, the answer (`answeredLines`).
  */
 function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null): string[] {
   if (decision.decision === 'fix') {
@@ -755,6 +759,7 @@ function decidedLines(decision: FixerDecision, answered: AnsweredFinding | null)
       `        approach: ${fix.approach}`,
       ...(fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join('; ')}`]),
       ...(departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`]),
+      ...settledLines(decision.settled),
       ...(answered === null ? [] : answeredLines(answered)),
     ];
   }
@@ -903,7 +908,7 @@ export function fixerTask(input: FixerTaskInput): string {
     ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
     ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
     ...(finding.decision === null ? [] : decidedLines(finding.decision, finding.answered)),
-    ...finding.supersedes.map((left) => `    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`),
+    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.settled)]),
     ...(finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file) => (file.claimedBy === null ? file.path : `${file.path} (which ${file.claimedBy} had claimed)`)).join(', ')}: ${finding.firstRound.note}`]),
   ].join('\n'));
   const decided = input.findings.some((finding) => finding.decision !== null);
