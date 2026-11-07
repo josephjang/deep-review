@@ -339,17 +339,17 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
 
   it('shows beside a finding left as is the choice its decision settles, the step in the review\'s words and its source, after the verifier\'s choice (R4, D2 of the settled choice)', () => {
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [settled] });
-    includes(leftOf(formOf(state).body), `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`);
+    includes(leftOf(formOf(state).body), `**The choice.** Its verifier left this choice to the author: ${choice} deep-review decided: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`);
     const unnamed = withDecision(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { leave: { reason: 'settled', supersededBy: null }, settled: [{ ...settled, for: [], by: 'shape' }] });
     const left = leftOf(formOf(unnamed).body);
     includes(left, 'deep-review leaves this as is: a choice of shape, settled in favor of the code as it is.');
-    includes(left, '**The choice.** deep-review settles a choice: Parse keeps returning null on an empty file. What settles it: the shape the code around it already uses, or else the one that adds less.');
+    includes(left, '**The choice.** deep-review decided: Parse keeps returning null on an empty file. What settles it: the shape the code around it already uses, or else the one that adds less.');
     excludes(leftOf(formOf(run([leftIntended, decisions[1]]).fold()).body), '**The choice.**');
   });
 
   it('shows in a fix\'s comment, after what deep-review would do, the choice it settles, and the verifier\'s choice beside it (R5, D2 of the settled choice)', () => {
     const settledFix = withDecision(withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [{ ...settled, by: 'intent' }] });
-    inOrder(formOf(settledFix).comments[0]!.body, ['**What deep-review would do.**', `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: the stated intent of the change.`, '**This fix goes against a written rule.**', '<details><summary>The fix as decided</summary>']);
+    inOrder(formOf(settledFix).comments[0]!.body, ['**What deep-review would do.**', `**The choice.** Its verifier left this choice to the author: ${choice} deep-review decided: Parse keeps returning null on an empty file. What settles it: the stated intent of the change.`, '**This fix goes against a written rule.**', '<details><summary>The fix as decided</summary>']);
     const departing = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
     includes(formOf(departing).comments[0]!.body, `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`);
     excludes(formOf(run().fold()).comments[0]!.body, '**The choice.**');
@@ -368,8 +368,8 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     const state = withDecision(withTwoChoices(run([leftIntended, decisions[1]]).fold()), 'RIPPLE-1', { settled: [settled, { ...helperSettled, by: 'intent' }] });
     const left = leftOf(formOf(state).body);
     inOrder(left, [
-      `**The choice.** Its verifier left this choice to the author: ${choice} deep-review settles it: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`,
-      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review settles it: The helper guards the null too. What settles it: the stated intent of the change. The helper is new in this change.`,
+      `**The choice.** Its verifier left this choice to the author: ${choice} deep-review decided: Parse keeps returning null on an empty file. What settles it: what the repository states. The documentation of parse says that an empty file gives null.`,
+      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review decided: The helper guards the null too. What settles it: the stated intent of the change. The helper is new in this change.`,
     ]);
     excludes(left, 'deep-review did not settle it');
   });
@@ -378,7 +378,7 @@ describe('the parts that the newer writer and verifier give (R4, R7, R9 to R11)'
     const partly = formOf(withDecision(withTwoChoices(run().fold()), 'RIPPLE-1', { settled: [helperSettled] })).comments[0]!.body;
     inOrder(partly, [
       '**What deep-review would do.**',
-      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review settles it: The helper guards the null too. What settles it: keeping the fix to the part inside the change. The helper is new in this change.`,
+      `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review decided: The helper guards the null too. What settles it: keeping the fix to the part inside the change. The helper is new in this change.`,
       `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`,
       '**This fix goes against a written rule.**',
     ]);

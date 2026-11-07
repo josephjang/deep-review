@@ -392,6 +392,11 @@ describe('the task texts', () => {
     assert.match(task, /^- `ask`: settles no choice; give `settled` empty, since its question is the record of the choice\.$/m);
   });
 
+  it('asks the decider for a settled choice that states the side it settles, not the question, with one example (R2, PD10 of the settled choice)', () => {
+    const task = deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'CONFIRMED', summary: 's', reason: 'r', candidates: [] }]);
+    assert.ok(task.includes('the `choice`, one declarative sentence that states the side the decision settles, not the question it answers, as in "Ids in the writer\'s text are replaced by the numbers the body shows."; the step `by` that settles it;'), task);
+  });
+
   it('tells a decider after a refused answer what the engine refused it for, and to give the whole answer again (R9 of the settled choice)', () => {
     const task = deciderTask([{ id: 'A-1', severity: 'minor', verdict: 'CONFIRMED', summary: 's', reason: 'r', candidates: [] }], ['Decision [0] is a leave as settled and settles no choice, which a leave as settled always does']);
     assert.match(task, /^### What failed in the earlier answer\n\nThe engine refused an earlier answer to this task for these faults\. Give your whole answer again, every finding of it, and keep none of them:\n\n- Decision \[0\] is a leave as settled and settles no choice, which a leave as settled always does$/m);
