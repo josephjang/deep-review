@@ -127,10 +127,14 @@ The reasons a finding is left, and no others:
   nothing the repository has not already answered. Or the change's
   stated intent or the repository's stated contract settles the
   finding's choice in favor of the code as it is; give the settled
-  choice, by `intent` or `contract`.
+  choice, by `intent` or `contract`. When its members also name a
+  choice between two shapes that `shape` settles in favor of the code
+  as it is, settle that one beside it, by `shape`: at least one settled
+  choice of a finding left as `intended` is by `intent` or `contract`.
 - `settled`: acting needs a choice between two shapes only a maintainer
-  would see, nothing stated settles it, and `shape` settles it in favor
-  of the code as it is; give the settled choice, by `shape`.
+  would see, nothing stated settles it or any other choice of the
+  finding, and `shape` settles it in favor of the code as it is; give
+  the settled choice, by `shape`.
 
 A finding left as `intended` or `settled` always names in `settled`
 what settles each of its choices. One left as `superseded` names the

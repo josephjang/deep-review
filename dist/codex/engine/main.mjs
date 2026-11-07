@@ -21360,6 +21360,8 @@ function settlementFaultsV1(decision, candidates) {
       answered2.add(id);
     }
   }
+  const { restsOn } = rule;
+  if (restsOn !== null && settled4.length > 0 && !settled4.some((entry) => restsOn.includes(entry.by))) faults.push(`is ${rule.what} and settles none of its choices by ${restsOn.map((step) => `\`${step}\``).join(" or ")}, where ${rule.what} settles at least one by one of them`);
   const open2 = need2 === "required" ? naming.filter((id) => !answered2.has(id)) : [];
   if (open2.length > 0) faults.push(`is ${rule.what} and settles no choice for ${open2.join(", ")}, whose verifier named one for the author; name each such candidate in the \`for\` of one entry`);
   return faults;
@@ -23030,13 +23032,13 @@ var init_events = __esm({
     vocabularyV13 = reviewVocabularyV13;
     settledChoiceSchemaV1 = external_exports.strictObject({ for: external_exports.array(candidateIdSchema), choice: decisionText(400), by: external_exports.enum(vocabularyV13.settleSteps), source: decisionText(400) });
     settlementRulesV1 = {
-      fix: { named: "required", unnamed: "optional", steps: vocabularyV13.settleSteps, what: "a fix with no departure", why: null },
-      "fix-departing": { named: "optional", unnamed: "optional", steps: vocabularyV13.settleSteps, what: "a fix that departs from a rule", why: null },
-      intended: { named: "required", unnamed: "optional", steps: ["intent", "contract"], what: "a leave as intended", why: null },
-      settled: { named: "required", unnamed: "required", steps: ["shape"], what: "a leave as settled", why: null },
-      superseded: { named: "required", unnamed: "optional", steps: ["intent", "contract", "kept", "shape", "scope", "none"], what: "a leave as superseded", why: null },
-      "outside-change-not-regression": { named: "refused", unnamed: "refused", steps: [], what: "a leave as outside-change-not-regression", why: "deep-review does not act on such a finding" },
-      ask: { named: "refused", unnamed: "refused", steps: [], what: "an ask", why: "its question is the record of the choice" }
+      fix: { named: "required", unnamed: "optional", steps: vocabularyV13.settleSteps, restsOn: null, what: "a fix with no departure", why: null },
+      "fix-departing": { named: "optional", unnamed: "optional", steps: vocabularyV13.settleSteps, restsOn: null, what: "a fix that departs from a rule", why: null },
+      intended: { named: "required", unnamed: "optional", steps: ["intent", "contract", "shape"], restsOn: ["intent", "contract"], what: "a leave as intended", why: null },
+      settled: { named: "required", unnamed: "required", steps: ["shape"], restsOn: null, what: "a leave as settled", why: null },
+      superseded: { named: "required", unnamed: "optional", steps: ["intent", "contract", "kept", "shape", "scope", "none"], restsOn: null, what: "a leave as superseded", why: null },
+      "outside-change-not-regression": { named: "refused", unnamed: "refused", steps: [], restsOn: null, what: "a leave as outside-change-not-regression", why: "deep-review does not act on such a finding" },
+      ask: { named: "refused", unnamed: "refused", steps: [], restsOn: null, what: "an ask", why: "its question is the record of the choice" }
     };
     [recordedFixV1, recordedLeaveV1, recordedAskV1] = recordedDecisionSchema.options;
     decidedLeaveV2 = external_exports.strictObject({ reason: external_exports.enum(vocabularyV13.leaveReasons), supersededBy: candidateIdSchema.nullable() }).refine((leave) => leave.reason === "superseded" === (leave.supersededBy !== null), {
@@ -36936,8 +36938,10 @@ function settlementLine(rule, name) {
   if (rule.named === "refused") return `- ${name}: settles no choice; give \`settled\` empty, since ${rule.why ?? ""}.`;
   const others = rule.unnamed === "required" ? "and settles one in an entry whose `for` is empty when no candidate has one" : "and may settle others";
   const when = rule.named === "required" ? `settles the choice left to the author of each candidate that has one, naming the candidate in the \`for\` of one entry, ${others}` : "may settle choices";
-  const by = rule.steps.length === settleSteps.length ? "by any step" : `by ${rule.steps.map((step) => `\`${step}\``).join(" or ")}`;
-  return `- ${name}: ${when}, ${by}.`;
+  const alternatives = (steps) => steps.map((step) => `\`${step}\``).join(" or ");
+  const by = rule.steps.length === settleSteps.length ? "by any step" : `by ${alternatives(rule.steps)}`;
+  const restsOn = rule.restsOn === null ? "" : `, at least one entry by ${alternatives(rule.restsOn)} when it settles any`;
+  return `- ${name}: ${when}, ${by}${restsOn}.`;
 }
 function deciderTask(findings, refused = []) {
   const count3 = findings.length;
