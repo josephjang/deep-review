@@ -2980,8 +2980,8 @@ export function settlementCaseOf(decision: Omit<SettlementFacts, 'settled'>): Se
  * refuses a settlement carries no entry. Every entry names a step its
  * case allows, at least one names a step its case rests on when it has
  * such steps, and in `for` only candidates of the finding whose verifiers
- * named a choice, each in one entry at most; an entry for a choice no
- * verifier named has an empty `for`. A case that requires a settlement
+ * named a choice, each in one entry at most and once in it; an entry for
+ * a choice no verifier named has an empty `for`. A case that requires a settlement
  * where a verifier named a choice names each such candidate in an entry,
  * and one that requires it where none did carries at least one entry.
  * None for a decision that keeps them all.
@@ -2998,10 +2998,13 @@ export function settlementFaultsV1(decision: SettlementFacts, candidates: readon
   const answered = new Set<string>();
   for (const entry of settled) {
     if (!rule.steps.includes(entry.by)) faults.push(`is ${rule.what} and settles a choice by \`${entry.by}\`, which ${rule.what} settles only by ${rule.steps.map((step) => `\`${step}\``).join(', ')}`);
+    const named = new Set<string>();
     for (const id of entry.for) {
-      if (!ids.has(id)) faults.push(`settles a choice for ${id}, which is not a candidate of its finding`);
+      if (named.has(id)) faults.push(`names ${id} twice in the \`for\` of one entry; name it once`);
+      else if (!ids.has(id)) faults.push(`settles a choice for ${id}, which is not a candidate of its finding`);
       else if (!naming.includes(id)) faults.push(`settles a choice for ${id}, whose verifier named no choice for the author; an entry for a choice no verifier named has an empty \`for\``);
       else if (answered.has(id)) faults.push(`settles the choice of ${id} in two entries, where one settles it`);
+      named.add(id);
       answered.add(id);
     }
   }
