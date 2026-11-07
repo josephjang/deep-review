@@ -85,7 +85,7 @@ The command continues the run that it brought to its report, and no other. It re
 
 ### R5: `publish` posts the review of a continued run
 
-`publish` posts a run that `--fix` continued as the run stood when its read-only report was written: the events of the ledger before the continuation. Every refusal of R8 of the review on the pull request applies to that review, the checks of the head and the merge base included. The fix pass need not be finished: a run whose fix pass is blocked or was stopped is posted too, since its review is finished. A run that an engine is running is refused by its lock, as today.
+`publish` posts a run that `--fix` continued as the run stood when its read-only report was written: the events of the ledger before the continuation. Every refusal of R8 of the review on the pull request applies to that review, the checks of the head and the merge base included. The fix pass need not be finished: a run whose fix pass is blocked or was stopped is posted too, since its review is finished. A run that an engine is running is refused by its lock, as today. Without `--run`, `publish` chooses the newest run of the worktree whose review is finished: a run with a current report, or a run continued into its fix pass, whatever the state of that pass. Choosing only a run with a current report, as `report` does, would pass over a continued run whose fix pass is blocked, and post an older run of the worktree or none.
 
 ### R6: The posted review says that the run went on to fix
 
