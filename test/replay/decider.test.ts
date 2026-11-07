@@ -8,7 +8,7 @@ import { Ledger, ledgerFileName, type EventRow } from '../../src/checkpoint/ledg
 import type { Gh } from '../../src/github/gh.ts';
 import type { ScopeFile } from '../../src/checkpoint/events.ts';
 import { newLinesOf } from '../../src/github/pull-request.ts';
-import { answerFileName, decisionsFileName, factsFileName, newPathOfPatchPart, patchFiles, promptFileName, replayDecider, reviewFileName, type DeciderReplayOptions, type DeciderReplayOutcome } from '../../src/replay/decider.ts';
+import { answerFileName, decisionsFileName, factsFileName, newPathOfPatchPart, patchFiles, promptFileName, readRecordedRun, replayDecider, reviewFileName, type DeciderReplayOptions, type DeciderReplayOutcome } from '../../src/replay/decider.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
 import { replayCheckpointDirectoryName } from '../../src/replay/run.ts';
 import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
@@ -272,6 +272,25 @@ describe('replayDecider', { timeout: 600_000 }, () => {
 
     assert.equal(launchedDecider(otherOutput).model, policyModel, 'a decider recorded on another runtime gives the roles\' policy');
     assert.equal((JSON.parse(read(otherOutput, factsFileName)) as { settingsFrom: string }).settingsFrom, 'policy');
+  });
+
+  it('reads a snapshot of a ledger still open for writing, with the events its write-ahead log holds', () => {
+    const rows = recordedRows();
+    const root = checkpointOf(rows.slice(0, -1));
+    const writer = Ledger.open(root);
+    try {
+      const { runId: id, kind, version, payload, recordedAt, engine } = rows.at(-1)!;
+      writer.write((tx) => {
+        tx.insertEvent({ runId: id, kind, version, payload, recordedAt, engine });
+      });
+      assert.ok(existsSync(join(root, `${ledgerFileName}-wal`)), 'the last event is in the write-ahead log of the open ledger');
+
+      const recorded = readRecordedRun(root, runId);
+
+      assert.deepEqual(recorded.events.map((event) => event.kind), rows.map((row) => row.kind));
+    } finally {
+      writer.close();
+    }
   });
 
   it('refuses a run that never reached the decision phase', async () => {
