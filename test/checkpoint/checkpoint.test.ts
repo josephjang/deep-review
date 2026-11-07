@@ -20,7 +20,7 @@ import { ledgerFileName } from '../../src/checkpoint/ledger.ts';
 import { collectArtifactReferences } from '../../src/evidence/references.ts';
 import { sha256Hex } from '../../src/evidence/store.ts';
 import { modelWithout, resumableRunsEntries, testModel } from '../helpers/model.ts';
-import { mergeRanked, withFixPass } from '../helpers/review-history.ts';
+import { continuedToReport, mergeRanked, withFixPass } from '../helpers/review-history.ts';
 
 const fixedClock = (): (() => string) => {
   let tick = 0;
@@ -158,6 +158,31 @@ describe('Checkpoint', () => {
     const runs = older.listRuns();
     assert.deepEqual(runs.map((listed) => [listed.id, isUnreadable(listed)]), [[run, true], [plain, false]]);
     assert.deepEqual(isUnreadable(runs[0]!) ? runs[0].unreadable : null, { sequence: startedAt, kind: 'check.started', version: 1, engine: '0.1.0-writer' });
+  });
+
+  it('folds a run continued into the fix pass, before the sequence of its fix.pinned, to the finished read-only run whose report continuedFrom holds, and refuses an event it does not declare there as fold does (R5 of the review of a fix run)', () => {
+    const checkpoint = open({ model: runModel });
+    const run = checkpoint.createRun({ worktree: '/w' }).id;
+    // The read-only run, its continuation and its fix pass to the second report go in as rows, as the appends of an engine would.
+    const insert = (runId: string, events: readonly { kind: string; version: number; payload: unknown; recordedAt: string }[]): void => checkpoint.ledger.write((tx) => {
+      for (const event of events) tx.insertEvent({ runId, kind: event.kind, version: event.version, payload: JSON.stringify(event.payload), recordedAt: event.recordedAt, engine: '0.0.0-test' });
+    });
+    insert(run, continuedToReport().events.slice(1));
+    const whole = checkpoint.fold(run);
+    const continuedFrom = whole.review!.continuedFrom!;
+    assert.equal(checkpoint.ledger.events(run).find((event) => event.sequence === continuedFrom.sequence)?.kind, 'fix.pinned', 'the sequence is the continuation\'s');
+    const reviewed = checkpoint.foldBefore(run, continuedFrom.sequence);
+    assert.equal(reviewed.status, 'active');
+    assert.deepEqual(reviewed.review!.report, continuedFrom.report, 'the read-only report is current');
+    assert.equal(reviewed.review!.fix, null, 'a read-only run');
+    assert.equal(reviewed.review!.continuedFrom, null);
+    assert.deepEqual(reviewed.review!.decisions, whole.review!.decisions);
+    assert.equal(reviewed.lastSequence, continuedFrom.sequence - 1);
+    assert.deepEqual(checkpoint.foldBefore(run, whole.lastSequence + 1), whole, 'past the last event, the whole run');
+    assert.throws(() => checkpoint.foldBefore('no-such-run', 2), UnknownRunError);
+    const unreadable = checkpoint.createRun({ worktree: '/w' }).id;
+    insert(unreadable, [{ kind: 'phase.finished', version: 99, payload: {}, recordedAt: '2026-09-26T00:00:59.000Z' }]);
+    assert.throws(() => checkpoint.foldBefore(unreadable, checkpoint.ledger.lastSequence(unreadable) + 1), UnreadableRunError);
   });
 
   describe('a run holding an event this engine does not declare', () => {
