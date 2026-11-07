@@ -52,10 +52,10 @@ src/review/              the review: policy, schemas, prompts, planner, controll
                          patches and commit command
 src/review/checks/       the fix pass's checks: the manifest rules that hint the surveyor, running one
 src/replay/              replaying a recorded run's verifiers: the recorded prompt, the samples, their summary,
-                         and their score against labels
+                         and their score against labels; and replaying its decider
 src/command.ts           the deep-review command: review, config, status, abandon, commit, answer, snapshot, claim
 src/cli.ts               the command's entry point, which the bundle is built from, and of the guard
-scripts/                 build, fixture, smoke, replay and replay score entry points
+scripts/                 build, fixture, smoke, replay, replay score and decider replay entry points
 test/                    node:test suites, mirroring src/
 test/fixtures/checkpoints/  golden checkpoints, one per ledger schema
 test/fixtures/reports/   the report renderer's snapshots
@@ -951,6 +951,7 @@ npm run resume-test   # stop a fix run on the fakes at every point, in each way,
 npm run review -- review --runtime claude --last-commit [--fix]   # run the engine from the sources; also status, abandon and commit
 npm run replay -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>   # a recorded run's verifiers again, real runtimes, by hand
 npm run replay-score -- --results <results.json> --labels <labels.json>   # the replay's samples against labels; calls no model
+npm run replay-decider -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>   # a recorded run's decider again, with the current roles, by hand
 ```
 
 `npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
@@ -1049,6 +1050,8 @@ candidate labeled `unsure` scores no sample. The PLAUSIBLE an unverified
 candidate carries is no verifier's judgment, so it scores nothing for
 its sample, and `summary.md` compares it with no other sample. It reads the two files,
 calls no model and writes only what `--output` names.
+
+`npm run replay-decider` runs a recorded run's decider again with this engine and the current roles, which is how the second gate of [the settled choice](docs/changes/2026-11-06-choice-settled-on-the-record.requirements.md) (R8) measures the decider on the findings and verdicts a real run recorded, for the cost of one or two deciders. It reads a copy of the run's ledger up to the moment its decision phase records anything, so a run whose recorded decisions this engine cannot read still replays, and it refuses a run that never reached the decision phase. It builds the decider's prompt as the decision phase does, but with the decider prompt and policy of `--roles`, this checkout's `roles/` by default, and not the roles the run pinned; launches one decider on the runtime named, in a clean checkout of the reviewed commit; and checks its answer as the decision phase does. A refused answer gets one more decider whose task names what the check refused (R9), and a second refusal is recorded as such. Into `--output`, which must be absent or empty, it writes each attempt's prompt and answer, the accepted decisions, and the review as `publish --dry-run` prints it, rendered from the run and the new decisions with no writer, each finding placed against the patch the run captured rather than the files GitHub lists. `facts.json` holds what the gate's metrics read: each attempt with its outcome, what the check refused, its wall time and its cost; what needs a person, split into questions and departures; each fix with its approach; and each finding whose verifiers named a choice, with its decision, its settled choices and each choice no settled choice answers. The recorded checkpoint is only read, and the replay records its deciders in a checkpoint of its own under the output directory. It calls real models and costs real money; `--print-task` writes the first attempt's prompt and launches nothing.
 
 Never edit `dist/` by hand. See `AGENTS.md`.
 

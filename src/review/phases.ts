@@ -774,7 +774,7 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
  * variant, whose parts `checkDecisions` has already held. They keep the
  * answer's order; the fold holds them in the ranking's.
  */
-function recordedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
+export function recordedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
   const idAt = (position: number): string => findings[position]!.finding.id;
   return output.decisions.map(({ index, leave, ...decided }) => recordedDecisionSchemaV2.parse({
     id: idAt(index),

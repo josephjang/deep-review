@@ -137,7 +137,7 @@ interface VerifierSettings {
 }
 
 /** A path as the file system names it: the real path of its nearest existing ancestor, with the parts not created yet joined on. */
-function canonicalPath(path: string): string {
+export function canonicalPath(path: string): string {
   const missing: string[] = [];
   let existing = resolve(path);
   for (let parent = dirname(existing); !existsSync(existing) && parent !== existing; parent = dirname(existing)) {
@@ -148,13 +148,13 @@ function canonicalPath(path: string): string {
 }
 
 /** Whether `path` is `directory` or lies under it. */
-function isWithin(directory: string, path: string): boolean {
+export function isWithin(directory: string, path: string): boolean {
   const relation = relative(directory, path);
   return relation === '' || (relation !== '..' && !relation.startsWith(`..${sep}`) && !isAbsolute(relation));
 }
 
 /** What differs between a tree and the scope a run captured: a head that moved, a scope file that changed, a change outside the scope. */
-function treeDifferences(state: RunState, tree: string): string[] {
+export function treeDifferences(state: RunState, tree: string): string[] {
   const scope = state.scope;
   if (scope === null) throw new ReplayRefusedError(`Run ${state.id} captured no scope, so there is no tree to replay it in`);
   const at = head(tree);
@@ -196,7 +196,7 @@ function spendOfWorkers(state: RunState, adapter: RuntimeAdapter, workerIds: Rea
 }
 
 /** Write a file whole: to a temporary name beside it, then renamed over it, so a reader never sees half of it. */
-function writeWhole(path: string, text: string): void {
+export function writeWhole(path: string, text: string): void {
   const temporary = `${path}.${String(process.pid)}.tmp`;
   writeFileSync(temporary, text);
   renameSync(temporary, path);

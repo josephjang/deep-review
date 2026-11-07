@@ -238,7 +238,7 @@ function placeWords(placement: FindingPlacement): string {
 }
 
 /** What a dry run prints (R14): what it would post, where each finding goes and why, each cut, and the body and each comment in full. */
-function dryRunLines(run: RunState, placements: readonly FindingPlacement[], form: PullRequestForm, notes: readonly string[]): string[] {
+export function dryRunLines(run: RunState, placements: readonly FindingPlacement[], form: PullRequestForm, notes: readonly string[]): string[] {
   const scope = run.scope!;
   const numbers = briefOf(run).numbers;
   const numbered = (finding: string): string => `${String(numbers.get(finding) ?? '?')} (${finding})`;
