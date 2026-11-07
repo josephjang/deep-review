@@ -218,7 +218,8 @@ export function deciderFindings(review: ReviewState): DeciderTaskFinding[] {
     verdict: entry.resolution.verdict,
     summary: entry.finding.summary,
     reason: entry.finding.reason,
-    candidates: [entry.primary, ...entry.members].map((candidate) => ({ ...taskCandidate(candidate), authorChoice: resolutionOf(candidate)?.authorChoice ?? null })),
+    // `entry.choices` holds each candidate's choice in this same order, primary first, and is what `checkDecisions` holds the decider to.
+    candidates: [entry.primary, ...entry.members].map((candidate, index) => ({ ...taskCandidate(candidate), authorChoice: entry.choices[index]!.choice })),
   }));
 }
 
