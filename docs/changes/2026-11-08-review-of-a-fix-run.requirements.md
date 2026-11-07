@@ -51,7 +51,7 @@ A run configured with the fix pass from its start, as `review --pr --fix` made b
 
 ### NG2: The fixes in the review
 
-The posted review holds no suggestion, no commit, no count of the fixes applied and no link to where the fixes went, such as a pull request stacked on this one. Each would be a claim about edits that the reader of the pull request cannot see, and that a later answer pass can change. Whether a review names where its fixes went is a choice of its own, as the non-goal of the review on the pull request says.
+The posted review holds no suggestion, no commit, no count of the fixes applied and no link to where the fixes went, such as a pull request stacked on this one. Each would be a claim about edits that the reader of the pull request cannot see, and that a later answer pass can change. The results of the checks that the fix pass runs are left out for the same reason: they are results of the edited tree, not of the head that the review read, and the review says where they are (R6). Whether a review names where its fixes went is a choice of its own, as the non-goal of the review on the pull request says.
 
 ### NG3: Answers recorded after the continuation
 
@@ -89,7 +89,7 @@ The command continues the run that it brought to its report, and no other. It re
 
 ### R6: The posted review says that the run went on to fix
 
-The posted review of a continued run states what followed the review, in place of what a read-only run says will follow it, and claims no edit: a run can be posted while its fix pass is blocked or stopped, and a fixer can fail, so the review says what deep-review went on to do, and that the report on the machine that ran it says what each fix did. The line on what the run reviewed says that deep-review then went on to fix the findings it decided to fix, in its own run on the machine of the person who ran the review, and that those edits are not part of this review. The summary says that those fixes reach the branch only when that person pushes them. A question says that the person who ran the review answers it with `deep-review answer` once the run's fix pass has ended, since that command refuses an answer while the run has no current report, and that the command then applies the answer. A departure says that the fix pass sets out to make the fix as decided and that a rejection sends the finding back to a fixer, an option of a question that edits says that the fix pass makes it when that option is chosen, and the diagram of how the review works shows the review done and the fix pass started on that machine, its report holding what it changed. The words come from the table of the review's language, in English and in Korean. A finding decided `fix` is still shown as what deep-review decided, "deep-review would fix this", not as applied (NG2).
+The posted review of a continued run states what followed the review, in place of what a read-only run says will follow it, and claims no edit: a run can be posted while its fix pass is blocked or stopped, and a fixer can fail, so the review says what deep-review went on to do, and that the report on the machine that ran it says what each fix did. The line on what the run reviewed says that deep-review then went on to fix the findings it decided to fix, in its own run on the machine of the person who ran the review, and that those edits are not part of this review. The summary says that those fixes reach the branch only when that person pushes them. A question says that the person who ran the review answers it with `deep-review answer` once the run's fix pass has ended, since that command refuses an answer while the run has no current report, and that the command then applies the answer. A departure says that the fix pass sets out to make the fix as decided and that a rejection sends the finding back to a fixer, an option of a question that edits says that the fix pass makes it when that option is chosen, and the diagram of how the review works shows the review done and the fix pass started on that machine, its report holding what it changed. The line on the checks no longer says that the run only reviewed, so no test ran: it says that no check ran in this review, and that the fix pass runs the repository's checks on that machine, where its report holds their results. The words come from the table of the review's language, in English and in Korean. A finding decided `fix` is still shown as what deep-review decided, "deep-review would fix this", not as applied (NG2).
 
 ### R7: A fix run that did not review first is refused with the reason
 
@@ -179,7 +179,7 @@ A person who wants the review and the fixes runs one command. No order of comman
 
 ### Principle 8, say what was not examined, and when a person must look
 
-The review states what it does not show: the edits of the fix pass.
+The review states what it does not show: the edits of the fix pass, and the results of the checks that the fix pass ran, with where each is kept.
 
 ### Principle 12, a real run is the gate
 
