@@ -135,7 +135,7 @@ The gate is a real run (principle 12). deep-review reviews this pull request on 
 
 ### R9: A refused answer is named to the next attempt
 
-When the engine refuses the decider's answer, its next attempt is given what the refusal said, each broken rule with the finding it concerns, as the writer's next attempt is given the parts of its earlier answer that failed. The task says to give the whole answer again.
+When the engine refuses the decider's answer, it names in one refusal every rule that the answer broke, each with the decision it concerns, within the length that the ledger keeps for the reason of a failed attempt. The decider's next attempt is given that refusal under a section that says what failed in the earlier answer, as the writer's next attempt is given the parts of its earlier answer that failed, and the task says to give the whole answer again. The section holds only the refusals of the rules of the decisions, not a failure of another kind. Resuming a run clears the failures of the phase it stopped in, so the first decider attempt after a resume starts without them. The proposal accepts this, since a resume already gives the phase fresh attempts, and each refusal stays on the ledger.
 
 ## Metrics
 
@@ -213,7 +213,7 @@ No answer on the ledger is about a settled choice, since the person answers ques
 
 ### Principle 11, recovery without a person
 
-The proposal departs from this principle in one case it adds. The rules of R2 and R3 are a new way for the decider's answer to be refused, and two refusals stop the run before its report, so a person must resume it, which the principle counts as a person back in the loop (RK3). R9 makes the second refusal less likely, and the stop names its action, a resume, which gives the phase fresh attempts. The proposal builds no further recovery, such as a degraded decision, since the principle permits recovery only for a failure that a run has shown; the gate records each stop, and a stop that real runs show is the case for it.
+The proposal departs from this principle in one case it adds. The rules of R2 and R3 are a new way for the decider's answer to be refused, and two refusals stop the run before its report, so a person must resume it, which the principle counts as a person back in the loop (RK3). R9 makes the second refusal less likely, and the stop names its action, a resume, which gives the phase fresh attempts. A resume clears the failures that R9 names, so the decider after it starts without them; the proposal accepts this, since after the resume the second attempt is again told what the first broke. The proposal builds no further recovery, such as a degraded decision, since the principle permits recovery only for a failure that a run has shown; the gate records each stop, and a stop that real runs show is the case for it.
 
 ### Principle 12, a real run is the gate
 
@@ -231,7 +231,7 @@ A decider that now sees the choice as a field may ask about it more often, and a
 
 ### RK3: More answers refused
 
-The new rules of R2 and R3 refuse a whole answer when one decision breaks them, and the Korean review of #115 had 20 of 32 findings whose verifier named a choice. The decider is tried twice and its phase has no degraded result, so two refused answers stop the run before its report, with the blocker of a worker that failed twice; resuming the run gives the phase fresh attempts. Principle 11 counts such a stop against a run, so the second attempt is told what the first broke (R9), which makes a second refusal for the same rule less likely. The gate records each refusal and each stop.
+The new rules of R2 and R3 refuse a whole answer when one decision breaks them, and the Korean review of #115 had 20 of 32 findings whose verifier named a choice. The decider is tried twice and its phase has no degraded result, so two refused answers stop the run before its report, with the blocker of a worker that failed twice; resuming the run gives the phase fresh attempts. Principle 11 counts such a stop against a run, so the second attempt is told every rule that the first broke (R9), which makes a second refusal for the same rules less likely. The gate records each refusal and each stop.
 
 ### RK4: A run started before the change cannot resume after it
 
