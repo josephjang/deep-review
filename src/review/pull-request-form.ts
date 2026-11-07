@@ -103,7 +103,8 @@ const shortCommit = (commit: string): string => commit.slice(0, 8);
 /**
  * What a body over the limit is cut of, in this order (TD5 of the review
  * that reads as a report): the refuted candidates, then the findings left
- * as is, then the table of the minor findings, each of which has its
+ * as is whose verifier named no choice for the author, which a cut keeps
+ * (D9 of the settled choice), then the table of the minor findings, each of which has its
  * comment on its line or its text in full above, then the diagrams of the
  * areas. What needs a person, the areas and the findings in full are never
  * cut.
@@ -202,7 +203,7 @@ interface FindingView {
   readonly kind: FindingKind | null;
   /** The verifier's reason for a PLAUSIBLE verdict (R7); null says that it gave none. */
   readonly unconfirmed: Unconfirmed | null;
-  /** The choice the verifier leaves to the author (R9); null when it named none. */
+  /** The choice the verifier leaves to the author (R9), which the review shows beside the decision (D2 of the settled choice); null when it named none. */
   readonly authorChoice: string | null;
 }
 
@@ -246,11 +247,8 @@ const acts = (view: FindingView): boolean => asksToAct(view.decision?.decision);
 /** Whether a finding is minor; critical findings count with the major ones. */
 const isMinor = (view: FindingView): boolean => view.finding.severity === 'minor';
 
-/** Whether a finding is left as is while its verifier named a choice for the author (R9), which goes in what needs a person and in full. */
-const forAuthor = (view: FindingView): boolean => view.decision?.decision === 'leave' && view.authorChoice !== null;
-
-/** Whether a finding is in full in the body: one that acts or is for the author, with no comment on a line. */
-const inFull = (view: FindingView): boolean => (acts(view) || forAuthor(view)) && view.placement.place === 'body';
+/** Whether a finding is in full in the body: one that acts, with no comment on a line. */
+const inFull = (view: FindingView): boolean => acts(view) && view.placement.place === 'body';
 
 /**
  * The cleaning of each text the engine did not write, counting the
@@ -450,12 +448,20 @@ function questionBlocks(view: FormView, finding: FindingView, question: BriefQue
   return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options, ...standing];
 }
 
-/** Why a finding is left as is, and the choice its verifier leaves to the author (R9). */
-function authorBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
-  const { words } = view;
-  const leave = finding.decision?.decision === 'leave' ? finding.decision : null;
-  const why = leave === null ? [] : [[`${words.whyLeft} ${leftBecauseOf(view, leave)} ${say.sentence(leave.grounds)}`]];
-  return [...why, [`${words.whyLook} ${words.authorChoice(say.sentence(finding.authorChoice ?? ''))}`]];
+/**
+ * The choice beside a finding's decision, as one paragraph (R4, R5, D2 of
+ * the settled choice): the choice its decision settles, with the step in
+ * the review's words and the source, and the choice its verifier left to
+ * the author when it named one, or with that choice that deep-review did
+ * not settle it; none when neither is there.
+ */
+function choiceLines(view: FormView, finding: FindingView, say: Speaker): string[] {
+  const settled = finding.decision?.settled ?? null;
+  if (settled === null && finding.authorChoice === null) return [];
+  return [view.words.choice({
+    verifier: finding.authorChoice === null ? null : say.sentence(finding.authorChoice),
+    settled: settled === null ? null : { choice: say.sentence(settled.choice), step: view.words.settleSteps[settled.by], source: say.sentence(settled.source) },
+  })];
 }
 
 /** The engine's words on why a finding is left as is, with the finding that supersedes it. */
@@ -464,15 +470,15 @@ function leftBecauseOf(view: FormView, leave: Extract<RecordedDecision, { decisi
   return view.words.leftBecause(view.words.leaveReasons[leave.leave.reason], by === null ? null : view.words.findingList([view.brief.numbers.get(by)!]));
 }
 
-/** What deep-review would do about a finding of R5's order, each a block: the sentence and the folded fix, with a departure between; the question; or, left for the author, why and the choice. */
+/** What deep-review would do about a finding of R5's order, each a block: the sentence, the choice it makes and the folded fix, with a departure between; or the question. */
 function decisionBlocks(view: FormView, finding: FindingView, say: Speaker, minor: boolean): string[][] {
   const { decision, departure, question } = finding;
   if (decision?.decision === 'fix') {
     const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
-    return [...would, ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
+    return [...would, choiceLines(view, finding, say), ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
   }
   if (decision?.decision === 'ask' && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
-  return forAuthor(finding) ? authorBlocks(view, finding, say) : [];
+  return [];
 }
 
 /** How the verifier checked a finding, folded (R10): the writer's line, or the words of the verdict's basis. */
@@ -553,7 +559,7 @@ function headingSection(view: FormView): Section {
   return { part: 'heading', lines: [words.heading, '', words.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 
-/** The summary (R1): the counts of the findings with the writer's sentence on the areas, left out when the checks dropped the writer's areas, which the body then does not show, then what deep-review decided and what happens next, with the findings left for the author that what needs a person lists. */
+/** The summary (R1): the counts of the findings with the writer's sentence on the areas, left out when the checks dropped the writer's areas, which the body then does not show, then what deep-review decided and what happens next. */
 function summarySection(view: FormView, say: Speaker): Section {
   const { words, findings } = view;
   const areasDropped = view.recorded?.dropped.some((part) => part.part === 'areas') ?? false;
@@ -562,13 +568,12 @@ function summarySection(view: FormView, say: Speaker): Section {
     fixes: findings.filter((finding) => finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule').length,
     questions: findings.filter((finding) => finding.finding.status === 'question').length,
     left: findings.filter((finding) => finding.finding.status === 'left').length,
-    authors: findings.filter(forAuthor).length,
   };
   const next = findings.length === 0 ? [] : [[words.summaryNext(decided, fixCommand(view))]];
   return { part: 'summary', lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(' ')], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
 }
 
-/** What needs a person (R2, R8, R9): each question, each fix against a written rule and each finding left for the author, with a link to where it is read, then the one command that answers; or that nothing does. */
+/** What needs a person (R2, R8; R4 of the settled choice): each question and each fix against a written rule, with a link to where it is read, then the one command that answers; or that nothing does. */
 function needsSection(view: FormView, say: Speaker): Section {
   const { words } = view;
   const sentence = (text: string): string => sentenceText(say.words(text));
@@ -588,8 +593,7 @@ function needsSection(view: FormView, say: Speaker): Section {
     const tail = given === null ? words.departureStands : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence(departure.rule), tail)}`];
   });
-  const authors = view.findings.filter(forAuthor).map((finding) => `- ${words.needsAuthor(finding.finding.number, hrefOf(view, finding), say.sentence(finding.authorChoice!))}`);
-  const items = [...questions, ...departures, ...authors];
+  const items = [...questions, ...departures];
   if (items.length === 0) return { part: 'needs', lines: [words.needsHeading, '', words.needsNothing] };
   const flags = [...(questions.length === 0 ? [] : ['--option <k>']), ...(departures.length === 0 ? [] : ['--accept', '--reject'])].map(codeSpan);
   const answer = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, '<n>', '').trimEnd()}`), flags)]];
@@ -629,7 +633,7 @@ function areasSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   return { part: 'areas', lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
 }
 
-/** Each finding with no comment that asks a person to act or is left for the author, in full, in the form of its comment (R1). */
+/** Each finding with no comment that asks a person to act, in full, in the form of its comment (R1). */
 function inFullSection(view: FormView, say: Speaker): Section {
   const full = view.findings.filter(inFull);
   return {
@@ -651,8 +655,11 @@ const minorActing = (view: FormView): FindingView[] => {
   return [...minor.filter((finding) => finding.kind === 'user'), ...minor.filter((finding) => finding.kind !== 'user')];
 };
 
-/** The findings left as is that need no person, in rank order. */
-const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding) && !forAuthor(finding));
+/** The findings left as is, in rank order, whatever their verifiers named (R4 of the settled choice). */
+const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding));
+
+/** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4, D9 of the settled choice). */
+const keptByCut = (finding: FindingView): boolean => finding.authorChoice !== null;
 
 /** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
 function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
@@ -670,12 +677,18 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   return { part: 'minor', lines: blocks([words.minorHeading], [intro], details(words.minorSummary(minor.length), ...order, table)) };
 }
 
-/** The findings left as is that need no person, folded, each with why and its line; or, cut, the note in their place. */
+/**
+ * The findings left as is, folded, each with why, the choice beside its
+ * decision and its line (R4 of the settled choice); or, cut, those whose
+ * verifier named a choice and the note in place of the others, or the
+ * note in place of them all when none named one (D9).
+ */
 function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: 'left as is', lines: [] };
-  if (cuts.has('left')) return { part: 'left as is', lines: [words.leftHeading, '', words.leftCut(left.length)] };
+  const shown = cuts.has('left') ? left.filter(keptByCut) : left;
+  if (shown.length === 0) return { part: 'left as is', lines: [words.leftHeading, '', words.leftCut(left.length)] };
   const block = (finding: FindingView): string[] => {
     const leave = finding.decision?.decision === 'leave' ? finding.decision : null;
     const { location } = finding.placement;
@@ -684,10 +697,12 @@ function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): 
       [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
       [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
       leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
+      choiceLines(view, finding, say),
       location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`],
     );
   };
-  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary(left.length), ...left.map(block))) };
+  const others = left.length - shown.length;
+  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary(shown.length), ...shown.map(block)), others === 0 ? [] : [words.leftOthersCut(others)]) };
 }
 
 /**
@@ -783,7 +798,7 @@ function cutApplies(view: FormView, cut: BodyCut): boolean {
     case 'refuted':
       return view.refuted.length > 0;
     case 'left':
-      return leftAsIs(view).length > 0;
+      return leftAsIs(view).some((finding) => !keptByCut(finding));
     case 'minor-table':
       return minorActing(view).length > 0;
     case 'area-diagrams':
@@ -794,8 +809,8 @@ function cutApplies(view: FormView, cut: BodyCut): boolean {
 /**
  * How the writer explained a finding, from the recorded explanation and its
  * frozen answer. A finding the answer does not hold is one the writer was
- * not asked about, such as one left for the author (R9), which the body
- * still gives in full, so it is marked as given in deep-review's own words.
+ * not asked about, or whose explanation no answer passed, which the body
+ * marks as given in deep-review's own words.
  */
 function explainedOf(recorded: ExplanationRecorded | null, answer: WriterAnswer | null, id: string): Explained {
   if (recorded === null) return { kind: 'none' };
