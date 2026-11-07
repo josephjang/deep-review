@@ -60,7 +60,7 @@ Without `--run`, `publish` no longer chooses with `chooseReportRun`, which takes
 
 ### The words of a continued run (R6)
 
-The input of `pullRequestForm` gains `fixPass: 'to-come' | 'continued'`, which `publish` sets from the whole run's `continuedFrom`. `PullRequestWords` gains a member `continued` with the six entries of the Context that speak of what follows the review, each worded for a run that went on into its fix pass, and the form chooses `words.continued.*` over the read-only entries when `fixPass` is `continued`. `fixCommand` is not used in a continued run's words, since no command remains to run for the fixes. `answerCommand` stays: `deep-review answer` on a fix run runs the answer pass itself. The English and the Korean tables both gain the member. The words of a finding's status do not change (NG2 of the requirements).
+The input of `pullRequestForm` gains `fixPass: 'to-come' | 'continued'`, which `publish` sets from the whole run's `continuedFrom`. `PullRequestWords` gains a member `continued` with the six entries of the Context that speak of what follows the review, each worded for a run that went on into its fix pass, and the form chooses `words.continued.*` over the read-only entries when `fixPass` is `continued`. The member also holds `noCheck`, the line on the checks, which for a read-only run says that the run only reviewed, so no test ran. `fixCommand` is not used in a continued run's words, since no command remains to run for the fixes. `answerCommand` stays: `deep-review answer` on a fix run runs the answer pass itself. The English and the Korean tables both gain the member. The words of a finding's status do not change (NG2 of the requirements).
 
 ### A fix run that did not review first (R7)
 
