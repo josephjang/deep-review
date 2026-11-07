@@ -16,6 +16,9 @@ export class StructuralCheckError extends EngineError {
   override readonly name = 'StructuralCheckError';
 }
 
+/** What a failed attempt records before the message of the structural check that refused its answer, so a later attempt can tell such a failure from any other. */
+export const structuralCheckPrefix = 'structural check: ';
+
 /** The review cannot start or continue for a reason the operator must act on before anything is recorded: a held lock, an unqualified runtime, two active runs, an active run pinned to another runtime or started in another worktree. The command exits 2 with it. */
 export class ReviewRefusedError extends EngineError {
   override readonly name = 'ReviewRefusedError';

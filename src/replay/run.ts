@@ -21,7 +21,7 @@ import { locateCheckpoint } from '../checkpoint/locate.ts';
 import { collectArtifactReferences } from '../evidence/references.ts';
 import { sha256Hex } from '../evidence/store.ts';
 import { ghTokenVariables } from '../github/gh.ts';
-import { ReviewRefusedError, StructuralCheckError } from '../review/errors.ts';
+import { ReviewRefusedError, StructuralCheckError, structuralCheckPrefix } from '../review/errors.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { acquireStartLock, type ReleaseLock } from '../review/lock.ts';
 import { pinnedRole, readPolicy, resolvePolicy } from '../review/policy.ts';
@@ -351,7 +351,7 @@ async function takeSamples(plan: SamplingPlan): Promise<Pick<ReplayOutcome, 'res
       // Each cited run is looked up in the replayed worker's own record and its probe frozen from the worker's own scratch directory, as the run does, so an answer the run would refuse fails the attempt; the probe goes to the replay's own checkpoint, since a replay writes nothing to the run's.
       if (cited) checkCitedVerdicts((answer as VerifierOutputV2).verdicts, receipt.runs ?? [], replay.fold(run.id).workers[receipt.workerId]?.launch.scratch ?? null, replay.evidence);
     } catch (error) {
-      if (error instanceof StructuralCheckError) return `structural check: ${error.message}`;
+      if (error instanceof StructuralCheckError) return `${structuralCheckPrefix}${error.message}`;
       throw error;
     }
     return new Map(answer.verdicts.map((verdict) => {
