@@ -349,7 +349,7 @@ function taskFinding(review: ReviewState, ranked: ReadonlyMap<string, ReportFind
     decision,
     supersedes: (review.decisions ?? []).filter((left) => left.leave?.supersededBy === id).flatMap((left) => {
       const leftEntry = ranked.get(left.id);
-      return leftEntry === undefined ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary }];
+      return leftEntry === undefined ? [] : [{ id: left.id, location: describeLocation(leftEntry.primary), summary: leftEntry.finding.summary, settled: left.settled }];
     }),
     answered: answeredFor(review, decision, id),
   };

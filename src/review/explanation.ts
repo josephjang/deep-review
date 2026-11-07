@@ -29,7 +29,7 @@ import { writerOutputSchema, writerOutputSchemaV2, type CitedSide, type WriterOu
 import { findingNumbers, rankedFindings, refuted, resolutionOf, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
-import { asksToAct, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
+import { asksToAct, settledChoiceWords, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
 
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
@@ -847,10 +847,16 @@ function fenced(text: string, info = ''): string {
   return `${fence}${info}\n${text.endsWith('\n') ? text : `${text}\n`}${fence}`;
 }
 
-/** What a decision says, as the writer's task gives it, each text of the decider cleaned. */
+/**
+ * What a decision says, as the writer's task gives it, each text of the
+ * decider cleaned: its kind, grounds and part, and the choice it settles,
+ * the step in words, which is the decision's and not the author's to
+ * make (R5 of the settled choice).
+ */
 function decisionLines(decision: RecordedDecision | undefined, clean: (text: string) => string): string[] {
   if (decision === undefined) return ['    decision: none recorded'];
   const grounds = `        grounds: ${clean(decision.grounds)}`;
+  const settled = decision.settled === null ? [] : [`        settled by the decision: ${settledChoiceWords(clean(decision.settled.choice), decision.settled.by, clean(decision.settled.source))}`];
   switch (decision.decision) {
     case 'fix':
       return [
@@ -859,6 +865,7 @@ function decisionLines(decision: RecordedDecision | undefined, clean: (text: str
         `        approach: ${clean(decision.fix.approach)}`,
         ...decision.fix.rejected.map((option) => `        rejected: ${clean(option.option)}, because ${clean(option.reason)}`),
         ...(decision.departure === null ? [] : [`        departs from the rule "${clean(decision.departure.rule)}" (${clean(decision.departure.source)}): ${clean(decision.departure.reason)}`]),
+        ...settled,
       ];
     case 'ask':
       return [
@@ -868,7 +875,7 @@ function decisionLines(decision: RecordedDecision | undefined, clean: (text: str
         ...decision.ask.options.map((option, index) => `        option ${String(index + 1)}: ${clean(option.option)}; cost: ${clean(option.cost)}; rule: ${clean(option.rule)}${index === decision.ask.recommended ? '; recommended' : ''}${index === decision.ask.applied ? '; the default deep-review would apply' : ''}`),
       ];
     case 'leave':
-      return ['    decision: leave it as it is', grounds, `        reason: ${decision.leave.reason}${decision.leave.supersededBy === null ? '' : `, superseded by ${decision.leave.supersededBy}`}`];
+      return ['    decision: leave it as it is', grounds, `        reason: ${decision.leave.reason}${decision.leave.supersededBy === null ? '' : `, superseded by ${decision.leave.supersededBy}`}`, ...settled];
   }
 }
 
@@ -983,7 +990,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     '',
     '### The findings',
     '',
-    `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.`,
+    `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked.some((entry) => (decided.get(entry.finding.id)?.settled ?? null) !== null) ? ' A choice a decision settles, on its line `settled by the decision`, is the decision\'s and not the author\'s to make, whatever a verifier\'s note says: explain it as decided.' : ''}`,
     '',
     ...ranked.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids.includes(entry.finding.id) ? explainWords(entry, version) : null, decided.get(entry.finding.id), clean, quote), '']),
     ...(report === null || refutedCandidates.length === 0 ? [] : [
