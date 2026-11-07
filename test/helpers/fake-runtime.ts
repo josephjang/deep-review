@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { readTaskHeader } from '../../src/review/prompts.ts';
 import { citingValidationWords } from '../../src/review/tasks.ts';
-import { finderAngles } from '../../src/review/vocabulary.ts';
+import { finderAngles, type LeaveReason, type SettleStep } from '../../src/review/vocabulary.ts';
 import type { ShellRun } from '../../src/runtime/adapter.ts';
 import { holdIfNamed, waitForFile, writeWhole, type FakeHost } from './fake-host.ts';
 
@@ -238,14 +238,23 @@ export function writerAnswer(ids: readonly string[], explained: Readonly<Record<
  * What a scripted decider decides of one finding: `fix` unless a kind is
  * given; a `leave` with its reason and, when superseded, the index of the
  * finding that supersedes it; an `ask` whose applied default edits the
- * code unless `edits` says it keeps it.
+ * code unless `edits` says it keeps it; and the step of the choice it
+ * settles, which a leave as `settled` gives as `shape` unless told
+ * otherwise, and no other decision gives unless told.
  */
 export interface DecidedFinding {
   readonly decision?: 'fix' | 'leave' | 'ask';
-  readonly reason?: 'outside-change-not-regression' | 'superseded' | 'intended';
+  readonly reason?: LeaveReason;
   readonly supersededBy?: number;
   readonly edits?: boolean;
   readonly departs?: boolean;
+  readonly settledBy?: SettleStep | null;
+}
+
+/** The settled choice a scripted decision gives: by the step it names, or by `shape` for a leave as `settled`, which always gives one; null otherwise. */
+function settledOf(finding: DecidedFinding, index: number): { choice: string; by: SettleStep; source: string } | null {
+  const by = finding.settledBy === undefined ? (finding.decision === 'leave' && finding.reason === 'settled' ? 'shape' : null) : finding.settledBy;
+  return by === null ? null : { choice: `fake choice settled for [${String(index)}]`, by, source: `fake source of the step for [${String(index)}]` };
 }
 
 /** A decider's answer with one decision per finding, by index, in the shape its output schema demands. */
@@ -272,6 +281,7 @@ export function deciderAnswer(findings: readonly DecidedFinding[]): unknown {
             }
           : null,
         departure: finding.departs === true ? { rule: 'fake rule departed from', source: 'fake source', reason: 'fake reason the rule does not reach the case' } : null,
+        settled: settledOf(finding, index),
       };
     }),
   };

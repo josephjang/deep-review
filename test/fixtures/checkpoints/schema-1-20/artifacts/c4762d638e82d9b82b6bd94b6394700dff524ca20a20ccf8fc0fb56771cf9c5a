@@ -1,0 +1,5 @@
+--- a/src/changed.ts
++++ b/src/changed.ts
+@@ -1 +1 @@
+-before
++after

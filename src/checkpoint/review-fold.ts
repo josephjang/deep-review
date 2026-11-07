@@ -34,6 +34,7 @@ import type {
   CandidatesRecordedV1,
   ChangeReading,
   DecisionsRecorded,
+  DecisionsRecordedV1,
   DeduplicationRecorded,
   ExplanationRecordedV1,
   ExplanationRecordedV2,
@@ -69,6 +70,7 @@ import type {
   WorktreeCheckV1,
   WorktreeCheckV9,
 } from './events.ts';
+import { settlementFaultV1 } from './events.ts';
 import type { AnswerState } from './answer-state.ts';
 import { emptyFixState, type FixState } from './fix-state.ts';
 import type { DecodedEvent, FoldDrafts, Reducer, RunState } from './fold.ts';
@@ -812,12 +814,25 @@ const rankingRecorded: Reducer<RankingRecorded> = (state, payload, event, drafts
 };
 
 /**
+ * Whether the verifier of a ranked finding named a choice for the author:
+ * the verdict of its primary or of one of its members, as the ranking
+ * records them, gives one, which only a verdict at version 3 does (TD3 of
+ * the settled choice).
+ */
+function namesChoice(review: ReviewState, finding: RankedFinding): boolean {
+  return [finding.id, ...finding.members].some((id) => (review.candidates[id]?.verdict?.authorChoice ?? null) !== null);
+}
+
+/**
  * The decider's decisions (R2, R3 of the decision step): once, while the
  * decision phase runs, from its one unit, and exactly one per ranked
  * finding. A finding left as superseded names another finding, decided
- * `fix`, whose fix removes it.
+ * `fix`, whose fix removes it. At version 2 each decision holds the
+ * settled choice `settlementRulesV1` asks of its case, which for some
+ * depends on whether its finding's verifier named a choice (TD3 of the
+ * settled choice); version 1 settles none.
  */
-const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, drafts) => {
+function recordDecisions(state: RunState | undefined, payload: DecisionsRecorded, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2): RunState {
   const { current, review } = requireReview(state, event);
   requireRunning(review, event, 'decision');
   if (review.decisions !== null) throw invalid(event, 'records its decisions twice');
@@ -829,14 +844,24 @@ const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, dr
     throw invalid(event, `decides [${decided.join(', ')}], which is not every ranked finding [${ranked.join(', ')}] once`);
   }
   const kindOf = new Map(payload.decisions.map((decision) => [decision.id, decision.decision]));
+  const findings = new Map((review.ranking ?? []).map((finding) => [finding.id, finding]));
   for (const decision of payload.decisions) {
     const by = decision.leave?.supersededBy ?? null;
     if (by !== null && (by === decision.id || kindOf.get(by) !== 'fix')) throw invalid(event, `leaves ${decision.id} as superseded by ${by}, which is not another finding decided fix`);
+    const fault = version === 2 ? settlementFaultV1(decision, namesChoice(review, findings.get(decision.id)!)) : null;
+    if (fault !== null) throw invalid(event, `records the decision of ${decision.id}, which ${fault}`);
   }
   // Held in the ranking's order, so every reader lists them as the findings are listed.
   const decisions = ranked.map((id) => payload.decisions.find((decision) => decision.id === id)!);
   return withReview(current, { ...review, decisions, units: answered(review, drafts, unit, payload.workerId) }, event);
-};
+}
+
+/** Version 2: each decision with the choice it settles, or null (R2 of the settled choice). */
+const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, drafts) => recordDecisions(state, payload, event, drafts, 2);
+
+/** Version 1, recorded before the settled choice: no decision settles a choice. */
+const decisionsRecordedV1: Reducer<DecisionsRecordedV1> = (state, payload, event, drafts) =>
+  recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: null })) }, event, drafts, 1);
 
 /**
  * The writer's explanation (R18, R19 of the review on the pull request),
@@ -941,7 +966,8 @@ export const reviewReducers = {
   'verdicts.recorded@3': verdictsRecorded,
   'group.unverified@1': groupUnverified,
   'ranking.recorded@1': rankingRecorded,
-  'decisions.recorded@1': decisionsRecorded,
+  'decisions.recorded@1': decisionsRecordedV1,
+  'decisions.recorded@2': decisionsRecorded,
   'report.written@1': reportWrittenV1,
   'report.written@2': reportWritten,
   'report.written@3': reportWritten,

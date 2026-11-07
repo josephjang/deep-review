@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { isDocumentItem, recordedDecisionSchema, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2, type VerdictsRecordedV3 } from '../checkpoint/events.ts';
+import { isDocumentItem, recordedDecisionSchemaV2, type CandidatesRecorded, type DecisionsRecorded, type DeduplicationRecorded, type Lead, type PinnedRole, type RankedFinding, type RankingRecorded, type RecordedCandidate, type RecordedDecision, type ReviewConfiguration, type SurveyRecorded, type TreeRevised, type VerdictsRecorded, type VerdictsRecordedV2, type VerdictsRecordedV3 } from '../checkpoint/events.ts';
 import { passOf, standingAnswer } from '../checkpoint/answer-state.ts';
 import { allBatches, clusterClaims, exactPath, failedAtBaseline, failingBaselineRun, fixPassRevisedPaths, heldByOthers, kindsTakenToBase, lastAnswerOf, lastClaimOf, lastFreshRun, ownedFiles, repairTargets, roundOf, unitRevisions, type CheckRunState, type SpelledHolder } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
@@ -764,7 +764,7 @@ function orderedRanking(review: ReviewState, output: MergeRankOutput, input: rea
  */
 function recordedDecisions(output: DeciderOutput, findings: readonly ReportFinding[]): RecordedDecision[] {
   const idAt = (position: number): string => findings[position]!.finding.id;
-  return output.decisions.map(({ index, leave, ...decided }) => recordedDecisionSchema.parse({
+  return output.decisions.map(({ index, leave, ...decided }) => recordedDecisionSchemaV2.parse({
     id: idAt(index),
     ...decided,
     leave: leave === null ? null : { reason: leave.reason, supersededBy: leave.supersededBy === null ? null : idAt(leave.supersededBy) },
@@ -821,7 +821,7 @@ type ContributionEvent =
   | { readonly kind: 'verdicts.recorded'; readonly version: 2; readonly payload: VerdictsRecordedV2 }
   | { readonly kind: 'verdicts.recorded'; readonly version: 3; readonly payload: VerdictsRecordedV3 }
   | { readonly kind: 'ranking.recorded'; readonly version: 1; readonly payload: RankingRecorded }
-  | { readonly kind: 'decisions.recorded'; readonly version: 1; readonly payload: DecisionsRecorded }
+  | { readonly kind: 'decisions.recorded'; readonly version: 2; readonly payload: DecisionsRecorded }
   | ExplanationEvent;
 
 /**
@@ -893,8 +893,8 @@ function contributionEvent(unit: Unit, receipt: WorkerReceipt, review: ReviewSta
     case 'decision': {
       const output = receipt.output as DeciderOutput;
       const findings = rankedFindings(review);
-      checkDecisions(output, findings.length);
-      return { kind: 'decisions.recorded', version: 1, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
+      checkDecisions(output, findings.map((entry) => entry.resolution.authorChoice !== null));
+      return { kind: 'decisions.recorded', version: 2, payload: { workerId: receipt.workerId, decisions: recordedDecisions(output, findings) } };
     }
     case 'explanation':
       // The answer is merged with the earlier one of its unit, and a part that fails on the unit's last attempt is dropped rather than refused (R19 of the review on the pull request).

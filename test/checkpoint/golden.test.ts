@@ -326,7 +326,7 @@ describe('golden checkpoints', () => {
     });
   }
 
-  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, the cited run of every fixture from schema-1-17 on, the run of a pull request of every fixture from schema-1-18 on, and the run whose review reads as a report of every fixture from schema-1-19 on, record that its triage gave none; every other run's triage recorded version 1.
+  // The triage's account of the change, which the resumed run of every fixture from schema-1-14 on records (R3 of the brief of a run); the documented run of every fixture from schema-1-15 on, the compared run of every fixture from schema-1-16 on, the cited run of every fixture from schema-1-17 on, the run of a pull request of every fixture from schema-1-18 on, the run whose review reads as a report of every fixture from schema-1-19 on, and the run whose decisions settle choices of every fixture from schema-1-20 on, record that its triage gave none; every other run's triage recorded version 1.
   for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 14)) {
     it(`folds ${name}'s triage account of the change, and every older triage's as unrecorded`, () => {
       const copy = join(sandbox, name);
@@ -340,7 +340,7 @@ describe('golden checkpoints', () => {
       assert.equal(change.kind, 'given');
       assert.equal(change.kind === 'given' ? change.reading.title : null, 'Accept an empty input');
       assert.equal(change.kind === 'given' ? change.reading.publicInterface.holds : null, true);
-      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited', '/fixture/pull-request', '/fixture/report-form'].includes(candidate.worktree));
+      const gaveNone = runs.filter((candidate) => ['/fixture/documented', '/fixture/compared', '/fixture/cited', '/fixture/pull-request', '/fixture/report-form', '/fixture/settled-choice'].includes(candidate.worktree));
       for (const run of gaveNone) assert.deepEqual(run.review?.change, { kind: 'none' }, run.worktree);
       for (const run of runs.filter((candidate) => candidate !== resumed && !gaveNone.includes(candidate) && candidate.review !== null && candidate.review.leads !== null)) {
         assert.deepEqual(run.review!.change, { kind: 'unrecorded' }, run.worktree);
@@ -465,6 +465,24 @@ describe('golden checkpoints', () => {
       assert.equal(older?.review?.reportForm, false, 'a run configured at version 10 keeps its answers');
       assert.equal(older?.explanation?.version, 1);
       assert.deepEqual([older?.review?.candidates['DESIGN-1']?.verdict?.unconfirmed, older?.review?.candidates['DESIGN-1']?.verdict?.authorChoice], [null, null], 'its PLAUSIBLE verdict has neither note');
+    });
+  }
+
+  // The run whose decider settles the choices its verifier named, which every fixture from schema-1-20 on holds (R2, R3, TD1 of the settled choice).
+  for (const name of fixtures.filter((fixture) => Number(fixturePattern.exec(fixture)![2]) >= 20)) {
+    it(`folds ${name}'s run whose decisions settle the choices its verifier named, at version 2, and every older run's decisions with none`, () => {
+      const copy = join(sandbox, name);
+      cpSync(join(fixturesRoot, name), copy, { recursive: true });
+      const checkpoint = Checkpoint.open(copy, { engine: 'golden-test' });
+      opened.push(checkpoint);
+      const runs = checkpoint.foldRuns();
+      const run = runs.find((candidate) => candidate.worktree === '/fixture/settled-choice');
+      assert.ok(run?.review !== null && run?.review !== undefined, 'the fixture holds the run whose decisions settle choices');
+      const decided = (run.review.decisions ?? []).map((decision) => [decision.id, decision.decision, decision.leave?.reason ?? null, decision.settled?.by ?? null]);
+      assert.deepEqual(decided, [['SCAN-1', 'fix', null, 'intent'], ['SCAN-2', 'leave', 'intended', 'contract'], ['DESIGN-1', 'leave', 'settled', 'shape'], ['DUPLICATION-1', 'leave', 'outside-change-not-regression', null]]);
+      assert.ok(Object.values(run.review.candidates).every((candidate) => candidate.verdict?.authorChoice !== null), 'each verifier named a choice for the author');
+      const older = runs.find((candidate) => candidate.worktree === '/fixture/report-form');
+      assert.deepEqual(older?.review?.decisions?.map((decision) => decision.settled), [null, null], 'a run decided at version 1 settles no choice');
     });
   }
 

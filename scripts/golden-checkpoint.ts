@@ -2432,7 +2432,7 @@ try {
   // was checked; the explanation, at version 2, drops the refuted lines.
   const reportRun = checkpoint.createRun({ worktree: '/fixture/report-form' });
   const reported = new ReviewHistory(checkpoint, reportRun.id, checkpoint.append(reportRun.id, reportRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: { ...pullRequestScope, pullRequest: { ...pullRequestScope.pullRequest, body: null } } }]).lastSequence);
-  reported.add('review.configured', {
+  const reportFormConfiguration = {
     ...documentedConfiguration,
     roles: [...documentedConfiguration.roles, { role: 'writer', model: 'opus', effort: 'high', budgetUsd: 8, timeoutMs: 1_800_000 }],
     fix: false,
@@ -2450,7 +2450,8 @@ try {
       notFollowed: [],
       ignored: [],
     },
-  }, 11);
+  };
+  reported.add('review.configured', reportFormConfiguration, 11);
   reported.phaseV6('survey', () => {
     reported.launch('f01', 'surveyor survey:survey');
     reported.finishWorker('f01');
@@ -2569,6 +2570,105 @@ try {
     reported.add('report.written', {
       report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run whose review reads as a report\n'),
       statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(17), budgetApplied: true },
+      patches: [],
+    }, 8);
+  });
+
+  // A read-only run of the same pull request whose decider settles the
+  // choices its verifier named (R2, R3, TD1 of the settled choice):
+  // configured as the run above, each of its four findings' verifiers
+  // names a choice for the author, and the decider records version 2 of
+  // its decisions, a fix settled by the stated intent, a leave as
+  // intended settled by the stated contract, a leave as settled by the
+  // shape the code uses, and a leave as outside the change that settles
+  // none; its writer gives no answer, so the explanation degrades.
+  const settlingRun = checkpoint.createRun({ worktree: '/fixture/settled-choice' });
+  const settling = new ReviewHistory(checkpoint, settlingRun.id, checkpoint.append(settlingRun.id, settlingRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: { ...pullRequestScope, pullRequest: { ...pullRequestScope.pullRequest, body: null } } }]).lastSequence);
+  settling.add('review.configured', reportFormConfiguration, 11);
+  settling.phaseV6('survey', () => {
+    settling.launch('1b01', 'surveyor survey:survey');
+    settling.finishWorker('1b01');
+    settling.add('survey.recorded', { workerId: settling.id('1b01'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  settling.phaseV6('triage', () => {
+    settling.launch('1b02', 'triage triage:SCAN');
+    settling.finishWorker('1b02');
+    settling.add('candidates.recorded', { phase: 'triage', key: 'SCAN', workerId: settling.id('1b02'), candidates: [settling.candidate('SCAN-1', 'SCAN', 1), settling.candidate('SCAN-2', 'SCAN', 2)], leads: finderAngles.map((angle) => ({ angle, lead: null })), change: null }, 2);
+  });
+  settling.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `1b${String(10 + finderAngles.indexOf(angle))}`;
+      settling.launch(tag, `finder-${angle} finders:${angle}`);
+      settling.finishWorker(tag);
+      const found = angle === 'DESIGN' ? [settling.candidate('DESIGN-1', 'DESIGN', 3)] : angle === 'DUPLICATION' ? [settling.candidate('DUPLICATION-1', 'DUPLICATION', 4)] : [];
+      settling.add('candidates.recorded', { phase: 'finders', key: angle, workerId: settling.id(tag), candidates: found, leads: null, change: null }, 2);
+    }
+  });
+  settling.phaseV6('deduplication', () => {
+    settling.launch('1b20', 'deduplication deduplication:deduplication');
+    settling.finishWorker('1b20');
+    settling.add('deduplication.recorded', { phase: 'deduplication', workerId: settling.id('1b20'), groups: [] });
+  });
+  settling.phaseV6('verification', () => {
+    settling.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['DESIGN-1', 'DUPLICATION-1', 'SCAN-1', 'SCAN-2'] }] });
+    settling.launch('1b21', 'verifier verification:g1');
+    settling.finishWorker('1b21');
+    settling.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: settling.id('1b21'), verdicts: [
+      { id: 'DESIGN-1', verdict: 'CONFIRMED', evidence: 'the guard is written out twice', basis: 'read', runs: [], unconfirmed: null, authorChoice: 'inline the guard at each site, or extract a helper' },
+      { id: 'DUPLICATION-1', verdict: 'CONFIRMED', evidence: 'an untouched module repeats the parser', basis: 'read', runs: [], unconfirmed: null, authorChoice: 'merge the two parsers, or keep them apart' },
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [], unconfirmed: null, authorChoice: 'return an empty result on an empty input, or reject it' },
+      { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'line 2 keeps the trailing newline', basis: 'read', runs: [], unconfirmed: null, authorChoice: 'keep the trailing newline, or strip it' },
+    ] }, 3);
+  });
+  settling.phaseV6('sweep', () => {
+    settling.launch('1b30', 'sweep sweep:sweep');
+    settling.finishWorker('1b30');
+    settling.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: settling.id('1b30'), candidates: [], leads: null, change: null }, 2);
+  });
+  settling.phaseV6('sweep-deduplication', () => {});
+  settling.phaseV6('sweep-verification', () => settling.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  settling.phaseV6('merge-rank', () => {
+    settling.launch('1b31', 'merge-rank merge-rank:merge-rank');
+    settling.finishWorker('1b31');
+    settling.add('ranking.recorded', { workerId: settling.id('1b31'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() keeps the trailing newline', reason: 'a stray newline in the output' },
+      { id: 'DESIGN-1', members: [], severity: 'minor', summary: 'the guard is written out twice', reason: 'two copies to keep in step' },
+      { id: 'DUPLICATION-1', members: [], severity: 'minor', summary: 'an untouched module repeats the parser', reason: 'two parsers to keep in step' },
+    ] });
+  });
+  settling.phaseV6('decision', () => {
+    settling.launch('1b32', 'decider decision:decision');
+    settling.finishWorker('1b32');
+    settling.add('decisions.recorded', { workerId: settling.id('1b32'), decisions: [
+      {
+        id: 'SCAN-1', decision: 'fix', grounds: 'the change says an empty input gives an empty result', fix: { approach: 'return an empty result before changed() reads the input', rejected: [] }, leave: null, ask: null, departure: null,
+        settled: { choice: 'An empty input gives an empty result rather than an error.', by: 'intent', source: 'The change says that an empty input gives an empty result.' },
+      },
+      {
+        id: 'SCAN-2', decision: 'leave', grounds: 'the documentation states the trailing newline', fix: null, leave: { reason: 'intended', supersededBy: null }, ask: null, departure: null,
+        settled: { choice: 'The output keeps its trailing newline.', by: 'contract', source: 'The documentation of the output says each line ends with a newline.' },
+      },
+      {
+        id: 'DESIGN-1', decision: 'leave', grounds: 'the module writes each guard inline', fix: null, leave: { reason: 'settled', supersededBy: null }, ask: null, departure: null,
+        settled: { choice: 'The guard stays written out at each site.', by: 'shape', source: 'Every other guard of the module is written out inline.' },
+      },
+      { id: 'DUPLICATION-1', decision: 'leave', grounds: 'the parser is outside the change, which did not touch it', fix: null, leave: { reason: 'outside-change-not-regression', supersededBy: null }, ask: null, departure: null, settled: null },
+    ] }, 2);
+  });
+  settling.add('phase.started', { phase: 'explanation', attempt: 1 }, 8);
+  settling.add('worktree.checked', { phase: 'explanation', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 9);
+  settling.add('explanation.recorded', {
+    workerId: null,
+    answer: null,
+    dropped: [{ part: 'conclusion', failures: ['no answer'] }, { part: 'areas', failures: ['no answer'] }, { part: 'refuted', failures: ['no answer'] }],
+    unexplained: [],
+  }, 2);
+  settling.add('phase.finished', { phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 9);
+  settling.phaseV6('report', () => {
+    settling.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run whose decider settles the choices its verifier named\n'),
+      statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(16), budgetApplied: true },
       patches: [],
     }, 8);
   });
