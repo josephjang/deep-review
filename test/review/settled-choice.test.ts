@@ -152,6 +152,7 @@ const forCases: readonly ForCase[] = [
   { name: 'a fix with a departure that settles the choice of one naming candidate only', sweep: sweepChoice, decision: { ...fix, departure }, settled: [['RIPPLE-1']], expected: true },
   { name: 'a fix that names one candidate in two entries', sweep: sweepChoice, decision: fix, settled: [['RIPPLE-1', 'SWEEP-2'], ['SWEEP-2']], expected: false },
   { name: 'a fix with a departure that names one candidate in two entries', sweep: sweepChoice, decision: { ...fix, departure }, settled: [['RIPPLE-1'], ['RIPPLE-1']], expected: false },
+  { name: 'a fix that names one candidate twice in the `for` of one entry', sweep: sweepChoice, decision: fix, settled: [['RIPPLE-1', 'RIPPLE-1', 'SWEEP-2']], expected: false },
   { name: 'a fix whose entry names a candidate of another finding', sweep: null, decision: fix, settled: [['RIPPLE-1', 'SWEEP-1']], expected: false },
   { name: 'a fix whose entry names a candidate the run never recorded', sweep: null, decision: fix, settled: [['RIPPLE-1', 'SCAN-9']], expected: false },
   { name: 'a fix whose entry names a candidate whose verifier named no choice', sweep: null, decision: fix, settled: [['RIPPLE-1', 'SWEEP-2']], expected: false },
@@ -179,6 +180,27 @@ describe('the candidates each settled choice answers, held alike by the decider\
       assert.match(error.message, /Decision \[0\] settles a choice for SWEEP-1, which is not a candidate of its finding/);
       assert.match(error.message, /Decision \[0\] settles the choice of RIPPLE-1 in two entries/);
       assert.match(error.message, /Decision \[0\] is a fix with no departure and settles no choice for SWEEP-2, whose verifier named one for the author/);
+      return true;
+    });
+  });
+
+  it('names a candidate repeated in the `for` of one entry as named twice in that entry, not as settled in two entries', () => {
+    const output = deciderOutputSchema.parse(answerOf(decisionsOf(fix, 'RIPPLE-1', [entry('intent', ['RIPPLE-1', 'RIPPLE-1', 'SWEEP-2'])])));
+    assert.throws(() => checkDecisions(output, candidatesOf(sweepChoice)), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.match(error.message, /Decision \[0\] names RIPPLE-1 twice in the `for` of one entry; name it once/);
+      assert.doesNotMatch(error.message, /in two entries/);
+      return true;
+    });
+    assert.throws(() => decidedAt2(sweepChoice, decisionsOf(fix, 'RIPPLE-1', [entry('intent', ['RIPPLE-1', 'RIPPLE-1', 'SWEEP-2'])])).fold(), /names RIPPLE-1 twice in the `for` of one entry/);
+  });
+
+  it('names a candidate of an earlier entry repeated in a later one as settled in two entries, and a repeat within the later one as named twice', () => {
+    const output = deciderOutputSchema.parse(answerOf(decisionsOf(fix, 'RIPPLE-1', [entry('intent', ['RIPPLE-1']), entry('intent', ['SWEEP-2', 'RIPPLE-1', 'RIPPLE-1'])])));
+    assert.throws(() => checkDecisions(output, candidatesOf(sweepChoice)), (error: unknown) => {
+      assert.ok(error instanceof StructuralCheckError);
+      assert.match(error.message, /Decision \[0\] settles the choice of RIPPLE-1 in two entries, where one settles it/);
+      assert.match(error.message, /Decision \[0\] names RIPPLE-1 twice in the `for` of one entry; name it once/);
       return true;
     });
   });
