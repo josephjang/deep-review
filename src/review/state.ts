@@ -8,7 +8,7 @@
 import type { CandidateChoice, RankedFinding, SettledChoice, Unconfirmed, VerdictRun } from '../checkpoint/events.ts';
 import { budgetStoppedUnits } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { candidateChoices, poolCandidates, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import { angleClasses, phases, settledChoiceWords, severities, type DeduplicationPhase, type Phase, type Verdict, type VerdictBasis, type VerificationPhase } from './vocabulary.ts';
 
 /** What a run is doing, as `status` prints it: the ledger's own status, refined by the review's blocker and report. */
@@ -202,7 +202,7 @@ export function rankedFindings(review: ReviewState, findings: readonly RankedFin
     const members = finding.members.map((id) => review.candidates[id]);
     if (primary === undefined || members.some((member) => member === undefined)) throw new Error(`Ranking names a candidate the run never recorded: ${finding.id}`);
     const candidates = [primary, ...(members as CandidateState[])];
-    return { finding, primary, members: members as CandidateState[], resolution: mergedResolution(candidates), choices: candidates.map((candidate) => ({ id: candidate.id, choice: resolutionOf(candidate)?.authorChoice ?? null })) };
+    return { finding, primary, members: members as CandidateState[], resolution: mergedResolution(candidates), choices: candidateChoices(review, finding) };
   });
   return resolved.sort(compareFindings);
 }

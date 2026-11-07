@@ -817,9 +817,11 @@ const rankingRecorded: Reducer<RankingRecorded> = (state, payload, event, drafts
  * The candidates of a ranked finding, its primary and its members as the
  * ranking records them, each with the choice its verdict leaves to the
  * author, which only a verdict at version 3 gives (TD3, PD9 of the
- * settled choice).
+ * settled choice); an unverified candidate gives none. The one reading
+ * of a finding's choices, so the choices the decider is shown, the ones
+ * `checkDecisions` holds it to and the ones this fold checks agree.
  */
-function candidateChoices(review: ReviewState, finding: RankedFinding): CandidateChoice[] {
+export function candidateChoices(review: ReviewState, finding: RankedFinding): CandidateChoice[] {
   return [finding.id, ...finding.members].map((id) => ({ id, choice: review.candidates[id]?.verdict?.authorChoice ?? null }));
 }
 
