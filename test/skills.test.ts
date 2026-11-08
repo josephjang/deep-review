@@ -228,8 +228,8 @@ describe('the skill texts', () => {
       assert.ok(!continuedCheckUnavailableAction.includes('clone\'s file'));
     });
 
-    // R16 of the review on the pull request: posting is a public act the user chooses, and its result is the URL alone. R8 of the review of a fix run: publish posts the review of a run of --pr with or without --fix, so no order of posting and fixing is asked for.
-    it(`${name}: reviews a pull request with --pr, posts it with publish only when asked, and offers to post after a run of --pr with or without --fix`, () => {
+    // R16 of the review on the pull request: posting is a public act the user chooses, and its result is the URL alone. R8 of the review of a fix run: publish posts the review of a run of --pr with or without --fix, so no order of posting and fixing is asked for, only posting before the fixes are pushed.
+    it(`${name}: reviews a pull request with --pr, posts it with publish only when asked, and offers to post after a run of --pr with or without --fix, before the fixes are pushed`, () => {
       const text = read(path);
       const step1 = text.slice(text.indexOf('1. Decide the scope'), text.indexOf('2. Decide whether to fix'));
       assert.match(step1, /- a pull request on GitHub: `--pr <number>`, or `--pr <URL>` when the\s+user gives the pull request's URL/);
@@ -237,6 +237,8 @@ describe('the skill texts', () => {
       assert.ok(!step2.includes('publish'), 'deciding whether to fix asks for no order of posting');
       const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
       assert.match(step4, /After a run of `--pr`, with or without `--fix`, also offer to post its review\s+on the pull request\./);
+      // R8 of the review of a fix run: a push of the fixes moves the head of the pull request, which publish then refuses, so after --pr --fix the skill offers to post before the push and says why.
+      assert.match(step4, /After a run of `--pr` with `--fix`, offer to post\s+it before the fixes are pushed to the branch of the pull request, and\s+say why: a push moves the head of the pull request, and `publish`\s+refuses a head that is not the one the run reviewed\./);
       // R2 of the review of a fix run: review --pr --fix with nothing to fix ends with the read-only report, so step 4 offers to commit only after a fix pass ran.
       assert.match(step4, /After a run with `--fix` that ran its\s+fix pass, also say that the fixes are in the working tree,/);
       assert.match(step4, /When stderr says that a run of `--pr`\s+has\s+no finding to fix and ends with its read-only report, say that\s+instead, and offer nothing to commit\./);
