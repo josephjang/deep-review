@@ -304,7 +304,8 @@ function speakerOf(machine: MachineContext, words: PullRequestWords, names: Read
     secrets += cleaned.secrets;
     return cleaned.text;
   };
-  const named = (text: string): string => namedFindings(inlineText(text).trim(), names, words.naming);
+  // Named before its lines are joined, so a name that starts a paragraph or a list item reads as the start of a sentence.
+  const named = (text: string): string => inlineText(namedFindings(text.trim(), names, words.naming)).trim();
   const prose = (text: string): string => counted(publicProse(named(text), machine));
   return {
     words: (text) => counted(publicWords(named(text), machine)),

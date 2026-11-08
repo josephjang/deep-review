@@ -26,9 +26,16 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(en('This waits on RIPPLE-2\'s question.'), 'This waits on finding 3\'s question.');
   });
 
-  it('capitalizes a name that starts the text, a sentence, a line or a list item, in English', () => {
+  it('capitalizes a name that starts the text, a sentence, a paragraph or a list item, in English', () => {
     assert.equal(en('RIPPLE-2 and SWEEP-1 share a cause. SWEEP-1 is older.'), 'Finding 3 and finding 1 share a cause. Finding 1 is older.');
-    assert.equal(en('Two:\n- DESIGN-1 was refuted.\n2. RIPPLE-2 stands.'), 'Two:\n- A refuted candidate was refuted.\n2. Finding 3 stands.');
+    assert.equal(en('Two:\n- DESIGN-1 was refuted.\n2. RIPPLE-2 stands.\n* SWEEP-1 too.\n3) SWEEP-1 last.'), 'Two:\n- A refuted candidate was refuted.\n2. Finding 3 stands.\n* Finding 1 too.\n3) Finding 1 last.');
+    assert.equal(en('- RIPPLE-2 crashes.'), '- Finding 3 crashes.', 'a list item that starts the text');
+    assert.equal(en('1. **SWEEP-1** first.'), '1. **Finding 1** first.', 'a numbered list item that starts the text');
+    assert.equal(en('Two causes:\n\nRIPPLE-2 crashes.'), 'Two causes:\n\nFinding 3 crashes.', 'a paragraph');
+  });
+
+  it('keeps a name in lower case after a line break inside a sentence, which Markdown joins into one line', () => {
+    assert.equal(en('This waits on\nRIPPLE-2 first, and on\n  SWEEP-1 too.'), 'This waits on\nfinding 3 first, and on\n  finding 1 too.');
   });
 
   it('leaves an id the run does not hold, a word shaped like one, and an id in a path or a URL', () => {
