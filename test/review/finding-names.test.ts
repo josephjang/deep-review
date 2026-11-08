@@ -55,6 +55,13 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(ko('RIPPLE-2 지적했듯이 SWEEP-1 지적 사항들과 다릅니다.'), '지적 사항 3 지적했듯이 지적 사항 1 지적 사항들과 다릅니다.', 'a longer word that starts as the noun stays');
   });
 
+  it('names a refuted candidate once with a determiner, a refuted or a candidate written before its id', () => {
+    assert.equal(en('The refuted DESIGN-1 and RIPPLE-2 differ; this DESIGN-1 was wrong, as every DESIGN-1 is.'), 'The refuted candidate and finding 3 differ; this refuted candidate was wrong, as every refuted candidate is.');
+    assert.equal(en('The candidate DESIGN-1 was refuted. Candidate DESIGN-1 was. The refuted candidate DESIGN-1 was.'), 'The refuted candidate was refuted. A refuted candidate was. The refuted candidate was.');
+    assert.equal(en('The verifiers refuted DESIGN-1, and the refuted DESIGN-1 candidate stays refuted.'), 'The verifiers refuted a candidate, and the refuted candidate stays refuted.');
+    assert.equal(ko('후보 DESIGN-1은 반박되었고, 반박된 DESIGN-1을 다시, 반박된 후보 DESIGN-1과 DESIGN-1후보를 봅니다.'), '반박된 후보는 반박되었고, 반박된 후보를 다시, 반박된 후보와 반박된 후보를 봅니다.');
+  });
+
   it('leaves a text with no names as it is', () => {
     assert.equal(namedFindings('RIPPLE-2 stays.', new Map(), english), 'RIPPLE-2 stays.');
   });
