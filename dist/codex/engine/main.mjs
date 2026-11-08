@@ -37086,6 +37086,7 @@ function reportCheckInputOf(review2) {
   const ids2 = new Set(findingsToExplain(review2));
   return {
     major: rankedFindings(review2).filter((entry) => ids2.has(entry.finding.id) && isMajor(entry)).map((entry) => entry.finding.id),
+    asks: (review2.decisions ?? []).filter((decision) => ids2.has(decision.id) && decision.decision === "ask").map((decision) => decision.id),
     refuted: refuted(review2).map(({ candidate }) => candidate.id)
   };
 }
@@ -37273,17 +37274,19 @@ function linesFailures(what, lines, lineCount) {
   if (to > count3) return [`${what} cites ${path}:${from === to ? String(from) : `${String(from)}-${String(to)}`}, which has ${counted(count3, "line", "lines")} at ${sideWords[side]}`];
   return [];
 }
-function checkConclusion(conclusion, ids2, version2) {
+function checkConclusion(conclusion, ids2, version2, asks) {
+  const posted = version2 === 1 ? ids2 : ids2.filter((id) => !asks.includes(id));
   const named = conclusion.actions.map((action) => action.id);
   const sentenceFor = (id) => named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : "";
   const diagram = version2 === 1 ? conclusion.diagram : null;
+  const postedActions = conclusion.actions.filter((action) => posted.includes(action.id) || !ids2.includes(action.id));
   return [
     ...blank(conclusion.why) ? ["the conclusion says no why"] : [],
     ...[...new Set(named)].filter((id) => !ids2.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
-    ...ids2.map(sentenceFor).filter((failure2) => failure2 !== ""),
-    ...ids2.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
-    ...conclusion.actions.filter((action) => ids2.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
-    ...verdictFailures("the conclusion", [conclusion.why, ...conclusion.actions.map((action) => action.sentence), diagram ?? ""]),
+    ...posted.map(sentenceFor).filter((failure2) => failure2 !== ""),
+    ...posted.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
+    ...conclusion.actions.filter((action) => posted.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
+    ...verdictFailures("the conclusion", [conclusion.why, ...postedActions.map((action) => action.sentence), diagram ?? ""]),
     ...diagramFailuresOf("the conclusion's diagram", diagram)
   ];
 }
@@ -37384,7 +37387,7 @@ function checkAnswer(output2, input2) {
     if (of === void 0) strays.push(entry.id);
     else of.push(entry);
   }
-  const conclusion = { value: output2.conclusion, failures: checkConclusion(output2.conclusion, input2.ids, "account" in output2 ? 1 : 2) };
+  const conclusion = { value: output2.conclusion, failures: checkConclusion(output2.conclusion, input2.ids, "account" in output2 ? 1 : 2, input2.report?.asks ?? []) };
   if ("account" in output2) {
     return { conclusion, account: { value: output2.account, failures: checkAccount(output2.account) }, areas: null, refuted: null, findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, null)])), strays };
   }
@@ -37405,16 +37408,19 @@ function recordedFailures(failures, extra) {
 }
 function mergeAnswers(version2, answers, ids2, extra = []) {
   const dropped = [];
+  const passes = (part) => part !== null && part.value !== null && part.failures.length === 0;
   const pick2 = (parts, drop) => {
     const given = parts.filter((part) => part !== null);
-    const passed = given.find((part) => part.value !== null && part.failures.length === 0);
+    const passed = given.find(passes);
     if (passed !== void 0) return passed.value;
     dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
     return null;
   };
-  const conclusion = pick2(answers.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
+  const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
+  const areasFrom = version2 === 2 ? paired ?? answers.find((answer3) => passes(answer3.areas)) : void 0;
+  const conclusion = pick2((areasFrom === void 0 ? answers : [areasFrom]).map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
   const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
-  const areas = version2 === 2 ? pick2(answers.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures })) : null;
+  const areas = version2 === 2 ? pick2((areasFrom === void 0 ? answers : [areasFrom]).map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures })) : null;
   const lines = version2 === 2 ? pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures })) : null;
   const findings = ids2.flatMap((id) => {
     const kept = pick2(answers.map((answer3) => answer3.findings.get(id)), (failures) => ({ part: "finding", finding: id, failures }));
@@ -37600,7 +37606,7 @@ function writerTask(state, input2) {
     ...dropped.length === 0 ? [] : [
       "### What failed in the earlier answer",
       "",
-      "An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.",
+      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version2 === 2 && dropped.some((part) => part.part === "conclusion" || part.part === "areas") ? " The conclusion and the areas go together, since the conclusion's summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass." : ""}`,
       "",
       ...dropped.map((part) => `- ${partNameOf(part)}: ${part.failures.map((failure2) => inlineText(failure2)).join("; ")}`),
       ""
@@ -40852,7 +40858,8 @@ function trustSection(view) {
     const answered2 = [...standingAnswers(view.review).keys()].map(numberOf);
     if (answered2.length > 0) notes.push(words.predates(words.findingList(answered2)));
   }
-  return { part: "trust", lines: blocks([words.trustHeading], [`${words.trust(view.counts)} ${words.modelLine}`], ...notes.map((note) => [note])) };
+  const wrote = view.input.answer === null ? [] : [words.modelLine];
+  return { part: "trust", lines: blocks([words.trustHeading], [[words.trust(view.counts), ...wrote].join(" ")], ...notes.map((note) => [note])) };
 }
 function lastSection(view, say) {
   const { configuration } = view.review;
