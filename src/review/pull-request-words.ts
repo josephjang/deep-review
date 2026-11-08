@@ -302,6 +302,26 @@ const englishFindingSaid = /\b(?:findings?\s+|findings\s+\d+(?:(?:\s*,\s*|\s+(?:
 /** An English word that determines the noun after it, so a name after it takes no article of its own. */
 const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|every|another|any|no)\s+`;
 
+/** The article `a` or `an` that ends a text before an id, which a writer chose for the id's sound and not for the name's. */
+const englishIndefinite = /(?<![\w-])an?\s+$/i;
+
+/**
+ * The English name of a numbered finding (R1, R5 of the finding names in
+ * the review), `finding 3`, or its number alone after a text that already
+ * says finding. A numbered finding takes no article, so the name takes in
+ * an `a` or `an` right before the id, as `an ALTITUDE-6` names `finding
+ * 10`, and a noun after the id that says finding, as `the RIPPLE-2
+ * finding` names `the finding 3`.
+ */
+function englishFinding(number: number, before: string, after: string): IdName {
+  const said = englishFindingSaid.test(before);
+  return {
+    name: said ? String(number) : `finding ${String(number)}`,
+    before: said ? 0 : englishIndefinite.exec(before)?.[0].length ?? 0,
+    after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
+  };
+}
+
 /**
  * The English name of a refuted candidate (R2, R5 of the finding names in
  * the review), which says each of its words once with the words around
@@ -311,17 +331,21 @@ const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|
  * determiner comes before it and its noun is not plural, as `this
  * DESIGN-1` names `this refuted candidate` and `The candidate DESIGN-1`
  * names `The refuted candidate` and `DESIGN-1 candidate was` names
- * `A refuted candidate was`.
+ * `A refuted candidate was`. An `an` before it, which a writer chose for
+ * an id such as `EFFICIENCY-1`, is taken in and the name writes its own
+ * article, as `an EFFICIENCY-1` names `a refuted candidate`.
  */
 function englishRefuted(before: string, after: string): IdName {
   const preceding = /(?<![\w-])(?:candidate|finding)\s+$/i.exec(before)?.[0] ?? '';
-  const rest = before.slice(0, before.length - preceding.length);
+  const unsaid = before.slice(0, before.length - preceding.length);
+  const said = /\brefuted\s+$/i.test(unsaid);
+  const an = said ? '' : /(?<![\w-])an\s+$/i.exec(unsaid)?.[0] ?? '';
+  const rest = unsaid.slice(0, unsaid.length - an.length);
   const following = /^\s+(candidates?)\b/i.exec(after);
-  const said = /\brefuted\s+$/i.test(rest);
   const determined = new RegExp(`${englishDeterminer}${said ? String.raw`refuted\s+` : ''}$`, 'i').test(rest);
   const article = determined || /s$/i.test(following?.[1] ?? '') ? '' : 'a';
   const words = [article, said ? '' : 'refuted', following?.[1] ?? 'candidate'].filter((word) => word !== '');
-  return { name: words.join(' '), before: preceding.length, after: following?.[0].length ?? 0 };
+  return { name: words.join(' '), before: preceding.length + an.length, after: following?.[0].length ?? 0 };
 }
 
 const english: PullRequestWords = {
@@ -431,12 +455,7 @@ const english: PullRequestWords = {
   diagramBroken: 'A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.',
   diagramNamesIds: 'A diagram is left out here, because it names a finding by deep-review\'s internal id where the review cannot write the finding\'s number; the writer\'s answer on the machine that holds the run keeps it.',
   naming: {
-    finding: (number, before, after) => ({
-      name: englishFindingSaid.test(before) ? String(number) : `finding ${String(number)}`,
-      before: 0,
-      // A noun after the id that says finding, as in `the RIPPLE-2 finding`, is said by the name.
-      after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
-    }),
+    finding: englishFinding,
     refuted: englishRefuted,
     starting: capitalized,
     particle: (_name, particle) => particle,
