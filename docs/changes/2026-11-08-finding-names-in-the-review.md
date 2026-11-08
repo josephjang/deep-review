@@ -64,7 +64,9 @@ In a diagram, the form replaces an id in each text that the diagram shows, the t
 
 ### R5: The name reads right in its sentence
 
-In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel. A particle right after the closing backtick of a code span that R3 replaces counts as right after the id, since the prompts' example writes the id in backticks and a Korean writer attaches the particle to the span, as in `` `RIPPLE-2`를 ``.
+In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel.
+
+A word next to the id that already says what it names is not said twice. After "finding" or "findings" in English, or 지적 사항 in Korean, the form writes the number alone, so "finding RIPPLE-2" becomes "finding 3", not "finding finding 3". A refuted candidate followed by "candidate" or 후보 is named "refuted" or 반박된 alone, so "the DESIGN-1 candidate" becomes "the refuted candidate"; one after "the", "a" or "an" is named "refuted candidate", without an article of its own. A particle right after the closing backtick of a code span that R3 replaces counts as right after the id, since the prompts' example writes the id in backticks and a Korean writer attaches the particle to the span, as in `` `RIPPLE-2`를 ``.
 
 ### R6: The trace line keeps the id
 
@@ -141,6 +143,10 @@ A particle outside the five pairs, or one followed by more Hangul, keeps the wri
 ### RK4: A diagram that uses an id as a hidden identifier is left out
 
 A writer may give a node an id as its identifier and a label of its own, as in `RIPPLE-2["parse crashes"]`, where the id is not shown. R4 leaves such a diagram out all the same, since telling a shown identifier from a hidden one needs the grammar of each kind of diagram. The writer's prompt names nodes by short letters in its examples, so the case is rare, and the line in its place says why the diagram is gone.
+
+### RK5: A merged candidate and its finding share one number
+
+The id of a candidate merged into a finding names that finding, so a text that sets the two apart, "RIPPLE-2 and its member SCAN-4", becomes "finding 3 and its member finding 3". The member's id says nothing to the reader of the pull request either, and the comment of the finding lists what was merged into it, so the form names both by the one number the reader can find.
 
 ## Verification
 
