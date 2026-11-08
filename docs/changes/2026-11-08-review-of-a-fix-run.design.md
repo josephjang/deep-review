@@ -151,4 +151,4 @@ At the head of the series, `npm run check` passed (3,657 tests: 3,644 pass, 13 s
 
 ### The gate
 
-The gate of R9 has not run. `review --pr` and `publish` read and post through `gh`, and the machine that did the work had no valid GitHub token for `gh`.
+The gate of R9 has not run yet. It is a real run of `review --pr --fix` on the pull request of this change and a real `publish` of its review, and its results are recorded here once it runs.
