@@ -104,6 +104,15 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     includes(section(named('ko').body, '### 요약'), '지적 사항 1');
   });
 
+  it('names an id before joining the lines of a worker\'s text, so a name that starts a list item or a paragraph is capitalized and one after a line break inside a sentence is not (R5 of the finding names in the review)', () => {
+    const answer = writerAnswer();
+    answer.findings[0] = { ...answer.findings[0]!, unexplained: false, problem: 'Two causes:\n- RIPPLE-1 crashes parse.\n- SWEEP-1 waits.\n\n- SWEEP-1 waits too.\n\nThis waits on\nSWEEP-1 first.' } as typeof answer.findings[0];
+    const comment = formOf(run().fold(), answer).comments.find((posted) => posted.body.includes('Two causes:'))!.body;
+    includes(comment, 'Two causes: - Finding 1 crashes parse. - Finding 2 waits.');
+    includes(comment, '\n\n\\- Finding 2 waits too.\n\n');
+    includes(comment, '\n\nThis waits on finding 2 first.');
+  });
+
   it('sums up the counts, the writer\'s sentence on the areas, what deep-review decided and that nothing changes before `--fix`', () => {
     includes(section(body, '### Summary'), '### Summary\n\nThe review keeps 2 findings. The major one is what matters before the merge; the minor one is smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 1 finding and asks the author 1 question. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with `deep-review review --pr 42 --fix` in their clone and pushes them.');
   });

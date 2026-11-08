@@ -42,8 +42,14 @@ const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]
 /** What can open a sentence before its first word: Markdown emphasis, an opening parenthesis or bracket, and an opening quote, as in `**RIPPLE-2** crashes` or `|"RIPPLE-2"|`. */
 const sentenceOpening = String.raw`[*_(\["'“‘]*`;
 
-/** Where a sentence starts: the start of a text, after the end of a sentence, or at the start of a line or a list item, past what opens the sentence. */
-const sentenceStart = new RegExp(String.raw`(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)${sentenceOpening}$`);
+/**
+ * Where a sentence starts, past what opens the sentence: the start of a
+ * text or of a paragraph, after the end of a sentence, or after the marker
+ * of a list item, `-`, `*`, `+`, `1.` or `1)`, that starts a text or a
+ * line. A line break inside a paragraph, which Markdown joins into one
+ * line, starts no sentence.
+ */
+const sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
 
 /** A common abbreviation that ends in a period and goes on with its sentence, as `e.g.`, right before a name or what opens it: no sentence starts after it. */
 const abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, 'iu');
