@@ -1584,7 +1584,7 @@ async function openContinuing(context: OpenContext, continuing: Continuing): Pro
     const changed = reviewStatus(run) === 'complete' && run.review?.fix === null ? notContinuable(run) : `it is ${reviewStatus(run)}, no longer a finished read-only run`;
     if (changed !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${changed}; \`deep-review status --run ${run.id}\` shows it`);
     const scope = run.scope!;
-    const moved = treeMismatch(scope, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path), gitHead(context.worktree));
+    const moved = treeMismatch(scope, findDrift(run, context.worktree, context.match).files.map((file) => file.path), gitHead(context.worktree));
     if (moved !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${moved}; restore the files it reviewed and check out its head ${scope.head}`);
     return { state: run, release: continuing.release, capture: null, configure: null, continuation: await continuationOf(run, context) };
   } finally {
