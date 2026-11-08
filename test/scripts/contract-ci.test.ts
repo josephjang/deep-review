@@ -3,7 +3,7 @@ import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { contractPlan, documentationOnly, parseChanges, planStatus } from '../../scripts/contract-ci.ts';
+import { aggregateStatus, contractPlan, documentationOnly, parseChanges, planStatus } from '../../scripts/contract-ci.ts';
 import { git } from '../helpers/git.ts';
 import { commitAll, createRepository, temporaryDirectory, write } from '../helpers/repository.ts';
 
@@ -187,9 +187,9 @@ describe('complete Git inventory', () => {
 describe('contract status gates', () => {
   const documentation = { GITHUB_EVENT_NAME: 'pull_request', CONTRACT_PLAN_RESULT: 'success', CONTRACT_REQUIRED: 'false', CONTRACT_REASON: 'docs-only', CONTRACT_FILES: '3' };
   it('distinguishes exemptions, full runs and explicit inventory fallbacks', () => {
-    assert.equal(planStatus(documentation, 'success').exempt, true);
+    assert.equal(aggregateStatus(documentation, 'success').exempt, true);
     for (const reason of ['relevant-change', 'non-pr', 'inventory-unavailable']) {
-      const status = planStatus({ ...documentation, CONTRACT_REQUIRED: 'true', CONTRACT_REASON: reason, CONTRACT_FILES: '0' }, 'success');
+      const status = aggregateStatus({ ...documentation, CONTRACT_REQUIRED: 'true', CONTRACT_REASON: reason, CONTRACT_FILES: '0' }, 'success');
       assert.equal(status.valid, true);
       assert.equal(status.exempt, false);
     }
@@ -197,7 +197,7 @@ describe('contract status gates', () => {
 
   it('rejects failed, skipped and canceled classification even with passing matrix results', () => {
     for (const result of ['failure', 'skipped', 'cancelled', '']) {
-      assert.deepEqual(planStatus({ ...documentation, CONTRACT_PLAN_RESULT: result }, 'success').valid, false);
+      assert.deepEqual(aggregateStatus({ ...documentation, CONTRACT_PLAN_RESULT: result }, 'success').valid, false);
       assert.equal(planStatus({ ...documentation, CONTRACT_PLAN_RESULT: result }).exempt, false);
     }
   });
@@ -212,15 +212,27 @@ describe('contract status gates', () => {
 
   it('rejects documentation exemptions on main, scheduled, manual and unknown events', () => {
     for (const event of ['push', 'schedule', 'workflow_dispatch', 'unknown', '']) {
-      const status = planStatus({ ...documentation, GITHUB_EVENT_NAME: event }, 'success');
+      const status = aggregateStatus({ ...documentation, GITHUB_EVENT_NAME: event }, 'success');
       assert.equal(status.valid, false);
       assert.equal(status.exempt, false);
     }
   });
 
   it('rejects failed, skipped, canceled and missing matrix results', () => {
+    assert.equal(planStatus(documentation).exempt, true);
     for (const result of ['failure', 'skipped', 'cancelled', 'missing', '']) {
-      assert.equal(planStatus(documentation, result).valid, false);
+      assert.equal(aggregateStatus(documentation, result).valid, false);
+    }
+  });
+
+  it('rejects a missing CLI matrix result while allowing the same plan through the gate', (t) => {
+    const summary = join(temporaryDirectory(t, 'deep-review-contract-policy-'), 'summary');
+    const env: NodeJS.ProcessEnv = { ...process.env, ...documentation, GITHUB_OUTPUT: '', GITHUB_STEP_SUMMARY: summary };
+    delete env.CONTRACT_MATRIX_RESULT;
+    for (const command of ['gate', 'status']) {
+      const result = spawnSync(process.execPath, [resolve('scripts/contract-ci.ts'), command], { env, encoding: 'utf8' });
+      assert.equal(result.status, command === 'gate' ? 0 : 1, result.stderr);
+      if (command === 'status') assert.match(readFileSync(summary, 'utf8'), /Contract matrix did not succeed \(missing\)/);
     }
   });
 
