@@ -270,7 +270,7 @@ describe('the review of a run continued into its fix pass (R6 of the review of a
   const { body, comments } = continued();
 
   it('says that deep-review went on to fix on the machine of the person who ran the review, that its edits are not part of the review, and that they reach the branch only when that person pushes them', () => {
-    includes(body, '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and the report of the run on that machine says what each fix did.\n');
+    includes(body, '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and once its fix pass has ended, the report of the run on that machine says what each fix did.\n');
     includes(section(body, '### Summary'), 'deep-review would fix 1 finding and asks the author 1 question. What its fix pass changed reaches this branch only when the person who ran the review pushes it.');
     excludes(body, 'changed no file');
     excludes(body, 'Nothing on this branch changes until');
@@ -292,8 +292,8 @@ describe('the review of a run continued into its fix pass (R6 of the review of a
   it('draws the review done and the fix pass started on that machine, and says no check ran in the review and where the checks of the fix pass are', () => {
     const how = section(body, '### How the review worked');
     includes(how, '```mermaid\nflowchart TD\n  subgraph RV["The review of pull request 42: done"]');
-    includes(how, '  W --> X["The fix pass started on the machine that ran the review, and its report there holds what it changed"]\n  W --> P["publish cleans the text and posts this review"]\n  P --> A["The person who ran the review answers the questions"]\n```');
-    includes(section(body, '### What this review did not examine'), '- No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and its report there holds their results.');
+    includes(how, '  W --> X["The fix pass started on the machine that ran the review, and once it ends, its report there holds what it changed"]\n  W --> P["publish cleans the text and posts this review"]\n  P --> A["The person who ran the review answers the questions"]\n```');
+    includes(section(body, '### What this review did not examine'), '- No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and once it ends, its report there holds their results.');
     for (const words of Object.values(pullRequestWordTables)) assert.deepEqual(diagramFailures(words.continued.howDiagram(42)), []);
   });
 
