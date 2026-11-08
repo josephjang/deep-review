@@ -487,6 +487,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.deepEqual(nextStep(retried.review(), idle), { kind: 'launch', units: [writerUnit] }, 'a failed check runs the writer again once');
     const task = writerTask(retried.fold(), { worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo) });
     assert.match(task, /### What failed in the earlier answer\n\n[^\n]*the engine keeps every other part of it[^\n]*\n\n- finding RIPPLE-1: case 1 of RIPPLE-1 cites src\/a\.ts:4-30, which has 12 lines at the head\n/);
+    assert.doesNotMatch(task, /The conclusion and the areas go together/, 'a finding alone failed');
   });
 
   it('records the second answer with each part that still fails dropped and named, keeping each part that passed the first time', () => {
@@ -793,6 +794,27 @@ describe('the checks of the writer\'s answer in the form of the review that read
     assert.deepEqual([merged.answer.areas, merged.answer.refuted, merged.answer.account], [null, first.refuted, null], 'the refuted lines the first answer passed are kept');
     assert.deepEqual(mergeAnswers(2, [], ['RIPPLE-1'], ['the run budget stopped the writer']).dropped.map((part) => (part.part === 'finding' ? `finding ${part.finding}` : part.part)), ['conclusion', 'areas', 'refuted', 'finding RIPPLE-1']);
   });
+
+  it('takes the conclusion and the areas it names from one answer, and keeps the areas when no answer passed both', () => {
+    const noAreas = goodReport();
+    noAreas.conclusion.why = 'The first summary names an area the retry dropped.';
+    noAreas.areas = [];
+    const both = goodReport();
+    both.conclusion.why = 'The second summary names the areas of the second answer.';
+    both.areas[0]!.title = 'The area of the second answer';
+    const paired = mergeAnswers(2, [checkReport(noAreas), checkReport(both)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(paired.dropped, []);
+    assert.deepEqual([paired.answer.conclusion?.why, paired.answer.areas?.[0]?.title], [both.conclusion.why, 'The area of the second answer'], 'the conclusion that passed first is replaced by the one beside the areas');
+    const badConclusion = goodReport();
+    badConclusion.conclusion.why = 'It is CONFIRMED.';
+    const apart = mergeAnswers(2, [checkReport(badConclusion), checkReport(noAreas)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(apart.dropped, [{ part: 'conclusion', failures: ['the conclusion holds the verdict CONFIRMED, which the engine writes beside the finding'] }], 'the conclusion of the answer whose areas are kept, with its failures');
+    assert.deepEqual([apart.answer.conclusion, apart.answer.areas], [null, badConclusion.areas]);
+    const withoutAreas = mergeAnswers(2, [checkReport(noAreas), checkReport({ ...noAreas, conclusion: badConclusion.conclusion })], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(withoutAreas.dropped.map((part) => part.part), ['areas']);
+    assert.equal(withoutAreas.answer.conclusion?.why, noAreas.conclusion.why, 'with no areas kept, the first conclusion that passed');
+    assert.equal(mergeAnswers(1, [check(goodAnswer()), check(goodAnswer())], ['RIPPLE-1']).answer.conclusion?.why, goodAnswer().conclusion.why, 'an answer of version 1 has no areas');
+  });
 });
 
 describe('the explanation phase of a run whose review reads as a report (R4, R10, R11, R13, TD2)', () => {
@@ -885,7 +907,9 @@ describe('the explanation phase of a run whose review reads as a report (R4, R10
     assert.equal(failure?.kind, 'attempt.failed');
     assert.match((failure?.payload as { reason: string }).reason, /^structural check: the answer fails the engine's checks: areas: the areas leave out RIPPLE-1, a major finding that asks a person to act$/);
     const retried = failedOnce(history, fixture, bad as unknown as WriterOutput);
-    assert.match(writerTask(retried.fold(), input()), /^- areas: the areas leave out RIPPLE-1, a major finding that asks a person to act$/m);
+    const task = writerTask(retried.fold(), input());
+    assert.match(task, /^- areas: the areas leave out RIPPLE-1, a major finding that asks a person to act$/m);
+    assert.match(task, /The conclusion and the areas go together, since the conclusion's summary names the areas: when either is listed here, the engine takes both from your answer if both pass/);
     const explanation = recorded(contribution(retried, fixture, receipt(bad))[0]);
     assert.equal(explanation.version, 2);
     assert.deepEqual(explanation.dropped, [{ part: 'areas', failures: ['the areas leave out RIPPLE-1, a major finding that asks a person to act'] }]);
