@@ -996,5 +996,808 @@
       "The compiler-only comparison includes npm startup but excludes lint, tests, contract and total CI latency.",
       "Typed ESLint remains uncached; engine sources, test cases and distributed artifacts are unchanged."
     ]
+  },
+  "duplicateIntegrationReduction": {
+    "status": "locally-implemented-and-validated",
+    "proposal": "docs/changes/2026-11-08-reduce-duplicate-test-scenarios.md",
+    "files": [
+      "test/runtime/launcher.test.ts",
+      "test/review/fix-continuation.test.ts"
+    ],
+    "productionBehaviorChanged": false,
+    "candidateDecisions": [
+      {
+        "candidate": "Claude wrong-session launcher matrix row",
+        "decision": "remove one duplicate execution and merge failure/null-answer/evidence assertions into existing session-recording case",
+        "retained": "test/runtime/launcher.test.ts: records the pinned session first and then the one an answer from another session named",
+        "executionsRemoved": 1
+      },
+      {
+        "candidate": "Claude success envelope missing denial list",
+        "decision": "retain as explicit integration case, strengthen receipt and ledger null-denial assertions",
+        "retained": "test/runtime/launcher.test.ts: rejects an envelope without a denial list and records unknown denial evidence",
+        "executionsRemoved": 0
+      },
+      {
+        "candidate": "Codex plain non-JSON launcher row",
+        "decision": "remove duplicated malformed-line variant; keep adapter malformed-line unit and launcher oversized malformed-stream integrations",
+        "retained": [
+          "test/runtime/codex.test.ts: fails a malformed line",
+          "test/runtime/launcher.test.ts: decodes a stream above the decode cap line by line, judging its filler as a malformed line, and still freezes it"
+        ],
+        "executionsRemoved": 1
+      },
+      {
+        "candidate": "Continuation after added worktree path",
+        "decision": "remove repeated whole-review variant; focused scope test owns reason, changed-bytes integration owns caller routing",
+        "retained": "test/scope/compare.test.ts: names a file added to a worktree scope since, and one no longer changed",
+        "executionsRemoved": 1
+      },
+      {
+        "candidate": "Continuation with another scope mode",
+        "decision": "remove repeated whole-review variant; focused scope test owns reason, changed-bytes integration owns caller routing",
+        "retained": "test/scope/compare.test.ts: names a scope of another mode or base first",
+        "executionsRemoved": 1
+      },
+      {
+        "candidate": "Continuation after moved HEAD",
+        "decision": "remove repeated whole-review variant; focused scope test owns reason, changed-bytes integration owns caller routing",
+        "retained": "test/scope/compare.test.ts: names HEAD when it moved and the change named holds the same files with the same contents",
+        "executionsRemoved": 1
+      }
+    ],
+    "executionAccounting": {
+      "removedIntegrationScenarios": 5,
+      "directLauncherInvocationsRemoved": 2,
+      "fullReadOnlyReviewsRemoved": 3,
+      "subsequentFixCommandsRemoved": 3,
+      "affectedCaseCounts": {
+        "before": 118,
+        "after": 113,
+        "launcher": {
+          "before": 97,
+          "after": 95
+        },
+        "fixContinuation": {
+          "before": 21,
+          "after": 18
+        },
+        "unchangedPlatformSkips": 1
+      },
+      "priorOrdinarySuiteCases": 3736,
+      "expectedOrdinarySuiteCasesAfter": 3731,
+      "note": "Two removed launcher cases each ran a real fake worker. Each of the three removed continuation scenarios ran a full read-only review followed by a fix command that created a new blocked run. These executions were removed rather than hidden in loops."
+    },
+    "method": {
+      "pairs": 3,
+      "timedSamplesPerSide": 3,
+      "order": [
+        "before, after",
+        "after, before",
+        "before, after"
+      ],
+      "command": [
+        "node",
+        "--import",
+        "./test/setup.ts",
+        "--test",
+        "--test-reporter=<same JSON summary reporter>",
+        "test/runtime/launcher.test.ts",
+        "test/review/fix-continuation.test.ts"
+      ],
+      "reporter": "An identical reporter emits test:summary and test:fail events as JSON lines. Counts and per-file duration_ms come from test:summary; primary elapsed time spans process spawn to close.",
+      "primaryMetric": "Both affected files together, with normal Node test-runner file scheduling. Per-file elapsed times overlap and must not be added.",
+      "inputControl": "Separate isolated checkouts of committed inputs. Only the two intended test edits differ; unrelated bounded-path-scan and role changes are excluded. Temporary production mutations were restored before comparisons and final checks.",
+      "nodeCompileCache": "Fresh primary NODE_COMPILE_CACHE directory per timed invocation; NODE_DISABLE_COMPILE_CACHE unset. Existing helper cache policy retained.",
+      "osPageCache": "not flushed",
+      "selectedRuns": "All six planned comparison invocations, no exclusions or repeats.",
+      "environment": {
+        "node": "v26.12.1",
+        "platform": "linux",
+        "arch": "x64",
+        "kernel": "7.2.11-arch1-1",
+        "cpu": "AMD Ryzen 9 3900X 12-Core Processor",
+        "availableParallelism": 24,
+        "packageLockSha256": "529de1944a8f189fc0462b4f3b39fccddb0b03fc79bc82998b7339b6ddf2eea4"
+      },
+      "productionAndHelpersFingerprint": {
+        "algorithm": "SHA256 over each git-ls-files path, NUL, bytes, NUL in Git order.",
+        "includes": [
+          "src",
+          "roles",
+          "test/helpers",
+          "package-lock.json",
+          "package.json",
+          "tsconfig.json",
+          ".tool-versions"
+        ],
+        "files": 209,
+        "beforeSha256": "0a779dcc9c18be87652b2a2dd4d22b2421e8746c69774932ed0ab944d64032b0",
+        "afterSha256": "0a779dcc9c18be87652b2a2dd4d22b2421e8746c69774932ed0ab944d64032b0"
+      },
+      "selectedFileSha256": {
+        "test/runtime/launcher.test.ts": {
+          "before": "0dcf3b9f169cd5d2d5ad03715febd494244d8b27e530522dfc5bb5418684d99d",
+          "after": "b2578af141b2fb000e55cd6e2ada041e1e7a4c0e48afb2a2c1c58a8e12bb93f3"
+        },
+        "test/review/fix-continuation.test.ts": {
+          "before": "639e0ea9f943511771e948af59b846a791169f0d6dd5d3f9dba0fab95d14190f",
+          "after": "f1c5a4735b180f37b20a821fb3da6da5535dbf82706df434e3c9f7476b551ab1"
+        }
+      }
+    },
+    "pairs": [
+      {
+        "pair": 1,
+        "order": [
+          "before",
+          "after"
+        ],
+        "runs": [
+          {
+            "side": "before",
+            "exitCode": 0,
+            "elapsedSeconds": 24.504015928,
+            "counts": {
+              "tests": 118,
+              "failed": 0,
+              "passed": 117,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24470.665957,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 21,
+                  "failed": 0,
+                  "passed": 21,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 17498.345258
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 97,
+                  "failed": 0,
+                  "passed": 96,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 24189.656095
+              }
+            ]
+          },
+          {
+            "side": "after",
+            "exitCode": 0,
+            "elapsedSeconds": 24.382816102000003,
+            "counts": {
+              "tests": 113,
+              "failed": 0,
+              "passed": 112,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24350.277492,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 18,
+                  "failed": 0,
+                  "passed": 18,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 15094.779551
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 95,
+                  "failed": 0,
+                  "passed": 94,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 24073.364258
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "order": [
+          "after",
+          "before"
+        ],
+        "runs": [
+          {
+            "side": "after",
+            "exitCode": 0,
+            "elapsedSeconds": 24.288089674000002,
+            "counts": {
+              "tests": 113,
+              "failed": 0,
+              "passed": 112,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24255.407424,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 18,
+                  "failed": 0,
+                  "passed": 18,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 14873.998689
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 95,
+                  "failed": 0,
+                  "passed": 94,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 23987.312568
+              }
+            ]
+          },
+          {
+            "side": "before",
+            "exitCode": 0,
+            "elapsedSeconds": 24.96197725000001,
+            "counts": {
+              "tests": 118,
+              "failed": 0,
+              "passed": 117,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24928.262617,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 21,
+                  "failed": 0,
+                  "passed": 21,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 17561.259967
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 97,
+                  "failed": 0,
+                  "passed": 96,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 24652.900933
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "order": [
+          "before",
+          "after"
+        ],
+        "runs": [
+          {
+            "side": "before",
+            "exitCode": 0,
+            "elapsedSeconds": 24.71648526699998,
+            "counts": {
+              "tests": 118,
+              "failed": 0,
+              "passed": 117,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24682.382537,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 21,
+                  "failed": 0,
+                  "passed": 21,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 17518.943223
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 97,
+                  "failed": 0,
+                  "passed": 96,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 24415.166456
+              }
+            ]
+          },
+          {
+            "side": "after",
+            "exitCode": 0,
+            "elapsedSeconds": 24.401813431999994,
+            "counts": {
+              "tests": 113,
+              "failed": 0,
+              "passed": 112,
+              "cancelled": 0,
+              "skipped": 1,
+              "todo": 0,
+              "topLevel": 6,
+              "suites": 17
+            },
+            "runnerDurationMs": 24368.091446,
+            "perFile": [
+              {
+                "file": "test/review/fix-continuation.test.ts",
+                "counts": {
+                  "tests": 18,
+                  "failed": 0,
+                  "passed": 18,
+                  "cancelled": 0,
+                  "skipped": 0,
+                  "todo": 0,
+                  "topLevel": 1,
+                  "suites": 1
+                },
+                "runnerDurationMs": 15373.984828
+              },
+              {
+                "file": "test/runtime/launcher.test.ts",
+                "counts": {
+                  "tests": 95,
+                  "failed": 0,
+                  "passed": 94,
+                  "cancelled": 0,
+                  "skipped": 1,
+                  "todo": 0,
+                  "topLevel": 5,
+                  "suites": 16
+                },
+                "runnerDurationMs": 24085.77621
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "statistics": {
+      "combined": {
+        "metric": "process spawn to close for both files together",
+        "before": {
+          "samples": 3,
+          "medianSeconds": 24.71648526699998,
+          "rangeSeconds": [
+            24.504015928,
+            24.96197725000001
+          ]
+        },
+        "after": {
+          "samples": 3,
+          "medianSeconds": 24.382816102000003,
+          "rangeSeconds": [
+            24.288089674000002,
+            24.401813431999994
+          ]
+        },
+        "savingSeconds": 0.33366916499997856,
+        "reductionPercent": 1.3499863002183174
+      },
+      "launcher": {
+        "metric": "runner-reported file elapsed from the same concurrent invocation",
+        "before": {
+          "samples": 3,
+          "medianSeconds": 24.415166455999998,
+          "rangeSeconds": [
+            24.189656095,
+            24.652900933
+          ]
+        },
+        "after": {
+          "samples": 3,
+          "medianSeconds": 24.073364258,
+          "rangeSeconds": [
+            23.987312568,
+            24.08577621
+          ]
+        },
+        "savingSeconds": 0.34180219799999634,
+        "reductionPercent": 1.3999584996316863
+      },
+      "fixContinuation": {
+        "metric": "runner-reported file elapsed from the same concurrent invocation",
+        "before": {
+          "samples": 3,
+          "medianSeconds": 17.518943222999997,
+          "rangeSeconds": [
+            17.498345258,
+            17.561259967
+          ]
+        },
+        "after": {
+          "samples": 3,
+          "medianSeconds": 15.094779551,
+          "rangeSeconds": [
+            14.873998689,
+            15.373984828000001
+          ]
+        },
+        "savingSeconds": 2.424163671999997,
+        "reductionPercent": 13.837385287129642
+      }
+    },
+    "formula": "(median before - median after) / median before * 100",
+    "targetedValidation": {
+      "files": [
+        "test/runtime/launcher.test.ts",
+        "test/review/fix-continuation.test.ts",
+        "test/runtime/claude.test.ts",
+        "test/runtime/codex.test.ts",
+        "test/scope/compare.test.ts"
+      ],
+      "exitCode": 0,
+      "counts": {
+        "tests": 282,
+        "failed": 0,
+        "passed": 280,
+        "cancelled": 0,
+        "skipped": 2,
+        "todo": 0,
+        "topLevel": 22,
+        "suites": 36
+      },
+      "runnerDurationMs": 24378.915184
+    },
+    "mutationProbes": {
+      "attempted": 10,
+      "rejected": 10,
+      "scope": "One temporary mutation at a time in a disposable checkout; every mutation restored before later probes, measurements and full validation.",
+      "interpretation": "Semantic assertion witnesses establish these selected boundaries, not exhaustive mutation coverage.",
+      "cases": [
+        {
+          "name": "mutation-scope-added-path",
+          "source": "src/scope/compare.ts",
+          "replace": "if (added.length > 0 || gone.length > 0) {",
+          "with": "if (false) {",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=names a file added to a worktree scope",
+            "test/scope/compare.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/scope/compare.test.ts",
+              "test": "names a file added to a worktree scope since, and one no longer changed",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ null\n- 'its files are not the change named: notes.txt changed since and not in it'"
+            }
+          ]
+        },
+        {
+          "name": "mutation-scope-mode",
+          "source": "src/scope/compare.ts",
+          "replace": "if (resolved.mode !== scope.mode || resolved.base !== scope.base)",
+          "with": "if (false)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=names a scope of another mode or base first",
+            "test/scope/compare.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/scope/compare.test.ts",
+              "test": "names a scope of another mode or base first",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "ref mode against a worktree scope\n+ actual - expected\n\n+ null\n- 'its scope is worktree 73a803511b246814c8c754e01c86f1f29225de51..73a803511b246814c8c754e01c86f1f29225de51, not the one named'"
+            }
+          ]
+        },
+        {
+          "name": "mutation-scope-head",
+          "source": "src/scope/compare.ts",
+          "replace": "if (head !== scope.head)",
+          "with": "if (false)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=names HEAD when it moved",
+            "test/scope/compare.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/scope/compare.test.ts",
+              "test": "names HEAD when it moved and the change named holds the same files with the same contents",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ null\n- 'HEAD is e558322af5056afe51936128c2b206dcabdca12c, not aa5b81862d2491db5f149736a45a31f4b7e18d50'"
+            }
+          ]
+        },
+        {
+          "name": "mutation-caller-drift-callback",
+          "source": "src/review/controller.ts",
+          "replace": "() => findDrift(run, context.worktree, context.match).files.map((file) => file.path)",
+          "with": "() => []",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=creates a new run when a file of the scope changed since",
+            "test/review/fix-continuation.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/fix-continuation.test.ts",
+              "test": "creates a new run when a file of the scope changed since, naming the run and the file (R2, PD3)",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "a new run beside the finished one\n\n1 !== 2\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-caller-ignore-mismatch",
+          "source": "src/review/controller.ts",
+          "replace": "if (reason === null) return run;",
+          "with": "return run;",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=creates a new run when a file of the scope changed since",
+            "test/review/fix-continuation.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/fix-continuation.test.ts",
+              "test": "creates a new run when a file of the scope changed since, naming the run and the file (R2, PD3)",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "a new run beside the finished one\n\n1 !== 2\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-caller-refusal-log",
+          "source": "src/review/controller.ts",
+          "replace": "context.log(`run ${newest.id}: not continued: ${reason}`);",
+          "with": "context.log(`run ${newest.id}: not continued`);",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=creates a new run when a file of the scope changed since",
+            "test/review/fix-continuation.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/fix-continuation.test.ts",
+              "test": "creates a new run when a file of the scope changed since, naming the run and the file (R2, PD3)",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "^run 082a0f3c-fdf1-460c-88e3-15a075e91165: not continued: 1 of its files changed since: src\\/a\\.ts$ in\n--fix: no finished read-only run of this worktree reviewed this change as it is; a new run is created\nrun 082a0f3c-fdf1-460c-88e3-15a075e91165: not continued\nrun e3787b99-02f0-420a-a657-7c31899b95f3: created\nrun e3787b99-02f0-420a-a657-7c31899b95f3: scope captured, 1 files"
+            }
+          ]
+        },
+        {
+          "name": "mutation-claude-session-guard",
+          "source": "src/runtime/claude.ts",
+          "replace": "if (observed !== expected)",
+          "with": "if (false)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=records the pinned session first and then the one an answer from another session named",
+            "test/runtime/launcher.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/runtime/launcher.test.ts",
+              "test": "records the pinned session first and then the one an answer from another session named",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'completed'\n- 'failed'"
+            }
+          ]
+        },
+        {
+          "name": "mutation-launcher-failed-verdict",
+          "source": "src/runtime/launcher.ts",
+          "replace": "case 'failed':\n      return failedWith(decoded.error);",
+          "with": "case 'failed':\n      return { outcome: 'completed', error: null, output: { answer: 'ok' } };",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=records the pinned session first and then the one an answer from another session named",
+            "test/runtime/launcher.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/runtime/launcher.test.ts",
+              "test": "records the pinned session first and then the one an answer from another session named",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'completed'\n- 'failed'"
+            }
+          ]
+        },
+        {
+          "name": "mutation-launcher-unknown-denials",
+          "source": "src/runtime/launcher.ts",
+          "replace": "!adapter.capabilities.denialEvidence || decoded.denials === null ? null : [...decoded.denials]",
+          "with": "!adapter.capabilities.denialEvidence ? null : [...(decoded.denials ?? [])]",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=rejects an envelope without a denial list and records unknown denial evidence",
+            "test/runtime/launcher.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/runtime/launcher.test.ts",
+              "test": "rejects an envelope without a denial list and records unknown denial evidence",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n\n[] !== null\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-codex-malformed-guard",
+          "source": "src/runtime/codex.ts",
+          "replace": "if (facts.malformed !== null) return failed(facts.malformed);",
+          "with": "if (false) return failed(facts.malformed);",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-name-pattern=fails a malformed line",
+            "test/runtime/codex.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/runtime/codex.test.ts",
+              "test": "fails a malformed line",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "The input did not match the regular expression /line 2 that is not JSON/. Input:\n\n'Codex wrote a final message that is not its last agent message'\n"
+            }
+          ]
+        }
+      ]
+    },
+    "validation": {
+      "status": "complete",
+      "scope": "Isolated committed engine, roles and helpers plus these two test edits and proposal; unrelated bounded-path-scan and role work excluded.",
+      "commands": [
+        {
+          "command": "npm run check",
+          "exitCode": 0,
+          "elapsedSeconds": 582.02214605
+        },
+        {
+          "command": "npm run verify",
+          "exitCode": 0,
+          "elapsedSeconds": 0.36278495100000874
+        }
+      ],
+      "contractRun": false,
+      "realReviewRun": false,
+      "logs": "The author keeps full probe, comparison and validation logs outside the repository.",
+      "ordinarySuite": {
+        "tests": 3731,
+        "suites": 558,
+        "passed": 3718,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 13,
+        "todo": 0,
+        "runnerDurationMs": 557515.158003
+      },
+      "artifacts": {
+        "claudeFiles": 43,
+        "codexFiles": 42,
+        "bothMatch": true
+      },
+      "testInputsMatchWorkspace": true
+    },
+    "limitations": [
+      "Five deliberately removed integration scenarios change the workload; this is not an identical-work engine optimization.",
+      "The 1.35% combined reduction is an observed three-sample local median, with no confidence interval or statistical significance claim.",
+      "Per-file durations come from the same concurrent invocations and are not independent isolated-file measurements.",
+      "Retained real timeouts dominate the launcher file, limiting combined elapsed savings despite lower continuation work.",
+      "Mutation evidence covers only the selected rule and wiring faults; it does not prove preservation against all defects.",
+      "No whole-suite before/after timing comparison, CI-wide saving or cross-platform performance result is established."
+    ]
   }
 }

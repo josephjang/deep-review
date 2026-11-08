@@ -139,8 +139,6 @@ describe('runWorker', () => {
       ['no result event and a nonzero exit', { FAKE_STDOUT: '', FAKE_STDERR: 'boom', FAKE_EXIT: '3' }, /printed no result event/],
       ['output that is not JSON', { FAKE_STDOUT: 'Error: something' }, /not JSON/],
       ['an answer the schema rejects', { FAKE_OUTPUT: '{"answer":42}' }, /does not match the output schema/],
-      ['an envelope without a denial list', { FAKE_STDOUT: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'ok' } }) }, /no permission_denials array/],
-      ['an answer from another session', { FAKE_STDOUT: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'other-session', structured_output: { answer: 'ok' }, permission_denials: [] }) }, /answered from session other-session/],
     ];
     for (const [name, fake, pattern] of failures) {
       it(`fails ${name}, with the reason, and still finishes the worker`, async () => {
@@ -153,13 +151,30 @@ describe('runWorker', () => {
       });
     }
 
+    it('rejects an envelope without a denial list and records unknown denial evidence', async () => {
+      const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'ok' } });
+      const receipt = await box.run(box.claude(), { FAKE_STDOUT: stdout });
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', /no permission_denials array/);
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.output, null);
+      assert.equal(receipt.denials, null);
+      const worker = box.worker(receipt.workerId);
+      assert.equal(worker.status === 'finished' && worker.finish.denials, null);
+      assertEvidence(receipt);
+    });
+
     it('records the pinned session first and then the one an answer from another session named', async () => {
       const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'other-session', structured_output: { answer: 'ok' }, permission_denials: [] });
       const receipt = await box.run(box.claude(), { FAKE_STDOUT: stdout });
       assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', /answered from session other-session/);
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.output, null);
       const worker = box.worker(receipt.workerId);
       assert.deepEqual(receipt.runtime.sessionIds, [worker.launch.sessionId, 'other-session']);
       assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, receipt.runtime.sessionIds);
+      assertEvidence(receipt);
     });
 
     it('says so when the kill at the timeout reached only the root of the tree', { skip: process.platform !== 'win32' && 'only a Windows tree kill can be made to fail from here' }, async () => {
@@ -278,7 +293,6 @@ describe('runWorker', () => {
 
     const failures: [string, Record<string, string>, RegExp][] = [
       ['a nonzero exit', { FAKE_EXIT: '2' }, /exited with code 2/],
-      ['a stream that is not JSON', { FAKE_STDOUT: 'garbage\n' }, /not JSON/],
       ['a final message that disagrees with the stream', { FAKE_FINAL: '{"answer":"other"}' }, /not its last agent message/],
       ['no final message file', { FAKE_FINAL: '' }, /no final message file/],
       ['an answer the schema rejects', { FAKE_OUTPUT: '{"answer":1}' }, /does not match the output schema/],
