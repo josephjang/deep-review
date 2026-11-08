@@ -74,6 +74,14 @@ describe('runWorker', () => {
   });
 
   describe('Claude Code', () => {
+    const assertFailedResponse = (receipt: WorkerReceipt, pattern: RegExp): void => {
+      assert.equal(receipt.outcome, 'failed');
+      assert.match(receipt.error ?? '', pattern);
+      assert.equal(receipt.output, null);
+      assert.equal(receipt.evidence.output, null);
+      assertEvidence(receipt);
+    };
+
     it('completes: records both events, freezes every byte exchanged, and returns the validated answer', async () => {
       const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'fine' }, permission_denials: [], usage: { input_tokens: 5 }, total_cost_usd: 0.002 });
       const receipt = await box.run(box.claude({ label: 'finder', budgetUsd: 1 }), { FAKE_STDOUT: stdout, FAKE_STDERR: 'a warning\n' });
@@ -146,38 +154,26 @@ describe('runWorker', () => {
     for (const [name, fake, pattern] of failures) {
       it(`fails ${name}, with the reason, and still finishes the worker`, async () => {
         const receipt = await box.run(box.claude(), fake);
-        assert.equal(receipt.outcome, 'failed');
-        assert.match(receipt.error ?? '', pattern);
-        assert.equal(receipt.output, null);
-        assert.equal(receipt.evidence.output, null);
-        assertEvidence(receipt);
+        assertFailedResponse(receipt, pattern);
       });
     }
 
     it('rejects an envelope without a denial list and records unknown denial evidence', async () => {
       const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: '{session}', structured_output: { answer: 'ok' } });
       const receipt = await box.run(box.claude(), { FAKE_STDOUT: stdout });
-      assert.equal(receipt.outcome, 'failed');
-      assert.match(receipt.error ?? '', /no permission_denials array/);
-      assert.equal(receipt.output, null);
-      assert.equal(receipt.evidence.output, null);
+      assertFailedResponse(receipt, /no permission_denials array/);
       assert.equal(receipt.denials, null);
       const worker = box.worker(receipt.workerId);
       assert.equal(worker.status === 'finished' && worker.finish.denials, null);
-      assertEvidence(receipt);
     });
 
     it('records the pinned session first and then the one an answer from another session named', async () => {
       const stdout = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'other-session', structured_output: { answer: 'ok' }, permission_denials: [] });
       const receipt = await box.run(box.claude(), { FAKE_STDOUT: stdout });
-      assert.equal(receipt.outcome, 'failed');
-      assert.match(receipt.error ?? '', /answered from session other-session/);
-      assert.equal(receipt.output, null);
-      assert.equal(receipt.evidence.output, null);
+      assertFailedResponse(receipt, /answered from session other-session/);
       const worker = box.worker(receipt.workerId);
       assert.deepEqual(receipt.runtime.sessionIds, [worker.launch.sessionId, 'other-session']);
       assert.deepEqual(worker.status === 'finished' && worker.finish.sessionIds, receipt.runtime.sessionIds);
-      assertEvidence(receipt);
     });
 
     it('says so when the kill at the timeout reached only the root of the tree', { skip: process.platform !== 'win32' && 'only a Windows tree kill can be made to fail from here' }, async () => {
