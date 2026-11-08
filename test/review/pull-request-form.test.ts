@@ -726,26 +726,73 @@ describe('the fit of the review (TD5)', () => {
     const fix = said.findings[0] as ExplainedFinding;
     return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
   };
-  /** Each list of cuts the form makes as the fix's problem grows, in the order they come, and the last form, refused or not. */
-  const sweep = (diagram: boolean): { readonly cuts: string[][]; readonly forms: PullRequestForm[]; readonly last: PullRequestForm | FormRefusal } => {
+  const limit = 60_000;
+  const expectedCuts = [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']];
+  const markedLast = (form: PullRequestForm): void => {
+    assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
+    for (const comment of form.comments) assert.equal(lastLine(comment.body), `<!-- ${findingMarker('run-1', comment.finding)} -->`);
+  };
+  interface Boundary { below: PullRequestForm; at: PullRequestForm; above: PullRequestForm | FormRefusal }
+  interface Samples { cuts: string[][]; forms: PullRequestForm[]; last: PullRequestForm | FormRefusal; boundaries: Boundary[] }
+  const sampled = new Map<boolean, Samples>();
+  /** Calibrate only padding length; the fixed cap and literal expected cut states remain independent oracles. */
+  const samples = (diagram: boolean): Samples => {
+    const known = sampled.get(diagram);
+    if (known !== undefined) return known;
+    let pad = 1;
+    let seed = renderedOf(state, answerOf(pad, diagram), filesOf(true));
     const cuts: string[][] = [];
     const forms: PullRequestForm[] = [];
-    for (let pad = 0; ; pad += 200) {
-      const form = renderedOf(state, answerOf(pad, diagram), filesOf(true));
-      if (form.kind === 'refused') return { cuts, forms, last: form };
-      forms.push(form);
-      if (JSON.stringify(cuts.at(-1)) !== JSON.stringify(form.cuts)) cuts.push([...form.cuts]);
+    const boundaries: Boundary[] = [];
+    for (let index = 0; index < (diagram ? 5 : 4); index += 1) {
+      assert.equal(seed.kind, 'rendered', `a successful seed for cut state ${String(index)}`);
+      const atPad = pad + limit - (seed as PullRequestForm).body.length;
+      assert.ok(atPad > pad, 'each fixed cut state makes positive progress toward its limit');
+      assert.ok(atPad <= limit, 'padding stays within the fixed public cap');
+      const below = formOf(state, answerOf(atPad - 1, diagram), filesOf(true));
+      const at = formOf(state, answerOf(atPad, diagram), filesOf(true));
+      const above = renderedOf(state, answerOf(atPad + 1, diagram), filesOf(true));
+      boundaries.push({ below, at, above });
+      for (const form of [below, at, ...(above.kind === 'rendered' ? [above] : [])]) {
+        forms.push(form);
+        if (JSON.stringify(cuts.at(-1)) !== JSON.stringify(form.cuts)) cuts.push([...form.cuts]);
+      }
+      pad = atPad + 1;
+      seed = above;
+    }
+    const result = { cuts, forms, last: seed, boundaries };
+    sampled.set(diagram, result);
+    return result;
+  };
+  const assertBoundaries = (boundaries: readonly Boundary[], expected: readonly string[][]): void => {
+    assert.equal(maxPostedLength, limit, 'the public posting cap is 60000 characters');
+    assert.equal(boundaries.length, expected.length);
+    for (const [index, boundary] of boundaries.entries()) {
+      assert.equal(boundary.below.body.length, limit - 1);
+      assert.equal(boundary.at.body.length, limit);
+      assert.deepEqual(boundary.below.cuts, expected[index]);
+      assert.deepEqual(boundary.at.cuts, expected[index]);
+      if (index + 1 < expected.length) {
+        assert.equal(boundary.above.kind, 'rendered');
+        assert.deepEqual((boundary.above as PullRequestForm).cuts, expected[index + 1]);
+      } else {
+        assert.equal(boundary.above.kind, 'refused');
+        assert.equal((boundary.above as FormRefusal).size, limit + 1);
+      }
     }
   };
-  const { cuts, forms, last } = sweep(true);
 
   it('cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit', () => {
+    const { cuts, forms, boundaries } = samples(true);
     assert.deepEqual([...bodyCuts], ['refuted', 'left', 'minor-table', 'area-diagrams']);
-    assert.deepEqual(cuts, [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']]);
+    assert.deepEqual(cuts, expectedCuts);
+    assertBoundaries(boundaries, expectedCuts);
     for (const form of forms) assert.ok(form.body.length <= maxPostedLength, String(form.body.length));
+    for (const form of forms) markedLast(form);
   });
 
   it('names each cut where it is made, and never cuts what needs a person, the areas or the findings in full', () => {
+    const { forms } = samples(true);
     const cutTo = (count: number): string => forms.find((form) => form.cuts.length === count)!.body;
     includes(cutTo(1), '- To fit the length GitHub takes, the candidate that the verifiers refuted is not listed here; the report of the run holds each with its evidence.');
     excludes(cutTo(1), '<details><summary>The refuted candidate</summary>');
@@ -753,18 +800,24 @@ describe('the fit of the review (TD5)', () => {
     includes(cutTo(3), 'To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.');
     includes(cutTo(4), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
     excludes(cutTo(4), `A["${'d'.repeat(1000)}"]`);
-    for (const form of forms) {
+    for (const form of [...forms, ...samples(false).forms]) {
       includes(form.body, '### What needs a person');
+      includes(form.body, '### The major findings');
+      includes(form.body, '**Parsing an empty input.** What parse() does with an empty file.');
       includes(form.body, '- **[1. parse() reads the null before any guard.](#finding-1).**');
       includes(form.body, '### Finding 1: parse() reads the null before any guard.');
+      markedLast(form);
     }
   });
 
   it('makes and names no cut that takes nothing from the body', () => {
-    assert.deepEqual(sweep(false).cuts, [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table']]);
+    const { cuts, boundaries } = samples(false);
+    assert.deepEqual(cuts, expectedCuts.slice(0, 4));
+    assertBoundaries(boundaries, expectedCuts.slice(0, 4));
   });
 
   it('refuses a body that does not fit after every cut, with its size and parts', () => {
+    const { last } = samples(true);
     assert.equal(last.kind, 'refused');
     const { text, size, limit, parts } = last as FormRefusal;
     assert.deepEqual(text, { kind: 'body' });
@@ -776,8 +829,18 @@ describe('the fit of the review (TD5)', () => {
   });
 
   it('refuses a comment over the limit, with its size and parts', () => {
-    const refused = renderedOf(state, answerOf(maxPostedLength), filesOf(false)) as FormRefusal;
+    const seed = formOf(state, answerOf(1), filesOf(false));
+    const atPad = 1 + limit - seed.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length;
+    assert.ok(atPad > 1 && atPad <= limit, 'the comment boundary has positive, bounded padding');
+    for (const [offset, size] of [[-1, limit - 1], [0, limit]] as const) {
+      const form = formOf(state, answerOf(atPad + offset), filesOf(false));
+      assert.equal(form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length, size);
+      markedLast(form);
+    }
+    const refused = renderedOf(state, answerOf(atPad + 1), filesOf(false)) as FormRefusal;
     assert.equal(refused.kind, 'refused');
+    assert.equal(refused.size, limit + 1);
+    assert.equal(refused.limit, limit);
     assert.deepEqual(refused.text, { kind: 'comment', finding: 'RIPPLE-1', path: 'src/a.ts', line: 4 });
     assert.deepEqual(refused.parts.map((part) => part.part), ['explanation', 'decision', 'checked', 'code']);
     assert.match(formRefusalWords(refused), /^the comment of RIPPLE-1 on src\/a\.ts:4 is \d+ characters, over the 60000 a review posts: explanation \d+, decision \d+, checked \d+, code \d+$/);
