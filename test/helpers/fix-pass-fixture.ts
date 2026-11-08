@@ -1,8 +1,10 @@
 // The review the fix pass tests share: test/review/fix-pass.test.ts,
 // fix-pass-claims.test.ts and fix-continuation.test.ts each script a
-// sandbox with reviewScript and its fixers write fixedA and fixedB.
+// sandbox with reviewScript and its fixers write fixedA and fixedB;
+// test/review/pull-request-scope.test.ts and publish.test.ts script it
+// with fixingReviewScript, which adds those fixers.
 import { finderAngles } from '../../src/review/vocabulary.ts';
-import { deciderAnswer, type Script } from './fake-runtime.ts';
+import { deciderAnswer, fixerAnswer, type Script } from './fake-runtime.ts';
 
 /** A candidate as a finder returns it. */
 export const found = (file: string, line: number, summary: string): Record<string, unknown> => ({ file, line, summary, detail: `${summary}: the failure a user would see` });
@@ -38,3 +40,10 @@ export const reviewScript: Script = {
 /** The fixed bytes each fixer writes. */
 export const fixedA = 'export function parse(text: string | null) {\n  return text?.length ?? 0;\n}\n\nexport function other() {\n  return parse(null);\n}\n';
 export const fixedB = 'import { parse } from \'./a.ts\';\n\nexport const b = parse("x");\n';
+
+/** The review script above with a fixer for each of its two clusters, c1-1 writing fixedA and c2-1 writing fixedB, with no commit subjects. */
+export const fixingReviewScript: Script = {
+  ...reviewScript,
+  'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
+  'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
+};
