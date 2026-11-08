@@ -228,10 +228,23 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     const none = formOf(runBeforeExplanation().fold(), null);
     includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
     excludes(none.body, 'A model wrote the explanations');
-    const nothingKept = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
-    excludes(formOf(nothingKept, null).body, 'A model wrote the explanations');
     includes(section(fallback.body, '### How far to trust this review'), 'A model wrote the explanations');
     excludes(none.comments[0]!.body, 'did not explain this finding');
+  });
+
+  it('says a model wrote the explanations only when the review posts some text of the writer, whatever answer it froze', () => {
+    const trustOf = (state: RunState, answer: RecordedAnswer): string => section(formOf(state, answer).body, '### How far to trust this review');
+    const empty: RecordedAnswer = { conclusion: null, account: null, areas: null, refuted: null, findings: [] };
+    // A writer that completed its unit has its answer frozen, even with every part dropped.
+    const nothingKept = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
+    excludes(trustOf(nothingKept, empty), 'A model wrote the explanations');
+    const accountOnly = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
+    excludes(trustOf(accountOnly, { ...empty, account: writerAnswer().account }), 'A model wrote the explanations');
+    // With its areas dropped the summary leaves out the conclusion's why, and the sentence of a question gives way to the option recommended.
+    const conclusionOnly = (decided: readonly unknown[]): RunState => withReportForm(run(decided, explanation(worker(60), { dropped: [{ part: 'areas', failures: ['x'] }, { part: 'refuted', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] }))).fold();
+    excludes(trustOf(conclusionOnly(answerableDecisions(askDecision('RIPPLE-1', false))), { ...empty, conclusion: writerAnswer().conclusion }), 'A model wrote the explanations');
+    includes(trustOf(conclusionOnly(answerableDecisions()), { ...empty, conclusion: writerAnswer().conclusion }), 'A model wrote the explanations');
+    includes(trustOf(nothingKept, { ...empty, refuted: [{ id: 'RIPPLE-2', claim: 'A cache entry outlives a logout.', why: 'Logout clears the cache first.' }] }), 'A model wrote the explanations');
   });
 
   it('names the writer\'s areas and refuted lines when the checks dropped them, in each language', () => {
