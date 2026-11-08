@@ -81,7 +81,7 @@ export function contractPlan(cwd: string, eventName: string, event: unknown, tes
   }
 }
 
-export function planStatus(environment: NodeJS.ProcessEnv, matrixResult?: string): { valid: boolean; exempt: boolean; message: string } {
+export function planStatus(environment: NodeJS.ProcessEnv): { valid: boolean; exempt: boolean; message: string } {
   const required = environment.CONTRACT_REQUIRED;
   const reason = environment.CONTRACT_REASON;
   const files = environment.CONTRACT_FILES;
@@ -90,8 +90,14 @@ export function planStatus(environment: NodeJS.ProcessEnv, matrixResult?: string
     ((required === 'false' && reason === 'docs-only' && Number(files) > 0 && environment.GITHUB_EVENT_NAME === 'pull_request') || (required === 'true' && reason !== 'docs-only'));
   const exempt = valid && required === 'false';
   if (!valid) return { valid: false, exempt: false, message: 'Invalid or unsuccessful contract plan; full contract required and status rejected.' };
-  if (matrixResult !== undefined && matrixResult !== 'success') return { valid: false, exempt: false, message: `Contract matrix did not succeed (${matrixResult}).` };
   return { valid: true, exempt, message: exempt ? `Contract exempted: ${files} documentation-only paths; no contract result claimed.` : `Full three-OS contract required (${reason}).` };
+}
+
+export function aggregateStatus(environment: NodeJS.ProcessEnv, matrixResult: string): ReturnType<typeof planStatus> {
+  const status = planStatus(environment);
+  if (!status.valid) return status;
+  if (matrixResult !== 'success') return { valid: false, exempt: false, message: `Contract matrix did not succeed (${matrixResult}).` };
+  return status;
 }
 
 function emit(values: Record<string, string>): void {
@@ -117,7 +123,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     emit({ required: String(plan.required), reason: plan.reason, files: String(plan.files) });
     report(plan);
   } else if (command === 'gate' || command === 'status') {
-    const status = planStatus(process.env, command === 'status' ? process.env.CONTRACT_MATRIX_RESULT ?? 'missing' : undefined);
+    const status = command === 'status' ? aggregateStatus(process.env, process.env.CONTRACT_MATRIX_RESULT ?? 'missing') : planStatus(process.env);
     emit({ exempt: String(status.exempt) });
     report(status);
     if (!status.valid) process.exitCode = 1;
