@@ -1,6 +1,6 @@
 # Report: Options for reducing test time
 
-This report evaluates reducing the work of the tests, reducing duplicate cases, reusing preparation and compiler work, and running the resumable contract less often. It draws on the current code, the earlier reports of [2026-10-14](2026-10-14-test-and-ci-time.md) and [2026-10-22](2026-10-22-test-suite-after-resumable-runs.md), three successful CI runs and local experiments. Implementation progress records completed local work separately from the remaining recommendations; CI policy is unchanged. The author keeps the raw experimental logs outside the repository; the measurements and reproducible methods used for the decisions are recorded here.
+This report evaluates reducing the work of the tests, reducing duplicate cases, reusing preparation and compiler work, and running the resumable contract less often. It draws on the current code, the earlier reports of [2026-10-14](2026-10-14-test-and-ci-time.md) and [2026-10-22](2026-10-22-test-suite-after-resumable-runs.md), three successful CI runs and local experiments. Implementation progress records completed local work separately from the remaining recommendations. The O7 workflow change cancels superseded PR runs; contract frequency remains unchanged, and the CI effect has not yet been observed. The author keeps the raw experimental logs outside the repository; the measurements and reproducible methods used for the decisions are recorded here.
 
 ## Recommendation
 
@@ -14,8 +14,8 @@ The order weighs measured effect, implementation cost and the possibility of mis
 
 | Order | Work | Primary outcome | Evidence and reason |
 |---|---|---|---|
-| 1 | Bound the path scan (O1) | Less work in every affected run | Prepared and locally validated; implementation is separate from this report-only change. Three same-workload whole-suite pairs reduced median elapsed time by 88.58%, with the same passing case counts. |
-| 2 | Cancel superseded PR workflows (O7) | Less obsolete work and queue contention | A small workflow change with no loss of checks on the latest revision. Benefit depends on how often pushes overlap. |
+| 1 | Bound the path scan (O1) | Less work in every affected run | Prepared and locally validated; implementation is separate from this CI change. Three same-workload whole-suite pairs reduced median elapsed time by 88.58%, with the same passing case counts. |
+| 2 | Cancel superseded PR workflows (O7) | Less obsolete work and queue contention | Implemented locally with unchanged job matrices; live cancellation and savings remain unobserved. Benefit depends on how often pushes overlap. |
 | 3 | Run the contract conditionally (O8) | Less CI work on unrelated changes | Windows contract steps took 472 to 801 s in the sampled runs. It requires a policy proposal and reliable change classification, so it follows the two simpler changes. |
 | 4 | Incremental typecheck (O9) | Faster local repetition | Measured at 8.646 s normally and 1.655 s on an unchanged warm run. Cold runs remain about as expensive as today. |
 | 5 | Remove duplicate integration cases (O10) | Fewer expensive scenarios and less maintenance | Six initial removal candidates are identified below. Only one is a direct duplicate; the others need a coverage review. |
@@ -37,7 +37,7 @@ Each option gets a before-and-after evaluation when implemented. [The measuremen
 | O4: Concurrency and splitting | Not implemented | Not measured | Alternating runs at each concurrency, longest-file tail, CPU, memory and failures on each OS |
 | O5: Sharding | Not implemented | Not measured | Latest-revision latency, slowest shard and total runner time including setup and queues |
 | O6: Focused edit-loop tests | Available practice; no comparative sample recorded | Not measured | Time to feedback for fixed representative edits; final full-check cost reported separately |
-| O7: Cancel obsolete CI | Not implemented | Not measured | Obsolete runner time avoided and latest-push-to-result latency over a recorded observation window |
+| O7: Cancel obsolete CI | Workflow grouping implemented; actionlint and six local identity cases pass | Not measured; scheduling does not speed up a single suite | Live overlapping PR cancellation, independent main runs, obsolete runner time avoided and latest-push-to-result latency over a recorded observation window |
 | O8: Conditional contract | Not implemented; current every-PR policy remains | Not measured | Exempted PR fraction, contract executions avoided, total runner time and coverage/detection delay |
 | O9: Incremental checks | One unchanged-input run per condition; neither cache adopted | Typecheck warm run: 8.646 to 1.655 s, 80.9% less time; cold incremental run: 8.351 s | Repeated runs after edits and invalidation tests. Lint's 95.5% warm reduction is not acceptable evidence for required typed linting |
 | O10: Duplicate cases and layering | Six candidate executions identified; none removed | Not measured | Before/after executed case counts by layer and preserved defect detection, then elapsed time |
@@ -210,7 +210,7 @@ Selection must include dependencies read dynamically, such as role fragments, fi
 
 ### O7: Cancel obsolete PR runs
 
-The current `check.yml` has no workflow concurrency group. A newer push to a PR can leave the previous revision running its three check jobs and three contract jobs. Group runs by workflow and PR, and use conditional `cancel-in-progress` to cancel an obsolete revision. Keep main-branch validation separate so unrelated work cannot cancel it. [GitHub documents this mechanism](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
+The original `check.yml` had no workflow concurrency group, so another push to a PR could leave the previous revision running its three check jobs and three contract jobs. The [O7 proposal](../changes/2026-11-08-cancel-obsolete-pr-ci.md) now groups the entire workflow by workflow name, event name and PR number, with a unique run-id fallback for non-PR events. Cancellation is enabled only for pull requests. Separate main run ids prevent both running cancellation and pending-run replacement. [GitHub documents workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
 
 This does not make a single test faster. It reduces work whose result the author no longer needs and can release runner capacity for the latest revision. Measure canceled runner minutes and time from the latest push to its result; the sampled CI data does not establish their current magnitude.
 
@@ -313,12 +313,31 @@ The isolated path-expression experiment passed the two original PR form files, 7
 
 The follow-up baseline, cold-cache and warm-cache typecheck and lint commands all exited zero; their timings and unchanged-input limitation are recorded under O9. They ran against the workspace and do not establish that the temporary path-expression implementation passed lint or typecheck. No duplicate case was removed, no conditional-execution classifier was tested, and no scheduled CI run was added.
 
-O1 is prepared and locally validated as recorded below; its implementation is a separate change. The later controlled comparison establishes its ordinary-suite improvement at 88.58% on the measured environment. Next perform O7 as an independent CI change, then prepare the policy proposal for O8 and validate O9's incremental invalidation. Review the six O10 removal candidates before deleting any, and treat O2 as a small follow-up. For each change, record ordinary-suite and contract elapsed time separately, latest-push-to-result time, total runner minutes, failures and reruns, and any newly exempted revisions. Remeasure before selecting the remaining options; none of the unmeasured ones has a promised speedup.
+O1 is prepared and locally validated as recorded below; its implementation is a separate change. The later controlled comparison establishes its ordinary-suite improvement at 88.58% on the measured environment. O7 is implemented as an independent workflow change, with its CI benefit still unmeasured. Next prepare the policy proposal for O8 and validate O9's incremental invalidation. Review the six O10 removal candidates before deleting any, and treat O2 as a small follow-up. For each change, record ordinary-suite and contract elapsed time separately, latest-push-to-result time, total runner minutes, failures and reruns, and any newly exempted revisions. Remeasure before selecting the remaining options; none of the unmeasured ones has a promised speedup.
 
 ## Implementation progress
 
 ### O1: Bounded path scanning prepared
 
-A follow-up implementation preserves the path and finding-name requirements of O1 and adds two regression cases. The long-word child-process regression failed against the original code at its 30 s timeout. With the bounded expression, all 120 tests in the finding-name, finding-name case, PR form and PR area files passed in 1.913 s. `npm run check` passed lint, typecheck and 3,715 tests: 3,702 passed, 13 skipped and zero failed; the test stage took 66.122 s. Build and verify matched both distribution artifacts. No existing test was removed. The implementation, its proposal and its generated bundles are not part of this report-only change; the author keeps the validation logs outside the repository.
+A follow-up implementation preserves the path and finding-name requirements of O1 and adds two regression cases. The long-word child-process regression failed against the original code at its 30 s timeout. With the bounded expression, all 120 tests in the finding-name, finding-name case, PR form and PR area files passed in 1.913 s. `npm run check` passed lint, typecheck and 3,715 tests: 3,702 passed, 13 skipped and zero failed; the test stage took 66.122 s. Build and verify matched both distribution artifacts. No existing test was removed. The implementation, its proposal and its generated bundles are not part of this CI change; the author keeps the validation logs outside the repository.
 
-These checks ran in an isolated checkout with the committed role inputs so unrelated role edits could not contaminate the result. This is local validation of the follow-up implementation, not a completed real-model or CI gate or a new check of this report-only change. The contract tier was not rerun because the change affects none of the stop, resume, launch or append paths that require it. No other priority has been implemented yet.
+These checks ran in an isolated checkout with the committed role inputs so unrelated role edits could not contaminate the result. This is local validation of the follow-up implementation, not a completed real-model or CI gate or a new check of this CI change. The contract tier was not rerun because the change affects none of the stop, resume, launch or append paths that require it.
+
+### O7: Cancel obsolete PR workflows
+
+The workflow-level concurrency block covers both three-OS matrices, with the same triggers, job names, steps and commands as before. actionlint v1.7.12 passes without diagnostics using `actionlint -shellcheck='' -pyflakes='' .github/workflows/check.yml`. A local calculation of the group and cancellation expressions checked six identities, shown below; it checks the grouping intent rather than executing GitHub's scheduler. Comparing the workflow after removing the new concurrency block with the committed original confirmed that no existing job or trigger changed.
+
+| Identity | Group | Cancel in progress |
+|---|---|---|
+| PR 42, first update, run 1001 | `check-pull_request-42` | true |
+| PR 42, second update, run 1002 | `check-pull_request-42` | true |
+| PR 43, run 1003 | `check-pull_request-43` | true |
+| Different workflow, PR 42, run 1004 | `release-pull_request-42` | true |
+| Main, first push, run 42 | `check-push-42` | false |
+| Main, second push, run 43 | `check-push-43` | false |
+
+The event namespace prevents a PR number from colliding with an equal main run id. GitHub does not guarantee dispatch order, and manually rerunning an old PR revision can cancel a current run in the same group; require a successful run of the current revision before merging. Cancellation of an earlier revision is not evidence that it passed.
+
+`npm run check` passed lint, typecheck and 3,713 ordinary tests: 3,700 passed, 13 skipped, zero failed and zero canceled. The command took 578.582 s, with 554.188 s reported by the test runner; these are single verification timings, not a measurement of O7's scheduling effect. `npm run verify` matched both distribution artifacts. The isolated checkout used the committed inputs plus this workflow/proposal change, excluding unrelated role edits and the separately prepared O1 implementation. The author keeps the full logs outside the repository; the measurement data records the results and counts.
+
+The contract tier was not run locally because this change affects no engine stop, resume, launch or ledger behavior. No CI run has been triggered for this change, so avoided runner time and latest-push latency remain unmeasured. No existing test case or required OS is removed, and no contract exemption is introduced. The real review remains required before release.

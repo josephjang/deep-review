@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Replace obsolete PR work across both matrices. Main pushes each get a
+# unique group so neither running nor pending validation is superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     strategy:
