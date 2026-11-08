@@ -1,23 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { afterEach, describe, it } from 'node:test';
+import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { contractPlan, documentationOnly, parseChanges, planStatus } from '../../scripts/contract-ci.ts';
 import { git } from '../helpers/git.ts';
-import { commitAll, createRepository, write } from '../helpers/repository.ts';
+import { commitAll, createRepository, temporaryDirectory, write } from '../helpers/repository.ts';
 
-const directories: string[] = [];
-function scratch(): string {
-  const path = mkdtempSync(join(tmpdir(), 'deep-review-contract-policy-'));
-  directories.push(path);
-  return path;
-}
-afterEach(() => { for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true }); });
-
-function repository(): string {
-  const root = createRepository(scratch());
+function repository(t: TestContext): string {
+  const root = createRepository(temporaryDirectory(t, 'deep-review-contract-policy-'));
   git(root, 'config', 'core.filemode', 'true');
   write(root, 'README.md', 'initial\n');
   write(root, 'docs/note.md', 'initial\n');
@@ -75,8 +66,8 @@ describe('contract documentation policy', () => {
 });
 
 describe('complete Git inventory', () => {
-  it('exempts a multi-commit documentation PR even when the target branch advances', () => {
-    const root = repository();
+  it('exempts a multi-commit documentation PR even when the target branch advances', (t) => {
+    const root = repository(t);
     write(root, 'docs/note.md', 'first change\n'); commitAll(root, 'Test change');
     write(root, 'README.md', 'second change\n'); commitAll(root, 'Test change');
     git(root, 'checkout', 'main');
@@ -89,15 +80,15 @@ describe('complete Git inventory', () => {
     assert.notEqual(result.base, result.mergeBase);
   });
 
-  it('retains an earlier source change when the last push only changes docs', () => {
-    const root = repository();
+  it('retains an earlier source change when the last push only changes docs', (t) => {
+    const root = repository(t);
     write(root, 'src/engine.ts', 'source change\n'); commitAll(root, 'Test change');
     write(root, 'docs/note.md', 'later docs\n'); commitAll(root, 'Test change');
     assert.equal(plan(root).required, true);
   });
 
-  it('requires the contract for a source mutation present only in the tested merge', () => {
-    const root = repository();
+  it('requires the contract for a source mutation present only in the tested merge', (t) => {
+    const root = repository(t);
     write(root, 'docs/note.md', 'documentation branch\n'); commitAll(root, 'Test change');
     const merged = merge(root);
     write(root, 'src/engine.ts', 'merge-only source change\n');
@@ -116,8 +107,8 @@ describe('complete Git inventory', () => {
     ['docs/note.md', 'src/moved.ts', true],
     ['docs/note.md', 'docs/renamed.md', false],
   ] as const) {
-    it(`counts both endpoints when ${from} moves to ${to}`, () => {
-      const root = repository();
+    it(`counts both endpoints when ${from} moves to ${to}`, (t) => {
+      const root = repository(t);
       git(root, 'mv', from, to); commitAll(root, 'Test change');
       const result = plan(root);
       assert.equal(result.required, required);
@@ -125,14 +116,14 @@ describe('complete Git inventory', () => {
     });
   }
 
-  it('counts deleted Markdown as documentation', () => {
-    const root = repository();
+  it('counts deleted Markdown as documentation', (t) => {
+    const root = repository(t);
     git(root, 'rm', 'docs/note.md'); commitAll(root, 'Test change');
     assert.equal(plan(root).required, false);
   });
 
-  it('requires the contract for an executable Markdown file', () => {
-    const root = repository();
+  it('requires the contract for an executable Markdown file', (t) => {
+    const root = repository(t);
     write(root, 'docs/program.md', 'executable\n');
     // The index mode is portable even on filesystems without executable bits.
     git(root, 'add', 'docs/program.md');
@@ -142,8 +133,8 @@ describe('complete Git inventory', () => {
     assert.equal(plan(root).required, true);
   });
 
-  it('falls back on empty differences, shallow history and an unexpected tested merge', () => {
-    const root = repository();
+  it('falls back on empty differences, shallow history and an unexpected tested merge', (t) => {
+    const root = repository(t);
     write(root, 'docs/note.md', 'change\n'); commitAll(root, 'Test change');
     const merged = merge(root);
     const base = merged.event.pull_request.base.sha;
@@ -154,16 +145,16 @@ describe('complete Git inventory', () => {
     assert.equal(contractPlan(root, 'pull_request', merged.event, merged.tested).reason, 'inventory-unavailable');
   });
 
-  it('requires the contract for an empty PR tree difference', () => {
-    const root = repository();
+  it('requires the contract for an empty PR tree difference', (t) => {
+    const root = repository(t);
     git(root, 'commit', '--allow-empty', '-m', 'Empty change');
     const result = plan(root);
     assert.equal(result.required, true);
     assert.equal(result.files, 0);
   });
 
-  it('falls back when crisscross ancestry has multiple merge bases', () => {
-    const root = repository();
+  it('falls back when crisscross ancestry has multiple merge bases', (t) => {
+    const root = repository(t);
     const initial = git(root, 'rev-parse', 'HEAD');
     const tree = git(root, 'rev-parse', 'HEAD^{tree}');
     const left = git(root, 'commit-tree', tree, '-p', initial, '-m', 'Left');
@@ -176,14 +167,14 @@ describe('complete Git inventory', () => {
     assert.equal(result.reason, 'inventory-unavailable');
   });
 
-  it('fails closed for malformed events and unavailable revisions', () => {
-    const root = repository();
+  it('fails closed for malformed events and unavailable revisions', (t) => {
+    const root = repository(t);
     write(root, 'docs/note.md', 'change\n'); commitAll(root, 'Test change');
     const merged = merge(root);
     for (const event of [null, {}, { pull_request: [] }, { pull_request: { base: { sha: '--help' }, head: { sha: 'a'.repeat(40) } } }, { pull_request: { base: { sha: 'f'.repeat(40) }, head: { sha: 'e'.repeat(40) } } }]) {
       assert.equal(contractPlan(root, 'pull_request', event, merged.tested).reason, 'inventory-unavailable');
     }
-    assert.equal(contractPlan(scratch(), 'pull_request', merged.event, merged.tested).reason, 'inventory-unavailable');
+    assert.equal(contractPlan(temporaryDirectory(t, 'deep-review-contract-policy-'), 'pull_request', merged.event, merged.tested).reason, 'inventory-unavailable');
   });
 
   it('requires all non-PR events without depending on a Git inventory', () => {
@@ -233,16 +224,16 @@ describe('contract status gates', () => {
     }
   });
 
-  it('writes a full-run fallback through the CLI when event input cannot be read', () => {
-    const root = scratch();
+  it('writes a full-run fallback through the CLI when event input cannot be read', (t) => {
+    const root = temporaryDirectory(t, 'deep-review-contract-policy-');
     const output = join(root, 'output');
     const result = spawnSync(process.execPath, [resolve('scripts/contract-ci.ts'), 'plan'], { cwd: root, env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: join(root, 'missing'), GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: '' }, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.match(readFileSync(output, 'utf8'), /^required=true\nreason=inventory-unavailable\nfiles=0\n$/);
   });
 
-  it('fails the CLI gate while explicitly preventing exemption for a failed classifier', () => {
-    const root = scratch();
+  it('fails the CLI gate while explicitly preventing exemption for a failed classifier', (t) => {
+    const root = temporaryDirectory(t, 'deep-review-contract-policy-');
     const output = join(root, 'output');
     const result = spawnSync(process.execPath, [resolve('scripts/contract-ci.ts'), 'gate'], { env: { ...process.env, ...documentation, CONTRACT_PLAN_RESULT: 'failure', GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: '' }, encoding: 'utf8' });
     assert.equal(result.status, 1, result.stderr);
