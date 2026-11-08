@@ -34,11 +34,28 @@ export interface FindingNaming {
   readonly particle: (name: string, particle: string) => string;
 }
 
-/** An id of a finding or a candidate as the engine gives it, outside a path, a URL or a word: an angle's name in capitals, a hyphen and a whole number from 1. */
-const idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
+/**
+ * An id of a finding or a candidate as the engine gives it, an angle's
+ * name in capitals, a hyphen and a whole number from 1, that is no part of
+ * a longer word or name: no letter, digit or underscore is joined to it,
+ * no `#` comes before it, and no dot joins it to a letter, digit or
+ * underscore, as in a file's name. A hyphen joins it to a word on either
+ * side, as in `a RIPPLE-2-style fix` or `non-RIPPLE-2`, and a slash to
+ * another id, as `RIPPLE-2/SCAN-1`, which `outsideKept` tells from a path.
+ */
+const idPattern = /(?<![\w#]|\w\.|(?<!\p{L})-)[A-Z]+-[1-9][0-9]*(?![\w]|\.\w|-(?!\p{L}))/gu;
 
 /** A URL in a text: a scheme and `://`, up to a space, an angle bracket or a parenthesis that closes no parenthesis of its own, as the one that ends a Markdown link's target. */
 const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+
+/** The characters of a path joined by slashes or backslashes, as `notes/RIPPLE-3.md`, `src\RIPPLE-2` or `RIPPLE-2/SCAN-1`. */
+const slashJoined = /[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+
+/** An id, or an id with a hyphen and a word after it, as `RIPPLE-2-style`: a part of a slash-joined text that names findings rather than a path. */
+const idPart = /^[A-Z]+-[1-9][0-9]*(?:-\p{L}[\p{L}\p{N}_]*)*$/u;
+
+/** Whether a slash-joined text is a list of ids, as `RIPPLE-2/SCAN-1`, and not a path: slashes alone, and between them, past the dots that end a sentence or open an ellipsis, nothing but ids. */
+const idList = (joined: string): boolean => !joined.includes('\\') && joined.replace(/^\.+|\.+$/g, '').split('/').every((part) => idPart.test(part));
 
 /** What can open a sentence before its first word: Markdown emphasis, an opening parenthesis or bracket, and an opening quote, as in `**RIPPLE-2** crashes` or `|"RIPPLE-2"|`. */
 const sentenceOpening = String.raw`[*_(\["'“‘]*`;
@@ -65,13 +82,20 @@ interface Slot {
   readonly named: NamedId;
 }
 
-/** The matches of `pattern`, a global pattern, in a text outside code spans that start in no URL. */
-function outsideUrls(text: string, pattern: RegExp): RegExpExecArray[] {
+/**
+ * The matches of `pattern`, a global pattern, in a text outside code
+ * spans that start in no URL and no file path (R3 of the finding names in
+ * the review). A text of ids joined by slashes, as `RIPPLE-2/SCAN-1`, is
+ * no path, and its ids are matched.
+ */
+function outsideKept(text: string, pattern: RegExp): RegExpExecArray[] {
   const urls = [...text.matchAll(urlPattern)].map((url) => ({ start: url.index, end: url.index + url[0].length }));
-  return [...text.matchAll(pattern)].filter((match) => !urls.some((url) => url.start <= match.index && match.index < url.end));
+  const outsideUrls = (index: number): boolean => !urls.some((url) => url.start <= index && index < url.end);
+  const paths = [...text.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
+  return [...text.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
 }
 
-/** The ids of `names` in a text, in order: each outside code spans and URLs, and each code span whose whole text is one. */
+/** The ids of `names` in a text, in order: each outside code spans, URLs and file paths, and each code span whose whole text is one. */
 function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
   const slots: Slot[] = [];
   let offset = 0;
@@ -80,7 +104,7 @@ function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
       const named = names.get(part.text.replace(/^`+ ?| ?`+$/g, ''));
       if (named !== undefined) slots.push({ start: offset, end: offset + part.text.length, named });
     } else {
-      for (const match of outsideUrls(part.text, idPattern)) {
+      for (const match of outsideKept(part.text, idPattern)) {
         const named = names.get(match[0]);
         if (named !== undefined) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
       }
@@ -131,11 +155,12 @@ export function namedFindings(text: string, names: ReadonlyMap<string, NamedId>,
  * `--RIPPLE-2`, included. An id that prose keeps (R3), inside a path, a
  * URL, a word or a code span longer than it, is no identifier, and
  * neither is one on a comment line, `%%`, which Mermaid does not show and
- * `diagramFailures` skips.
+ * `diagramFailures` skips. An id that prose names, one joined to a word by
+ * a hyphen or to another id by a slash included, is one when it is left.
  */
 function holdsId(diagram: string, names: ReadonlyMap<string, NamedId>): boolean {
-  const leftover = new RegExp(String.raw`(?<![\w/\\.#])(?:${[...names.keys()].map((id) => RegExp.escape(id)).join('|')})(?![\w/]|\.\w)`, 'g');
-  return diagram.split('\n').some((line) => !line.trim().startsWith('%%') && codeParts(line).some((part) => !part.code && outsideUrls(part.text, leftover).length > 0));
+  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names.keys()].map((id) => RegExp.escape(id)).join('|')})(?!\w|\.\w)`, 'g');
+  return diagram.split('\n').some((line) => !line.trim().startsWith('%%') && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
 }
 
 /** The kind of a diagram, from its first line. */

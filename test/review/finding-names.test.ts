@@ -42,6 +42,19 @@ describe('the name of a finding in place of its id', () => {
   it('leaves an id the run does not hold, a word shaped like one, and an id in a path or a URL', () => {
     const text = 'UTF-8 and SHA-256 differ from NOPE-9; see notes/RIPPLE-2.md and https://x.test/RIPPLE-2 and RIPPLE-2.md.';
     assert.equal(en(text), text);
+    const paths = 'See src/RIPPLE-2/a.ts, docs/RIPPLE-2, RIPPLE-2/notes, src\\RIPPLE-2, ./RIPPLE-2, a.RIPPLE-2, #RIPPLE-2, RIPPLE-2-1 and https://x.test/RIPPLE-2/SWEEP-1.';
+    assert.equal(en(paths), paths);
+  });
+
+  it('names an id that a hyphen joins to a word or a slash to another id, and one after an ellipsis (FOOTGUNS-2 of the review of the change)', () => {
+    assert.equal(en('Both RIPPLE-2/SWEEP-1 conflict, unlike RIPPLE-2/NOPE-9.'), 'Both finding 3/finding 1 conflict, unlike finding 3/NOPE-9.');
+    assert.equal(en('RIPPLE-2/SCAN-4. Then...RIPPLE-2 waits for non-SWEEP-1 work.'), 'Finding 3/finding 3. Then...finding 3 waits for non-finding 1 work.');
+    assert.equal(en('A RIPPLE-2-based fix, the SWEEP-1-style guard and RIPPLE-2-style/SWEEP-1 checks.'), 'A finding 3-based fix, the finding 1-style guard and finding 3-style/finding 1 checks.');
+  });
+
+  it('gives the article before an id in a hyphened word to that word: an `a` stays, an `an` becomes `a`, and a refuted candidate takes none of its own', () => {
+    assert.equal(en('an ALTITUDE-6-style fix'), 'A finding 10-style fix');
+    assert.equal(en('DESIGN-1-based fixes fail, unlike a DESIGN-1-like one or an DESIGN-1-ish one.'), 'Refuted candidate-based fixes fail, unlike a refuted candidate-like one or a refuted candidate-ish one.');
   });
 
   it('names a code span whose whole text is one id, and keeps every other code span as code', () => {
@@ -139,5 +152,10 @@ describe('the name of a finding in a diagram', () => {
     assert.equal(diagram('flowchart LR\n  RIPPLE-2["parse crashes"] --> A["x"]'), null);
     assert.equal(diagram('sequenceDiagram\n  RIPPLE-2->>B: calls'), null);
     assert.equal(diagram('flowchart LR\n  A["UTF-8"] --> B["NOPE-9"]'), 'flowchart LR\n  A["UTF-8"] --> B["NOPE-9"]', 'an id the run does not hold');
+  });
+
+  it('names in a label an id that a hyphen joins to a word or a slash to another id, as prose does, and keeps the diagram', () => {
+    assert.equal(diagram('flowchart LR\n  A["RIPPLE-2-style fix"] --> B["RIPPLE-2/SWEEP-1"]'), 'flowchart LR\n  A["Finding 3-style fix"] --> B["Finding 3/finding 1"]');
+    assert.equal(diagram('flowchart LR\n  A["see src/RIPPLE-2/a.ts"] --> B["x"]'), 'flowchart LR\n  A["see src/RIPPLE-2/a.ts"] --> B["x"]', 'an id in a path is no identifier');
   });
 });

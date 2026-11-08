@@ -188,6 +188,20 @@ function cleaned(text: string, machine: MachineContext, voice: Voice): PublicTex
  */
 function withoutMachine(text: string, machine: MachineContext): PublicText {
   const compiled = compiledOf(machine);
+  const { text: redacted, secrets } = withoutSecrets(text, machine);
+  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
+  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
+}
+
+/**
+ * A text with its secrets written as marks, the first step of the
+ * cleaning. The form of a review on a pull request takes it before it
+ * names the findings in a worker's text, so a name it puts in place of an
+ * id splits no secret (R1 of the finding names in the review); the marks
+ * hold no secret, so the rest of the cleaning finds none again.
+ */
+export function withoutSecrets(text: string, machine: MachineContext): PublicText {
+  const compiled = compiledOf(machine);
   let secrets = 0;
   const redact = (from: string, pattern: RegExp, mark: (found: string) => string): string => from.replace(pattern, (found) => {
     secrets += 1;
@@ -195,8 +209,7 @@ function withoutMachine(text: string, machine: MachineContext): PublicText {
   });
   let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text);
   if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)!}]`);
-  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
-  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
+  return { text: redacted, secrets };
 }
 
 /**
