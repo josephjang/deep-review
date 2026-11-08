@@ -649,7 +649,7 @@ describe('the repository\'s roles/', () => {
       'Give no `%%{` directive',
       'Write every text in the language your task names.',
       'Your text holds no link and no image of its own, and no URL',
-      'the parts of the first answer that passed are kept',
+      'the parts of the first answer that passed are kept, but the conclusion, whose summary names the areas, is kept only from the answer whose areas are kept',
     ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
   });
 
