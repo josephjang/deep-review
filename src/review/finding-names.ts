@@ -46,6 +46,12 @@ interface Slot {
   readonly named: NamedId;
 }
 
+/** The matches of `pattern`, a global pattern, in a text outside code spans that start in no URL. */
+function outsideUrls(text: string, pattern: RegExp): RegExpExecArray[] {
+  const urls = [...text.matchAll(urlPattern)].map((url) => ({ start: url.index, end: url.index + url[0].length }));
+  return [...text.matchAll(pattern)].filter((match) => !urls.some((url) => url.start <= match.index && match.index < url.end));
+}
+
 /** The ids of `names` in a text, in order: each outside code spans and URLs, and each code span whose whole text is one. */
 function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
   const slots: Slot[] = [];
@@ -55,11 +61,9 @@ function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
       const named = names.get(part.text.replace(/^`+ ?| ?`+$/g, ''));
       if (named !== undefined) slots.push({ start: offset, end: offset + part.text.length, named });
     } else {
-      const urls = [...part.text.matchAll(urlPattern)].map((url) => ({ start: url.index, end: url.index + url[0].length }));
-      for (const match of part.text.matchAll(idPattern)) {
+      for (const match of outsideUrls(part.text, idPattern)) {
         const named = names.get(match[0]);
-        const inUrl = urls.some((url) => url.start <= match.index && match.index < url.end);
-        if (named !== undefined && !inUrl) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
+        if (named !== undefined) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
       }
     }
     offset += part.text.length;
@@ -98,8 +102,19 @@ export function namedFindings(text: string, names: ReadonlyMap<string, NamedId>,
   return out + text.slice(at);
 }
 
-/** Whether a diagram holds an id of `names` as a token of its own, an identifier joined to an arrow as in `RIPPLE-2->>B` or `A---RIPPLE-2` included, which leaves the diagram out rather than show the id. */
-const holdsId = (text: string, names: ReadonlyMap<string, NamedId>): boolean => [...names.keys()].some((id) => new RegExp(`(?<!\\w)${RegExp.escape(id)}(?!\\w)`).test(text));
+/**
+ * Whether a diagram holds an id of `names` as an identifier, which leaves
+ * the diagram out rather than show the id: an id joined to an arrow or an
+ * edge on either side, as in `RIPPLE-2->>B`, `A---RIPPLE-2` or
+ * `--RIPPLE-2`, included. An id that prose keeps (R3), inside a path, a
+ * URL, a word or a code span longer than it, is no identifier, and
+ * neither is one on a comment line, `%%`, which Mermaid does not show and
+ * `diagramFailures` skips.
+ */
+function holdsId(diagram: string, names: ReadonlyMap<string, NamedId>): boolean {
+  const leftover = new RegExp(String.raw`(?<![\w/\\.#])(?:${[...names.keys()].map((id) => RegExp.escape(id)).join('|')})(?![\w/]|\.\w)`, 'g');
+  return diagram.split('\n').some((line) => !line.trim().startsWith('%%') && codeParts(line).some((part) => !part.code && outsideUrls(part.text, leftover).length > 0));
+}
 
 /** The kind of a diagram, from its first line. */
 const diagramKind = (header: string): 'flowchart' | 'sequence' | 'state' | 'other' => (/^(?:flowchart|graph)\b/.test(header) ? 'flowchart' : /^sequenceDiagram\b/.test(header) ? 'sequence' : /^stateDiagram/.test(header) ? 'state' : 'other');
@@ -231,8 +246,10 @@ function colonOf(line: string): number {
  * replaced by its name in each text the diagram shows, as `diagramFailures`
  * reads them (R4 of the finding names in the review), each named as prose
  * is and as the start of a sentence; or null when an id of the run is left
- * anywhere in it, as the identifier of a node, a participant or a state,
- * which Mermaid can show and the form cannot name.
+ * in it as the identifier of a node, a participant or a state, which
+ * Mermaid can show and the form cannot name. An id left where prose keeps
+ * one, in a path, a URL or longer code, or on a comment line, does not
+ * leave the diagram out.
  */
 export function namedInDiagram(diagram: string, names: ReadonlyMap<string, NamedId>, naming: FindingNaming): string | null {
   if (names.size === 0) return diagram;
