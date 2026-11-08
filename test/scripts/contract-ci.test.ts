@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { contractPlan, documentationOnly, parseChanges, planStatus } from '../../scripts/contract-ci.ts';
 import { git } from '../helpers/git.ts';
+import { commitAll, createRepository, write } from '../helpers/repository.ts';
 
 const directories: string[] = [];
 function scratch(): string {
@@ -16,28 +17,14 @@ function scratch(): string {
 afterEach(() => { for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true }); });
 
 function repository(): string {
-  const root = scratch();
-  git(root, 'init', '-b', 'main');
-  git(root, 'config', 'user.name', 'Contract policy test');
-  git(root, 'config', 'user.email', 'contract@example.invalid');
-  git(root, 'config', 'commit.gpgsign', 'false');
-  git(root, 'config', 'core.autocrlf', 'false');
+  const root = createRepository(scratch());
   git(root, 'config', 'core.filemode', 'true');
-  put(root, 'README.md');
-  put(root, 'docs/note.md');
-  put(root, 'src/engine.ts');
-  commit(root);
+  write(root, 'README.md', 'initial\n');
+  write(root, 'docs/note.md', 'initial\n');
+  write(root, 'src/engine.ts', 'initial\n');
+  commitAll(root, 'Test change');
   git(root, 'checkout', '-b', 'feature');
   return root;
-}
-function put(root: string, path: string, content = 'initial\n'): void {
-  const destination = join(root, path);
-  mkdirSync(resolve(destination, '..'), { recursive: true });
-  writeFileSync(destination, content);
-}
-function commit(root: string): void {
-  git(root, 'add', '--all');
-  git(root, 'commit', '-m', 'Test change');
 }
 function merge(root: string) {
   const head = git(root, 'rev-parse', 'HEAD');
@@ -90,10 +77,10 @@ describe('contract documentation policy', () => {
 describe('complete Git inventory', () => {
   it('exempts a multi-commit documentation PR even when the target branch advances', () => {
     const root = repository();
-    put(root, 'docs/note.md', 'first change\n'); commit(root);
-    put(root, 'README.md', 'second change\n'); commit(root);
+    write(root, 'docs/note.md', 'first change\n'); commitAll(root, 'Test change');
+    write(root, 'README.md', 'second change\n'); commitAll(root, 'Test change');
     git(root, 'checkout', 'main');
-    put(root, 'src/base-only.ts'); commit(root);
+    write(root, 'src/base-only.ts', 'initial\n'); commitAll(root, 'Test change');
     git(root, 'checkout', 'feature');
     const result = plan(root);
     assert.equal(result.required, false);
@@ -104,16 +91,16 @@ describe('complete Git inventory', () => {
 
   it('retains an earlier source change when the last push only changes docs', () => {
     const root = repository();
-    put(root, 'src/engine.ts', 'source change\n'); commit(root);
-    put(root, 'docs/note.md', 'later docs\n'); commit(root);
+    write(root, 'src/engine.ts', 'source change\n'); commitAll(root, 'Test change');
+    write(root, 'docs/note.md', 'later docs\n'); commitAll(root, 'Test change');
     assert.equal(plan(root).required, true);
   });
 
   it('requires the contract for a source mutation present only in the tested merge', () => {
     const root = repository();
-    put(root, 'docs/note.md', 'documentation branch\n'); commit(root);
+    write(root, 'docs/note.md', 'documentation branch\n'); commitAll(root, 'Test change');
     const merged = merge(root);
-    put(root, 'src/engine.ts', 'merge-only source change\n');
+    write(root, 'src/engine.ts', 'merge-only source change\n');
     git(root, 'add', '--all');
     git(root, 'commit', '--amend', '--no-edit');
     const tested = git(root, 'rev-parse', 'HEAD');
@@ -131,7 +118,7 @@ describe('complete Git inventory', () => {
   ] as const) {
     it(`counts both endpoints when ${from} moves to ${to}`, () => {
       const root = repository();
-      git(root, 'mv', from, to); commit(root);
+      git(root, 'mv', from, to); commitAll(root, 'Test change');
       const result = plan(root);
       assert.equal(result.required, required);
       assert.equal(result.files, 2);
@@ -140,13 +127,13 @@ describe('complete Git inventory', () => {
 
   it('counts deleted Markdown as documentation', () => {
     const root = repository();
-    git(root, 'rm', 'docs/note.md'); commit(root);
+    git(root, 'rm', 'docs/note.md'); commitAll(root, 'Test change');
     assert.equal(plan(root).required, false);
   });
 
   it('requires the contract for an executable Markdown file', () => {
     const root = repository();
-    put(root, 'docs/program.md', 'executable\n');
+    write(root, 'docs/program.md', 'executable\n');
     // The index mode is portable even on filesystems without executable bits.
     git(root, 'add', 'docs/program.md');
     git(root, 'update-index', '--chmod=+x', 'docs/program.md');
@@ -157,7 +144,7 @@ describe('complete Git inventory', () => {
 
   it('falls back on empty differences, shallow history and an unexpected tested merge', () => {
     const root = repository();
-    put(root, 'docs/note.md', 'change\n'); commit(root);
+    write(root, 'docs/note.md', 'change\n'); commitAll(root, 'Test change');
     const merged = merge(root);
     const base = merged.event.pull_request.base.sha;
     assert.equal(contractPlan(root, 'pull_request', merged.event, base).reason, 'inventory-unavailable');
@@ -191,7 +178,7 @@ describe('complete Git inventory', () => {
 
   it('fails closed for malformed events and unavailable revisions', () => {
     const root = repository();
-    put(root, 'docs/note.md', 'change\n'); commit(root);
+    write(root, 'docs/note.md', 'change\n'); commitAll(root, 'Test change');
     const merged = merge(root);
     for (const event of [null, {}, { pull_request: [] }, { pull_request: { base: { sha: '--help' }, head: { sha: 'a'.repeat(40) } } }, { pull_request: { base: { sha: 'f'.repeat(40) }, head: { sha: 'e'.repeat(40) } } }]) {
       assert.equal(contractPlan(root, 'pull_request', event, merged.tested).reason, 'inventory-unavailable');
