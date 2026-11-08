@@ -87,6 +87,23 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     for (const gone of ['What this pull request does', 'For a reader new to this change', '### Findings\n', 'Before the merge:', 'The words of this review', 'Evidence that', '- Summary:', '- Reason:', '- Evidence:', '/files#diff-']) excludes(body, gone);
   });
 
+  it('names a finding by its number wherever a worker named it by id, in the review\'s language, and keeps the id in the trace line alone (R1, R4, R6 of the finding names in the review)', () => {
+    const named = (language: string): PullRequestForm => {
+      const answer = answerWithArea('flowchart LR\n  A["RIPPLE-1"] --> B["`SWEEP-1` waits"]');
+      answer.conclusion.why = 'RIPPLE-1 crashes parse(), and `SWEEP-1` waits on its answer.';
+      answer.findings[0] = { ...answer.findings[0]!, unexplained: false, problem: 'A caller that passes an empty file meets a crash before SWEEP-1 can help.' } as typeof answer.findings[0];
+      return formOf(withSettings(run(), { 'review.language': language }, { 'review.language': 'repository' }).fold(), answer);
+    };
+    const en = named('en');
+    includes(section(en.body, '### Summary'), 'Finding 1 crashes parse(), and finding 2 waits on its answer.');
+    includes(en.body, 'A["Finding 1"] --> B["Finding 2 waits"]');
+    const comment = en.comments.find((posted) => posted.body.includes('meets a crash before'))!.body;
+    includes(comment, 'meets a crash before finding 2 can help.');
+    includes(comment, '<sub>Finding `RIPPLE-1` of run ');
+    for (const text of [en.body, ...en.comments.map((posted) => posted.body.split('\n').filter((line) => !line.includes('<sub>') && !line.includes('<!--')).join('\n'))]) excludes(text, 'RIPPLE-1');
+    includes(section(named('ko').body, '### 요약'), '지적 사항 1');
+  });
+
   it('sums up the counts, the writer\'s sentence on the areas, what deep-review decided and that nothing changes before `--fix`', () => {
     includes(section(body, '### Summary'), '### Summary\n\nThe review keeps 2 findings. The major one is what matters before the merge; the minor one is smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 1 finding and asks the author 1 question. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with `deep-review review --pr 42 --fix` in their clone and pushes them.');
   });
@@ -539,7 +556,7 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
     const plausible = formOf(reranked(run(), (finding) => finding, (verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, verdict: 'PLAUSIBLE' } : verdict)).fold());
     includes(plausible.comments[0]!.body, 'Major. PLAUSIBLE, traced through the code.');
     includes(plausible.comments[0]!.body, '**What goes wrong.** A caller that passes an empty file meets a crash. Why PLAUSIBLE: this verdict was recorded before verifiers gave their reason on its own; the report of the run holds its evidence.');
-    includes(formOf(run().fold()).body, 'SWEEP-1 detail Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.');
+    includes(formOf(run().fold()).body, 'Finding 2 detail Why PLAUSIBLE: no verifier examined it, since its verifier failed twice.');
   });
 
   it('gives how the verifier checked it from the basis of the verdict', () => {
@@ -554,7 +571,7 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
   it('gives a finding the writer did not explain the mark, then the finder\'s own account', () => {
     const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
     const fallback = formOf(dropped, { ...writerAnswer(), findings: [writerAnswer().findings[1]!] }).comments[0]!.body;
-    includes(fallback, '**1. null dereference**\n\nMajor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\ndeep-review\'s writer did not explain this finding, so it is given in deep-review\'s own words: look at it yourself.\n\n**What goes wrong.** RIPPLE-1 detail\n\n**What deep-review would do.** Guard the null before parse reads it.');
+    includes(fallback, '**1. null dereference**\n\nMajor. CONFIRMED, traced through the code. deep-review would fix this against a written rule.\n\ndeep-review\'s writer did not explain this finding, so it is given in deep-review\'s own words: look at it yourself.\n\n**What goes wrong.** Finding 1 detail\n\n**What deep-review would do.** Guard the null before parse reads it.');
     includes(fallback, `Code at the reviewed head: [\`src/a.ts:4\`](${blob(head, 'src/a.ts', '4')}).`);
   });
 

@@ -16,6 +16,7 @@
  */
 import type { FindingStatus } from './brief.ts';
 import type { Layer } from '../config/settings.ts';
+import { koreanParticle, type FindingNaming } from './finding-names.ts';
 import { capitalized, counted, findingWords, listed } from './markdown.ts';
 import { leaveReasonWords, settleStepWords, type LeaveReason, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
@@ -198,6 +199,10 @@ export interface PullRequestWords {
   readonly trace: (id: string, run: string) => string;
   /** The line in place of a diagram that passed the checks and that its cleaning broke (R11, R19 of the review on the pull request). */
   readonly diagramBroken: string;
+  /** The line in place of a diagram that names a finding by id where the review cannot write its number (R4 of the finding names in the review). */
+  readonly diagramNamesIds: string;
+  /** How a worker's text names a finding in place of its id (R1, R2, R5 of the finding names in the review). */
+  readonly naming: FindingNaming;
 
   /** The minor findings, their table folded (R13). */
   readonly minorHeading: string;
@@ -396,6 +401,13 @@ const english: PullRequestWords = {
   atBase: (link) => `${link} (at the merge base)`,
   trace: (id, run) => `<sub>Finding ${id} of run ${run}.</sub>`,
   diagramBroken: 'A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.',
+  diagramNamesIds: 'A diagram is left out here, because it names a finding by deep-review\'s internal id where the review cannot write the finding\'s number; the writer\'s answer on the machine that holds the run keeps it.',
+  naming: {
+    finding: (number, before) => (/\bfindings?\s+$/i.test(before) ? String(number) : `finding ${String(number)}`),
+    refuted: (before, after) => (/^\s+candidates?\b/i.test(after) ? 'refuted' : /\b(?:the|a|an)\s+$/i.test(before) ? 'refuted candidate' : 'a refuted candidate'),
+    starting: capitalized,
+    particle: (_name, particle) => particle,
+  },
 
   minorHeading: '### The minor findings',
   minorLead: (counts) => {
@@ -622,6 +634,13 @@ const korean: PullRequestWords = {
   atBase: (link) => `${link} (merge base의 코드)`,
   trace: (id, run) => `<sub>실행 ${run}의 지적 사항 ${id}.</sub>`,
   diagramBroken: '이 리뷰를 실행한 컴퓨터의 경로와 비밀 값을 지우는 과정에서 다이어그램이 깨져 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
+  diagramNamesIds: '이 다이어그램은 지적 사항을 deep-review 내부 id로 가리키는데, 그 자리에는 리뷰가 지적 사항의 번호를 쓸 수 없어 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
+  naming: {
+    finding: (number, before) => (/지적\s*사항\s*$/.test(before) ? String(number) : `지적 사항 ${String(number)}`),
+    refuted: (_before, after) => (/^\s*후보/.test(after) ? '반박된' : '반박된 후보'),
+    starting: (name) => name,
+    particle: koreanParticle,
+  },
 
   minorHeading: '### minor 지적 사항',
   minorLead: (counts) => {
