@@ -115,3 +115,36 @@ export function formOf(...args: Parameters<typeof renderedOf>): PullRequestForm 
   assert.equal(form.kind, 'rendered', JSON.stringify(form));
   return form as PullRequestForm;
 }
+
+export interface Boundary { below: PullRequestForm; at: PullRequestForm; above: PullRequestForm | FormRefusal }
+
+/** Calibrate padding independently for this renderer against a fixed cap and literal expected cuts. */
+export function sampleBoundaries(render: (pad: number) => PullRequestForm | FormRefusal, limit: number, expectedCuts: readonly (readonly string[])[]): Boundary[] {
+  let pad = 1;
+  let seed = render(pad);
+  return expectedCuts.map((cuts, index) => {
+    assert.equal(seed.kind, 'rendered', `a successful seed for cut state ${String(index)}`);
+    const atPad = pad + limit - (seed as PullRequestForm).body.length;
+    assert.ok(atPad > pad, 'each fixed cut state makes positive progress toward its limit');
+    assert.ok(atPad <= limit, 'padding stays within the fixed public cap');
+    const below = render(atPad - 1);
+    const at = render(atPad);
+    const above = render(atPad + 1);
+    assert.equal(below.kind, 'rendered', JSON.stringify(below));
+    assert.equal(at.kind, 'rendered', JSON.stringify(at));
+    assert.equal((below as PullRequestForm).body.length, limit - 1);
+    assert.equal((at as PullRequestForm).body.length, limit);
+    assert.deepEqual((below as PullRequestForm).cuts, cuts);
+    assert.deepEqual((at as PullRequestForm).cuts, cuts);
+    if (index + 1 < expectedCuts.length) {
+      assert.equal(above.kind, 'rendered');
+      assert.deepEqual((above as PullRequestForm).cuts, expectedCuts[index + 1]);
+    } else {
+      assert.equal(above.kind, 'refused');
+      assert.equal((above as FormRefusal).size, limit + 1);
+    }
+    pad = atPad + 1;
+    seed = above;
+    return { below: below as PullRequestForm, at: at as PullRequestForm, above };
+  });
+}
