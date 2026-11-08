@@ -20,8 +20,8 @@ import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { captureScope, namesScope, type NamedScope } from '../../src/scope/capture.ts';
 import { fakeGhCalls, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
-import { deciderAnswer, fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
+import { deciderAnswer } from '../helpers/fake-runtime.ts';
+import { fixingReviewScript, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { baseEnvironment, fakeClaude } from '../helpers/launcher.ts';
 import { reportText, ReviewSandbox, sandboxConcurrency, scopeSource } from '../helpers/review-sandbox.ts';
 import { git, write } from '../helpers/repository.ts';
@@ -427,13 +427,6 @@ describe('the continuation of a run of a pull request (R4 of the review on the p
 });
 
 describe('the review of a fix run (R1 to R4 of the review of a fix run)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
-  /** The review of fix-pass-fixture.ts, which decides two fixes and leaves one finding, with a fixer for each of its two clusters. */
-  const fixingScript: Script = {
-    ...reviewScript,
-    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
-    'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
-  };
-
   /** The index of the first event of `runId` that `matches`, which must hold one. */
   const indexOf = (box: ReviewSandbox, runId: string, matches: (kind: string, payload: Record<string, unknown>) => boolean): number => {
     const index = box.events(runId).findIndex(([kind, payload]) => matches(kind, payload));
@@ -443,7 +436,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
 
   it('reviews a pull request with --fix as a read-only run with its writer, writes the read-only report, then continues the same run into the fix pass, reading GitHub only before the review (R1, R4)', async (t) => {
     const { box, gh, script } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
-    box.script(fixingScript);
+    box.script(fixingReviewScript);
     const outcome = await box.fix('claude', { scope: pullRequestSource(box, gh) });
     const [run, ...more] = box.checkpoint.foldRuns();
     assert.deepEqual(more, [], 'one run');
@@ -469,7 +462,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
 
   it('ends with the read-only report, exit 0, when the decisions route no finding to a fixer, and says why (R2)', async (t) => {
     const { box, gh } = sandboxWithGh(t, (sandbox) => sandboxSteps(sandbox));
-    box.script({ ...fixingScript, decider: { output: deciderAnswer([{ decision: 'leave' }, { decision: 'leave' }, { decision: 'leave' }]) } });
+    box.script({ ...fixingReviewScript, decider: { output: deciderAnswer([{ decision: 'leave' }, { decision: 'leave' }, { decision: 'leave' }]) } });
     const outcome = await box.fix('claude', { scope: pullRequestSource(box, gh) });
     const run = box.run();
     assert.equal(outcome.kind, 'report');
@@ -484,7 +477,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
   it('refuses a continuation that its run budget no longer allows, naming the read-only report, creating no second run and leaving the run complete, which the same command continues once the budget is raised (R4)', async (t) => {
     const { box, gh, script } = sandboxWithGh(t, (sandbox) => [...sandboxSteps(sandbox), ...sandboxSteps(sandbox)]);
     // The writer, the review's last worker, spends past the budget, which its launch was still under.
-    box.script({ ...fixingScript, writer: { costUsd: 10 } });
+    box.script({ ...fixingReviewScript, writer: { costUsd: 10 } });
     let message = '';
     await assert.rejects(box.fix('claude', { scope: pullRequestSource(box, gh), flags: { budgetUsd: 5 } }), (error: unknown) => {
       message = error instanceof Error ? error.message : '';
@@ -509,7 +502,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     box.script({ triage: { exit: 2 } });
     assert.equal((await box.review('claude', { scope: pullRequestSource(box, gh) })).kind, 'blocked');
     const blocked = box.run();
-    box.script(fixingScript);
+    box.script(fixingReviewScript);
     box.logs.length = 0;
     reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
     // The check flags of the command that started the run are not recorded, so the line asks for them again.
