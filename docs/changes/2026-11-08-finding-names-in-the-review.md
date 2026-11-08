@@ -1,0 +1,143 @@
+# Change Proposal: The review on a pull request names a finding by its number
+
+## Summary
+
+deep-review gives each finding of a review an id, such as `RIPPLE-2`, which names the angle that found it and its place among that angle's candidates. The engine, the ledger and every worker use the id. The reader of the review on a pull request never meets it: the review numbers its findings 1, 2, 3 in the headings, the tables and the list of what needs a person, and [R14](2026-11-04-review-that-reads-as-a-report.requirements.md#r14-links-and-names) of the review that reads as a report keeps the id to the small trace line at the end of a comment.
+
+Yet the text of the workers reaches the review with ids in it. The writer's prompt tells it to "Name a finding by its id, as `RIPPLE-2`", and the decider's task says the same, since a fixer reads the decider's text and names findings by id. The form posts both texts as written. #106 found ids in the diagram at the top of the body, in comments ("If ALTITUDE-6 merges the two into one share") and in the refuted candidates; the Korean gate run of #115 found them in the summary; and the review of #128 posted "an answer to one question about the writer's standing instructions on a retry (SWEEP-1)". The report [How the review on a pull request is written and read](../reports/2026-11-05-review-written-and-read.md) names this as W3.
+
+After this change, the form replaces each id of a finding in the text it posts with the finding's name in the review's language, "finding 3" or "지적 사항 3", and the id of a refuted candidate with "a refuted candidate". It does so wherever a worker's text is posted: in prose, in a code span that holds only the id, and in the labels of a diagram. In Korean, a particle written right after the id is made to agree with how the number is read. The prompts do not change, and nothing the engine records changes. The trace line keeps the id.
+
+## Problem
+
+### An id is a reference the reader cannot follow
+
+An id tells a reader of the ledger which angle found a candidate. On a pull request it is a name with no referent: nothing on the page says that `SWEEP-1` is the finding numbered 5. A sentence such as "coordinate with SCAN-1 so filtered intermediate chunks are not mistaken for exhaustion" (deep-review/click#1, where SCAN-1 is finding 3) hides the one fact it was written to give, which other finding a fix depends on. Principle 6 of the vision note asks that the core, the questions and the departures need no reference the reader must look up, and a question that names a finding by its id is such a reference.
+
+### The rule is in text, and the text goes to two readers
+
+R14 states the rule for the form, but the prompts ask the models for ids, and for a good reason in the decider's case: its approach and options go to a fixer, and the fixer names findings by id. The report on the machine already turns an id into "RIPPLE-2 (finding 3)" with `quoted` in `src/review/markdown.ts`. The form applies nothing. Asking the models to write numbers instead would move a rule of form that code can apply into a prompt that a model may not follow, and would take from the fixer the names it uses.
+
+## Goals
+
+The review on a pull request, body and comments, names every finding of the run by the number the reader sees, in the review's language, whatever worker wrote the text, and keeps the id only in the trace line. The text the models write, the ledger and the report on the machine stay as they are.
+
+## Non-Goals
+
+### NG1: The report on the machine
+
+The report written on the machine keeps `quoted`, which adds "(finding 3)" after an id. Its reader can run `deep-review report --finding`, which takes an id or a number, so the id is a reference that reader can follow.
+
+### NG2: The particles of the engine's own Korean sentences
+
+The engine's Korean words attach a fixed particle after a number they interpolate, and `needsAuthor` writes "지적 사항 15은" (W2 of the report). This change makes the particle agree only after a name it puts in place of an id. The engine's own sentences are left to the change that reduces the engine's words to labels (step 8 of the report), which may use the same rule.
+
+### NG3: The plan of the review with tokens
+
+Step 7 of the report has the writer fill the slots of a plan and name facts by tokens such as `{finding:RIPPLE-2}`. This change does not build it. An id is already a token the engine can resolve, so this change resolves it where the text is posted, and step 7 can replace it.
+
+### NG4: The prompts
+
+The writer's role prompt and the decider's task keep asking for ids. Neither prompt nor any role hash changes.
+
+### NG5: The operator's dry run
+
+`publish --dry-run` lists where each finding goes by number and id, as "1 (REMOVALS-1)". Its reader is the person who runs deep-review, who reads the ledger by id.
+
+## Requirements
+
+### R1: A finding is named by its number
+
+In every text of a worker that the review on a pull request posts, the form puts the finding's name in place of each id that the run numbers: the id of a ranked finding, and the id of each candidate merged into it, which names the finding it joined. The name is "finding 3" in English and "지적 사항 3" in Korean, the number being the one the headings and tables show. A finding's own id in its own comment is named by its number too. The text of a worker is the writer's, the decider's, a verifier's and a finder's, wherever the form shows it: the summary, the areas, the explanations, the decided fix and its rejected options, a question and its options, a departure, a settled choice, a verifier's reason or choice, a finder's summary when the writer gave none, and a refuted candidate's lines.
+
+### R2: A refuted candidate is named as such
+
+The id of a candidate that the verifiers refuted has no number. The form puts "a refuted candidate" in its place in English, "반박된 후보" in Korean.
+
+### R3: Only the run's ids, and code stays code
+
+A word that has the shape of an id but is no id of the run, such as `UTF-8` or `SHA-256`, stays as it is. An id inside a path or a URL, such as `notes/RIPPLE-3.md`, stays. Inside a code span the text is code and stays, except a span whose whole text is one id of the run, which a model writes when it names a finding as the prompt's example `RIPPLE-2` shows: that span is posted as the finding's name, in plain text.
+
+### R4: In a diagram, the labels
+
+In a diagram, the form replaces an id in the text that the diagram shows: a quoted label, the text of an edge between bars, and in a sequence or state diagram the text after a colon. An id that is a node's identifier is not shown and stays, since a name with a space in that place would break the diagram. The diagram is checked again once cleaned, as today, and one that the replacement broke is left out with the line that says so.
+
+### R5: The name reads right in its sentence
+
+In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel.
+
+### R6: The trace line keeps the id
+
+The small line at the end of a comment keeps the id and the run, as R14 states, so that a reader who wants to trace the finding in the run can.
+
+### R7: The gate
+
+The change is accepted by a real run, as principle 12 of the vision note asks: a read-only review of this change's own pull request by the engine built from it, printed with `publish --dry-run` and posted. The gate passes when no id of the run appears in the body or the comments outside the trace lines, and each name that replaced one reads right in its sentence.
+
+## Product Decisions
+
+### PD1: The form names; the models keep writing ids
+
+The form resolves the id where it posts the text, as the report on the machine already does with `quoted`. An id is a token the engine can resolve exactly, while a number a model writes cannot be checked against what it meant. The decider's text keeps the ids its fixer reads, and neither prompt changes, so no role hash changes and no run in progress meets a new prompt.
+
+### PD2: Rejected: ask the models for numbers
+
+Asking the writer for numbers would keep a rule of form in a prompt, which W3 found is where the rule failed, and asking the decider for them would give the fixer names it does not use. The writer's task does give each finding's number, so a writer may write "finding 3" today; the form leaves such text as it is.
+
+### PD3: Replace the id, not add the number beside it
+
+`quoted` writes "RIPPLE-2 (finding 3)" for the report on the machine, whose reader can look the id up. On a pull request the id is noise that R14 keeps out, so the form writes the name alone.
+
+### PD4: A name, not a link
+
+The name is plain text. A finding in the body has an in-page anchor, but a link from a comment to the body's anchor is an open question of the review that reads as a report, and a finding with a comment is reached from the body by the lines of its comment. The number is the one the heading and the tables show, so the reader finds it there.
+
+### PD5: A finding's own id is named by its number
+
+A comment's text can name its own finding, and the form names it as it names any other, "finding 3", rather than "this finding". The heading of the comment shows the same number, and one rule for every id needs no knowledge of which finding a text belongs to.
+
+### PD6: Rejected for now: refuse an id that names no finding
+
+The report's larger step had a check that refuses a token naming no finding. An id-shaped word is often code or a standard's name, `UTF-8` or `ISO-26262`, so refusing every id-shaped word that the run does not hold would drop good text. The tokens of step 7 can carry such a check, since a token has a shape no other word has.
+
+### PD7: The particle follows the name, only where the engine put the name
+
+A Korean writer attaches a particle to the id as it reads the id, `SWEEP-1을`, and the particle can be wrong once the id becomes "지적 사항 5". The form rewrites only a particle that follows an id it replaced, and only when no Hangul letter follows the particle, so the copula of "SWEEP-1이고" and a word such as "이후" are left alone.
+
+## Against the vision note
+
+The note this proposal is read against is [the vision note of 2026-11-05](../2026-11-05-vision.md).
+
+### Principle 6, easy to understand with little context
+
+The change rests on this principle: an id is a reference that a reader of the pull request cannot follow, and the principle does not permit a question that the person can answer only after reading something else. Naming the finding by the number the review shows removes the reference without adding anything to read.
+
+### Principle 5, the core first
+
+The summary at the top of the review is where #115 and #128 posted ids. The change makes the first lines a reader meets name findings as the rest of the review does.
+
+### Principle 12, a real run is the gate
+
+R7 is the gate: a real run of the engine built from the change, on its own pull request, posted.
+
+### The checklist of the note
+
+The change does not increase what the person must read; a name is as long as an id or a few letters longer. It presents the questions and the departures in a form that needs less context. It does not touch how a run ends or what it asks.
+
+## Risks
+
+### RK1: A word of the repository has the shape of a run's id
+
+A constant or a ticket key in the repository, such as `SCAN-1`, can match an id of the run and be named as a finding. The id must be one the run holds, and the angles' names are words a repository rarely uses as keys, so the case is rare; in a code span longer than the id, the word stays.
+
+### RK2: Two refuted candidates in one sentence
+
+"a refuted candidate" does not say which, so a sentence that contrasts two refuted candidates by id loses the contrast. Refuted candidates are named rarely, and the lines of the refuted candidates give each by its place.
+
+### RK3: A Korean particle the rule does not know
+
+A particle outside the five pairs, or one followed by more Hangul, keeps the writer's form, which agrees with the id rather than the number. The sentence then reads with a wrong particle, as the engine's own "15은" does today.
+
+## Verification
+
+No checks have run yet.
