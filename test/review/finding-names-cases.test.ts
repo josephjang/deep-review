@@ -63,8 +63,30 @@ describe('a name after an abbreviation that ends in a period', () => {
     assert.equal(namedFindings('It runs in the dev. RIPPLE-2 waits.\n- SWEEP-1 too.', names, english), 'It runs in the dev. Finding 3 waits.\n- Finding 1 too.');
   });
 
+  it('keeps a name in lower case after an abbreviation and what opens it', () => {
+    assert.equal(namedFindings('This, e.g. (RIPPLE-2), fails, i.e. **SWEEP-1** too.', names, english), 'This, e.g. (finding 3), fails, i.e. **finding 1** too.');
+  });
+
   it('keeps a name in lower case after an abbreviation in a note of a diagram', () => {
     assert.equal(namedInDiagram('sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. RIPPLE-2 waits', names, english), 'sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. finding 3 waits');
+  });
+});
+
+// R4, R5 of the finding names in the review: a sentence opened by emphasis, a parenthesis or a quote.
+describe('a name at the start of a sentence opened by emphasis, a parenthesis or a quote', () => {
+  it('capitalizes a name after emphasis, a parenthesis, a bracket or a quote that opens a text, a sentence or a list item', () => {
+    assert.equal(namedFindings('**RIPPLE-2** crashes parse.', names, english), '**Finding 3** crashes parse.');
+    assert.equal(namedFindings('(RIPPLE-2 crashes parse.)', names, english), '(Finding 3 crashes parse.)');
+    assert.equal(namedFindings('See this. **RIPPLE-2** crashes. "SWEEP-1 waits," it says. _[SWEEP-1]_ too.\n- **RIPPLE-2** first.', names, english), 'See this. **Finding 3** crashes. "Finding 1 waits," it says. _[Finding 1]_ too.\n- **Finding 3** first.');
+    assert.equal(namedFindings('“RIPPLE-2” and ‘SWEEP-1’ differ.', names, english), '“Finding 3” and ‘finding 1’ differ.');
+  });
+
+  it('keeps a name in lower case after emphasis, a parenthesis or a quote inside a sentence', () => {
+    assert.equal(namedFindings('This needs **RIPPLE-2** and (SWEEP-1) and "RIPPLE-2".', names, english), 'This needs **finding 3** and (finding 1) and "finding 3".');
+  });
+
+  it('capitalizes a quoted text between bars in a diagram, as every other label', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["Waits on RIPPLE-2"] -->|"SWEEP-1"| B["x"]'), 'flowchart LR\n  A["Waits on finding 3"] -->|"Finding 1"| B["x"]');
   });
 });
 
