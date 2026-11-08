@@ -48,8 +48,14 @@ const idPattern = /(?<![\w#]|\w\.|(?<!\p{L})-)[A-Z]+-[1-9][0-9]*(?![\w]|\.\w|-(?
 /** A URL in a text: a scheme and `://`, up to a space, an angle bracket or a parenthesis that closes no parenthesis of its own, as the one that ends a Markdown link's target. */
 const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
 
-/** The characters of a path joined by slashes or backslashes, as `notes/RIPPLE-3.md`, `src\RIPPLE-2` or `RIPPLE-2/SCAN-1`. */
-const slashJoined = /[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+/**
+ * The characters of a path joined by slashes or backslashes, as
+ * `notes/RIPPLE-3.md`, `src\RIPPLE-2` or `RIPPLE-2/SCAN-1`. Start only
+ * at a path-character boundary: retrying inside a long word with no
+ * separator repeats the failed search over every suffix (D1 of bounded
+ * path scanning).
+ */
+const slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
 
 /** An id, or an id with a hyphen and a word after it, as `RIPPLE-2-style`: a part of a slash-joined text that names findings rather than a path. */
 const idPart = /^[A-Z]+-[1-9][0-9]*(?:-\p{L}[\p{L}\p{N}_]*)*$/u;

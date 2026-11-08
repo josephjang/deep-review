@@ -9401,5 +9401,123 @@
       "All profiling source hooks are disposable; no production, test, policy, cache or CI implementation changes are included.",
       "The author keeps complete raw profile/validation logs outside the repository."
     ]
+  },
+  "boundedPathScanIntegration": {
+    "status": "integrated-and-locally-validated",
+    "proposal": "docs/changes/2026-11-08-bounded-path-scan.md",
+    "source": "src/review/finding-names.ts",
+    "regressionTests": "test/review/finding-names.test.ts",
+    "expression": {
+      "before": "/[\\w.~-]*(?:[/\\\\][\\w.~-]*)+/g",
+      "after": "/(?<![\\w.~-])[\\w.~-]*(?:[/\\\\][\\w.~-]*)+/g"
+    },
+    "scope": "Bounded path scanning and two public-API regressions integrated after the independent CI, incremental-typecheck, duplicate-scenario and boundary-padding changes. Source, regressions, proposal and generated engine outputs belong to one change; unrelated role edits are excluded.",
+    "historicalEvidence": "The existing controlledOrdinarySuite, pairedPathScan and remainingBottleneckProfile records remain unchanged. No new performance comparison or profile is collected here; prior profile counts exclude the two additional regressions.",
+    "environment": {
+      "node": "v26.12.1",
+      "platform": "linux",
+      "arch": "x64",
+      "nodeCompileCache": "Repository default setup, without profiling hooks."
+    },
+    "inputFingerprint": {
+      "algorithm": "SHA256 over each git-ls-files path, NUL, file bytes, NUL in Git order for src,test,scripts,roles,tsconfig.json,package.json,package-lock.json.",
+      "files": 1724,
+      "sha256": "c5acd24f016576f70f89b08e6ab5515b1a5ad51455100a2903140c12644ab220"
+    },
+    "preparedCommands": [
+      {
+        "command": "npm ci",
+        "startedAt": "2026-11-08T21:20:41.644Z",
+        "elapsedSeconds": 2.395503396,
+        "exitCode": 0
+      },
+      {
+        "command": "npm run build",
+        "startedAt": "2026-11-08T21:20:44.040Z",
+        "elapsedSeconds": 0.365489685,
+        "exitCode": 0
+      },
+      {
+        "command": "npm exec -- node --import ./test/setup.ts --test test/review/finding-names.test.ts test/review/finding-names-cases.test.ts test/review/pull-request-form.test.ts test/review/pull-request-areas.test.ts",
+        "startedAt": "2026-11-08T21:20:44.406Z",
+        "elapsedSeconds": 1.1734980679999998,
+        "exitCode": 0
+      }
+    ],
+    "focusedTests": {
+      "files": [
+        "test/review/finding-names.test.ts",
+        "test/review/finding-names-cases.test.ts",
+        "test/review/pull-request-form.test.ts",
+        "test/review/pull-request-areas.test.ts"
+      ],
+      "tests": 120,
+      "passed": 120,
+      "skipped": 0,
+      "failed": 0,
+      "cancelled": 0,
+      "runnerDurationMs": 936.041609
+    },
+    "generatedOutputs": [
+      {
+        "file": "dist/claude/engine/main.mjs",
+        "bytes": 2112869,
+        "sha256": "d70ac1c88b89ffb49cf40af2d043f30299334acfe737287ae121d03084fe21b3"
+      },
+      {
+        "file": "dist/claude/engine/engine.json",
+        "bytes": 105,
+        "sha256": "8c76cc30de775f024b56802f3b01ae4a9e4bc10bccc3214bd8a93d2a88b9ce53"
+      },
+      {
+        "file": "dist/codex/engine/main.mjs",
+        "bytes": 2112869,
+        "sha256": "d70ac1c88b89ffb49cf40af2d043f30299334acfe737287ae121d03084fe21b3"
+      },
+      {
+        "file": "dist/codex/engine/engine.json",
+        "bytes": 105,
+        "sha256": "8c76cc30de775f024b56802f3b01ae4a9e4bc10bccc3214bd8a93d2a88b9ce53"
+      }
+    ],
+    "validation": {
+      "status": "passed",
+      "commands": [
+        {
+          "command": "npm run check",
+          "startedAt": "2026-11-08T21:21:28.092Z",
+          "elapsedSeconds": 87.839006401,
+          "exitCode": 0
+        },
+        {
+          "command": "npm run verify",
+          "startedAt": "2026-11-08T21:22:55.932Z",
+          "elapsedSeconds": 0.36631840100001134,
+          "exitCode": 0
+        }
+      ],
+      "ordinarySuite": {
+        "tests": 3733,
+        "passed": 3720,
+        "failed": 0,
+        "skipped": 13,
+        "cancelled": 0,
+        "runnerDurationMs": 63570.919685
+      },
+      "distributionVerification": {
+        "claudeFiles": 43,
+        "codexFiles": 42,
+        "bothMatch": true
+      },
+      "contractRun": false,
+      "realReviewRun": false,
+      "logs": "The author keeps full validation logs outside the repository."
+    },
+    "limitations": [
+      "Single integration correctness run, not a new same-workload or cumulative performance comparison.",
+      "The historical instrumented profile predates two additional regressions; its timing is not literal current-head performance.",
+      "No stop, resume, child-launch or ledger behavior changes; no local contract run is required.",
+      "No hosted CI or real-model release gate is claimed."
+    ]
   }
 }
