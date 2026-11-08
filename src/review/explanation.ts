@@ -147,11 +147,14 @@ const isMajor = (entry: ReportFinding): boolean => entry.finding.severity !== 'm
  * What an answer of version 2 is held to beyond the findings it explains
  * (R4, R11, R13 of the review that reads as a report): the findings to
  * explain that are major, by id in rank order, which go in the areas, the
- * others being minor and given a kind; and the refuted candidates, by id,
- * which each have one line.
+ * others being minor and given a kind; the findings to explain that are
+ * questions, by id in rank order, whose sentence in the conclusion the
+ * form does not post; and the refuted candidates, by id, which each have
+ * one line.
  */
 export interface ReportCheckInput {
   readonly major: readonly string[];
+  readonly asks: readonly string[];
   readonly refuted: readonly string[];
 }
 
@@ -160,6 +163,7 @@ export function reportCheckInputOf(review: ReviewState): ReportCheckInput {
   const ids = new Set(findingsToExplain(review));
   return {
     major: rankedFindings(review).filter((entry) => ids.has(entry.finding.id) && isMajor(entry)).map((entry) => entry.finding.id),
+    asks: (review.decisions ?? []).filter((decision) => ids.has(decision.id) && decision.decision === 'ask').map((decision) => decision.id),
     refuted: refuted(review).map(({ candidate }) => candidate.id),
   };
 }
@@ -476,19 +480,24 @@ function linesFailures(what: string, lines: CitedLines, lineCount: AnswerCheckIn
  * The conclusion checked: a why; a sentence for each finding to explain,
  * by its id, and for no other; no verdict; and, in an answer of version
  * 1, its diagram. The form of the review that reads as a report posts no
- * conclusion's diagram, so an answer of version 2 is not held to it.
+ * conclusion's diagram, and for a question it posts the decider's
+ * recommended option instead of the writer's sentence, so an answer of
+ * version 2 is held to neither: a question in `asks` may have any
+ * sentence, or none, and still names no stray finding.
  */
-function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: AnswerVersion): string[] {
+function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: AnswerVersion, asks: readonly string[]): string[] {
+  const posted = version === 1 ? ids : ids.filter((id) => !asks.includes(id));
   const named = conclusion.actions.map((action) => action.id);
   const sentenceFor = (id: string): string => (named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : '');
   const diagram = version === 1 ? conclusion.diagram : null;
+  const postedActions = conclusion.actions.filter((action) => posted.includes(action.id) || !ids.includes(action.id));
   return [
     ...(blank(conclusion.why) ? ['the conclusion says no why'] : []),
     ...[...new Set(named)].filter((id) => !ids.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
-    ...ids.map(sentenceFor).filter((failure) => failure !== ''),
-    ...ids.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
-    ...conclusion.actions.filter((action) => ids.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
-    ...verdictFailures('the conclusion', [conclusion.why, ...conclusion.actions.map((action) => action.sentence), diagram ?? '']),
+    ...posted.map(sentenceFor).filter((failure) => failure !== ''),
+    ...posted.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
+    ...conclusion.actions.filter((action) => posted.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
+    ...verdictFailures('the conclusion', [conclusion.why, ...postedActions.map((action) => action.sentence), diagram ?? '']),
     ...diagramFailuresOf('the conclusion\'s diagram', diagram),
   ];
 }
@@ -637,7 +646,7 @@ export function checkAnswer(output: AnyWriterOutput, input: AnswerCheckInput): C
     if (of === undefined) strays.push(entry.id);
     else of.push(entry);
   }
-  const conclusion = { value: output.conclusion, failures: checkConclusion(output.conclusion, input.ids, 'account' in output ? 1 : 2) };
+  const conclusion = { value: output.conclusion, failures: checkConclusion(output.conclusion, input.ids, 'account' in output ? 1 : 2, input.report?.asks ?? []) };
   if ('account' in output) {
     return { conclusion, account: { value: output.account, failures: checkAccount(output.account) }, areas: null, refuted: null, findings: new Map(input.ids.map((id) => [id, checkFinding(id, entries.get(id)!, input.lineCount, null)])), strays };
   }
