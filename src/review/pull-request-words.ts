@@ -296,6 +296,9 @@ const reviewNodesEnglish = [
 /** A fix against a written rule, in English: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, what follows the review, from its first character. */
 const departureEnglish = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run${then}`;
 
+/** The end of a text before an id that already says finding: `finding` or `findings`, or a list of numbers after `findings` that goes on, as `findings 1 and `, so each number of the list is said alone. */
+const englishFindingSaid = /\b(?:findings?\s+|findings\s+\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+)\d+)*(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+))$/i;
+
 /** An English word that determines the noun after it, so a name after it takes no article of its own. */
 const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|every|another|any|no)\s+`;
 
@@ -429,7 +432,7 @@ const english: PullRequestWords = {
   diagramNamesIds: 'A diagram is left out here, because it names a finding by deep-review\'s internal id where the review cannot write the finding\'s number; the writer\'s answer on the machine that holds the run keeps it.',
   naming: {
     finding: (number, before, after) => ({
-      name: /\bfindings?\s+$/i.test(before) ? String(number) : `finding ${String(number)}`,
+      name: englishFindingSaid.test(before) ? String(number) : `finding ${String(number)}`,
       before: 0,
       // A noun after the id that says finding, as in `the RIPPLE-2 finding`, is said by the name.
       after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
@@ -551,6 +554,9 @@ const reviewNodesKorean = [
 
 /** A fix against a written rule, in Korean: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, the sentences of what follows the review. */
 const departureKorean = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. ${then}`;
+
+/** The end of a text before an id that already says finding: 지적 사항, or a list of numbers after it that goes on, joined by 과, 와 or a comma, as `지적 사항 1과 `, so each number of the list is said alone. */
+const koreanFindingSaid = /지적\s*사항\s*(?:\d+(?:(?:[과와]\s*|\s*,\s*)\d+)*(?:[과와]\s*|\s*,\s*))?$/;
 
 /** A Korean noun right after an id that says finding, 지적 사항 or 지적, followed by a particle and then no Hangul, or by no Hangul at all, so that it is no part of a longer word such as 지적했다. */
 const koreanFindingNoun = /^\s*지적(?:\s*사항)?(?!\s*사항)(?=(?:으로|로|은|는|이|가|을|를|과|와|의|에서|에|도|만)?(?!\p{Script=Hangul}))/u;
@@ -682,7 +688,7 @@ const korean: PullRequestWords = {
   diagramNamesIds: '이 다이어그램은 지적 사항을 deep-review 내부 id로 가리키는데, 그 자리에는 리뷰가 지적 사항의 번호를 쓸 수 없어 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
   naming: {
     finding: (number, before, after) => ({
-      name: /지적\s*사항\s*$/.test(before) ? String(number) : `지적 사항 ${String(number)}`,
+      name: koreanFindingSaid.test(before) ? String(number) : `지적 사항 ${String(number)}`,
       before: 0,
       // A noun after the id that says finding, 지적 사항 or 지적 as in `RIPPLE-2 지적은`, is said by the name; the particle after it then follows the name.
       after: koreanFindingNoun.exec(after)?.[0].length ?? 0,
