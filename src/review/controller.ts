@@ -599,8 +599,9 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
 /**
  * The refusal of a second pass, with what the command leaves (R4 of the
  * review of a fix run): the refusal's own words and action, then that the
- * review is written, where its read-only report is, and that the same
- * command continues the run once the action is taken, while the pull
+ * review is written, where its read-only report is, and that, to keep
+ * this run rather than start a new one as an action may offer, the same
+ * command continues it once the action that keeps it is taken, while the pull
  * request is still at the head the run reviewed, since a later command
  * reads the pull request again and reviews a head that moved in a new
  * run. Nothing was appended, so the run stays complete and continuable.
@@ -608,7 +609,7 @@ export async function runReview(options: ReviewOptions): Promise<ReviewOutcome> 
  */
 function continuationRefused(error: unknown, continuing: Continuing): unknown {
   if (!(error instanceof ReviewRefusedError)) return error;
-  return new ReviewRefusedError(`${error.message}; the review of run ${continuing.runId} is written, and its read-only report is ${continuing.reportPath}; once that is done, \`deep-review review --pr ${String(continuing.pullRequest)} --fix\` continues the run into the fix pass while the pull request is still at ${continuing.head}, the head the run reviewed, and reviews it again in a new run once its head has moved`, error.code);
+  return new ReviewRefusedError(`${error.message}; the review of run ${continuing.runId} is written, and its read-only report is ${continuing.reportPath}; to continue this run rather than start a new one, take the action that keeps it, after which \`deep-review review --pr ${String(continuing.pullRequest)} --fix\` continues it into the fix pass while the pull request is still at ${continuing.head}, the head the run reviewed, and reviews a head that has moved in a new run`, error.code);
 }
 
 /**
