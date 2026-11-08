@@ -762,7 +762,7 @@ function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<Body
   return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, details(words.refutedSummary(count), entries)) };
 }
 
-/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote, then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
+/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer, then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
 function trustSection(view: FormView): Section {
   const { words, brief, recorded } = view;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
@@ -778,7 +778,9 @@ function trustSection(view: FormView): Section {
     const answered = [...standingAnswers(view.review).keys()].map(numberOf);
     if (answered.length > 0) notes.push(words.predates(words.findingList(answered)));
   }
-  return { part: 'trust', lines: blocks([words.trustHeading], [`${words.trust(view.counts)} ${words.modelLine}`], ...notes.map((note) => [note])) };
+  // With no answer that passed a part, the review is in the engine's words alone, and the notes say so.
+  const wrote = view.input.answer === null ? [] : [words.modelLine];
+  return { part: 'trust', lines: blocks([words.trustHeading], [[words.trust(view.counts), ...wrote].join(' ')], ...notes.map((note) => [note])) };
 }
 
 /** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, then the marker of the publication (R9, R13). The version the runtime gave and the models the settings name are no text of the engine's, so they are cleaned. */
