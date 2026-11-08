@@ -9,12 +9,24 @@ import { codeParts } from './markdown.ts';
 /** What an id of the run names: a numbered finding, the one a merged candidate joined included, or a candidate the verifiers refuted. */
 export type NamedId = { readonly kind: 'finding'; readonly number: number } | { readonly kind: 'refuted' };
 
+/**
+ * The name a language gives an id in a worker's text, and how much of the
+ * text around the id it stands in for: the last `before` characters of
+ * the text before the id and the first `after` characters of the text
+ * after it, as a noun next to the id that the name already says.
+ */
+export interface IdName {
+  readonly name: string;
+  readonly before: number;
+  readonly after: number;
+}
+
 /** How a language names a finding in a worker's text (R1, R2, R5 of the finding names in the review). */
 export interface FindingNaming {
-  /** A numbered finding, as `finding 3`, or its number alone after the text `before` it that already says finding. */
-  readonly finding: (number: number, before: string) => string;
+  /** A numbered finding, as `finding 3`, or its number alone after the text `before` it that already says finding, taking in a noun at the start of the text `after` it that says finding. */
+  readonly finding: (number: number, before: string, after: string) => IdName;
   /** A candidate the verifiers refuted, which has no number, taking the article of the text `before` it and the noun of the text `after` it when they give one. */
-  readonly refuted: (before: string, after: string) => string;
+  readonly refuted: (before: string, after: string) => IdName;
   /** A name that starts a sentence, as English capitalizes it. */
   readonly starting: (name: string) => string;
   /** The form of the particle right after a name that agrees with how the name is read; the particle as given in a language that has none. */
@@ -87,13 +99,16 @@ export function namedFindings(text: string, names: ReadonlyMap<string, NamedId>,
   let out = '';
   let at = 0;
   for (const slot of slotsOf(text, names)) {
+    // An id inside a noun the name before it took in stays in that noun's place.
+    if (slot.start < at) continue;
     out += text.slice(at, slot.start);
     const after = text.slice(slot.end);
-    const plain = slot.named.kind === 'finding' ? naming.finding(slot.named.number, out) : naming.refuted(out, after);
-    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(plain) : plain;
+    const given = slot.named.kind === 'finding' ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
+    out = out.slice(0, out.length - given.before);
+    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
     out += name;
-    at = slot.end;
-    const particle = particleAfter.exec(after);
+    at = slot.end + given.after;
+    const particle = particleAfter.exec(text.slice(at));
     if (particle !== null) {
       out += naming.particle(name, particle[1]!);
       at += particle[1]!.length;

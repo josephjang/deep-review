@@ -47,6 +47,14 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(ko('지적 사항 RIPPLE-2와 DESIGN-1 후보를 봅니다.'), '지적 사항 3과 반박된 후보를 봅니다.');
   });
 
+  it('takes in a noun after the id that says finding, and agrees a Korean particle after it with the name', () => {
+    assert.equal(en('The RIPPLE-2 finding is real, and the SWEEP-1 finding\'s fix waits.'), 'The finding 3 is real, and the finding 1\'s fix waits.');
+    assert.equal(en('Finding RIPPLE-2 finding stands, and RIPPLE-2 findingsless stays.'), 'Finding 3 stands, and finding 3 findingsless stays.');
+    assert.equal(ko('RIPPLE-2 지적 사항은 맞고, SWEEP-1 지적을 먼저, `ALTITUDE-6` 지적사항이 남습니다.'), '지적 사항 3은 맞고, 지적 사항 1을 먼저, 지적 사항 10이 남습니다.');
+    assert.equal(ko('RIPPLE-2 지적 사항, SWEEP-1 지적에서 봅니다.'), '지적 사항 3, 지적 사항 1에서 봅니다.');
+    assert.equal(ko('RIPPLE-2 지적했듯이 SWEEP-1 지적 사항들과 다릅니다.'), '지적 사항 3 지적했듯이 지적 사항 1 지적 사항들과 다릅니다.', 'a longer word that starts as the noun stays');
+  });
+
   it('leaves a text with no names as it is', () => {
     assert.equal(namedFindings('RIPPLE-2 stays.', new Map(), english), 'RIPPLE-2 stays.');
   });

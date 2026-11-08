@@ -403,8 +403,13 @@ const english: PullRequestWords = {
   diagramBroken: 'A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.',
   diagramNamesIds: 'A diagram is left out here, because it names a finding by deep-review\'s internal id where the review cannot write the finding\'s number; the writer\'s answer on the machine that holds the run keeps it.',
   naming: {
-    finding: (number, before) => (/\bfindings?\s+$/i.test(before) ? String(number) : `finding ${String(number)}`),
-    refuted: (before, after) => (/^\s+candidates?\b/i.test(after) ? 'refuted' : /\b(?:the|a|an)\s+$/i.test(before) ? 'refuted candidate' : 'a refuted candidate'),
+    finding: (number, before, after) => ({
+      name: /\bfindings?\s+$/i.test(before) ? String(number) : `finding ${String(number)}`,
+      before: 0,
+      // A noun after the id that says finding, as in `the RIPPLE-2 finding`, is said by the name.
+      after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
+    }),
+    refuted: (before, after) => ({ name: /^\s+candidates?\b/i.test(after) ? 'refuted' : /\b(?:the|a|an)\s+$/i.test(before) ? 'refuted candidate' : 'a refuted candidate', before: 0, after: 0 }),
     starting: capitalized,
     particle: (_name, particle) => particle,
   },
@@ -522,6 +527,9 @@ const reviewNodesKorean = [
 /** A fix against a written rule, in Korean: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, the sentences of what follows the review. */
 const departureKorean = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. ${then}`;
 
+/** A Korean noun right after an id that says finding, 지적 사항 or 지적, followed by a particle and then no Hangul, or by no Hangul at all, so that it is no part of a longer word such as 지적했다. */
+const koreanFindingNoun = /^\s*지적(?:\s*사항)?(?!\s*사항)(?=(?:으로|로|은|는|이|가|을|를|과|와|의|에서|에|도|만)?(?!\p{Script=Hangul}))/u;
+
 const korean: PullRequestWords = {
   heading: '## deep-review의 풀 리퀘스트 리뷰',
   reviewed: (head, files, base) => `deep-review가 이 풀 리퀘스트를 head ${head}에서 리뷰했습니다. merge base ${base}부터 바뀐 파일 ${String(files)}개를 보았으며, 파일은 하나도 바꾸지 않았습니다.`,
@@ -636,8 +644,13 @@ const korean: PullRequestWords = {
   diagramBroken: '이 리뷰를 실행한 컴퓨터의 경로와 비밀 값을 지우는 과정에서 다이어그램이 깨져 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
   diagramNamesIds: '이 다이어그램은 지적 사항을 deep-review 내부 id로 가리키는데, 그 자리에는 리뷰가 지적 사항의 번호를 쓸 수 없어 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
   naming: {
-    finding: (number, before) => (/지적\s*사항\s*$/.test(before) ? String(number) : `지적 사항 ${String(number)}`),
-    refuted: (_before, after) => (/^\s*후보/.test(after) ? '반박된' : '반박된 후보'),
+    finding: (number, before, after) => ({
+      name: /지적\s*사항\s*$/.test(before) ? String(number) : `지적 사항 ${String(number)}`,
+      before: 0,
+      // A noun after the id that says finding, 지적 사항 or 지적 as in `RIPPLE-2 지적은`, is said by the name; the particle after it then follows the name.
+      after: koreanFindingNoun.exec(after)?.[0].length ?? 0,
+    }),
+    refuted: (_before, after) => ({ name: /^\s*후보/.test(after) ? '반박된' : '반박된 후보', before: 0, after: 0 }),
     starting: (name) => name,
     particle: koreanParticle,
   },
