@@ -509,7 +509,8 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     box.script(fixingScript);
     box.logs.length = 0;
     reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
-    assert.ok(box.logs.includes(`run ${blocked.id} is a read-only run of a pull request; this command continues it into the fix pass once its report is written`), box.logs.join('\n'));
+    // The check flags of the command that started the run are not recorded, so the line asks for them again.
+    assert.ok(box.logs.includes(`run ${blocked.id} is a read-only run of a pull request; this command continues it into the fix pass once its report is written, with the checks that its --check and --no-check settle, since a read-only run records none at configuration, so give again every one the command that started the run gave`), box.logs.join('\n'));
     assert.ok(!box.logs.some((line) => /--fix\b.* ignored/.test(line)), 'no line says --fix is ignored');
     const run = box.run();
     assert.equal(run.id, blocked.id);
