@@ -5,10 +5,10 @@
 import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
-import type { RecordedAnswer } from '../../src/review/explanation.ts';
+import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
 import { placeFindings, pullRequestForm, type FormRefusal, type PullRequestForm, type PullRequestFormInput } from '../../src/review/pull-request-form.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
-import { answerableDecisions, candidate, changeReading, explanation, History, pullRequestScope, readOnlyReported, settingsBlockV2, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from './review-history.ts';
+import { answerableDecisions, candidate, decisions, changeReading, explanation, History, pullRequestScope, readOnlyReported, settingsBlockV2, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from './review-history.ts';
 
 /** The patch of `src/a.ts` GitHub gives: lines 1 to 3 of the new side are context, line 4 added, 5 and 6 context. */
 const patchOfA = '@@ -1,5 +1,6 @@\n line 1\n line 2\n line 3\n+added 4\n line 5\n line 6';
@@ -100,6 +100,23 @@ export const writerAnswer = (): WholeAnswer => ({
 export function answerWithArea(diagram: string | null): WholeAnswer {
   return { ...writerAnswer(), areas: [{ title: 'Parsing an empty input', intro: 'What parse() does with an empty file.', diagram, findings: ['RIPPLE-1'] }] };
 }
+
+/** Three findings with long left grounds and minor/refuted summaries, and RIPPLE-1 with no merged members. */
+export const longFindingHistory = (): History => rewritten(pullRequestRun([decisions[0], { ...decisions[1], grounds: 'g'.repeat(1000) }, { ...decisions[0], id: 'SWEEP-2' }]), (kind, payload) => {
+  if (kind === 'ranking.recorded') {
+    const findings = (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, members: [] } : finding));
+    return { ...payload, findings: [...findings, { id: 'SWEEP-2', members: [], severity: 'minor', summary: 's'.repeat(400), reason: 'r' }] };
+  }
+  if (kind === 'candidates.recorded' && payload.key === 'RIPPLE') return { ...payload, candidates: (payload.candidates as Record<string, unknown>[]).map((entry) => (entry.id === 'RIPPLE-2' ? { ...entry, summary: 'c'.repeat(400) } : entry)) };
+  return undefined;
+});
+
+/** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
+export const paddedAnswer = (pad: number, diagram = true): RecordedAnswer => {
+  const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
+  const fix = said.findings[0] as ExplainedFinding;
+  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
+};
 
 /** The machine of the histories here, whose worktree is `/w`. */
 export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };

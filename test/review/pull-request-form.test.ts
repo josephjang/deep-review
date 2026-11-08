@@ -8,7 +8,7 @@ import { dryRunLines } from '../../src/review/publish.ts';
 import { bodyCuts, formRefusalWords, maxPostedLength, placeFindings, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
-import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea, sampleBoundaries, type Boundary } from '../helpers/pull-request-review.ts';
+import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea, sampleBoundaries, type Boundary, longFindingHistory, paddedAnswer } from '../helpers/pull-request-review.ts';
 import { answer, answerableDecisions, askDecision, decisions, departure, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
@@ -702,30 +702,9 @@ describe('the cleaning of what the review posts (R11)', () => {
 });
 
 describe('the fit of the review (TD5)', () => {
-  /**
-   * A run of three findings, each long where a cut takes it: RIPPLE-1, a
-   * major fix with no patch and so in full in the body, under a long
-   * conclusion diagram; SWEEP-1, left as is on long grounds; SWEEP-2, a
-   * minor fix on its line with a long summary; and RIPPLE-2, refuted, with
-   * a long summary.
-   */
-  const threeFindings = (): History => rewritten(run([decisions[0], { ...decisions[1], grounds: 'g'.repeat(1000) }, { ...decisions[0], id: 'SWEEP-2' }]), (kind, payload) => {
-    if (kind === 'ranking.recorded') {
-      const findings = (payload.findings as Record<string, unknown>[]).map((finding) => (finding.id === 'RIPPLE-1' ? { ...finding, members: [] } : finding));
-      return { ...payload, findings: [...findings, { id: 'SWEEP-2', members: [], severity: 'minor', summary: 's'.repeat(400), reason: 'r' }] };
-    }
-    if (kind === 'candidates.recorded' && payload.key === 'RIPPLE') return { ...payload, candidates: (payload.candidates as Record<string, unknown>[]).map((entry) => (entry.id === 'RIPPLE-2' ? { ...entry, summary: 'c'.repeat(400) } : entry)) };
-    return undefined;
-  });
-  const state = threeFindings().fold();
+  const state = longFindingHistory().fold();
   /** The files of the pull request with lines 4 and 7 of `src/a.ts` added, or, `outside`, line 7 alone, so the fix on line 4 is in full in the body and does not grow its comment. */
   const filesOf = (outside: boolean): PullRequestFile[] => [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: outside ? '@@ -7,1 +7,1 @@\n-old 7\n+new 7' : '@@ -4,4 +4,4 @@\n-old 4\n+new 4\n line 5\n line 6\n-old 7\n+new 7' }];
-  /** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
-  const answerOf = (pad: number, diagram = true): RecordedAnswer => {
-    const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
-    const fix = said.findings[0] as ExplainedFinding;
-    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
-  };
   const limit = 60_000;
   const expectedCuts = [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']];
   const markedLast = (form: PullRequestForm): void => {
@@ -738,7 +717,7 @@ describe('the fit of the review (TD5)', () => {
   const samples = (diagram: boolean): Samples => {
     const known = sampled.get(diagram);
     if (known !== undefined) return known;
-    const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad, diagram), filesOf(true)), limit, diagram ? expectedCuts : expectedCuts.slice(0, 4));
+    const boundaries = sampleBoundaries((pad) => renderedOf(state, paddedAnswer(pad, diagram), filesOf(true)), limit, diagram ? expectedCuts : expectedCuts.slice(0, 4));
     const forms = boundaries.flatMap(({ below, at, above }) => [below, at, ...(above.kind === 'rendered' ? [above] : [])]);
     const cuts = forms.filter((form, index) => index === 0 || JSON.stringify(forms[index - 1]!.cuts) !== JSON.stringify(form.cuts)).map((form) => [...form.cuts]);
     const result = { cuts, forms, last: boundaries.at(-1)!.above, boundaries };
@@ -792,15 +771,15 @@ describe('the fit of the review (TD5)', () => {
   });
 
   it('refuses a comment over the limit, with its size and parts', () => {
-    const seed = formOf(state, answerOf(1), filesOf(false));
+    const seed = formOf(state, paddedAnswer(1), filesOf(false));
     const atPad = 1 + limit - seed.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length;
     assert.ok(atPad > 1 && atPad <= limit, 'the comment boundary has positive, bounded padding');
     for (const [offset, size] of [[-1, limit - 1], [0, limit]] as const) {
-      const form = formOf(state, answerOf(atPad + offset), filesOf(false));
+      const form = formOf(state, paddedAnswer(atPad + offset), filesOf(false));
       assert.equal(form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length, size);
       markedLast(form);
     }
-    const refused = renderedOf(state, answerOf(atPad + 1), filesOf(false)) as FormRefusal;
+    const refused = renderedOf(state, paddedAnswer(atPad + 1), filesOf(false)) as FormRefusal;
     assert.equal(refused.kind, 'refused');
     assert.equal(refused.size, limit + 1);
     assert.equal(refused.limit, limit);
