@@ -682,5 +682,319 @@
       "Schedules can be delayed or dropped; every main push retains the full contract.",
       "No local scheduling speedup percentage or CI-wide improvement is claimed."
     ]
+  },
+  "incrementalTypecheck": {
+    "status": "locally-implemented-and-validated",
+    "proposal": "docs/changes/2026-11-08-incremental-typecheck.md",
+    "commandBefore": "npm run typecheck (package script: tsc --noEmit)",
+    "commandAfter": "npm run typecheck (package script: tsc --noEmit --incremental --tsBuildInfoFile .cache/typecheck.tsbuildinfo)",
+    "method": {
+      "pairs": 3,
+      "timedSamplesPerCondition": 3,
+      "selectedRuns": "All nine planned samples, with no exclusions or repetitions.",
+      "order": "Pair1 uncached,cold,warm; pair2 cold,warm,uncached; pair3 uncached,cold,warm.",
+      "timer": "Process spawn to close of actual npm run typecheck, including npm and compiler startup; package-script switching and cache deletion excluded.",
+      "coldCondition": "Delete only .cache/typecheck.tsbuildinfo before each cold sample; each cold sample primes its following warm sample.",
+      "warmCondition": "Unchanged source/options/dependencies and the immediately preceding successful cold cache.",
+      "inputControl": "A single isolated checkout with frozen committed TypeScript inputs; only the package typecheck script and TS cache state differ between conditions.",
+      "environment": {
+        "node": "v26.12.1",
+        "platform": "linux",
+        "arch": "x64",
+        "kernel": "7.2.11-arch1-1",
+        "cpu": "AMD Ryzen 9 3900X 12-Core Processor",
+        "availableParallelism": 24,
+        "typescript": "6.0.3",
+        "nodeCompileCache": "disabled for every measured and probe command",
+        "osPageCache": "not flushed",
+        "packageLockSha256": "529de1944a8f189fc0462b4f3b39fccddb0b03fc79bc82998b7339b6ddf2eea4"
+      },
+      "fingerprint": {
+        "algorithm": "SHA256 over each git-ls-files path, NUL, file bytes, NUL in Git order for src,test,scripts,tsconfig.json,package-lock.json.",
+        "files": 1685,
+        "sha256": "e78c127a7d146e6f2d581d4a954c4b82254f0da8e3ef6655760cfa6908934253"
+      }
+    },
+    "samples": [
+      {
+        "name": "pair-1-uncached",
+        "pair": 1,
+        "condition": "uncached",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.695559707000001,
+        "startedAt": "2026-11-08T14:02:10.986Z"
+      },
+      {
+        "name": "pair-1-cold-incremental",
+        "pair": 1,
+        "condition": "cold-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.616379944,
+        "startedAt": "2026-11-08T14:02:19.682Z",
+        "cacheBytes": 127395
+      },
+      {
+        "name": "pair-1-warm-incremental",
+        "pair": 1,
+        "condition": "warm-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 1.778297437000001,
+        "startedAt": "2026-11-08T14:02:28.299Z",
+        "cacheBytes": 127395
+      },
+      {
+        "name": "pair-2-cold-incremental",
+        "pair": 2,
+        "condition": "cold-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.531784856000002,
+        "startedAt": "2026-11-08T14:02:30.077Z",
+        "cacheBytes": 127395
+      },
+      {
+        "name": "pair-2-warm-incremental",
+        "pair": 2,
+        "condition": "warm-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 1.8147085860000007,
+        "startedAt": "2026-11-08T14:02:38.609Z",
+        "cacheBytes": 127395
+      },
+      {
+        "name": "pair-2-uncached",
+        "pair": 2,
+        "condition": "uncached",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.698804539999998,
+        "startedAt": "2026-11-08T14:02:40.424Z"
+      },
+      {
+        "name": "pair-3-uncached",
+        "pair": 3,
+        "condition": "uncached",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.832461088000004,
+        "startedAt": "2026-11-08T14:02:49.123Z"
+      },
+      {
+        "name": "pair-3-cold-incremental",
+        "pair": 3,
+        "condition": "cold-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 8.750036238,
+        "startedAt": "2026-11-08T14:02:57.956Z",
+        "cacheBytes": 127395
+      },
+      {
+        "name": "pair-3-warm-incremental",
+        "pair": 3,
+        "condition": "warm-incremental",
+        "command": "npm run typecheck",
+        "exitCode": 0,
+        "elapsedSeconds": 1.8089393889999992,
+        "startedAt": "2026-11-08T14:03:06.707Z",
+        "cacheBytes": 127395
+      }
+    ],
+    "statistics": {
+      "uncached": {
+        "samples": 3,
+        "medianSeconds": 8.698804539999998,
+        "rangeSeconds": [
+          8.695559707000001,
+          8.832461088000004
+        ]
+      },
+      "cold-incremental": {
+        "samples": 3,
+        "medianSeconds": 8.616379944,
+        "rangeSeconds": [
+          8.531784856000002,
+          8.750036238
+        ]
+      },
+      "warm-incremental": {
+        "samples": 3,
+        "medianSeconds": 1.8089393889999992,
+        "rangeSeconds": [
+          1.778297437000001,
+          1.8147085860000007
+        ]
+      },
+      "unchangedWarmComparison": {
+        "savingSeconds": 6.889865150999999,
+        "reductionPercent": 79.20473576935896,
+        "speedup": 4.8087871782198235,
+        "formula": "(median uncached - median warm incremental) / median uncached * 100"
+      }
+    },
+    "invalidation": {
+      "compiler": "TypeScript6.0.3",
+      "fixture": {
+        "files": {
+          "package.json": "{\"type\":\"module\"}\n",
+          "tsconfig.json": "{\n  \"compilerOptions\": {\n    \"target\": \"ES2025\",\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"strict\": true,\n    \"noEmit\": true,\n    \"types\": [],\n    \"skipLibCheck\": false,\n    \"strictNullChecks\": false\n  },\n  \"include\": [\n    \"src/**/*.ts\"\n  ]\n}\n",
+          "src/types.ts": "export type Value = string;\n",
+          "src/consumer.ts": "import type { Value } from './types.js';\nimport type { DependencyValue } from 'probe-dependency';\nexport const value: Value = 'value';\nexport const dependency: DependencyValue = 'value';\nexport const optional: string = undefined as string | undefined;\n",
+          "node_modules/probe-dependency/package.json": "{\"name\":\"probe-dependency\",\"version\":\"1.0.0\",\"type\":\"module\",\"types\":\"index.d.ts\"}\n",
+          "node_modules/probe-dependency/index.d.ts": "export type DependencyValue = string;\n"
+        },
+        "incrementalCommand": [
+          "node",
+          "<pinned-typescript>/bin/tsc",
+          "--noEmit",
+          "--incremental",
+          "--tsBuildInfoFile",
+          ".cache/typecheck.tsbuildinfo"
+        ],
+        "uncachedCommand": [
+          "node",
+          "<pinned-typescript>/bin/tsc",
+          "--noEmit"
+        ],
+        "timestampPolicy": "changed input mtime restored in imported-type and dependency-declaration cases"
+      },
+      "protocol": "Restore initial fixture files and prime the incremental cache before each mutation. For the four ordinary input mutations, compare two failing incremental invocations with an uncached invocation, then restore files and require successful recovery. For three missing/unusable cache mutations, require invalid source to fail and restored source to recover with current-version state. These are correctness probes, not timed performance conditions.",
+      "cases": [
+        {
+          "name": "imported-type-preserved-mtime",
+          "expectedDiagnostic": "TS2322",
+          "incrementalExitCode": 2,
+          "repeatedExitCode": 1,
+          "uncachedExitCode": 2,
+          "diagnosticsEqual": true,
+          "recoveryExitCode": 0,
+          "diagnostics": "src/consumer.ts(3,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "mutation": {
+            "path": "src/types.ts",
+            "contents": "export type Value = number;\n",
+            "restoreOriginalMtime": true
+          }
+        },
+        {
+          "name": "compiler-option",
+          "expectedDiagnostic": "TS2322",
+          "incrementalExitCode": 2,
+          "repeatedExitCode": 1,
+          "uncachedExitCode": 2,
+          "diagnosticsEqual": true,
+          "recoveryExitCode": 0,
+          "diagnostics": "src/consumer.ts(5,14): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\n  Type 'undefined' is not assignable to type 'string'.",
+          "mutation": {
+            "path": "tsconfig.json",
+            "change": "compilerOptions.strictNullChecks: false -> true"
+          }
+        },
+        {
+          "name": "dependency-declaration-preserved-mtime",
+          "expectedDiagnostic": "TS2322",
+          "incrementalExitCode": 2,
+          "repeatedExitCode": 1,
+          "uncachedExitCode": 2,
+          "diagnosticsEqual": true,
+          "recoveryExitCode": 0,
+          "diagnostics": "src/consumer.ts(4,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "mutation": {
+            "path": "node_modules/probe-dependency/index.d.ts",
+            "contents": "export type DependencyValue = number;\n",
+            "restoreOriginalMtime": true
+          }
+        },
+        {
+          "name": "deleted-imported-file",
+          "expectedDiagnostic": "TS2307",
+          "incrementalExitCode": 2,
+          "repeatedExitCode": 1,
+          "uncachedExitCode": 2,
+          "diagnosticsEqual": true,
+          "recoveryExitCode": 0,
+          "diagnostics": "src/consumer.ts(1,28): error TS2307: Cannot find module './types.js' or its corresponding type declarations.",
+          "mutation": {
+            "delete": "src/types.ts"
+          }
+        },
+        {
+          "name": "missing-cache",
+          "invalidExitCode": 2,
+          "recoveryExitCode": 0,
+          "resultingCompilerVersion": "6.0.3",
+          "diagnostics": "src/consumer.ts(3,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "mutation": {
+            "delete": ".cache/typecheck.tsbuildinfo",
+            "then": "write src/types.ts as 'export type Value = number;\\n'"
+          }
+        },
+        {
+          "name": "malformed-cache",
+          "invalidExitCode": 2,
+          "recoveryExitCode": 0,
+          "resultingCompilerVersion": "6.0.3",
+          "diagnostics": "src/consumer.ts(3,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "mutation": {
+            "path": ".cache/typecheck.tsbuildinfo",
+            "contents": "{malformed",
+            "then": "write src/types.ts as 'export type Value = number;\\n'"
+          }
+        },
+        {
+          "name": "stale-compiler-version",
+          "invalidExitCode": 2,
+          "recoveryExitCode": 0,
+          "resultingCompilerVersion": "6.0.3",
+          "diagnostics": "src/consumer.ts(3,14): error TS2322: Type 'string' is not assignable to type 'number'.",
+          "mutation": {
+            "path": ".cache/typecheck.tsbuildinfo",
+            "change": "set JSON version to '0.0.0-stale'",
+            "then": "write src/types.ts as 'export type Value = number;\\n'"
+          }
+        }
+      ],
+      "permanentTestsAdded": 0
+    },
+    "validation": {
+      "status": "passed",
+      "scope": "Isolated checkout of committed inputs plus the package command, cache ignore and documentation change. Separately prepared O1 and unrelated role edits excluded.",
+      "nodeCompileCache": "Disabled for this verification as well as the samples; this does not disable the TypeScript incremental state.",
+      "commands": [
+        {
+          "command": "npm run check",
+          "exitCode": 0,
+          "elapsedSeconds": 599.7423042669999
+        },
+        {
+          "command": "npm run verify",
+          "exitCode": 0,
+          "elapsedSeconds": 0.3779452090000268
+        }
+      ],
+      "ordinarySuite": {
+        "tests": 3736,
+        "passed": 3723,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 13,
+        "todo": 0,
+        "runnerDurationMs": 575755.139959
+      },
+      "contractRun": false,
+      "realReviewRun": false,
+      "logs": "The author keeps the full measurement, probe and validation logs outside the repository."
+    },
+    "limitations": [
+      "Three local Linux samples per condition establish no confidence interval, tail percentile or cross-platform speedup.",
+      "The operating-system page cache was not flushed; cold refers only to absent TypeScript state.",
+      "Warm figures require unchanged inputs; invalidation probes establish correctness rather than edit-latency savings.",
+      "No persistent CI cache is configured, so a fresh runner starts cold.",
+      "The compiler-only comparison includes npm startup but excludes lint, tests, contract and total CI latency.",
+      "Typed ESLint remains uncached; engine sources, test cases and distributed artifacts are unchanged."
+    ]
   }
 }

@@ -20,7 +20,7 @@
     "review": "node src/cli.ts",
     "test": "node --import ./test/setup.ts --test \"test/**/*.test.ts\"",
     "test:contract": "node --import ./test/setup.ts --test \"test/**/*.contract.ts\"",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental --tsBuildInfoFile .cache/typecheck.tsbuildinfo",
     "lint": "eslint .",
     "check": "npm run lint && npm run typecheck && npm test"
   },
