@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it, type TestContext } from 'node:test';
 import type { Gh } from '../../src/github/gh.ts';
 import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
+import { ReviewRefusedError } from '../../src/review/errors.ts';
 import { reviewStatus } from '../../src/review/state.ts';
 import type { NamedScope } from '../../src/scope/capture.ts';
 import { fakeGhCalls, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
@@ -76,4 +77,34 @@ describe('a resumed read-only run of a pull request and the scope of the command
       assert.equal(fakeGhCalls(script).length, 4, 'GitHub was read once, for the capture');
     });
   }
+});
+
+describe('the continuation of the same command beside another active run (R4 of the review of a fix run)', { timeout: 900_000, concurrency: sandboxConcurrency }, () => {
+  it('refuses to continue its run when another command created a run after the read-only report, pinning nothing, and continues it once that run is abandoned', async (t) => {
+    const box = ReviewSandbox.forTest(t, fixingScript);
+    const { gh, script } = fakeGhWith(t, [...pullRequestSteps(box), ...pullRequestSteps(box)]);
+    let other: string | null = null;
+    // Another command creates a run once the read-only report is written, before the same command continues its run.
+    const log = (line: string): void => {
+      box.logs.push(line);
+      if (other === null && /^run \S+: report written to /.test(line)) other = box.checkpoint.createRun({ worktree: box.repo }).id;
+    };
+    let message = '';
+    await assert.rejects(box.fix('claude', { scope: pullRequestSource(box, gh), log }), (error: unknown) => {
+      message = error instanceof Error ? error.message : '';
+      return error instanceof ReviewRefusedError;
+    });
+    assert.notEqual(other, null, 'the other run was created');
+    const runs = box.checkpoint.foldRuns();
+    const reviewed = runs.find((run) => run.id !== other)!;
+    assert.equal(runs.length, 2);
+    assert.ok(message.startsWith(`run ${other!} is active in worktree ${box.repo}, so run ${reviewed.id} is not continued into the fix pass beside it; let run ${other!} finish, or abandon it with \`deep-review abandon --run ${other!} --reason <text>\`; the review of run ${reviewed.id} is written`), message);
+    assert.equal(reviewStatus(reviewed), 'complete');
+    assert.equal(box.events(reviewed.id).some(([kind]) => kind === 'fix.pinned'), false, 'nothing was pinned, so one run stays active');
+    assert.equal(fakeGhCalls(script).length, 4, 'the refused continuation read nothing from GitHub');
+    const created = box.checkpoint.fold(other!);
+    box.checkpoint.append(created.id, created.lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'another command' } }]);
+    reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
+    assert.notEqual(box.checkpoint.fold(reviewed.id).review!.continuedFrom, null, 'the same run, continued once the other run was abandoned');
+  });
 });
