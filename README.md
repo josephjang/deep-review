@@ -1064,9 +1064,12 @@ it passes `--fix`, says in that message that the engine's workers will
 edit the working tree, that it runs the check commands it chose from
 the repository and that the run commits nothing, also when `--fix`
 continues a finished read-only run, which starts its checks and fixes
-at once, so the user can read it after they begin, and afterwards
-offers to commit the edits with `deep-review commit`, after which it
-shows the top of the brief again with `deep-review report`. It ends
+at once, so the user can read it after they begin, and afterwards,
+when the run went on into its fix pass, offers to commit the edits with
+`deep-review commit`, after which it shows the top of the brief again
+with `deep-review report`. When a run of `--pr` had no finding to fix
+and ended with its read-only report, it says so and offers nothing to
+commit. It ends
 each turn with the result it relays, in the language the user writes.
 Asked for more on one finding, it runs `report --finding <number>`; for
 the whole result, `report --brief`; for what the run changed,
