@@ -62,6 +62,12 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(ko('후보 DESIGN-1은 반박되었고, 반박된 DESIGN-1을 다시, 반박된 후보 DESIGN-1과 DESIGN-1후보를 봅니다.'), '반박된 후보는 반박되었고, 반박된 후보를 다시, 반박된 후보와 반박된 후보를 봅니다.');
   });
 
+  it('gives a refuted candidate before a noun its article when nothing determines it, and takes in a finding written before its id', () => {
+    assert.equal(en('DESIGN-1 candidate was refuted. As DESIGN-1 candidate showed, DESIGN-1 candidates rarely are.'), 'A refuted candidate was refuted. As a refuted candidate showed, refuted candidates rarely are.');
+    assert.equal(en('Finding DESIGN-1 was refuted, as the finding DESIGN-1 showed and finding DESIGN-1 did.'), 'A refuted candidate was refuted, as the refuted candidate showed and a refuted candidate did.');
+    assert.equal(ko('지적 사항 DESIGN-1은 반박되었고, 지적사항 DESIGN-1을 다시 봅니다.'), '반박된 후보는 반박되었고, 반박된 후보를 다시 봅니다.');
+  });
+
   it('leaves a text with no names as it is', () => {
     assert.equal(namedFindings('RIPPLE-2 stays.', new Map(), english), 'RIPPLE-2 stays.');
   });
