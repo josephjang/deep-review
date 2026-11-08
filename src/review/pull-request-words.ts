@@ -670,7 +670,7 @@ const korean: PullRequestWords = {
     return `지적 사항 ${String(counts.findings)}건 중 ${String(counts.confirmed)}건이 CONFIRMED, ${String(counts.plausible)}건이 PLAUSIBLE입니다${unverified}.${major} 전체 ${String(counts.findings)}건 중 ${basesKorean(counts)} ${refuted}`;
   },
   modelLine: '설명은 모델이 검증자의 근거를 바탕으로 썼으며, 그 근거는 실행 보고서에 있습니다. 검증된 것은 그 근거뿐입니다.',
-  conclusionDropped: '설명 모델이 낸 요약 가운데 deep-review가 쓸 수 있는 것이 없어,요약과 조치는 deep-review가 직접 쓴 문장으로 적었습니다.',
+  conclusionDropped: '설명 모델이 낸 요약 가운데 deep-review가 쓸 수 있는 것이 없어, 요약과 조치는 deep-review가 직접 쓴 문장으로 적었습니다.',
   areasDropped: '설명 모델이 deep-review의 검사를 통과한 영역을 내지 못해, major 지적 사항은 deep-review가 직접 이름 붙인 한 영역에 모아 적었습니다.',
   refutedDropped: '설명 모델이 반박된 후보에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 각 후보는 찾는 작업자의 요약으로 적었습니다.',
   findingsDropped: (findings) => `설명 모델이 ${findings}에 대해 deep-review의 검사를 통과한 설명을 내지 못해, deep-review가 직접 쓴 문장으로 적었습니다.`,
