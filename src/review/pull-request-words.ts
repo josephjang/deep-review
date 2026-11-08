@@ -302,20 +302,21 @@ const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|
 /**
  * The English name of a refuted candidate (R2, R5 of the finding names in
  * the review), which says each of its words once with the words around
- * the id: a noun `candidate` right before the id or right after it is
- * taken into the name, a `refuted` already written before it is not
+ * the id: a noun `candidate` right before the id or right after it, or
+ * `finding` right before it, is taken into the name, a `refuted` already written before it is not
  * written again, and the name takes the article `a` only when no
  * determiner comes before it and its noun is not plural, as `this
  * DESIGN-1` names `this refuted candidate` and `The candidate DESIGN-1`
- * names `The refuted candidate`.
+ * names `The refuted candidate` and `DESIGN-1 candidate was` names
+ * `A refuted candidate was`.
  */
 function englishRefuted(before: string, after: string): IdName {
-  const preceding = /(?<![\w-])candidate\s+$/i.exec(before)?.[0] ?? '';
+  const preceding = /(?<![\w-])(?:candidate|finding)\s+$/i.exec(before)?.[0] ?? '';
   const rest = before.slice(0, before.length - preceding.length);
   const following = /^\s+(candidates?)\b/i.exec(after);
   const said = /\brefuted\s+$/i.test(rest);
   const determined = new RegExp(`${englishDeterminer}${said ? String.raw`refuted\s+` : ''}$`, 'i').test(rest);
-  const article = determined || following !== null ? '' : 'a';
+  const article = determined || /s$/i.test(following?.[1] ?? '') ? '' : 'a';
   const words = [article, said ? '' : 'refuted', following?.[1] ?? 'candidate'].filter((word) => word !== '');
   return { name: words.join(' '), before: preceding.length, after: following?.[0].length ?? 0 };
 }
@@ -557,11 +558,11 @@ const koreanFindingNoun = /^\s*지적(?:\s*사항)?(?!\s*사항)(?=(?:으로|로
 /**
  * The Korean name of a refuted candidate (R2, R5 of the finding names in
  * the review), 반박된 후보, which takes into itself a noun 후보 right
- * before the id or right after it, and writes 후보 alone after a 반박된
+ * before the id or right after it, or 지적 사항 right before it, and writes 후보 alone after a 반박된
  * already written, as `후보 DESIGN-1은` names `반박된 후보는`.
  */
 function koreanRefuted(before: string, after: string): IdName {
-  const preceding = /(?<!\p{Script=Hangul})후보\s*$/u.exec(before)?.[0] ?? '';
+  const preceding = /(?<!\p{Script=Hangul})(?:후보|지적\s*사항)\s*$/u.exec(before)?.[0] ?? '';
   const said = /(?<!\p{Script=Hangul})반박된\s*$/u.test(before.slice(0, before.length - preceding.length));
   return { name: said ? '후보' : '반박된 후보', before: preceding.length, after: /^\s*후보/.exec(after)?.[0].length ?? 0 };
 }
