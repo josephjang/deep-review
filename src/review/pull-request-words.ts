@@ -288,6 +288,9 @@ const reviewNodesEnglish = [
   '    D --> W["The writer explains it in plain words"]',
 ];
 
+/** A fix against a written rule, in English: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, what follows the review, from its first character. */
+const departureEnglish = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run${then}`;
+
 const english: PullRequestWords = {
   heading: '## deep-review\'s review of this pull request',
   reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}, and changed no file.`,
@@ -365,7 +368,7 @@ const english: PullRequestWords = {
   wouldDoLabel: '**What deep-review would do.**',
   asDecided: 'The fix as decided',
   rejected: (option, reason) => `Rejected: ${option} ${reason}`,
-  departure: (rule, source, fact, accept, reject, fix) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; ${fix} makes the fix as decided unless it is rejected first.`,
+  departure: (rule, source, fact, accept, reject, fix) => departureEnglish(rule, source, fact, accept, reject, `; ${fix} makes the fix as decided unless it is rejected first.`),
   answeredAccept: (at) => `The person who ran this review accepted the departure, on ${at}.`,
   answeredReject: (at) => `The person who ran this review rejected the departure, so the fix follows the rule, on ${at}.`,
   whyAsked: '**Why it is a question.**',
@@ -455,7 +458,7 @@ const english: PullRequestWords = {
       return `${decidedEnglish(counts)} What its fix pass changed reaches this branch only when the person who ran the review pushes it.`;
     },
     departureStands: 'The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.',
-    departure: (rule, source, fact, accept, reject) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run, once the fix pass of the run has ended; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.`,
+    departure: (rule, source, fact, accept, reject) => departureEnglish(rule, source, fact, accept, reject, ', once the fix pass of the run has ended; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.'),
     standing: standingEnglish('the fix pass makes its edit while this option stands'),
     answerQuestion: (command) => `**How to answer.** Once the fix pass of the run has ended, the person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option, and that command applies the answer. A reply on this pull request is not read yet.`,
     howDiagram: (pullRequest) => [
@@ -503,6 +506,9 @@ const reviewNodesKorean = [
   '    V --> D["결정하는 작업자가 고칠지, 물을지, 둘지 정합니다"]',
   '    D --> W["설명 모델이 쉬운 말로 설명합니다"]',
 ];
+
+/** A fix against a written rule, in Korean: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, the sentences of what follows the review. */
+const departureKorean = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. ${then}`;
 
 const korean: PullRequestWords = {
   heading: '## deep-review의 풀 리퀘스트 리뷰',
@@ -580,7 +586,7 @@ const korean: PullRequestWords = {
   wouldDoLabel: '**deep-review가 할 일.**',
   asDecided: '결정된 수정',
   rejected: (option, reason) => `택하지 않은 방법: ${option} ${reason}`,
-  departure: (rule, source, fact, accept, reject, fix) => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. 먼저 거부하지 않으면 ${fix}가 결정대로 고칩니다.`,
+  departure: (rule, source, fact, accept, reject, fix) => departureKorean(rule, source, fact, accept, reject, `먼저 거부하지 않으면 ${fix}가 결정대로 고칩니다.`),
   answeredAccept: (at) => `이 리뷰를 실행한 사람이 ${at}에 이 결정을 받아들였습니다.`,
   answeredReject: (at) => `이 리뷰를 실행한 사람이 ${at}에 이 결정을 거부했으므로, 수정은 규칙을 따릅니다.`,
   whyAsked: '**질문하는 이유.**',
@@ -681,7 +687,7 @@ const korean: PullRequestWords = {
       return `${decidedKorean(counts)} 수정 단계가 바꾼 내용은 이 리뷰를 실행한 사람이 푸시해야 이 브랜치에 반영됩니다.`;
     },
     departureStands: '이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 합니다. 이 리뷰를 실행한 사람이 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.',
-    departure: (rule, source, fact, accept, reject) => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. 답은 그 실행의 수정 단계가 끝난 뒤에 할 수 있습니다. 이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 하며, 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.`,
+    departure: (rule, source, fact, accept, reject) => departureKorean(rule, source, fact, accept, reject, '답은 그 실행의 수정 단계가 끝난 뒤에 할 수 있습니다. 이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 하며, 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.'),
     standing: standingKorean('이 선택지가 유지되는 동안 수정 단계가 그 수정을 합니다.'),
     answerQuestion: (command) => `**답하는 방법.** 그 실행의 수정 단계가 끝난 뒤, 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그 명령이 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
     howDiagram: (pullRequest) => [
