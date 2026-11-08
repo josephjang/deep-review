@@ -42,16 +42,22 @@ describe('the name of a finding in place of its id', () => {
   });
 
   it('says a finding once when a word around its id already says what it names', () => {
-    assert.equal(en('As finding RIPPLE-2 shows, findings SWEEP-1 and RIPPLE-2 differ; see Finding `SWEEP-1`.'), 'As finding 3 shows, findings 1 and finding 3 differ; see Finding 1.');
+    assert.equal(en('As finding RIPPLE-2 shows, findings SWEEP-1 and RIPPLE-2 differ; see Finding `SWEEP-1`.'), 'As finding 3 shows, findings 1 and 3 differ; see Finding 1.');
     assert.equal(en('The DESIGN-1 candidate was refuted, unlike a DESIGN-1; DESIGN-1 candidates rarely are.'), 'The refuted candidate was refuted, unlike a refuted candidate; refuted candidates rarely are.');
     assert.equal(ko('지적 사항 RIPPLE-2와 DESIGN-1 후보를 봅니다.'), '지적 사항 3과 반박된 후보를 봅니다.');
+  });
+
+  it('says each number of a list after findings alone, in English and in Korean', () => {
+    assert.equal(en('Findings SWEEP-1, RIPPLE-2, and SCAN-4 differ; findings SWEEP-1 or `RIPPLE-2` too, but finding SWEEP-1 and RIPPLE-2 do not.'), 'Findings 1, 3, and 3 differ; findings 1 or 3 too, but finding 1 and finding 3 do not.');
+    assert.equal(en('The findings SWEEP-1 and the RIPPLE-2 fix differ.'), 'The findings 1 and the finding 3 fix differ.', 'a list that a word other than a number breaks');
+    assert.equal(ko('지적 사항 SWEEP-1과 RIPPLE-2를, 지적 사항 SWEEP-1, `RIPPLE-2`, ALTITUDE-6을 봅니다.'), '지적 사항 1과 3을, 지적 사항 1, 3, 10을 봅니다.');
   });
 
   it('takes in a noun after the id that says finding, and agrees a Korean particle after it with the name', () => {
     assert.equal(en('The RIPPLE-2 finding is real, and the SWEEP-1 finding\'s fix waits.'), 'The finding 3 is real, and the finding 1\'s fix waits.');
     assert.equal(en('Finding RIPPLE-2 finding stands, and RIPPLE-2 findingsless stays.'), 'Finding 3 stands, and finding 3 findingsless stays.');
     assert.equal(ko('RIPPLE-2 지적 사항은 맞고, SWEEP-1 지적을 먼저, `ALTITUDE-6` 지적사항이 남습니다.'), '지적 사항 3은 맞고, 지적 사항 1을 먼저, 지적 사항 10이 남습니다.');
-    assert.equal(ko('RIPPLE-2 지적 사항, SWEEP-1 지적에서 봅니다.'), '지적 사항 3, 지적 사항 1에서 봅니다.');
+    assert.equal(ko('RIPPLE-2 지적 사항을 보고 SWEEP-1 지적에서 봅니다.'), '지적 사항 3을 보고 지적 사항 1에서 봅니다.');
     assert.equal(ko('RIPPLE-2 지적했듯이 SWEEP-1 지적 사항들과 다릅니다.'), '지적 사항 3 지적했듯이 지적 사항 1 지적 사항들과 다릅니다.', 'a longer word that starts as the noun stays');
   });
 
@@ -80,7 +86,7 @@ describe('the Korean particle after a name', () => {
     assert.equal(ko('RIPPLE-2을 먼저, RIPPLE-2은 나중에.'), '지적 사항 3을 먼저, 지적 사항 3은 나중에.');
     assert.equal(ko('SWEEP-1으로 합칩니다.'), '지적 사항 1로 합칩니다.');
     assert.equal(ko('RIPPLE-2로 합칩니다.'), '지적 사항 3으로 합칩니다.');
-    assert.equal(ko('ALTITUDE-6가 남고 FOOTGUNS-3과 SCAN-4를 봅니다.'), '지적 사항 10이 남고 지적 사항 12와 지적 사항 3을 봅니다.');
+    assert.equal(ko('ALTITUDE-6가 남고 FOOTGUNS-3과 SCAN-4를 봅니다.'), '지적 사항 10이 남고 지적 사항 12와 3을 봅니다.');
     assert.equal(ko('DESIGN-1을 다시 보지 않습니다.'), '반박된 후보를 다시 보지 않습니다.');
   });
 
