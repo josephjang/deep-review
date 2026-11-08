@@ -38552,7 +38552,7 @@ var init_finding_names = __esm({
     init_markdown();
     idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
     urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
-    slashJoined = /[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+    slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
     idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
     idList2 = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
     sentenceOpening = String.raw`[*_(\["'“‘]*`;

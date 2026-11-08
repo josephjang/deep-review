@@ -1,6 +1,6 @@
 # Report: Remaining test bottlenecks
 
-This profile measures the ordinary and resumable-contract tiers after the committed test-tooling changes and the separately prepared O1 path-scan expression. It is an isolated after-O1 configuration, not the current committed engine. The prepared source, regression and regenerated bundles must land together before these observations describe current-head performance. No optimization is implemented by this report.
+This historical profile measured the ordinary and resumable-contract tiers after the test-tooling changes and the then-separately prepared O1 path-scan expression. The [bounded scan source, regressions and regenerated bundles](../changes/2026-11-08-bounded-path-scan.md) are now integrated together. The profile predates those two regression cases and includes disposable hooks, so its observations remain an instrumented baseline rather than literal current-head performance. The profiling itself implements no optimization.
 
 The [options report](2026-11-08-test-time-options.md) holds the previous decisions. The [measurement data](2026-11-08-test-time-measurements.json) adds `remainingBottleneckProfile` with all six samples, per-file/case counters, instrumentation source, fingerprints and limits. The author keeps full raw logs outside the repository.
 
@@ -92,9 +92,9 @@ The first ordinary run constructed 336 ReviewSandbox instances in a cumulative 7
 
 ## Next changes by goal
 
-### P0: Land the prepared scan fix first
+### P0: Scan fix integrated
 
-Complete the prepared source/regression/bundle change as its own validated change. The current committed source still has the old recognizer; this profile reproduces the exact isolated expression from the public data. Do not present 66.425 s as current-head ordinary performance or combine it with historical speedup percentages.
+The source, two regressions and four generated engine bundle/hash files are now integrated together, using the expression recorded in the public data. Latest validation is recorded in the [options report](2026-11-08-test-time-options.md#o1-bounded-path-scanning-integrated). The profile predates the two regressions and includes instrumentation; do not present 66.425 s as literal current-head ordinary performance or combine it with historical speedup percentages.
 
 ### P1: Address the qualifying contract job
 
@@ -118,4 +118,4 @@ The disposable preload hooks public child_process, global completed timers and s
 
 The first ordinary run observed 2,851 parent Node dispatches, 2,387 with child PIDs; 2,354 of those had participating preload rows and 33 did not. Another 464 sync/error dispatches had no reported child PID, so they are unjoinable rather than proven uninstrumented. Across all participants there were 3,016 Node process-start rows and 2,488 normal exit rows. The first contract run observed 11,133 parent Node dispatches, 11,028 with child PIDs; 10,996 had participating preload rows, 32 did not, and 105 had no reported child PID. Its 11,939 participating starts and 8,689 exit rows do not form a complete OS process census. Raw rows and summaries retain these coverage distinctions.
 
-An untimed runtime/process smoke check passed 32 cases with one skip before sampling. The profiling logs contained no failure, exclusion or rerun. The separate exact-source `npm run check` passed lint, typecheck and 3,731 ordinary cases: 3,718 passed, 13 skipped, zero failed or canceled. The command took 241.618 s and the runner 217.175 s; these are single correctness-run timings, not a new comparison. `npm run verify` matched Claude's 43 and Codex's 42 files. Validation used committed source and roles without O1 or profiling hooks; these report-only edits alter none of its code inputs. No permanent code, tests, CI or cache policy changes are included, and the real review remains required before release.
+An untimed runtime/process smoke check passed 32 cases with one skip before sampling. The profiling logs contained no failure, exclusion or rerun. The separate exact-source `npm run check` passed lint, typecheck and 3,731 ordinary cases: 3,718 passed, 13 skipped, zero failed or canceled. The command took 241.618 s and the runner 217.175 s; these are single correctness-run timings, not a new comparison. `npm run verify` matched Claude's 43 and Codex's 42 files. That original profiling-report validation used committed source and roles without O1 or profiling hooks; its timings remain historical correctness evidence. The subsequent bounded-scan integration has its own validation record in the linked options report. This profiling work changed no permanent code, tests, CI or cache policy, and the real review remains required before release.

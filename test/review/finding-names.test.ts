@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { describe, it } from 'node:test';
 import { koreanParticle, namedFindings, namedInDiagram, type NamedId } from '../../src/review/finding-names.ts';
 import { pullRequestWords } from '../../src/review/pull-request-words.ts';
@@ -44,6 +45,32 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(en(text), text);
     const paths = 'See src/RIPPLE-2/a.ts, docs/RIPPLE-2, RIPPLE-2/notes, src\\RIPPLE-2, ./RIPPLE-2, a.RIPPLE-2, #RIPPLE-2, RIPPLE-2-1 and https://x.test/RIPPLE-2/SWEEP-1.';
     assert.equal(en(paths), paths);
+  });
+
+  it('keeps complete adjacent paths, including both separators and Unicode surroundings, while naming slash-joined ids', () => {
+    const text = 'See (notes/RIPPLE-2),[src\\SWEEP-1]; 한글docs/RIPPLE-2문자 and ./RIPPLE-2/~notes. Then RIPPLE-2/SWEEP-1.';
+    assert.equal(en(text), 'See (notes/RIPPLE-2),[src\\SWEEP-1]; 한글docs/RIPPLE-2문자 and ./RIPPLE-2/~notes. Then finding 3/finding 1.');
+    assert.equal(en('Paths /RIPPLE-2, \\SWEEP-1, ../RIPPLE-2 and ~/SWEEP-1 stay.'), 'Paths /RIPPLE-2, \\SWEEP-1, ../RIPPLE-2 and ~/SWEEP-1 stay.');
+  });
+
+  it('finishes a long word without a separator, preserving its text and the ids around it', () => {
+    // A child timeout bounds a synchronous regex regression; node:test cannot interrupt a blocked event loop.
+    const naming = new URL('../../src/review/finding-names.ts', import.meta.url).href;
+    const words = new URL('../../src/review/pull-request-words.ts', import.meta.url).href;
+    const script = `
+      import assert from 'node:assert/strict';
+      import { namedFindings } from ${JSON.stringify(naming)};
+      import { pullRequestWords } from ${JSON.stringify(words)};
+      const names = new Map([['RIPPLE-2', { kind: 'finding', number: 3 }]]);
+      const name = (text) => namedFindings(text, names, pullRequestWords('en').naming);
+      const word = 'q'.repeat(300_000);
+      assert.equal(name(word), word);
+      assert.equal(name(word + ' RIPPLE-2.'), word + ' finding 3.');
+      assert.equal(name(word + '/RIPPLE-2'), word + '/RIPPLE-2');
+    `;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 30_000, windowsHide: true });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
   });
 
   it('names an id that a hyphen joins to a word or a slash to another id, and one after an ellipsis (FOOTGUNS-2 of the review of the change)', () => {
