@@ -13,7 +13,8 @@ export type NamedId = { readonly kind: 'finding'; readonly number: number } | { 
  * The name a language gives an id in a worker's text, and how much of the
  * text around the id it stands in for: the last `before` characters of
  * the text before the id and the first `after` characters of the text
- * after it, as a noun next to the id that the name already says.
+ * after it, as a noun next to the id that the name already says, or an
+ * article before it that the name does not take.
  */
 export interface IdName {
   readonly name: string;
@@ -23,7 +24,7 @@ export interface IdName {
 
 /** How a language names a finding in a worker's text (R1, R2, R5 of the finding names in the review). */
 export interface FindingNaming {
-  /** A numbered finding, as `finding 3`, or its number alone after the text `before` it that already says finding, taking in a noun at the start of the text `after` it that says finding. */
+  /** A numbered finding, as `finding 3`, or its number alone after the text `before` it that already says finding, taking in an article that ends that text where the language has one and a noun at the start of the text `after` it that says finding. */
   readonly finding: (number: number, before: string, after: string) => IdName;
   /** A candidate the verifiers refuted, which has no number, taking the article of the text `before` it and the noun of the text `after` it when they give one. */
   readonly refuted: (before: string, after: string) => IdName;

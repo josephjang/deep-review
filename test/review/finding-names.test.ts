@@ -5,7 +5,7 @@ import { pullRequestWords } from '../../src/review/pull-request-words.ts';
 
 const english = pullRequestWords('en').naming;
 const korean = pullRequestWords('ko').naming;
-/** RIPPLE-2 is finding 3, SCAN-4 merged into it, SWEEP-1 is finding 1, finding 10 and 12 for the readings of a whole ten, DESIGN-1 refuted. */
+/** RIPPLE-2 is finding 3, SCAN-4 merged into it, SWEEP-1 is finding 1, finding 10 and 12 for the readings of a whole ten, DESIGN-1 and EFFICIENCY-1 refuted. */
 const names = new Map<string, NamedId>([
   ['RIPPLE-2', { kind: 'finding', number: 3 }],
   ['SCAN-4', { kind: 'finding', number: 3 }],
@@ -13,6 +13,7 @@ const names = new Map<string, NamedId>([
   ['ALTITUDE-6', { kind: 'finding', number: 10 }],
   ['FOOTGUNS-3', { kind: 'finding', number: 12 }],
   ['DESIGN-1', { kind: 'refuted' }],
+  ['EFFICIENCY-1', { kind: 'refuted' }],
 ]);
 
 const en = (text: string): string => namedFindings(text, names, english);
@@ -79,6 +80,12 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(en('DESIGN-1 candidate was refuted. As DESIGN-1 candidate showed, DESIGN-1 candidates rarely are.'), 'A refuted candidate was refuted. As a refuted candidate showed, refuted candidates rarely are.');
     assert.equal(en('Finding DESIGN-1 was refuted, as the finding DESIGN-1 showed and finding DESIGN-1 did.'), 'A refuted candidate was refuted, as the refuted candidate showed and a refuted candidate did.');
     assert.equal(ko('지적 사항 DESIGN-1은 반박되었고, 지적사항 DESIGN-1을 다시 봅니다.'), '반박된 후보는 반박되었고, 반박된 후보를 다시 봅니다.');
+  });
+
+  it('takes in the article a writer chose for the sound of an id: a finding takes none, and a refuted candidate writes its own', () => {
+    assert.equal(en('An ALTITUDE-6 shows it; this is an `ALTITUDE-6`, not a RIPPLE-2.'), 'Finding 10 shows it; this is finding 10, not finding 3.');
+    assert.equal(en('An EFFICIENCY-1 was wrong, as an EFFICIENCY-1 candidate and an candidate EFFICIENCY-1 were.'), 'A refuted candidate was wrong, as a refuted candidate and a refuted candidate were.');
+    assert.equal(en('A finding ALTITUDE-6 and an refuted EFFICIENCY-1 stay; its plan RIPPLE-2 too.'), 'A finding 10 and an refuted candidate stay; its plan finding 3 too.', 'an article before a noun that already says it, or a word that only ends in an');
   });
 
   it('leaves a text with no names as it is', () => {
