@@ -1405,7 +1405,8 @@ function nothingToFix(run: RunState): string | null {
  * does.
  *
  * A second pass opens the run it names instead (`openContinuing`), with
- * no look for another run and no read of GitHub.
+ * no read of GitHub; it looks for another run only to refuse one that is
+ * active.
  */
 async function openRun(context: OpenContext): Promise<OpenedRun> {
   if (context.continuing !== null) return openContinuing(context, context.continuing);
@@ -1549,22 +1550,36 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
  * Open the run that the first pass of this command brought to its
  * read-only report, for its fix pass (R1, R4, PD4, TD4 of the review of a
  * fix run), under the run's lock, which the first pass still holds, so no
- * other command took the run in between. The run is folded again and
- * refused when it is no longer a complete read-only run, when
- * `notContinuable` names a reason, or when its files no longer hold what
- * it froze or `HEAD` is not its head (`treeMismatch`), then held to every
- * check of a continuation (`continuationOf`). It never looks for another
- * run, never creates one and reads nothing from GitHub; a refusal appends
- * nothing, so the run stays complete and continuable.
+ * other command took the run in between, and under the checkpoint's start
+ * lock, which creating or resuming a run takes, as `openRun` continues a
+ * run. Once its report is written the run is no longer active, so another
+ * command may have created or resumed a run since: any other active run
+ * refuses the continuation, naming it, so the pin never leaves two active
+ * runs. The run is folded again and refused when it is no longer a
+ * complete read-only run, when `notContinuable` names a reason, or when
+ * its files no longer hold what it froze or `HEAD` is not its head
+ * (`treeMismatch`), then held to every check of a continuation
+ * (`continuationOf`), and the start lock is released. It never creates a
+ * run and reads nothing from GitHub; a refusal appends nothing, so the run
+ * stays complete and continuable. The pin is appended after, as for any
+ * continuation: https://github.com/josephjang/deep-review/issues/44
  */
 async function openContinuing(context: OpenContext, continuing: Continuing): Promise<OpenedRun> {
-  const run = context.checkpoint.fold(continuing.runId);
-  const changed = reviewStatus(run) === 'complete' && run.review?.fix === null ? notContinuable(run) : `it is ${reviewStatus(run)}, no longer a finished read-only run`;
-  if (changed !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${changed}; \`deep-review status --run ${run.id}\` shows it`);
-  const scope = run.scope!;
-  const moved = treeMismatch(scope, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path), gitHead(context.worktree));
-  if (moved !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${moved}; restore the files it reviewed and check out its head ${scope.head}`);
-  return { state: run, release: continuing.release, capture: null, configure: null, continuation: await continuationOf(run, context) };
+  const { checkpoint, log } = context;
+  const releaseStart = releaseOnExit(acquireStartLock(checkpoint.root));
+  try {
+    const other = activeRunAmong(readableRuns(checkpoint, log).filter((run) => run.id !== continuing.runId));
+    if (other !== null) throw new ReviewRefusedError(`run ${other.id} is active in worktree ${other.worktree}, so run ${continuing.runId} is not continued into the fix pass beside it; let run ${other.id} finish, or abandon it with \`deep-review abandon --run ${other.id} --reason <text>\``);
+    const run = checkpoint.fold(continuing.runId);
+    const changed = reviewStatus(run) === 'complete' && run.review?.fix === null ? notContinuable(run) : `it is ${reviewStatus(run)}, no longer a finished read-only run`;
+    if (changed !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${changed}; \`deep-review status --run ${run.id}\` shows it`);
+    const scope = run.scope!;
+    const moved = treeMismatch(scope, () => findDrift(run, context.worktree, context.match).files.map((file) => file.path), gitHead(context.worktree));
+    if (moved !== null) throw new ReviewRefusedError(`run ${run.id} is not continued into the fix pass: ${moved}; restore the files it reviewed and check out its head ${scope.head}`);
+    return { state: run, release: continuing.release, capture: null, configure: null, continuation: await continuationOf(run, context) };
+  } finally {
+    releaseStart();
+  }
 }
 
 /**
