@@ -685,19 +685,30 @@ export interface MergedAnswer {
  * dropped, with the failures of the latest answer that gave it and
  * `extra`, such as why no other answer came. A finding kept is in the
  * order of `ids`. A part the version does not have is null.
+ *
+ * In an answer of version 2 the conclusion's `why` is the summary that
+ * names the areas (R1, PD6 of the review that reads as a report), so the
+ * two are taken from one answer: the first that passed both. When none
+ * did, the areas are taken from the first answer that passed them, and
+ * the conclusion of that answer failed, so it is dropped with that
+ * answer's failures; with no areas kept, the conclusion is taken as any
+ * other part, since the body then posts no summary.
  */
 export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
   const dropped: DroppedPart[] = [];
+  const passes = <T>(part: CheckedPart<T> | null): part is CheckedPart<T> => part !== null && part.value !== null && part.failures.length === 0;
   const pick = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart): T | null => {
     const given = parts.filter((part): part is CheckedPart<T> => part !== null);
-    const passed = given.find((part) => part.value !== null && part.failures.length === 0);
+    const passed = given.find(passes);
     if (passed !== undefined) return passed.value;
     dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
     return null;
   };
-  const conclusion = pick(answers.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
+  const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
+  const areasFrom = version === 2 ? (paired ?? answers.find((answer) => passes(answer.areas))) : undefined;
+  const conclusion = pick((areasFrom === undefined ? answers : [areasFrom]).map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
   const account = version === 1 ? pick(answers.map((answer) => answer.account), (failures) => ({ part: 'account', failures })) : null;
-  const areas = version === 2 ? pick(answers.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures })) : null;
+  const areas = version === 2 ? pick((areasFrom === undefined ? answers : [areasFrom]).map((answer) => answer.areas), (failures) => ({ part: 'areas', failures })) : null;
   const lines = version === 2 ? pick(answers.map((answer) => answer.refuted), (failures) => ({ part: 'refuted', failures })) : null;
   const findings = ids.flatMap((id) => {
     const kept = pick(answers.map((answer) => answer.findings.get(id)!), (failures) => ({ part: 'finding', finding: id, failures }));
@@ -1015,7 +1026,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     ...(dropped.length === 0 ? [] : [
       '### What failed in the earlier answer',
       '',
-      'An earlier writer\'s answer failed the engine\'s checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.',
+      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version === 2 && dropped.some((part) => part.part === 'conclusion' || part.part === 'areas') ? ' The conclusion and the areas go together, since the conclusion\'s summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.' : ''}`,
       '',
       ...dropped.map((part) => `- ${partNameOf(part)}: ${part.failures.map((failure) => inlineText(failure)).join('; ')}`),
       '',
