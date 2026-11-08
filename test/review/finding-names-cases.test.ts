@@ -51,3 +51,19 @@ describe('an id in a URL', () => {
     assert.equal(namedFindings('Set key=RIPPLE-2 aside.', names, english), 'Set key=finding 3 aside.');
   });
 });
+
+// R5 of the finding names in the review: a capital only where a sentence starts.
+describe('a name after an abbreviation that ends in a period', () => {
+  it('keeps a name in lower case after i.e., e.g., vs., cf., etc. and viz.', () => {
+    assert.equal(namedFindings('This, i.e. RIPPLE-2, fails; e.g. SWEEP-1 too, vs. RIPPLE-2.', names, english), 'This, i.e. finding 3, fails; e.g. finding 1 too, vs. finding 3.');
+    assert.equal(namedFindings('Others (cf. RIPPLE-2, etc. SWEEP-1, viz. RIPPLE-2) differ. E.g. SWEEP-1 too.', names, english), 'Others (cf. finding 3, etc. finding 1, viz. finding 3) differ. E.g. finding 1 too.');
+  });
+
+  it('still capitalizes a name after a sentence that ends in a word holding such letters, or on a list item', () => {
+    assert.equal(namedFindings('It runs in the dev. RIPPLE-2 waits.\n- SWEEP-1 too.', names, english), 'It runs in the dev. Finding 3 waits.\n- Finding 1 too.');
+  });
+
+  it('keeps a name in lower case after an abbreviation in a note of a diagram', () => {
+    assert.equal(namedInDiagram('sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. RIPPLE-2 waits', names, english), 'sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. finding 3 waits');
+  });
+});
