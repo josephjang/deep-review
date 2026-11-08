@@ -1,8 +1,8 @@
 // CI policy lives outside the engine bundle. Unknown inputs always require the contract.
-import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runGitSync } from '../src/runtime/git-sync.ts';
 
 const sha = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const reasons = ['docs-only', 'relevant-change', 'non-pr', 'inventory-unavailable'] as const;
@@ -47,9 +47,7 @@ export function documentationOnly(changes: readonly Change[]): boolean {
 }
 
 function git(cwd: string, ...args: string[]): Buffer {
-  const result = spawnSync('git', args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (result.error || result.status !== 0) throw new Error('Git inventory unavailable');
-  return result.stdout;
+  return runGitSync(args, { cwd, maxBuffer: 32 * 1024 * 1024, timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 function object(value: unknown): Record<string, unknown> {
