@@ -494,7 +494,8 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     const report = box.checkpoint.evidence.pathOf(run.review!.report!.report);
     const { head } = commitsOf(box);
     assert.match(message, new RegExp(`^run ${run.id} spent \\d+\\.\\d\\d USD of the 5\\.00 USD run budget, so no fixer could launch; nothing to continue; run it again with --budget-usd above \\d+\\.\\d\\d, or start a new run with --fresh; `));
-    assert.ok(message.endsWith(`; the review of run ${run.id} is written, and its read-only report is ${report}; once that is done, \`deep-review review --pr 42 --fix\` continues the run into the fix pass while the pull request is still at ${head}, the head the run reviewed, and reviews it again in a new run once its head has moved`), message);
+    assert.ok(message.endsWith(`; the review of run ${run.id} is written, and its read-only report is ${report}; to continue this run rather than start a new one, take the action that keeps it, after which \`deep-review review --pr 42 --fix\` continues it into the fix pass while the pull request is still at ${head}, the head the run reviewed, and reviews a head that has moved in a new run`), message);
+    assert.ok(!message.includes('once that is done'), 'the note does not take up an action that starts a new run');
     assert.equal(reviewStatus(run), 'complete');
     assert.equal(run.review!.fix, null, 'nothing was pinned');
     assert.equal(fakeGhCalls(script).length, 4, 'the refused continuation read nothing from GitHub');
