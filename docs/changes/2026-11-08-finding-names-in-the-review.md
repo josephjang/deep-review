@@ -150,4 +150,34 @@ The id of a candidate merged into a finding names that finding, so a text that s
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The work is in pull request #129. The proposal came first, then the amendments of its design review, each finding of high or medium severity in a commit of its own. The form's naming is `namedFindings` and `namedInDiagram` in `src/review/finding-names.ts`, called by the speaker of `src/review/pull-request-form.ts` for every text it cleans as a worker's, with the words of each language in `src/review/pull-request-words.ts`. The README says what the form does to an id.
+
+### Changes of the proposal during the work
+
+A design review of the proposal, by a reader given the proposal, the code and the vision note but not the author's reasoning, found no finding of high severity and four of medium severity, each amended in its own commit: a particle after the closing backtick of a span that names an id (R5), every text a diagram shows and a diagram left out for an id it keeps (R4, RK4), a word next to the id that already says what it names (R5, RK5), and a gate that tests ids that runs recorded, in Korean too (R7). The findings of low severity shared one commit: the texts named, the order of naming and cleaning, the Korean reading of a number, PD2 on the prompts and RK2.
+
+The review of the pull request by deep-review, at the gate below, changed the proposal again. Its fix pass made R1 state the boundaries of an id as the code applies them, taught the form the texts and nouns it now reads, and, against two rules this change had written, wrote each number of a list after "findings" alone and left a diagram out only for an id left as an identifier, not one in a comment line or a path; the author accepted both departures. The author answered its question on ids joined by a slash or a hyphen with its option 2: such an id is named unless it is in a URL or a file path. The Korean run found four faults of Korean that the English one could not; three were fixed by hand, one commit each (the particles that start with 으로, 후보자 after a refuted candidate's id, and the line that replaces a dropped diagram), and the fourth, a noun before a refuted candidate's id, the English fix pass had already fixed. Its question on a finding whose block a cut removes was answered with its default: the finding keeps its number.
+
+### Checks
+
+At the head of the work, `npm run check` passed: 3713 tests, 3700 passed, 0 failed, 13 skipped, against 3650 passed before the work. `npm run verify` matched both builds.
+
+### The gate (R7)
+
+Each render below counts ids of the run outside the trace lines, the hidden markers and the lines a dry run adds for the operator. A fixture id of this change's own tests, such as `RIPPLE-2`, quoted in a finding about the code, is no id of the run that reviewed it and is not counted. The renders of recorded runs were made by a script the author keeps outside the repository, which folds a copy of the ledger and calls the form as `publish` does; a run whose file list the script did not read from GitHub puts every finding in the body.
+
+| Render | Ids of the run posted before the change | After |
+| --- | --- | --- |
+| Run `b856cf6f`, the review of #96, recorded | 8 | 0 |
+| Run `b4e019b4`, the review of #121, recorded | 6 | 0 |
+| Run `c6ed03ed`, the review of #126, recorded | 1 | 0 |
+| Run `ff194d59`, the review of #128, recorded; its summary posted "(SWEEP-1)" | 1 | 0 |
+| Run `fa5e702c`, the review of #123, recorded | 1, in a code example | the same, in a code example |
+| Run `9b58f5d7`, the review of #129 in English, printed with `publish --dry-run` and posted | 3, by the form of `main` | 1 at the post, `SCAN-1` in "RIPPLE-2/SCAN-1", which the answer on joined ids then named; 0 outside code at the head |
+| Run `43e57d31`, a read-only review of #129 in Korean, printed with `publish --dry-run` | not rendered | 0 outside code at the head, but one id of a range, "RIPPLE-2-SCAN-4", where the second id stays |
+
+The English run of #129 cost 40.64 USD with its fix pass and the answer, and decided 17 fixes, one question and seven findings left as is; its review was posted on #129 with 18 comments, and a second `publish` posted nothing. The texts of its workers named three findings of the run by id, `RIPPLE-7`, `SCAN-1` and `SWEEP-1`, which the form of `main` would have posted as written. The Korean run cost 20.79 USD and decided 16 fixes, two questions and ten left as is; its dry run at the head of the work, printed by the engine built from it, names findings as "지적 사항 7이", "지적 사항 12와" and "지적 사항 1과", each particle agreeing with the number. A particle with more Hangul after it, such as 로서는, keeps the writer's form, as RK3 accepts. No diagram of any render was left out.
+
+The gate passes, with two departures from R7 as written. The English run was posted before its fixes, so the review on #129 still shows the one joined id that the answer later named. The Korean run reviewed the change before the fixes, so its dry run is the review of that head printed by the engine of the final head, not a review of the final head.
