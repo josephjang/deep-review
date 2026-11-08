@@ -68,7 +68,7 @@ The input of `pullRequestForm` gains `fixPass: 'to-come' | 'continued'`, which `
 
 ### The skills and the README (R8)
 
-Both skill texts, `skill/claude/skills/deep-review/SKILL.md` and `skill/codex/SKILL.md`, drop the sentence that `publish` refuses a run that `--fix` continued and the order it asks for, and offer to post after a run of `--pr` with or without `--fix`. The paragraph on posting says that `publish` posts the review of a run of `--pr`, with or without `--fix`. The README's section "Posting the review" says what R8 of the requirements lists, and its list of the body says what a continued run's first line and summary say.
+Both skill texts, `skill/claude/skills/deep-review/SKILL.md` and `skill/codex/SKILL.md`, drop the sentence that `publish` refuses a run that `--fix` continued and the order it asks for, and offer to post after a run of `--pr` with or without `--fix`. After a run of `--pr` with `--fix`, step 4 offers to post before the fixes are pushed to the branch of the pull request, and says why: a push moves its head, which `publish` refuses (R8). The paragraph on posting says that `publish` posts the review of a run of `--pr`, with or without `--fix`. The README's section "Posting the review" says what R8 of the requirements lists, and its list of the body says what a continued run's first line and summary say.
 
 ### Where the code goes
 
