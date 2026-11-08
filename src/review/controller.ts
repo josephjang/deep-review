@@ -803,8 +803,8 @@ async function runPass(options: ReviewOptions, log: (line: string) => void, cont
       state = append(checkpoint, state, [{ kind: 'review.configured', version: configure.version, payload: configure.payload }]);
       const pinnedNow = configure.payload;
       const language = configure.version === 11 ? `; it explains its review in ${configure.payload.settings.values['review.language']}` : '';
-      // A run of a pull request is configured read-only with --fix too, and this command continues it once its report is written (R1 of the review of a fix run).
-      const continues = configure.version === 11 && (options.fix ?? null) !== null && namesItsPullRequest(options.scope, state) ?'; this command continues it into the fix pass once its report is written' : '';
+      // A run of a pull request is configured read-only with --fix too, and this command continues it once its report is written (R1 of the review of a fix run): said by the rule runReview continues it by, not by the version of its configuration.
+      const continues = (options.fix ?? null) !== null && continuesAfterReport(state, options.scope) ? '; this command continues it into the fix pass once its report is written' : '';
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}${continues}`);
       for (const line of configuredLines(runId, configure.resolved)) log(line);
     }
