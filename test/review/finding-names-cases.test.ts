@@ -103,6 +103,31 @@ describe('the name of a finding in a Mermaid markdown string', () => {
   });
 });
 
+// R3, R4 of the finding names in the review: an id left where prose keeps it is no identifier.
+describe('a diagram that keeps an id where prose keeps one', () => {
+  it('posts a diagram whose id is left on a comment line', () => {
+    assert.equal(namedPassing('flowchart LR\n  %% RIPPLE-2 is the crash\n  A["x"] --> B["y"]'), 'flowchart LR\n  %% RIPPLE-2 is the crash\n  A["x"] --> B["y"]');
+    assert.equal(namedPassing('sequenceDiagram\n    %% SWEEP-1 first\n  A->>B: x'), 'sequenceDiagram\n    %% SWEEP-1 first\n  A->>B: x');
+  });
+
+  it('posts a diagram whose id is left in a path, a URL or a code span longer than it in a label', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["see notes/RIPPLE-2.md"] --> B["x"]'), 'flowchart LR\n  A["see notes/RIPPLE-2.md"] --> B["x"]');
+    assert.equal(namedPassing('flowchart LR\n  A["`guard(RIPPLE-2)` waits on RIPPLE-2"] --> B["x"]'), 'flowchart LR\n  A["`guard(RIPPLE-2)` waits on finding 3"] --> B["x"]');
+    assert.equal(namedPassing('flowchart LR\n  A["https://x.test/a?id=SWEEP-1"] --> B["x"]'), 'flowchart LR\n  A["https://x.test/a?id=SWEEP-1"] --> B["x"]');
+  });
+
+  it('names an id in the text of an edge right after its opening', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["x"] --RIPPLE-2 waits--> B["y"]'), 'flowchart LR\n  A["x"] --Finding 3 waits--> B["y"]');
+  });
+
+  it('still leaves out a diagram whose id is an identifier joined to an arrow, or one beside a comment', () => {
+    assert.equal(namedPassing('flowchart LR\n  RIPPLE-2-->A["x"]'), null);
+    assert.equal(namedPassing('flowchart LR\n  A["x"]-->RIPPLE-2'), null);
+    assert.equal(namedPassing('sequenceDiagram\n  RIPPLE-2->>B: calls'), null);
+    assert.equal(namedPassing('flowchart LR\n  %% a comment\n  A["x"] --> RIPPLE-2'), null);
+  });
+});
+
 // R4 of the finding names in the review: the texts of a flowchart that diagramFailures reads as labels.
 describe('the name of a finding in each text of a flowchart that the diagram checks read', () => {
   it('names an id in the title of a subgraph given alone, quoted or between brackets', () => {
