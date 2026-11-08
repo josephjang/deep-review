@@ -50,7 +50,7 @@ A refusal of the second pass, from `openRun` or from `continuationOf`, is caught
 
 ### A resumed read-only run of a pull request (R3)
 
-`resumedFixFlags` logs for a read-only run of a pull request resumed with `--fix` that the command continues it into the fix pass once its report is written, in place of the line that says `--fix` is ignored. The first pass resumes it as any read-only run, and the rule of the two passes continues it.
+`resumedFixFlags` logs for a read-only run of a pull request resumed with `--fix` that the command continues it into the fix pass once its report is written, in place of the line that says `--fix` is ignored. Since the run recorded no check flags at configuration (R1), the line also says that this command's `--check` and `--no-check` settle the checks of the fix pass, so every one the command that started the run gave is given again. The first pass resumes it as any read-only run, and the rule of the two passes continues it.
 
 ### The review of a continued run (R5)
 
