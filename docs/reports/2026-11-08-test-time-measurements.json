@@ -556,5 +556,131 @@
       "logs": "The author keeps the full validation logs outside the repository.",
       "timingLimitation": "Single verification run, not a before-and-after scheduling comparison."
     }
+  },
+  "conditionalContractCi": {
+    "status": "locally-implemented-and-validated",
+    "proposal": "docs/changes/2026-11-08-conditional-contract-ci.md",
+    "workflow": ".github/workflows/check.yml",
+    "classifier": "scripts/contract-ci.ts",
+    "policy": {
+      "exemptEvent": "pull_request",
+      "exemptPaths": [
+        "README.md",
+        "AGENTS.md",
+        "docs/**/*.md"
+      ],
+      "allowedFileModes": [
+        "100644",
+        "000000 (addition/deletion endpoint)"
+      ],
+      "nonemptyCompleteInventoryRequired": true,
+      "diffViews": [
+        "unique merge-base to PR head",
+        "event base to tested merge"
+      ],
+      "renames": "disabled so source and destination each count",
+      "uncertainInventory": "valid full-run fallback",
+      "failedOrMalformedPlan": "full contract attempted, each existing matrix gate fails",
+      "workflowCancellation": "expensive contract jobs use !cancelled(); no exemption is inferred",
+      "mainPush": "full contract retained",
+      "schedule": "23 3 * * 1 (Monday 03:23 UTC, default branch)",
+      "workflowDispatch": "full workflow on selected revision",
+      "permissions": {
+        "contents": "read"
+      },
+      "branchProtection": {
+        "inspected": false,
+        "httpStatus": 401,
+        "changed": false,
+        "existingMatrixNamesRetained": true,
+        "newAggregateRequiredAutomatically": false
+      }
+    },
+    "workAccounting": {
+      "eligiblePr": {
+        "contractInvocationsOmitted": 3,
+        "npmInstallationsOmitted": 3,
+        "contractOsJobsStillAllocated": 3,
+        "ordinaryCheckJobsUnchanged": 3,
+        "additionalPlanJobs": 1,
+        "additionalAggregateJobs": 1
+      },
+      "relevantPrAndMain": {
+        "contractInvocationsRetained": 3,
+        "additionalPlanJobs": 1,
+        "additionalAggregateJobs": 1
+      },
+      "weeklyOrManual": {
+        "contractJobs": 3,
+        "ordinaryCheckAndVerifyJobs": 3,
+        "planJobs": 1,
+        "aggregateJobs": 1
+      },
+      "note": "Counts describe workflow design, not observed runner time or elapsed savings."
+    },
+    "actionlint": {
+      "version": "1.7.12",
+      "command": "actionlint -shellcheck='' -pyflakes='' .github/workflows/check.yml",
+      "exitCode": 0,
+      "diagnostics": 0
+    },
+    "verification": {
+      "status": "passed",
+      "scope": "Isolated checkout of committed source and role inputs plus this conditional-contract change. Separately prepared O1 and unrelated role edits excluded.",
+      "completedComparisonSamples": 0,
+      "preliminaryRunStopped": "Stopped before final verification to add PR-event and safe-numeric gate validation plus merge-only inventory regression. Its logs are retained outside the repository and excluded.",
+      "fullLogs": "The author keeps full validation logs outside the repository.",
+      "commands": [
+        {
+          "command": "npm ci",
+          "exitCode": 0,
+          "elapsedSeconds": 2.41403992
+        },
+        {
+          "command": "npm run check",
+          "exitCode": 0,
+          "elapsedSeconds": 578.706521819
+        },
+        {
+          "command": "npm run verify",
+          "exitCode": 0,
+          "elapsedSeconds": 0.36766643700003626
+        }
+      ],
+      "policyTests": {
+        "tests": 23,
+        "passed": 23,
+        "failed": 0,
+        "scope": "Included in the final full ordinary-suite verification, not a separate performance sample."
+      },
+      "ordinarySuite": {
+        "tests": 3736,
+        "suites": 558,
+        "passed": 3723,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 13,
+        "todo": 0,
+        "runnerDurationMs": 554698.995623
+      },
+      "contractRun": false,
+      "realReviewRun": false
+    },
+    "ciObservation": {
+      "triggered": false,
+      "eligiblePrFraction": null,
+      "contractInvocationsAvoidedObserved": null,
+      "runnerTimeSavedMs": null,
+      "latestPushLatencyReductionPercent": null,
+      "netWeeklyRunnerTimeChangeMs": null
+    },
+    "limitations": [
+      "Local policy and Git tests do not execute GitHub scheduling or confirm branch protection.",
+      "Only contract commands and their npm installations are omitted; documentation-only PRs still allocate three OS runners and all ordinary checks.",
+      "Full-history classification, aggregate and setup add overhead; weekly/manual triggers also run all ordinary check/verify jobs.",
+      "A false exemption may delay detection until main validation, while an installable main revision exists.",
+      "Schedules can be delayed or dropped; every main push retains the full contract.",
+      "No local scheduling speedup percentage or CI-wide improvement is claimed."
+    ]
   }
 }
