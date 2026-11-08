@@ -184,9 +184,9 @@ describe('deep-review commit', { timeout: 900_000, concurrency: sandboxConcurren
     box.script({});
     assert.equal((await box.review('claude')).kind, 'report');
     const readOnly = box.checkpoint.foldRuns().at(-1)!.id;
-    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: readOnly }), refused(/ran without --fix/));
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: readOnly }), refused(/never went into the fix pass, so it has no fixes to commit$/));
     // The first 8 characters of the id name the same run (R11 of the questions in the chat).
-    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: shortRunId(readOnly) }), refused(new RegExp(`^run ${readOnly} ran without --fix`)));
+    assert.throws(() => commitRun({ checkpoint: box.checkpoint, worktree: box.repo, runId: shortRunId(readOnly) }), refused(new RegExp(`^run ${readOnly} never went into the fix pass, so it has no fixes to commit$`)));
     // A fix run whose fixer found its finding already applied, and changed nothing: a new run, not a continuation of the read-only one, which found nothing.
     box.script({ ...twoFixes, 'fixer:fixes:c1-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) }, 'fixer:fixes:c2-1': { output: fixerAnswer([{ status: 'already-applied', files: [] }]) } });
     assert.equal((await box.fix('claude', { fresh: true })).kind, 'report');

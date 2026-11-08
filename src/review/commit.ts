@@ -101,7 +101,8 @@ function gitFailure(args: readonly string[], error: unknown, timeout?: number): 
 function whyNotCommittable(run: RunState): string | null {
   const fix = run.review?.fix ?? null;
   if (run.status !== 'active') return `run ${run.id} is ${run.status}; only a completed fix run is committed`;
-  if (run.review === null || fix === null) return `run ${run.id} ran without --fix, so it has no fixes to commit`;
+  // Not "without --fix": review --pr --fix configures a read-only run, which may end with its review and never fix (R1, R2 of the review of a fix run).
+  if (run.review === null || fix === null) return `run ${run.id} never went into the fix pass, so it has no fixes to commit`;
   if (run.review.report === null) return `run ${run.id} has no report yet; run the review to its report first`;
   if (fix.revisions.length === 0) return `run ${run.id} changed no file, so there is nothing to commit`;
   if (committedRevisions(fix) >= fix.revisions.length) return `run ${run.id}'s commits were already created, and it has no revision since: ${fix.commits.flatMap((series) => series.commits).map((commit) => commit.sha.slice(0, 12)).join(', ')}`;
