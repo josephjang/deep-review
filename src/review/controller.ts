@@ -1897,7 +1897,8 @@ function modelFlagsWords(runtime: string, source: ConfigurationSource | undefine
  * a read-only run of a pull request that can be continued, resumed by a
  * command whose `--pr` names that pull request, is continued by this
  * command once its report is written, which it says instead (R3 of the
- * review of a fix run, `continuesAfterReport`);
+ * review of a fix run, `continuesAfterReport`), with the check flags to
+ * give again, since its configuration recorded none (R1 of that change);
  * the check flags settle their kinds until the checks are planned (TD6 of
  * the repository survey), and are named and ignored after.
  */
@@ -1908,7 +1909,7 @@ function resumedFixFlags(run: RunState, pinned: ReviewConfiguration, context: Pi
   const howContinued = run.review?.phases.decision.status === 'skipped' ? '' : '; once its report is written, run again with --fix to continue it into the fix pass';
   if (!pinned.fix && fix !== null) {
     context.log(continuesAfterReport(run, context.scope)
-      ? `run ${runId} is a read-only run of a pull request; this command continues it into the fix pass once its report is written`
+      ? `run ${runId} is a read-only run of a pull request; this command continues it into the fix pass once its report is written, with the checks that its --check and --no-check settle, since a read-only run records none at configuration, so give again every one the command that started the run gave`
       : `run ${runId} is pinned without the fix pass; --fix${checkFlags ? ', --check and --no-check are' : ' is'} ignored${howContinued}`);
   }
   if (pinned.fix && fix === null) context.log(`run ${runId} is pinned to the fix pass and continues it; the absence of --fix is ignored`);
