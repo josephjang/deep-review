@@ -72,8 +72,20 @@ const sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\
 /** A common abbreviation that ends in a period and goes on with its sentence, as `e.g.`, right before a name or what opens it: no sentence starts after it. */
 const abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, 'iu');
 
-/** A Korean particle with two forms, written right after a name and followed by no other Hangul letter (R5, PD7). */
-const particleAfter = /^(으로|로|은|는|이|가|을|를|과|와)(?!\p{Script=Hangul})/u;
+/** The two forms of each Korean particle with two: after a final consonant, and after a vowel. 으로서, 으로써 and 으로부터 are 으로 with a particle after it, and take its forms. */
+const koreanForms: Readonly<Record<string, readonly [consonant: string, vowel: string]>> = {
+  은: ['은', '는'], 는: ['은', '는'],
+  이: ['이', '가'], 가: ['이', '가'],
+  을: ['을', '를'], 를: ['을', '를'],
+  과: ['과', '와'], 와: ['과', '와'],
+  으로: ['으로', '로'], 로: ['으로', '로'],
+  으로서: ['으로서', '로서'], 로서: ['으로서', '로서'],
+  으로써: ['으로써', '로써'], 로써: ['으로써', '로써'],
+  으로부터: ['으로부터', '로부터'], 로부터: ['으로부터', '로부터'],
+};
+
+/** A Korean particle with two forms, written right after a name and followed by no other Hangul letter (R5, PD7), the longest form first, so 으로서 is not read as 으로 before 서. */
+const particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join('|')})(?!\\p{Script=Hangul})`, 'u');
 
 /** One id of the run in a text: where it starts and ends, a code span that holds only it included, and what it names. */
 interface Slot {
@@ -348,21 +360,12 @@ function koreanFinal(name: string): 'none' | 'rieul' | 'other' {
   return final === 0 ? 'none' : final === 8 ? 'rieul' : 'other';
 }
 
-/** The two forms of each Korean particle with two: after a final consonant, and after a vowel. */
-const koreanForms: Readonly<Record<string, readonly [consonant: string, vowel: string]>> = {
-  은: ['은', '는'], 는: ['은', '는'],
-  이: ['이', '가'], 가: ['이', '가'],
-  을: ['을', '를'], 를: ['을', '를'],
-  과: ['과', '와'], 와: ['과', '와'],
-  으로: ['으로', '로'], 로: ['으로', '로'],
-};
-
-/** The form of a Korean particle that agrees with how a name is read: `로`, not `으로`, after `ㄹ`. */
+/** The form of a Korean particle that agrees with how a name is read: `로`, not `으로`, after `ㄹ`, and so for each particle that starts with 으로. */
 export function koreanParticle(name: string, particle: string): string {
   const forms = koreanForms[particle];
   if (forms === undefined) return particle;
   const final = koreanFinal(name);
   if (final === 'none') return forms[1];
-  if (final === 'rieul' && forms[0] === '으로') return '로';
+  if (final === 'rieul' && forms[0].startsWith('으로')) return forms[1];
   return forms[0];
 }
