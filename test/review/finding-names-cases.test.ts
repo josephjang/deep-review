@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { diagramFailures } from '../../src/review/explanation.ts';
-import { namedInDiagram, type NamedId } from '../../src/review/finding-names.ts';
+import { namedFindings, namedInDiagram, type NamedId } from '../../src/review/finding-names.ts';
 import { pullRequestWords } from '../../src/review/pull-request-words.ts';
 
 const english = pullRequestWords('en').naming;
@@ -32,5 +32,22 @@ describe('the name of a finding in a shown text of a sequence or state diagram t
 
   it('splits a line at its first colon outside a quoted text', () => {
     assert.equal(namedPassing('stateDiagram-v2\n  state "RIPPLE-2: parse" as P\n  P --> Q: SWEEP-1 waits'), 'stateDiagram-v2\n  state "Finding 3: parse" as P\n  P --> Q: Finding 1 waits');
+  });
+});
+
+// R3 of the finding names in the review: an id inside a URL stays.
+describe('an id in a URL', () => {
+  it('leaves an id in the query of a bare URL and of a Markdown link target, and names one past the link', () => {
+    const text = 'See https://github.com/o/r/issues?q=RIPPLE-2 and [x](https://x.test/a?id=RIPPLE-2&b=1), then RIPPLE-2.';
+    assert.equal(namedFindings(text, names, english), 'See https://github.com/o/r/issues?q=RIPPLE-2 and [x](https://x.test/a?id=RIPPLE-2&b=1), then finding 3.');
+  });
+
+  it('leaves an id in a URL whose path holds parentheses, and in an autolink', () => {
+    const text = 'Read <https://x.test/a?SWEEP-1> and https://x.test/wiki/A_(b)?x=SWEEP-1 first.';
+    assert.equal(namedFindings(text, names, english), text);
+  });
+
+  it('names an id after an equals sign outside a URL', () => {
+    assert.equal(namedFindings('Set key=RIPPLE-2 aside.', names, english), 'Set key=finding 3 aside.');
   });
 });

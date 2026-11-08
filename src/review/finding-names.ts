@@ -24,6 +24,9 @@ export interface FindingNaming {
 /** An id of a finding or a candidate as the engine gives it, outside a path, a URL or a word: an angle's name in capitals, a hyphen and a whole number from 1. */
 const idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
 
+/** A URL in a text: a scheme and `://`, up to a space, an angle bracket or a parenthesis that closes no parenthesis of its own, as the one that ends a Markdown link's target. */
+const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+
 /** Where a sentence starts: the start of a text, after the end of a sentence, or at the start of a line or a list item. */
 const sentenceStart = /(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)$/;
 
@@ -37,7 +40,7 @@ interface Slot {
   readonly named: NamedId;
 }
 
-/** The ids of `names` in a text, in order: each outside code spans, and each code span whose whole text is one. */
+/** The ids of `names` in a text, in order: each outside code spans and URLs, and each code span whose whole text is one. */
 function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
   const slots: Slot[] = [];
   let offset = 0;
@@ -46,9 +49,11 @@ function slotsOf(text: string, names: ReadonlyMap<string, NamedId>): Slot[] {
       const named = names.get(part.text.replace(/^`+ ?| ?`+$/g, ''));
       if (named !== undefined) slots.push({ start: offset, end: offset + part.text.length, named });
     } else {
+      const urls = [...part.text.matchAll(urlPattern)].map((url) => ({ start: url.index, end: url.index + url[0].length }));
       for (const match of part.text.matchAll(idPattern)) {
         const named = names.get(match[0]);
-        if (named !== undefined) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
+        const inUrl = urls.some((url) => url.start <= match.index && match.index < url.end);
+        if (named !== undefined && !inUrl) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
       }
     }
     offset += part.text.length;
