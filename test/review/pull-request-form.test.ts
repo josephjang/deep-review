@@ -227,6 +227,10 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
     const none = formOf(runBeforeExplanation().fold(), null);
     includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
+    excludes(none.body, 'A model wrote the explanations');
+    const nothingKept = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
+    excludes(formOf(nothingKept, null).body, 'A model wrote the explanations');
+    includes(section(fallback.body, '### How far to trust this review'), 'A model wrote the explanations');
     excludes(none.comments[0]!.body, 'did not explain this finding');
   });
 
