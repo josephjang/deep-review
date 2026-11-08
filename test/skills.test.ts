@@ -237,6 +237,10 @@ describe('the skill texts', () => {
       assert.ok(!step2.includes('publish'), 'deciding whether to fix asks for no order of posting');
       const step4 = text.slice(text.indexOf('4. Exit code 0'), text.indexOf('5. '));
       assert.match(step4, /After a run of `--pr`, with or without `--fix`, also offer to post its review\s+on the pull request\./);
+      // R2 of the review of a fix run: review --pr --fix with nothing to fix ends with the read-only report, so step 4 offers to commit only after a fix pass ran.
+      assert.match(step4, /After a run with `--fix` that ran its\s+fix pass, also say that the fixes are in the working tree,/);
+      assert.match(step4, /When stderr says that a run of `--pr`\s+has\s+no finding to fix and ends with its read-only report, say that\s+instead, and offer nothing to commit\./);
+      assert.doesNotMatch(step4, /After a run with `--fix`, also say/);
       assert.match(text, /It posts the review of a finished\s+run of `--pr`, with or without `--fix`, as a comment on the pull request, and the\s+last line it prints is the URL of the review\./);
       assert.match(text, /When the user asks to post the review on the pull request, run the\s+`main\.mjs` of step 3 with only `publish`, adding `--run <id>` when they\s+name a run, and wait for it to exit\./);
       assert.match(text, /Exit code 0: show the\s+user that line, as printed, with no summary of the review\./);
