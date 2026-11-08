@@ -74,7 +74,7 @@ The small line at the end of a comment keeps the id and the run, as R14 states, 
 
 ### R7: The gate
 
-The change is accepted by a real run, as principle 12 of the vision note asks: a read-only review of this change's own pull request by the engine built from it, printed with `publish --dry-run` and posted. The gate passes when no id of the run appears in the body or the comments outside the trace lines, and each name that replaced one reads right in its sentence.
+The change is accepted by real runs, as principle 12 of the vision note asks, and a run counts only when its recorded texts name findings by id, since a run whose workers wrote no id tests nothing. Three renders make the gate. First, the review of this change's own pull request by the engine built from it, in English, printed with `publish --dry-run` before it is posted. Second, a read-only run of the same pull request in Korean, printed with `publish --dry-run`, since the particles of R5 run only in Korean. Third, the recorded run that reviewed #128, whose posted summary named "(SWEEP-1)", rendered again through the form by the engine built from this change; that run is posted already, so `publish --dry-run` refuses it, and a script the author keeps outside the repository folds its ledger and calls the form as `publish` does. For each render the gate's record names the ids that the writer's answer and the decider's decisions hold and how each was posted. The gate passes when no id of the run appears in the body or the comments outside the trace lines and the hidden markers, which hold the id by design, and each name that replaced one reads right in its sentence.
 
 ## Product Decisions
 
