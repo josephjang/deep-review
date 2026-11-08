@@ -127,7 +127,7 @@ export interface PullRequestFormInput {
   readonly state: RunState;
   /** Whether the run went on into its fix pass, which the folded `state` before the continuation does not show. */
   readonly fixPass: FixPass;
-  /** The writer's answer as the evidence store froze it (`recordedAnswerOf`), or null when the run recorded no explanation or no answer passed any part. */
+  /** The writer's answer as the evidence store froze it (`recordedAnswerOf`), or null when the run recorded no explanation or no writer completed its unit and no answer passed any part. A writer that completed its unit has its answer frozen even when no part of it passed. */
   readonly answer: WriterAnswer | null;
   /** The place of each finding (`placeFindings`), against the files of the pull request as `publish` read them. */
   readonly places: readonly FindingPlacement[];
@@ -589,11 +589,14 @@ function headingSection(view: FormView): Section {
   return { part: 'heading', lines: [words.heading, '', view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 
-/** The summary (R1): the counts of the findings with the writer's sentence on the areas, left out when the checks dropped the writer's areas, which the body then does not show, then what deep-review decided and what happens next. */
+/** The writer's sentence on the areas that the summary posts: none when the answer kept no conclusion, or when the checks dropped the writer's areas, which the body then does not show. */
+const postedWhy = (view: FormView): string | null => (view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === 'areas') ?? false) ? null : view.conclusion.why);
+
+/** The summary (R1): the counts of the findings with the writer's sentence on the areas (`postedWhy`), then what deep-review decided and what happens next. */
 function summarySection(view: FormView, say: Speaker): Section {
   const { words, findings } = view;
-  const areasDropped = view.recorded?.dropped.some((part) => part.part === 'areas') ?? false;
-  const why = view.conclusion === null || areasDropped ? [] : say.paragraphs(view.conclusion.why);
+  const given = postedWhy(view);
+  const why = given === null ? [] : say.paragraphs(given);
   const decided = {
     fixes: findings.filter((finding) => finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule').length,
     questions: findings.filter((finding) => finding.finding.status === 'question').length,
@@ -762,8 +765,41 @@ function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<Body
   return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, details(words.refutedSummary(count), entries)) };
 }
 
-/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer, then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
-function trustSection(view: FormView): Section {
+/**
+ * Whether a finding's block posts text of the writer: the title and the
+ * explanation of one it explained, wherever the finding is shown; and, in
+ * the comment or the block in full of one that acts, the reason the writer
+ * gave for not explaining it, or its sentence of what deep-review would do
+ * about a fix. The writer's line of how it was checked and its kind come
+ * only with an explanation, and its sentence for a question is not posted.
+ */
+function postsWriterFinding(finding: FindingView, cuts: ReadonlySet<BodyCut>): boolean {
+  const { explained } = finding;
+  if (!acts(finding)) return explained.kind === 'explained' && (!cuts.has('left') || keptByCut(finding));
+  return explained.kind === 'explained'
+    || (explained.kind === 'unexplained' && explained.reason !== null)
+    || (finding.decision?.decision === 'fix' && finding.action !== null);
+}
+
+/**
+ * Whether the body with the cuts given, or a comment, posts any text of
+ * the writer (R12): the summary's sentence on the areas, the writer's
+ * areas when a major finding acts, a refuted line the cuts keep, or a
+ * finding's text (`postsWriterFinding`). A frozen answer can post none: a
+ * writer that completed its unit has its answer frozen even when the
+ * checks dropped every part, an answer of version 1 may keep only its
+ * account, which the form does not post, and the parts it kept may be
+ * ones the body leaves out.
+ */
+function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
+  return postedWhy(view) !== null
+    || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
+    || (!cuts.has('refuted') && view.refuted.some((line) => line.claim !== null || line.why !== null))
+    || view.findings.some((finding) => postsWriterFinding(finding, cuts));
+}
+
+/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
+function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
   const { words, brief, recorded } = view;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
   const notes: string[] = [];
@@ -778,8 +814,8 @@ function trustSection(view: FormView): Section {
     const answered = [...standingAnswers(view.review).keys()].map(numberOf);
     if (answered.length > 0) notes.push(words.predates(words.findingList(answered)));
   }
-  // With no answer that passed a part, the review is in the engine's words alone, and the notes say so.
-  const wrote = view.input.answer === null ? [] : [words.modelLine];
+  // With no text of the writer posted, the review is in the engine's words alone, and the notes say so.
+  const wrote = postsWriterText(view, cuts) ? [words.modelLine] : [];
   return { part: 'trust', lines: blocks([words.trustHeading], [[words.trust(view.counts), ...wrote].join(' ')], ...notes.map((note) => [note])) };
 }
 
@@ -818,7 +854,7 @@ function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sect
     minorSection(view, say, cuts),
     leftSection(view, say, cuts),
     notExaminedSection(view, say, cuts),
-    trustSection(view),
+    trustSection(view, cuts),
     lastSection(view, say),
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
