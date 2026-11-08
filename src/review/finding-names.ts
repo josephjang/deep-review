@@ -93,20 +93,20 @@ const holdsId = (text: string, names: ReadonlyMap<string, NamedId>): boolean => 
 /** The kind of a diagram, from its first line. */
 const diagramKind = (header: string): 'flowchart' | 'sequence' | 'state' | 'other' => (/^(?:flowchart|graph)\b/.test(header) ? 'flowchart' : /^sequenceDiagram\b/.test(header) ? 'sequence' : /^stateDiagram/.test(header) ? 'state' : 'other');
 
-/** The texts a line of a diagram of each kind shows besides its quoted texts, its texts between bars and, in a sequence or state diagram, its text after a colon: each as a pattern whose second group is the text. */
-const shownTexts: Readonly<Record<'flowchart' | 'sequence' | 'state' | 'other', readonly RegExp[]>> = {
-  flowchart: [
-    /((?:--|==|-\.)[ \t]+)([^-=."|\s][^"|]*?)([ \t]+(?:-->|==>|\.->|---|===|-\.-))/g,
-    /^([ \t]*subgraph[ \t]+\S+[ \t]*\[)([^\]"]*)(\])/,
-  ],
-  sequence: [
-    /^([ \t]*(?:loop|alt|else|opt|par|and|critical|option|break|box)[ \t]+)([^:]+)()$/,
-    /^([ \t]*(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+)([^:]+)()$/,
-    /^([ \t]*title[ \t]+)([^:]+)()$/,
-  ],
-  state: [],
-  other: [],
-};
+/** The texts a line of a flowchart shows besides its quoted texts and its texts between bars: each as a pattern whose second group is the text. */
+const flowchartTexts: readonly RegExp[] = [
+  /((?:--|==|-\.)[ \t]+)([^-=."|\s][^"|]*?)([ \t]+(?:-->|==>|\.->|---|===|-\.-))/g,
+  /^([ \t]*subgraph[ \t]+\S+[ \t]*\[)([^\]"]*)(\])/,
+];
+
+/** A line of a sequence diagram whose text after its keyword is shown whole, colons included: the label of a block, the alias of a participant, or the title. */
+const sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
+
+/** Where the first colon of a line outside its quoted texts is, which starts the text after the colon; -1 when it has none. */
+function colonOf(line: string): number {
+  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ':') return match.index;
+  return -1;
+}
 
 /**
  * A diagram as the review posts it, each id of the run in `names`
@@ -126,6 +126,8 @@ export function namedInDiagram(diagram: string, names: ReadonlyMap<string, Named
     return `${lead}${namedFindings(text.slice(lead.length), names, naming)}`;
   };
   const labelled = (text: string): string => text.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  // A shown text whose quoted parts are each named as a text of their own, and whose other parts are named as they stand.
+  const quotedOrNot = (text: string): string => text.replace(/"([^"]*)"|[^"]+/g, (part, quoted?: string) => (quoted === undefined ? named(part) : `"${named(quoted)}"`));
   let inNote = false;
   const result = lines.map((line, index) => {
     if (index <= headerAt) return line;
@@ -138,9 +140,12 @@ export function namedInDiagram(diagram: string, names: ReadonlyMap<string, Named
       inNote = true;
       return line;
     }
-    const colon = kind === 'flowchart' ? -1 : line.indexOf(':');
+    if (kind === 'flowchart') return flowchartTexts.reduce((text, pattern) => text.replace(pattern, (_whole, open: string, shown: string, close: string) => `${open}${named(shown)}${close}`), labelled(line));
+    const label = kind === 'sequence' ? sequenceLabel.exec(line) : null;
+    if (label !== null) return `${label[1]!}${quotedOrNot(label[2]!)}`;
+    const colon = colonOf(line);
     if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
-    return shownTexts[kind].reduce((text, pattern) => text.replace(pattern, (_whole, open: string, shown: string, close: string) => `${open}${named(shown)}${close}`), labelled(line));
+    return labelled(line);
   }).join('\n');
   return holdsId(result, names) ? null : result;
 }
