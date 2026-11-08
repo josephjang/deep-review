@@ -38359,6 +38359,10 @@ var init_settings_report = __esm({
 });
 
 // src/review/finding-names.ts
+function outsideUrls(text3, pattern) {
+  const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
+  return [...text3.matchAll(pattern)].filter((match) => !urls.some((url2) => url2.start <= match.index && match.index < url2.end));
+}
 function slotsOf(text3, names2) {
   const slots = [];
   let offset = 0;
@@ -38367,7 +38371,7 @@ function slotsOf(text3, names2) {
       const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
       if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
     } else {
-      for (const match of part.text.matchAll(idPattern)) {
+      for (const match of outsideUrls(part.text, idPattern)) {
         const named = names2.get(match[0]);
         if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
       }
@@ -38381,19 +38385,106 @@ function namedFindings2(text3, names2, naming) {
   let out = "";
   let at = 0;
   for (const slot of slotsOf(text3, names2)) {
+    if (slot.start < at) continue;
     out += text3.slice(at, slot.start);
     const after = text3.slice(slot.end);
-    const plain = slot.named.kind === "finding" ? naming.finding(slot.named.number, out) : naming.refuted(out, after);
-    const name = sentenceStart.test(out) ? naming.starting(plain) : plain;
+    const given = slot.named.kind === "finding" ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
+    out = out.slice(0, out.length - given.before);
+    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
     out += name;
-    at = slot.end;
-    const particle = particleAfter.exec(after);
+    at = slot.end + given.after;
+    const particle = particleAfter.exec(text3.slice(at));
     if (particle !== null) {
       out += naming.particle(name, particle[1]);
       at += particle[1].length;
     }
   }
   return out + text3.slice(at);
+}
+function holdsId(diagram, names2) {
+  const leftover = new RegExp(String.raw`(?<![\w/\\.#])(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?![\w/]|\.\w)`, "g");
+  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideUrls(part.text, leftover).length > 0));
+}
+function shownNamed(shown, named) {
+  const inner = shown.slice(1, -1);
+  if (shown.startsWith("|")) {
+    const quoted2 = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
+    return `|${quoted2 === null ? named(inner) : `${quoted2[1]}${shownNamed(quoted2[2], named)}${quoted2[3]}`}|`;
+  }
+  const markdown = /^`([^`]+)`$/.exec(inner);
+  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]) ? named(inner) : `\`${named(markdown[1])}\``}"`;
+}
+function partsNamed(text3, named, bars) {
+  return text3.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => part.startsWith('"') || bars && part.startsWith("|") ? shownNamed(part, named) : named(part));
+}
+function edgeTextAt2(line, at) {
+  edgeTextOpening2.lastIndex = at;
+  const opening = edgeTextOpening2.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing2.lastIndex = end;
+    const closing = edgeTextClosing2.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+function flowchartLineNamed(line, named) {
+  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
+  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
+  if (subgraph !== null) {
+    const rest2 = subgraph[2];
+    const bracketed = subgraphBracketed.exec(rest2);
+    if (bracketed !== null) return `${subgraph[1]}${bracketed[1]}${named(bracketed[2])}${bracketed[3]}`;
+    return `${subgraph[1]}${rest2.includes("[") ? rest2.replace(/"[^"]*"/g, (quoted2) => shownNamed(quoted2, named)) : partsNamed(rest2, named, false)}`;
+  }
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const edge = edgeTextAt2(line, at);
+    if (edge !== null) {
+      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
+      at = edge.closed;
+      continue;
+    }
+    const char = line.charAt(at);
+    if (char === '"' || char === "|") {
+      const close2 = line.indexOf(char, at + 1);
+      if (close2 === -1) return `${out}${line.slice(at)}`;
+      out += shownNamed(line.slice(at, close2 + 1), named);
+      at = close2 + 1;
+      continue;
+    }
+    const id = nodeId2.exec(line.slice(at));
+    if (id === null) {
+      out += char;
+      at += 1;
+      continue;
+    }
+    out += id[0];
+    at += id[0].length;
+    if (!line.startsWith("@{", at)) continue;
+    let close = at + 2;
+    while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+    if (close === line.length) return `${out}${line.slice(at)}`;
+    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel2, (_whole, open2, value) => `${open2}${named(value)}`));
+    out += `@{${body}}`;
+    at = close + 1;
+  }
+  return out;
+}
+function colonOf(line) {
+  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ":") return match.index;
+  return -1;
 }
 function namedInDiagram(diagram, names2, naming) {
   if (names2.size === 0) return diagram;
@@ -38404,7 +38495,7 @@ function namedInDiagram(diagram, names2, naming) {
     const lead = /^\s*/.exec(text3)[0];
     return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
   };
-  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
   let inNote = false;
   const result = lines.map((line, index2) => {
     if (index2 <= headerAt) return line;
@@ -38417,9 +38508,12 @@ function namedInDiagram(diagram, names2, naming) {
       inNote = true;
       return line;
     }
-    const colon = kind === "flowchart" ? -1 : line.indexOf(":");
+    if (kind === "flowchart") return flowchartLineNamed(line, named);
+    const label = kind === "sequence" ? sequenceLabel.exec(line) : null;
+    if (label !== null) return `${label[1]}${partsNamed(label[2], named, false)}`;
+    const colon = colonOf(line);
     if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
-    return shownTexts[kind].reduce((text3, pattern) => text3.replace(pattern, (_whole, open2, shown, close) => `${open2}${named(shown)}${close}`), labelled(line));
+    return labelled(line);
   }).join("\n");
   return holdsId(result, names2) ? null : result;
 }
@@ -38444,29 +38538,25 @@ function koreanParticle(name, particle) {
   if (final === "rieul" && forms[0] === "\uC73C\uB85C") return "\uB85C";
   return forms[0];
 }
-var idPattern, sentenceStart, particleAfter, holdsId, diagramKind, shownTexts, koreanForms;
+var idPattern, urlPattern, sentenceOpening, sentenceStart, abbreviationBefore, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel, koreanForms;
 var init_finding_names = __esm({
   "src/review/finding-names.ts"() {
     "use strict";
     init_markdown();
     idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
-    sentenceStart = /(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)$/;
+    urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+    sentenceOpening = String.raw`[*_(\["'“‘]*`;
+    sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
+    abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
     particleAfter = new RegExp("^(\uC73C\uB85C|\uB85C|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640)(?!\\p{Script=Hangul})", "u");
-    holdsId = (text3, names2) => [...names2.keys()].some((id) => new RegExp(`(?<![\\w-])${RegExp.escape(id)}(?!\\w)`).test(text3));
     diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
-    shownTexts = {
-      flowchart: [
-        /((?:--|==|-\.)[ \t]+)([^-=."|\s][^"|]*?)([ \t]+(?:-->|==>|\.->|---|===|-\.-))/g,
-        /^([ \t]*subgraph[ \t]+\S+[ \t]*\[)([^\]"]*)(\])/
-      ],
-      sequence: [
-        /^([ \t]*(?:loop|alt|else|opt|par|and|critical|option|break|box)[ \t]+)([^:]+)()$/,
-        /^([ \t]*(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+)([^:]+)()$/,
-        /^([ \t]*title[ \t]+)([^:]+)()$/
-      ],
-      state: [],
-      other: []
-    };
+    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
+    nodeId2 = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel2 = /((?:^|[\s,])label\s*:)([^,]*)/;
+    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
+    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
     koreanForms = {
       \uC740: ["\uC740", "\uB294"],
       \uB294: ["\uC740", "\uB294"],
@@ -38497,6 +38587,26 @@ function decidedEnglish(counts) {
   const left = counts.left === 0 ? "" : `${String(counts.left)} ${counts.left === 1 ? "is" : "are"} left as is`;
   return `deep-review ${acting.join(" and ")}${left === "" ? "" : `; ${left}`}.`;
 }
+function englishFinding(number5, before, after) {
+  const said2 = englishFindingSaid.test(before);
+  return {
+    name: said2 ? String(number5) : `finding ${String(number5)}`,
+    before: said2 ? 0 : englishIndefinite.exec(before)?.[0].length ?? 0,
+    after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0
+  };
+}
+function englishRefuted(before, after) {
+  const preceding = /(?<![\w-])(?:candidate|finding)\s+$/i.exec(before)?.[0] ?? "";
+  const unsaid = before.slice(0, before.length - preceding.length);
+  const said2 = /\brefuted\s+$/i.test(unsaid);
+  const an = said2 ? "" : /(?<![\w-])an\s+$/i.exec(unsaid)?.[0] ?? "";
+  const rest2 = unsaid.slice(0, unsaid.length - an.length);
+  const following = /^\s+(candidates?)\b/i.exec(after);
+  const determined = new RegExp(`${englishDeterminer}${said2 ? String.raw`refuted\s+` : ""}$`, "i").test(rest2);
+  const article = determined || /s$/i.test(following?.[1] ?? "") ? "" : "a";
+  const words = [article, said2 ? "" : "refuted", following?.[1] ?? "candidate"].filter((word2) => word2 !== "");
+  return { name: words.join(" "), before: preceding.length + an.length, after: following?.[0].length ?? 0 };
+}
 function basesKorean(counts) {
   const ways = [["ran", "\uCF54\uB4DC\uB97C \uC2E4\uD589\uD574"], ["traced", "\uCF54\uB4DC\uB97C \uB530\uB77C\uAC00"], ["read", "\uCF54\uB4DC\uB97C \uC77D\uC5B4"]].filter(([basis]) => counts.bases[basis] > 0);
   const told = ways.length === 0 ? "\uD655\uC778 \uBC29\uBC95\uC774 \uAE30\uB85D\uB41C \uD310\uC815\uC740 \uC5C6\uC2B5\uB2C8\uB2E4." : `${ways.map(([basis, how]) => `${String(counts.bases[basis])}\uAC74\uC740 ${how}`).join(", ")} \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`;
@@ -38510,11 +38620,16 @@ function decidedKorean(counts) {
   ];
   return `deep-review\uC758 \uACB0\uC815\uC740 ${parts.join(", ")}\uC785\uB2C8\uB2E4.`;
 }
+function koreanRefuted(before, after) {
+  const preceding = new RegExp("(?<!\\p{Script=Hangul})(?:\uD6C4\uBCF4|\uC9C0\uC801\\s*\uC0AC\uD56D)\\s*$", "u").exec(before)?.[0] ?? "";
+  const said2 = new RegExp("(?<!\\p{Script=Hangul})\uBC18\uBC15\uB41C\\s*$", "u").test(before.slice(0, before.length - preceding.length));
+  return { name: said2 ? "\uD6C4\uBCF4" : "\uBC18\uBC15\uB41C \uD6C4\uBCF4", before: preceding.length, after: /^\s*후보/.exec(after)?.[0].length ?? 0 };
+}
 function pullRequestWords(language) {
   const primary = language.split("-")[0].toLowerCase();
   return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
 }
-var standingEnglish, reviewedEnglish, reviewNodesEnglish, departureEnglish, english, standingKorean, reviewNodesKorean, departureKorean, korean, pullRequestLanguages, pullRequestWordTables;
+var standingEnglish, reviewedEnglish, reviewNodesEnglish, departureEnglish, englishFindingSaid, englishDeterminer, englishIndefinite, english, standingKorean, reviewNodesKorean, departureKorean, koreanFindingSaid, koreanFindingNoun, korean, pullRequestLanguages, pullRequestWordTables;
 var init_pull_request_words = __esm({
   "src/review/pull-request-words.ts"() {
     "use strict";
@@ -38533,6 +38648,9 @@ var init_pull_request_words = __esm({
       '    D --> W["The writer explains it in plain words"]'
     ];
     departureEnglish = (rule, source, fact, accept, reject, then) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run${then}`;
+    englishFindingSaid = /\b(?:findings?\s+|findings\s+\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+)\d+)*(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+))$/i;
+    englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|every|another|any|no)\s+`;
+    englishIndefinite = /(?<![\w-])an?\s+$/i;
     english = {
       heading: "## deep-review's review of this pull request",
       reviewed: (head2, files, base) => `${reviewedEnglish(head2, files, base)}, and changed no file.`,
@@ -38635,8 +38753,8 @@ var init_pull_request_words = __esm({
       diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
       diagramNamesIds: "A diagram is left out here, because it names a finding by deep-review's internal id where the review cannot write the finding's number; the writer's answer on the machine that holds the run keeps it.",
       naming: {
-        finding: (number5, before) => /\bfindings?\s+$/i.test(before) ? String(number5) : `finding ${String(number5)}`,
-        refuted: (before, after) => /^\s+candidates?\b/i.test(after) ? "refuted" : /\b(?:the|a|an)\s+$/i.test(before) ? "refuted candidate" : "a refuted candidate",
+        finding: englishFinding,
+        refuted: englishRefuted,
         starting: capitalized,
         particle: (_name, particle) => particle
       },
@@ -38722,6 +38840,8 @@ var init_pull_request_words = __esm({
       '    D --> W["\uC124\uBA85 \uBAA8\uB378\uC774 \uC26C\uC6B4 \uB9D0\uB85C \uC124\uBA85\uD569\uB2C8\uB2E4"]'
     ];
     departureKorean = (rule, source, fact, accept, reject, then) => `**\uC774 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" \uCD9C\uCC98: ${source} \uADDC\uCE59\uACFC \uB9DE\uC9C0 \uC54A\uB294 \uC0AC\uC2E4: ${fact} \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0\uC11C ${accept} \uBA85\uB839\uC73C\uB85C \uC774 \uACB0\uC815\uC744 \uBC1B\uC544\uB4E4\uC774\uAC70\uB098 ${reject} \uBA85\uB839\uC73C\uB85C \uAC70\uBD80\uD569\uB2C8\uB2E4. ${then}`;
+    koreanFindingSaid = /지적\s*사항\s*(?:\d+(?:(?:[과와]\s*|\s*,\s*)\d+)*(?:[과와]\s*|\s*,\s*))?$/;
+    koreanFindingNoun = new RegExp("^\\s*\uC9C0\uC801(?:\\s*\uC0AC\uD56D)?(?!\\s*\uC0AC\uD56D)(?=(?:\uC73C\uB85C|\uB85C|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640|\uC758|\uC5D0\uC11C|\uC5D0|\uB3C4|\uB9CC)?(?!\\p{Script=Hangul}))", "u");
     korean = {
       heading: "## deep-review\uC758 \uD480 \uB9AC\uD018\uC2A4\uD2B8 \uB9AC\uBDF0",
       reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC73C\uBA70, \uD30C\uC77C\uC740 \uD558\uB098\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`,
@@ -38831,8 +38951,13 @@ var init_pull_request_words = __esm({
       diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
       diagramNamesIds: "\uC774 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uC9C0\uC801 \uC0AC\uD56D\uC744 deep-review \uB0B4\uBD80 id\uB85C \uAC00\uB9AC\uD0A4\uB294\uB370, \uADF8 \uC790\uB9AC\uC5D0\uB294 \uB9AC\uBDF0\uAC00 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uBC88\uD638\uB97C \uC4F8 \uC218 \uC5C6\uC5B4 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
       naming: {
-        finding: (number5, before) => /지적\s*사항\s*$/.test(before) ? String(number5) : `\uC9C0\uC801 \uC0AC\uD56D ${String(number5)}`,
-        refuted: (_before, after) => /^\s*후보/.test(after) ? "\uBC18\uBC15\uB41C" : "\uBC18\uBC15\uB41C \uD6C4\uBCF4",
+        finding: (number5, before, after) => ({
+          name: koreanFindingSaid.test(before) ? String(number5) : `\uC9C0\uC801 \uC0AC\uD56D ${String(number5)}`,
+          before: 0,
+          // A noun after the id that says finding, 지적 사항 or 지적 as in `RIPPLE-2 지적은`, is said by the name; the particle after it then follows the name.
+          after: koreanFindingNoun.exec(after)?.[0].length ?? 0
+        }),
+        refuted: koreanRefuted,
         starting: (name) => name,
         particle: koreanParticle
       },
@@ -40670,7 +40795,7 @@ function speakerOf(machine, words, names2) {
     secrets += cleaned2.secrets;
     return cleaned2.text;
   };
-  const named = (text3) => namedFindings2(inlineText(text3).trim(), names2, words.naming);
+  const named = (text3) => inlineText(namedFindings2(text3.trim(), names2, words.naming)).trim();
   const prose = (text3) => counted3(publicProse(named(text3), machine));
   return {
     words: (text3) => counted3(publicWords(named(text3), machine)),
@@ -40679,7 +40804,7 @@ function speakerOf(machine, words, names2) {
     code: (text3) => codeSpan(counted3(publicCode(inlineText(text3), machine))),
     sentence: (text3) => {
       const cleaned2 = counted3(publicWords(named(text3), machine));
-      return sentenceText(/^[a-z]+(?: |$)/.test(cleaned2) ? `${cleaned2.charAt(0).toUpperCase()}${cleaned2.slice(1)}` : cleaned2);
+      return sentenceText(/^[a-z]+(?: |$)/.test(cleaned2) ? capitalized(cleaned2) : cleaned2);
     },
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text3) => {
