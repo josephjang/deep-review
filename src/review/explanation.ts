@@ -486,11 +486,12 @@ function linesFailures(what: string, lines: CitedLines, lineCount: AnswerCheckIn
  * sentence, or none, and still names no stray finding.
  */
 function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: AnswerVersion, asks: readonly string[]): string[] {
-  const posted = version === 1 ? ids : ids.filter((id) => !asks.includes(id));
+  const held = (id: string): boolean => version === 1 || !asks.includes(id);
+  const posted = ids.filter(held);
   const named = conclusion.actions.map((action) => action.id);
   const sentenceFor = (id: string): string => (named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : '');
   const diagram = version === 1 ? conclusion.diagram : null;
-  const postedActions = conclusion.actions.filter((action) => posted.includes(action.id) || !ids.includes(action.id));
+  const postedActions = conclusion.actions.filter((action) => held(action.id));
   return [
     ...(blank(conclusion.why) ? ['the conclusion says no why'] : []),
     ...[...new Set(named)].filter((id) => !ids.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
