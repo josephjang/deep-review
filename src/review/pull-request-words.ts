@@ -455,7 +455,7 @@ const english: PullRequestWords = {
       return `${decidedEnglish(counts)} What its fix pass changed reaches this branch only when the person who ran the review pushes it.`;
     },
     departureStands: 'The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.',
-    departure: (rule, source, fact, accept, reject) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.`,
+    departure: (rule, source, fact, accept, reject) => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run, once the fix pass of the run has ended; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.`,
     standing: standingEnglish('the fix pass makes its edit while this option stands'),
     answerQuestion: (command) => `**How to answer.** Once the fix pass of the run has ended, the person who ran this review answers on the machine that holds the run, with ${command}, where \`<k>\` is the number of the option, and that command applies the answer. A reply on this pull request is not read yet.`,
     howDiagram: (pullRequest) => [
@@ -681,7 +681,7 @@ const korean: PullRequestWords = {
       return `${decidedKorean(counts)} 수정 단계가 바꾼 내용은 이 리뷰를 실행한 사람이 푸시해야 이 브랜치에 반영됩니다.`;
     },
     departureStands: '이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 합니다. 이 리뷰를 실행한 사람이 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.',
-    departure: (rule, source, fact, accept, reject) => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. 이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 하며, 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.`,
+    departure: (rule, source, fact, accept, reject) => `**이 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" 출처: ${source} 규칙과 맞지 않는 사실: ${fact} 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${accept} 명령으로 이 결정을 받아들이거나 ${reject} 명령으로 거부합니다. 답은 그 실행의 수정 단계가 끝난 뒤에 할 수 있습니다. 이 리뷰 뒤에 이어진 수정 단계는 이 수정을 결정대로 하려 하며, 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.`,
     standing: standingKorean('이 선택지가 유지되는 동안 수정 단계가 그 수정을 합니다.'),
     answerQuestion: (command) => `**답하는 방법.** 그 실행의 수정 단계가 끝난 뒤, 이 리뷰를 실행한 사람이 실행 기록이 있는 컴퓨터에서 ${command} 명령으로 답합니다. \`<k>\`에는 고른 선택지의 번호를 씁니다. 그 명령이 답을 적용합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
     howDiagram: (pullRequest) => [
