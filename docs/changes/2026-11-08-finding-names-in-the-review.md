@@ -58,9 +58,9 @@ The id of a candidate that the verifiers refuted has no number. The form puts "a
 
 A word that has the shape of an id but is no id of the run, such as `UTF-8` or `SHA-256`, stays as it is. An id inside a path or a URL, such as `notes/RIPPLE-3.md`, stays. Inside a code span the text is code and stays, except a span whose whole text is one id of the run, which a model writes when it names a finding as the prompt's example `RIPPLE-2` shows: that span is posted as the finding's name, in plain text.
 
-### R4: In a diagram, the labels
+### R4: In a diagram, the texts it shows, or no diagram
 
-In a diagram, the form replaces an id in the text that the diagram shows: a quoted label, the text of an edge between bars, and in a sequence or state diagram the text after a colon. An id that is a node's identifier is not shown and stays, since a name with a space in that place would break the diagram. The diagram is checked again once cleaned, as today, and one that the replacement broke is left out with the line that says so.
+In a diagram, the form replaces an id in each text that the diagram shows, the texts that `diagramFailures` already reads as labels: a quoted label, the text of an edge between bars or between the halves of an arrow, the title of a subgraph, and in a sequence or state diagram the text after a colon, the label of a block such as `alt` or `loop`, the alias of a participant, the title, and each line of a note that spans lines. Each such text is named as prose is, starting a sentence. An id that is left anywhere else in the diagram is an identifier, of a node, a participant or a state, and Mermaid shows an identifier that has no label of its own. Rather than tell which identifiers are shown, the form leaves out a diagram in which any id of the run is left after the replacement, with a line of its own in its place that says the diagram named a finding where the review cannot write its number. The diagram is checked again once cleaned, as today, and one that the replacement or the cleaning broke is left out with the line that says so.
 
 ### R5: The name reads right in its sentence
 
@@ -137,6 +137,10 @@ A constant or a ticket key in the repository, such as `SCAN-1`, can match an id 
 ### RK3: A Korean particle the rule does not know
 
 A particle outside the five pairs, or one followed by more Hangul, keeps the writer's form, which agrees with the id rather than the number. The sentence then reads with a wrong particle, as the engine's own "15은" does today.
+
+### RK4: A diagram that uses an id as a hidden identifier is left out
+
+A writer may give a node an id as its identifier and a label of its own, as in `RIPPLE-2["parse crashes"]`, where the id is not shown. R4 leaves such a diagram out all the same, since telling a shown identifier from a hidden one needs the grammar of each kind of diagram. The writer's prompt names nodes by short letters in its examples, so the case is rare, and the line in its place says why the diagram is gone.
 
 ## Verification
 
