@@ -37275,11 +37275,12 @@ function linesFailures(what, lines, lineCount) {
   return [];
 }
 function checkConclusion(conclusion, ids2, version2, asks) {
-  const posted = version2 === 1 ? ids2 : ids2.filter((id) => !asks.includes(id));
+  const held = (id) => version2 === 1 || !asks.includes(id);
+  const posted = ids2.filter(held);
   const named = conclusion.actions.map((action) => action.id);
   const sentenceFor = (id) => named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : "";
   const diagram = version2 === 1 ? conclusion.diagram : null;
-  const postedActions = conclusion.actions.filter((action) => posted.includes(action.id) || !ids2.includes(action.id));
+  const postedActions = conclusion.actions.filter((action) => held(action.id));
   return [
     ...blank(conclusion.why) ? ["the conclusion says no why"] : [],
     ...[...new Set(named)].filter((id) => !ids2.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
@@ -37418,9 +37419,10 @@ function mergeAnswers(version2, answers, ids2, extra = []) {
   };
   const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
   const areasFrom = version2 === 2 ? paired ?? answers.find((answer3) => passes(answer3.areas)) : void 0;
-  const conclusion = pick2((areasFrom === void 0 ? answers : [areasFrom]).map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
+  const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
+  const conclusion = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
   const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
-  const areas = version2 === 2 ? pick2((areasFrom === void 0 ? answers : [areasFrom]).map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures })) : null;
+  const areas = version2 === 2 ? pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures })) : null;
   const lines = version2 === 2 ? pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures })) : null;
   const findings = ids2.flatMap((id) => {
     const kept = pick2(answers.map((answer3) => answer3.findings.get(id)), (failures) => ({ part: "finding", finding: id, failures }));
@@ -38547,7 +38549,7 @@ var init_pull_request_words = __esm({
         return `${String(counts.confirmed)} of the ${counted(counts.findings, "finding", "findings")} ${counts.confirmed === 1 ? "is" : "are"} CONFIRMED and ${String(counts.plausible)} PLAUSIBLE${unverified}${major}. Across all ${String(counts.findings)}, ${basesEnglish(counts)}. ${refuted2}`;
       },
       modelLine: "A model wrote the explanations from the verifiers' evidence, which the report of the run holds, and only that evidence was verified.",
-      conclusionDropped: "The writer gave no summary that passed deep-review's checks, so the summary and the actions are in deep-review's own words.",
+      conclusionDropped: "The writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review's own words.",
       areasDropped: "The writer gave no areas that passed deep-review's checks, so the major findings are listed in one area in deep-review's own words.",
       refutedDropped: "The writer gave no lines for the refuted candidates that passed deep-review's checks, so each is given by its finder's summary.",
       findingsDropped: (findings, count3) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count3 === 1 ? "it is" : "each is"} given in deep-review's own words.`,
@@ -38739,7 +38741,7 @@ var init_pull_request_words = __esm({
         return `\uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74 \uC911 ${String(counts.confirmed)}\uAC74\uC774 CONFIRMED, ${String(counts.plausible)}\uAC74\uC774 PLAUSIBLE\uC785\uB2C8\uB2E4${unverified}.${major} \uC804\uCCB4 ${String(counts.findings)}\uAC74 \uC911 ${basesKorean(counts)} ${refuted2}`;
       },
       modelLine: "\uC124\uBA85\uC740 \uBAA8\uB378\uC774 \uAC80\uC99D\uC790\uC758 \uADFC\uAC70\uB97C \uBC14\uD0D5\uC73C\uB85C \uC37C\uC73C\uBA70, \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uB41C \uAC83\uC740 \uADF8 \uADFC\uAC70\uBFD0\uC785\uB2C8\uB2E4.",
-      conclusionDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC694\uC57D\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uC694\uC57D\uACFC \uC870\uCE58\uB294 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      conclusionDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uB0B8 \uC694\uC57D \uAC00\uC6B4\uB370 deep-review\uAC00 \uC4F8 \uC218 \uC788\uB294 \uAC83\uC774 \uC5C6\uC5B4,\uC694\uC57D\uACFC \uC870\uCE58\uB294 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       areasDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC601\uC5ED\uC744 \uB0B4\uC9C0 \uBABB\uD574, major \uC9C0\uC801 \uC0AC\uD56D\uC740 deep-review\uAC00 \uC9C1\uC811 \uC774\uB984 \uBD99\uC778 \uD55C \uC601\uC5ED\uC5D0 \uBAA8\uC544 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       refutedDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uAC01 \uD6C4\uBCF4\uB294 \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC694\uC57D\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       findingsDropped: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC774 ${findings}\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
@@ -40722,8 +40724,8 @@ function headingSection(view) {
 }
 function summarySection(view, say) {
   const { words, findings } = view;
-  const areasDropped = view.recorded?.dropped.some((part) => part.part === "areas") ?? false;
-  const why = view.conclusion === null || areasDropped ? [] : say.paragraphs(view.conclusion.why);
+  const given = postedWhy(view);
+  const why = given === null ? [] : say.paragraphs(given);
   const decided = {
     fixes: findings.filter((finding) => finding.finding.status === "planned" || finding.finding.status === "planned-against-rule").length,
     questions: findings.filter((finding) => finding.finding.status === "question").length,
@@ -40844,7 +40846,15 @@ function notExaminedSection(view, say, cuts) {
   });
   return { part: "not examined", lines: blocks([words.notExaminedHeading], items, details(words.refutedSummary(count3), entries)) };
 }
-function trustSection(view) {
+function postsWriterFinding(finding, cuts) {
+  const { explained } = finding;
+  if (!acts(finding)) return explained.kind === "explained" && (!cuts.has("left") || keptByCut(finding));
+  return explained.kind === "explained" || explained.kind === "unexplained" && explained.reason !== null || finding.decision?.decision === "fix" && finding.action !== null;
+}
+function postsWriterText(view, cuts) {
+  return postedWhy(view) !== null || view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0 || !cuts.has("refuted") && view.refuted.some((line) => line.claim !== null || line.why !== null) || view.findings.some((finding) => postsWriterFinding(finding, cuts));
+}
+function trustSection(view, cuts) {
   const { words, brief, recorded } = view;
   const numberOf = (id) => brief.numbers.get(id);
   const notes = [];
@@ -40858,7 +40868,7 @@ function trustSection(view) {
     const answered2 = [...standingAnswers(view.review).keys()].map(numberOf);
     if (answered2.length > 0) notes.push(words.predates(words.findingList(answered2)));
   }
-  const wrote = view.input.answer === null ? [] : [words.modelLine];
+  const wrote = postsWriterText(view, cuts) ? [words.modelLine] : [];
   return { part: "trust", lines: blocks([words.trustHeading], [[words.trust(view.counts), ...wrote].join(" ")], ...notes.map((note) => [note])) };
 }
 function lastSection(view, say) {
@@ -40893,7 +40903,7 @@ function renderBody(view, cuts) {
     minorSection(view, say, cuts),
     leftSection(view, say, cuts),
     notExaminedSection(view, say, cuts),
-    trustSection(view),
+    trustSection(view, cuts),
     lastSection(view, say)
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join("\n")).join("\n\n"), secrets: say.secrets() };
@@ -41024,7 +41034,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, postedWhy, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -41058,6 +41068,7 @@ var init_pull_request_form = __esm({
     verdictText = (view, finding) => [finding.finding.verdict, ...verdictMarks(view, finding)].join(", ");
     titleOf = (finding, say) => finding.explained.kind === "explained" ? say.prose(finding.explained.value.title) : say.words(firstSentence(finding.entry.finding.summary));
     joinedParts = (parts) => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
+    postedWhy = (view) => view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === "areas") ?? false) ? null : view.conclusion.why;
     majorActing = (view) => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
     minorActing = (view) => {
       const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
