@@ -26,7 +26,7 @@ export interface IdName {
 export interface FindingNaming {
   /** A numbered finding, as `finding 3`, or its number alone after the text `before` it that already says finding, taking in an article that ends that text where the language has one and a noun at the start of the text `after` it that says finding. */
   readonly finding: (number: number, before: string, after: string) => IdName;
-  /** A candidate the verifiers refuted, which has no number, taking the article of the text `before` it and the noun of the text `after` it when they give one. */
+  /** A candidate the verifiers refuted, which has no number, taking in a noun at the end of the text `before` it or at the start of the text `after` it that the name already says, and an article before it that the name does not keep, as the language gives them. */
   readonly refuted: (before: string, after: string) => IdName;
   /** A name that starts a sentence, as English capitalizes it. */
   readonly starting: (name: string) => string;
