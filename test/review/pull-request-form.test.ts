@@ -278,8 +278,11 @@ describe('the review of a run continued into its fix pass (R6 of the review of a
 
   it('says that the fix pass sets out to make a departure as decided and that a rejection sends it back to a fixer, with no claim that it made the fix', () => {
     includes(section(body, '### What needs a person'), 'The rule: "parse throws on a null input." The fix pass that followed this review sets out to make it as decided; a rejection by the person who ran the review sends that finding back to a fixer.');
-    includes(comments[0]!.body, 'on the machine that holds the run; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.');
+    includes(comments[0]!.body, 'The person who ran this review accepts the departure with `deep-review answer --run run-1 --finding 1 --accept` or rejects it with `deep-review answer --run run-1 --finding 1 --reject`, on the machine that holds the run, once the fix pass of the run has ended; the fix pass that followed this review sets out to make the fix as decided, and a rejection sends the finding back to a fixer.');
     includes(comments[0]!.body, 'deep-review would fix this against a written rule.');
+    // `answer` refuses a run with no current report, so a departure is answered, as a question is, once the fix pass has ended.
+    const korean = continued(withSettings(run(), { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold());
+    includes(korean.comments[0]!.body, '`deep-review answer --run run-1 --finding 1 --reject` 명령으로 거부합니다. 답은 그 실행의 수정 단계가 끝난 뒤에 할 수 있습니다. 이 리뷰 뒤에 이어진 수정 단계는');
   });
 
   it('says that the command that answers a question applies the answer once the fix pass has ended, and that the fix pass makes the edit of an option that stands', () => {
