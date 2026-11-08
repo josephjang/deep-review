@@ -104,8 +104,10 @@ export interface MinorCounts {
  * answered, the result of the option that stands, how a question is
  * answered, the diagram of how the review worked, and the check that did
  * not run. They name no command that fixes, since none remains to run,
- * and claim no edit: the report on that machine says what each fix did.
- * The form takes the read-only ones of `PullRequestWords` in their place
+ * and claim no edit: the report on that machine says what each fix did
+ * once the fix pass has ended, which holds in every state of that pass,
+ * since a run is posted while its fix pass is blocked or stopped too, and
+ * such a pass has written no report yet. The form takes the read-only ones of `PullRequestWords` in their place
  * for a run that has not been continued.
  */
 export interface FollowingWords {
@@ -447,7 +449,7 @@ const english: PullRequestWords = {
   lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`,
 
   continued: {
-    reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and the report of the run on that machine says what each fix did.`,
+    reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review, and once its fix pass has ended, the report of the run on that machine says what each fix did.`,
     summaryNext: (counts) => {
       if (counts.fixes + counts.questions === 0) return `deep-review leaves ${counted(counts.left, 'finding', 'findings')} as is, so nothing on this branch needs to change.`;
       return `${decidedEnglish(counts)} What its fix pass changed reaches this branch only when the person who ran the review pushes it.`;
@@ -461,11 +463,11 @@ const english: PullRequestWords = {
       `  subgraph RV["The review of pull request ${String(pullRequest)}: done"]`,
       ...reviewNodesEnglish,
       '  end',
-      '  W --> X["The fix pass started on the machine that ran the review, and its report there holds what it changed"]',
+      '  W --> X["The fix pass started on the machine that ran the review, and once it ends, its report there holds what it changed"]',
       '  W --> P["publish cleans the text and posts this review"]',
       '  P --> A["The person who ran the review answers the questions"]',
     ].join('\n'),
-    noCheck: 'No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and its report there holds their results.',
+    noCheck: 'No check ran in this review. The fix pass that followed runs the repository\'s checks on the machine that ran it, and once it ends, its report there holds their results.',
   },
 };
 
@@ -673,7 +675,7 @@ const korean: PullRequestWords = {
   lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (모델 ${facts.strong}, ${facts.fast}), 실행 ${facts.run}, 리뷰한 커밋 ${facts.base}..${facts.head}.`,
 
   continued: {
-    reviewed: (head, files, base) => `deep-review가 이 풀 리퀘스트를 head ${head}에서 리뷰했습니다. merge base ${base}부터 바뀐 파일 ${String(files)}개를 보았습니다. 그 뒤 deep-review는 이 리뷰를 실행한 사람의 컴퓨터에서 같은 실행의 수정 단계로 넘어가, 고치기로 한 지적 사항을 고치기 시작했습니다. 그 수정은 이 리뷰에 포함되지 않으며, 각 수정이 한 일은 그 컴퓨터에 있는 실행 보고서에 있습니다.`,
+    reviewed: (head, files, base) => `deep-review가 이 풀 리퀘스트를 head ${head}에서 리뷰했습니다. merge base ${base}부터 바뀐 파일 ${String(files)}개를 보았습니다. 그 뒤 deep-review는 이 리뷰를 실행한 사람의 컴퓨터에서 같은 실행의 수정 단계로 넘어가, 고치기로 한 지적 사항을 고치기 시작했습니다. 그 수정은 이 리뷰에 포함되지 않으며, 수정 단계가 끝나면 각 수정이 한 일은 그 컴퓨터에 있는 실행 보고서에 있습니다.`,
     summaryNext: (counts) => {
       if (counts.fixes + counts.questions === 0) return `${decidedKorean(counts)} 이 브랜치에서 바꿀 것은 없습니다.`;
       return `${decidedKorean(counts)} 수정 단계가 바꾼 내용은 이 리뷰를 실행한 사람이 푸시해야 이 브랜치에 반영됩니다.`;
@@ -687,11 +689,11 @@ const korean: PullRequestWords = {
       `  subgraph RV["풀 리퀘스트 ${String(pullRequest)}의 리뷰: 완료"]`,
       ...reviewNodesKorean,
       '  end',
-      '  W --> X["리뷰를 실행한 컴퓨터에서 수정 단계가 시작되었습니다. 바꾼 내용은 그 실행 보고서에 있습니다"]',
+      '  W --> X["리뷰를 실행한 컴퓨터에서 수정 단계가 시작되었습니다. 수정 단계가 끝나면 바꾼 내용은 그 실행 보고서에 있습니다"]',
       '  W --> P["publish가 글을 정리해 이 리뷰를 올립니다"]',
       '  P --> A["리뷰를 실행한 사람이 질문에 답합니다"]',
     ].join('\n'),
-    noCheck: '이 리뷰에서는 어떤 검사도 돌리지 않았습니다. 이어진 수정 단계가 그 컴퓨터에서 저장소의 검사를 실행하며, 그 결과는 실행 보고서에 있습니다.',
+    noCheck: '이 리뷰에서는 어떤 검사도 돌리지 않았습니다. 이어진 수정 단계가 그 컴퓨터에서 저장소의 검사를 실행하며, 수정 단계가 끝나면 그 결과는 실행 보고서에 있습니다.',
   },
 };
 
