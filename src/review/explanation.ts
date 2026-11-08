@@ -706,9 +706,10 @@ export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAn
   };
   const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
   const areasFrom = version === 2 ? (paired ?? answers.find((answer) => passes(answer.areas))) : undefined;
-  const conclusion = pick((areasFrom === undefined ? answers : [areasFrom]).map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
+  const pairedSource = areasFrom === undefined ? answers : [areasFrom];
+  const conclusion = pick(pairedSource.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
   const account = version === 1 ? pick(answers.map((answer) => answer.account), (failures) => ({ part: 'account', failures })) : null;
-  const areas = version === 2 ? pick((areasFrom === undefined ? answers : [areasFrom]).map((answer) => answer.areas), (failures) => ({ part: 'areas', failures })) : null;
+  const areas = version === 2 ? pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures })) : null;
   const lines = version === 2 ? pick(answers.map((answer) => answer.refuted), (failures) => ({ part: 'refuted', failures })) : null;
   const findings = ids.flatMap((id) => {
     const kept = pick(answers.map((answer) => answer.findings.get(id)!), (failures) => ({ part: 'finding', finding: id, failures }));
