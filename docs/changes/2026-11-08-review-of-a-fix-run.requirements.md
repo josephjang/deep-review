@@ -77,7 +77,7 @@ When the decisions of the run route no finding to a fixer, the command does not 
 
 ### R3: A command with `--fix` continues the read-only run of a pull request that it finishes
 
-A command with `--fix` that resumes a read-only run of a pull request and brings it to its report continues it into the fix pass, as R1 says. This holds for a run that `review --pr --fix` started and a stop cut short, and for a run started without `--fix`. The log of the resume says that the run is continued into the fix pass once its report is written, in place of the line of R10 of fix pass continuation that says `--fix` is ignored.
+A command with `--fix` that resumes a read-only run of a pull request and brings it to its report continues it into the fix pass, as R1 says. This holds for a run that `review --pr --fix` started and a stop cut short, and for a run started without `--fix`. The log of the resume says that the run is continued into the fix pass once its report is written, when its decisions send a finding to a fixer (R2), in place of the line of R10 of fix pass continuation that says `--fix` is ignored.
 
 ### R4: The continuation of the same command names its run and reads nothing from GitHub
 
