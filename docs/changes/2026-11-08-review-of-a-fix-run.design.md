@@ -38,7 +38,7 @@ With `--fix`, no active run and no `--fresh`, `openRun` looks for a finished rea
 
 ### The configuration of a new run of a pull request (R1)
 
-`explains` no longer depends on the command's `--fix`: a new run, or a run with no configuration yet, whose scope names a pull request is configured at version 11 with `fix: false`, `checks: null` and `fixes: null`. The check flags of the command are not recorded at configuration, as for any read-only run; the continuation resolves them (R4 of fix pass continuation). When the command gives `--fix`, the log line of the configuration adds that the command continues the run into the fix pass once its report is written. A command with `--fix` still refuses an old Node at configuration, before the review spends anything, and `continuationOf` checks it again.
+`explains` no longer depends on the command's `--fix`: a new run, or a run with no configuration yet, whose scope names a pull request is configured at version 11 with `fix: false`, `checks: null` and `fixes: null`. The check flags of the command are not recorded at configuration, as for any read-only run; the continuation resolves them (R4 of fix pass continuation). When the command gives `--fix`, the log line of the configuration adds that the command continues the run into the fix pass once its report is written, when its decisions send a finding to a fixer (R2). A command with `--fix` still refuses an old Node at configuration, before the review spends anything, and `continuationOf` checks it again.
 
 ### Two passes of a review (R1, R2, R4)
 
@@ -50,7 +50,7 @@ A refusal of the second pass, from `openRun` or from `continuationOf`, is caught
 
 ### A resumed read-only run of a pull request (R3)
 
-`resumedFixFlags` logs for a read-only run of a pull request resumed with `--fix` that the command continues it into the fix pass once its report is written, in place of the line that says `--fix` is ignored. Since the run recorded no check flags at configuration (R1), the line also says that this command's `--check` and `--no-check` settle the checks of the fix pass, so every one the command that started the run gave is given again. The first pass resumes it as any read-only run, and the rule of the two passes continues it.
+`resumedFixFlags` logs for a read-only run of a pull request resumed with `--fix` that the command continues it into the fix pass once its report is written, when its decisions send a finding to a fixer, in place of the line that says `--fix` is ignored. Since the run recorded no check flags at configuration (R1), the line also says that this command's `--check` and `--no-check` settle the checks of the fix pass, so every one the command that started the run gave is given again. The first pass resumes it as any read-only run, and the rule of the two passes continues it.
 
 ### The review of a continued run (R5)
 
