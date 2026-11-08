@@ -30,6 +30,9 @@ const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]
 /** Where a sentence starts: the start of a text, after the end of a sentence, or at the start of a line or a list item. */
 const sentenceStart = /(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)$/;
 
+/** A common abbreviation that ends in a period and goes on with its sentence, as `e.g.`, right before a name: no sentence starts after it. */
+const abbreviationBefore = /(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+$/iu;
+
 /** A Korean particle with two forms, written right after a name and followed by no other Hangul letter (R5, PD7). */
 const particleAfter = /^(으로|로|은|는|이|가|을|를|과|와)(?!\p{Script=Hangul})/u;
 
@@ -80,7 +83,7 @@ export function namedFindings(text: string, names: ReadonlyMap<string, NamedId>,
     out += text.slice(at, slot.start);
     const after = text.slice(slot.end);
     const plain = slot.named.kind === 'finding' ? naming.finding(slot.named.number, out) : naming.refuted(out, after);
-    const name = sentenceStart.test(out) ? naming.starting(plain) : plain;
+    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(plain) : plain;
     out += name;
     at = slot.end;
     const particle = particleAfter.exec(after);
