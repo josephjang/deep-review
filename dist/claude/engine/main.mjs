@@ -38542,10 +38542,10 @@ function koreanParticle(name, particle) {
   if (forms === void 0) return particle;
   const final = koreanFinal(name);
   if (final === "none") return forms[1];
-  if (final === "rieul" && forms[0] === "\uC73C\uB85C") return "\uB85C";
+  if (final === "rieul" && forms[0].startsWith("\uC73C\uB85C")) return forms[1];
   return forms[0];
 }
-var idPattern, urlPattern, slashJoined, idPart, idList2, sentenceOpening, sentenceStart, abbreviationBefore, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel, koreanForms;
+var idPattern, urlPattern, slashJoined, idPart, idList2, sentenceOpening, sentenceStart, abbreviationBefore, koreanForms, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel;
 var init_finding_names = __esm({
   "src/review/finding-names.ts"() {
     "use strict";
@@ -38558,15 +38558,6 @@ var init_finding_names = __esm({
     sentenceOpening = String.raw`[*_(\["'“‘]*`;
     sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
     abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
-    particleAfter = new RegExp("^(\uC73C\uB85C|\uB85C|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640)(?!\\p{Script=Hangul})", "u");
-    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
-    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
-    nodeId2 = /^[\p{L}\p{N}_]+/u;
-    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
-    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
-    shapeLabel2 = /((?:^|[\s,])label\s*:)([^,]*)/;
-    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
-    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
     koreanForms = {
       \uC740: ["\uC740", "\uB294"],
       \uB294: ["\uC740", "\uB294"],
@@ -38577,8 +38568,23 @@ var init_finding_names = __esm({
       \uACFC: ["\uACFC", "\uC640"],
       \uC640: ["\uACFC", "\uC640"],
       \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
-      \uB85C: ["\uC73C\uB85C", "\uB85C"]
+      \uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uC73C\uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uC73C\uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uC73C\uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"],
+      \uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"]
     };
+    particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join("|")})(?!\\p{Script=Hangul})`, "u");
+    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
+    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
+    nodeId2 = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel2 = /((?:^|[\s,])label\s*:)([^,]*)/;
+    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
+    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
   }
 });
 
@@ -38638,7 +38644,7 @@ function decidedKorean(counts) {
 function koreanRefuted(before, after) {
   const preceding = new RegExp("(?<!\\p{Script=Hangul})(?:\uD6C4\uBCF4|\uC9C0\uC801\\s*\uC0AC\uD56D)\\s*$", "u").exec(before)?.[0] ?? "";
   const said2 = new RegExp("(?<!\\p{Script=Hangul})\uBC18\uBC15\uB41C\\s*$", "u").test(before.slice(0, before.length - preceding.length));
-  return { name: said2 ? "\uD6C4\uBCF4" : "\uBC18\uBC15\uB41C \uD6C4\uBCF4", before: preceding.length, after: /^\s*후보/.exec(after)?.[0].length ?? 0 };
+  return { name: said2 ? "\uD6C4\uBCF4" : "\uBC18\uBC15\uB41C \uD6C4\uBCF4", before: preceding.length, after: /^\s*후보(?!자)/.exec(after)?.[0].length ?? 0 };
 }
 function pullRequestWords(language) {
   const primary = language.split("-")[0].toLowerCase();
@@ -38767,7 +38773,7 @@ var init_pull_request_words = __esm({
       atBase: (link) => `${link} (at the merge base)`,
       trace: (id, run2) => `<sub>Finding ${id} of run ${run2}.</sub>`,
       diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
-      diagramNamesIds: "A diagram is left out here, because it names a finding by deep-review's internal id where the review cannot write the finding's number; the writer's answer on the machine that holds the run keeps it.",
+      diagramNamesIds: "A diagram is left out here, because it names a finding or a candidate by deep-review's internal id where the review cannot put its name; the writer's answer on the machine that holds the run keeps it.",
       naming: {
         finding: englishFinding,
         refuted: englishRefuted,
@@ -38965,7 +38971,7 @@ var init_pull_request_words = __esm({
       atBase: (link) => `${link} (merge base\uC758 \uCF54\uB4DC)`,
       trace: (id, run2) => `<sub>\uC2E4\uD589 ${run2}\uC758 \uC9C0\uC801 \uC0AC\uD56D ${id}.</sub>`,
       diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
-      diagramNamesIds: "\uC774 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uC9C0\uC801 \uC0AC\uD56D\uC744 deep-review \uB0B4\uBD80 id\uB85C \uAC00\uB9AC\uD0A4\uB294\uB370, \uADF8 \uC790\uB9AC\uC5D0\uB294 \uB9AC\uBDF0\uAC00 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uBC88\uD638\uB97C \uC4F8 \uC218 \uC5C6\uC5B4 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      diagramNamesIds: "\uC774 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uC9C0\uC801 \uC0AC\uD56D\uC774\uB098 \uD6C4\uBCF4\uB97C deep-review \uB0B4\uBD80 id\uB85C \uAC00\uB9AC\uD0A4\uB294\uB370, \uADF8 \uC790\uB9AC\uC5D0\uB294 \uB9AC\uBDF0\uAC00 \uADF8 \uC774\uB984\uC744 \uC4F8 \uC218 \uC5C6\uC5B4 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
       naming: {
         finding: (number5, before, after) => ({
           name: koreanFindingSaid.test(before) ? String(number5) : `\uC9C0\uC801 \uC0AC\uD56D ${String(number5)}`,
