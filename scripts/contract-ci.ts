@@ -104,7 +104,7 @@ function report(value: unknown): void {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Contract CI decision\n\n\`\`\`json\n${text}\n\`\`\`\n`);
 }
 
-function main(): void {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const command = process.argv[2];
   if (command === 'plan') {
     let plan: ContractPlan;
@@ -125,5 +125,3 @@ function main(): void {
     throw new Error('Expected plan, gate or status');
   }
 }
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
