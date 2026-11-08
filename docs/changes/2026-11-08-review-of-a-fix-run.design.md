@@ -151,4 +151,10 @@ At the head of the series, `npm run check` passed (3,657 tests: 3,644 pass, 13 s
 
 ### The gate
 
-The gate of R9 has not run yet. It is a real run of `review --pr --fix` on the pull request of this change and a real `publish` of its review, and its results are recorded here once it runs.
+The gate of R9 ran on 2026-11-08, on Claude Code 2.1.318, as run `c6ed03ed`, with the bundle committed at the head of this pull request. `review --runtime claude --pr 126 --fix` wrote the read-only report and continued the same run into the fix pass in one command, and exited 0 with the fix report (R1). The run kept 26 findings: 19 decided fix, one of them against a written rule, 5 left as is and 2 asked. Its fix pass left 23 patches. Both passes took 52 minutes and 60.75 USD of the 120 USD budget that the repository's file sets.
+
+For M2, the writer cost 1.97 USD and three minutes. The continuation asked no surveyor, since the repository's file settles every check, so the continuation's survey cost nothing. For M3, no continuation was refused.
+
+The checks of the fix pass rebuild `dist/` in the working tree, so the engine there was no longer the one this pull request ships. `publish` ran with the bundle taken from the pull request's head. `publish --dry-run` placed each of the 26 findings of the read-only report, 19 on their lines and 7 in the body, with no cut and no secret replaced. Its body opened with the line of R6, held the line on the checks and the diagram of R6, and held neither "changed no file" nor a sentence that says `--fix` applies a fix or an answer: each `--fix` in it is in the text of a finding. `publish` then posted the review with 19 comments on lines, and a second `publish` printed the URL of that review and posted nothing.
+
+The review asked two questions and gave one fix against a written rule. The author accepted the departure of finding 2, so a resumed run is continued only when the command's `--pr` names its pull request, and R3 says so now. The author chose option 2 of finding 17, so the skills offer to post before the fixes are pushed, which the answer pass applied for 1.52 USD. The author kept option 1 of finding 20. The fixes of the run are a pull request of their own, stacked on this one, whose commits `deep-review commit` made from the run.
