@@ -95,17 +95,106 @@ export function namedFindings(text: string, names: ReadonlyMap<string, NamedId>,
   return out + text.slice(at);
 }
 
-/** Whether a diagram holds an id of `names` as a token of its own, an identifier joined to an arrow as in `RIPPLE-2->>B` included, which leaves the diagram out rather than show the id. */
-const holdsId = (text: string, names: ReadonlyMap<string, NamedId>): boolean => [...names.keys()].some((id) => new RegExp(`(?<![\\w-])${RegExp.escape(id)}(?!\\w)`).test(text));
+/** Whether a diagram holds an id of `names` as a token of its own, an identifier joined to an arrow as in `RIPPLE-2->>B` or `A---RIPPLE-2` included, which leaves the diagram out rather than show the id. */
+const holdsId = (text: string, names: ReadonlyMap<string, NamedId>): boolean => [...names.keys()].some((id) => new RegExp(`(?<!\\w)${RegExp.escape(id)}(?!\\w)`).test(text));
 
 /** The kind of a diagram, from its first line. */
 const diagramKind = (header: string): 'flowchart' | 'sequence' | 'state' | 'other' => (/^(?:flowchart|graph)\b/.test(header) ? 'flowchart' : /^sequenceDiagram\b/.test(header) ? 'sequence' : /^stateDiagram/.test(header) ? 'state' : 'other');
 
-/** The texts a line of a flowchart shows besides its quoted texts and its texts between bars: each as a pattern whose second group is the text. */
-const flowchartTexts: readonly RegExp[] = [
-  /((?:--|==|-\.)[ \t]+)([^-=."|\s][^"|]*?)([ \t]+(?:-->|==>|\.->|---|===|-\.-))/g,
-  /^([ \t]*subgraph[ \t]+\S+[ \t]*\[)([^\]"]*)(\])/,
-];
+/** A text of a diagram with each of its quoted texts, and with `bars` each of its texts between bars, named as a text of its own, and each other part named as it stands. */
+function partsNamed(text: string, named: (text: string) => string, bars: boolean): string {
+  return text.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') || (bars && part.startsWith('|')) ? `${part.charAt(0)}${named(part.slice(1, -1))}${part.charAt(0)}` : named(part)));
+}
+
+/** The lines of a flowchart that style or link what is drawn, and its comments: `diagramFailures` reads no label in them. */
+const flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
+/** The id of a node in a flowchart, as `diagramFailures` reads it. */
+const nodeId = /^[\p{L}\p{N}_]+/u;
+/** The opening of the text of an edge, as `diagramFailures` reads it: `--`, `-.` or `==` that is no part of a longer arrow, and no cross or circle arrow such as `--x`. */
+const edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+/** The second half of the arrow that ends the text of an edge, as `diagramFailures` reads it. */
+const edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+/** The value of `label:` in the body of a node's `@{ ... }` shape, outside its quoted texts. */
+const shapeLabel = /((?:^|[\s,])label\s*:)([^,]*)/;
+/** The title of a subgraph given between brackets after its id, as `subgraph S [title]`. */
+const subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
+
+/** The text of an edge whose opening is at `at`, as `diagramFailures` reads it: where its text starts and ends, past each quoted text and text between bars, and where its closing arrow ends; null when none opens there or none closes. */
+function edgeTextAt(line: string, at: number): { readonly start: number; readonly end: number; readonly closed: number } | null {
+  edgeTextOpening.lastIndex = at;
+  const opening = edgeTextOpening.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === '|') {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing.lastIndex = end;
+    const closing = edgeTextClosing.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+
+/**
+ * A line of a flowchart with each text it shows named, walked as
+ * `diagramFailures` walks it: each quoted text, each text between bars,
+ * the text of each edge, the label of a node's `@{ ... }` shape, and the
+ * title of a subgraph, between brackets or, with none, the rest of its
+ * line. Node ids are left as they are.
+ */
+function flowchartLineNamed(line: string, named: (text: string) => string): string {
+  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
+  if (subgraph !== null) {
+    const rest = subgraph[2]!;
+    const bracketed = subgraphBracketed.exec(rest);
+    if (bracketed !== null) return `${subgraph[1]!}${bracketed[1]!}${named(bracketed[2]!)}${bracketed[3]!}`;
+    // A title alone is shown whole; an id with a quoted title between brackets keeps its id.
+    return `${subgraph[1]!}${rest.includes('[') ? rest.replace(/"([^"]*)"/g, (_whole, quoted: string) => `"${named(quoted)}"`) : partsNamed(rest, named, false)}`;
+  }
+  let out = '';
+  let at = 0;
+  while (at < line.length) {
+    const edge = edgeTextAt(line, at);
+    if (edge !== null) {
+      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
+      at = edge.closed;
+      continue;
+    }
+    const char = line.charAt(at);
+    if (char === '"' || char === '|') {
+      const close = line.indexOf(char, at + 1);
+      if (close === -1) return `${out}${line.slice(at)}`;
+      out += `${char}${named(line.slice(at + 1, close))}${char}`;
+      at = close + 1;
+      continue;
+    }
+    const id = nodeId.exec(line.slice(at));
+    if (id === null) {
+      out += char;
+      at += 1;
+      continue;
+    }
+    out += id[0];
+    at += id[0].length;
+    if (!line.startsWith('@{', at)) continue;
+    // The body of the shape runs to the first `}` outside a quoted text.
+    let close = at + 2;
+    while (close < line.length && line.charAt(close) !== '}') close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+    if (close === line.length) return `${out}${line.slice(at)}`;
+    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') ? `"${named(part.slice(1, -1))}"` : part.replace(shapeLabel, (_whole, open: string, value: string) => `${open}${named(value)}`)));
+    out += `@{${body}}`;
+    at = close + 1;
+  }
+  return out;
+}
 
 /** A line of a sequence diagram whose text after its keyword is shown whole, colons included: the label of a block, the alias of a participant, or the title. */
 const sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
@@ -134,8 +223,6 @@ export function namedInDiagram(diagram: string, names: ReadonlyMap<string, Named
     return `${lead}${namedFindings(text.slice(lead.length), names, naming)}`;
   };
   const labelled = (text: string): string => text.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
-  // A shown text whose quoted parts are each named as a text of their own, and whose other parts are named as they stand.
-  const quotedOrNot = (text: string): string => text.replace(/"([^"]*)"|[^"]+/g, (part, quoted?: string) => (quoted === undefined ? named(part) : `"${named(quoted)}"`));
   let inNote = false;
   const result = lines.map((line, index) => {
     if (index <= headerAt) return line;
@@ -148,9 +235,9 @@ export function namedInDiagram(diagram: string, names: ReadonlyMap<string, Named
       inNote = true;
       return line;
     }
-    if (kind === 'flowchart') return flowchartTexts.reduce((text, pattern) => text.replace(pattern, (_whole, open: string, shown: string, close: string) => `${open}${named(shown)}${close}`), labelled(line));
+    if (kind === 'flowchart') return flowchartLineNamed(line, named);
     const label = kind === 'sequence' ? sequenceLabel.exec(line) : null;
-    if (label !== null) return `${label[1]!}${quotedOrNot(label[2]!)}`;
+    if (label !== null) return `${label[1]!}${partsNamed(label[2]!, named, false)}`;
     const colon = colonOf(line);
     if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
     return labelled(line);

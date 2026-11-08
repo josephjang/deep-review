@@ -67,3 +67,31 @@ describe('a name after an abbreviation that ends in a period', () => {
     assert.equal(namedInDiagram('sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. RIPPLE-2 waits', names, english), 'sequenceDiagram\n  A->>B: x\n  Note over A,B: e.g. finding 3 waits');
   });
 });
+
+// R4 of the finding names in the review: the texts of a flowchart that diagramFailures reads as labels.
+describe('the name of a finding in each text of a flowchart that the diagram checks read', () => {
+  it('names an id in the title of a subgraph given alone, quoted or between brackets', () => {
+    assert.equal(namedPassing('flowchart LR\n  subgraph RIPPLE-2 area\n  A["x"]\n  end'), 'flowchart LR\n  subgraph Finding 3 area\n  A["x"]\n  end');
+    assert.equal(namedPassing('flowchart LR\n  subgraph S ["SWEEP-1 area"]\n  A["x"]\n  end'), 'flowchart LR\n  subgraph S ["Finding 1 area"]\n  A["x"]\n  end');
+    assert.equal(namedPassing('flowchart LR\n  subgraph S[RIPPLE-2 area]\n  A["x"]\n  end'), 'flowchart LR\n  subgraph S[Finding 3 area]\n  A["x"]\n  end');
+  });
+
+  it('names an id in the text of an edge closed by a cross or a circle', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["a"] -- RIPPLE-2 --x B["b"]\n  B -- SWEEP-1 --o C["c"]'), 'flowchart LR\n  A["a"] -- Finding 3 --x B["b"]\n  B -- Finding 1 --o C["c"]');
+  });
+
+  it('names an id in the text of an edge written with no space around it', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["a"] ==RIPPLE-2==> B["b"]\n  B -.SWEEP-1.-> C["c"]\n  C -- RIPPLE-2-->D["d"]\n  D --SWEEP-1 waits--> E["e"]'), 'flowchart LR\n  A["a"] ==Finding 3==> B["b"]\n  B -.Finding 1.-> C["c"]\n  C -- Finding 3-->D["d"]\n  D --Finding 1 waits--> E["e"]');
+  });
+
+  it('names an id in the label of a node\'s shape, quoted or not', () => {
+    assert.equal(namedPassing('flowchart LR\n  A@{ shape: rect, label: RIPPLE-2 } --> B@{ shape: rect, label: "SWEEP-1 waits" }'), 'flowchart LR\n  A@{ shape: rect, label: Finding 3 } --> B@{ shape: rect, label: "Finding 1 waits" }');
+  });
+
+  it('leaves out a diagram whose id is a node joined to a link that holds no text', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["a"] --- RIPPLE-2 --> C["c"]'), null);
+    assert.equal(namedPassing('flowchart LR\n  A --- RIPPLE-2 --- C'), null);
+    assert.equal(namedPassing('flowchart LR\n  A["a"]---RIPPLE-2'), null);
+    assert.equal(namedPassing('flowchart LR\n  subgraph RIPPLE-2 [area]\n  A["x"]\n  end'), null);
+  });
+});
