@@ -467,7 +467,7 @@ const english: PullRequestWords = {
   atBase: (link) => `${link} (at the merge base)`,
   trace: (id, run) => `<sub>Finding ${id} of run ${run}.</sub>`,
   diagramBroken: 'A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer\'s answer on the machine that holds the run keeps it.',
-  diagramNamesIds: 'A diagram is left out here, because it names a finding by deep-review\'s internal id where the review cannot write the finding\'s number; the writer\'s answer on the machine that holds the run keeps it.',
+  diagramNamesIds: 'A diagram is left out here, because it names a finding or a candidate by deep-review\'s internal id where the review cannot put its name; the writer\'s answer on the machine that holds the run keeps it.',
   naming: {
     finding: englishFinding,
     refuted: englishRefuted,
@@ -719,7 +719,7 @@ const korean: PullRequestWords = {
   atBase: (link) => `${link} (merge base의 코드)`,
   trace: (id, run) => `<sub>실행 ${run}의 지적 사항 ${id}.</sub>`,
   diagramBroken: '이 리뷰를 실행한 컴퓨터의 경로와 비밀 값을 지우는 과정에서 다이어그램이 깨져 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
-  diagramNamesIds: '이 다이어그램은 지적 사항을 deep-review 내부 id로 가리키는데, 그 자리에는 리뷰가 지적 사항의 번호를 쓸 수 없어 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
+  diagramNamesIds: '이 다이어그램은 지적 사항이나 후보를 deep-review 내부 id로 가리키는데, 그 자리에는 리뷰가 그 이름을 쓸 수 없어 여기서는 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
   naming: {
     finding: (number, before, after) => ({
       name: koreanFindingSaid.test(before) ? String(number) : `지적 사항 ${String(number)}`,
