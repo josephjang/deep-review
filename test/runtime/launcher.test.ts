@@ -44,6 +44,9 @@ describe('runWorker', () => {
   const scriptedPrompt = 'Role: tester\nPhase: testing\nUnit: u1\n\nAnswer ok.';
   const scriptFile = (): string => join(box.directory, 'script.json');
 
+  /** The `windows.sandbox` settings on the command line the fake last recorded. */
+  const windowsSandboxArgs = (): string[] => box.recorded().argv.filter((arg) => arg.startsWith('windows.sandbox='));
+
   /** Every reference on both of the worker's events resolves to verified evidence (R6). */
   const assertEvidence = (receipt: WorkerReceipt): void => {
     const worker = box.worker(receipt.workerId);
@@ -840,9 +843,6 @@ describe('runWorker', () => {
   });
 
   describe('the platform a worker is built for', () => {
-    /** The `windows.sandbox` settings on the command line the fake last recorded. */
-    const windowsSandboxArgs = (): string[] => box.recorded().argv.filter((arg) => arg.startsWith('windows.sandbox='));
-
     it('builds the command for the platform it is given, whatever the host', async () => {
       await box.run(box.codex(), {}, { platform: 'linux' });
       assert.deepEqual(windowsSandboxArgs(), [], 'no Windows sandbox off Windows');
@@ -861,8 +861,6 @@ describe('runWorker', () => {
   });
 
   describe('the options a run pinned', () => {
-    /** The `windows.sandbox` settings on the command line the fake last recorded. */
-    const windowsSandboxArgs = (): string[] => box.recorded().argv.filter((arg) => arg.startsWith('windows.sandbox='));
     /** Each launch's runtime and the `runtimeOptions` its plan carried, in order. */
     let handed: [string, unknown][];
     const spying = (adapter: RuntimeAdapter, name = adapter.name): RuntimeAdapter => ({
