@@ -205,39 +205,26 @@ describe('the continuation of a finished read-only run', { timeout: 900_000, con
     assert.equal(readFileSync(join(box.repo, 'AGENTS.md'), 'utf8'), '# Rules, formatted\n', 'and it stays in the tree, uncommitted');
   });
 
-  /** A finished read-only run, then `change` to the repository, then --fix: the new run its triage stops early is created beside it, and the log says why. */
-  const notContinued = async (t: TestContext, change: (box: ReviewSandbox) => void, worktreeMode = false): Promise<{ box: ReviewSandbox; first: RunState }> => {
+  // Scope-comparison variants belong to scope/compare.test.ts. Keep changed bytes here to exercise the controller's findDrift callback (TD4).
+  it('creates a new run when a file of the scope changed since, naming the run and the file (R2, PD3)', async (t) => {
     const box = ReviewSandbox.forTest(t, continuedScript);
-    if (worktreeMode) write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text?.length;\n}\n');
-    await readOnly(box);
+    write(box.repo, 'src/a.ts', 'export function parse(text: string | null) {\n  return text?.length;\n}\n');
+    const firstPath = await readOnly(box);
+    const firstReport = readFileSync(firstPath, 'utf8');
     const first = box.run();
-    change(box);
+    const firstEvents = box.events(first.id);
+    write(box.repo, 'src/a.ts', 'changed again\n');
     box.logs.length = 0;
     box.script({ triage: { exit: 2 } });
-    assert.equal((await box.fix('claude')).kind, 'blocked');
+    const outcome = await box.fix('claude');
+    assert.equal(outcome.kind, 'blocked');
     assert.equal(box.checkpoint.foldRuns().length, 2, 'a new run beside the finished one');
+    assert.notEqual(outcome.runId, first.id, 'the new run did not continue the finished one');
+    assert.deepEqual(box.events(first.id), firstEvents, 'no event was appended to the finished run');
+    assert.deepEqual(box.checkpoint.fold(first.id), first, 'the finished review remains unchanged');
+    assert.equal(readFileSync(firstPath, 'utf8'), firstReport, 'the old report is preserved');
     logLine(box, /^--fix: no finished read-only run of this worktree reviewed this change as it is; a new run is created$/);
-    return { box, first };
-  };
-
-  it('creates a new run when a file of the scope changed since, naming the run and the file (R2, PD3)', async (t) => {
-    const { box, first } = await notContinued(t, (sandbox) => write(sandbox.repo, 'src/a.ts', 'changed again\n'), true);
     logLine(box, new RegExp(`^run ${first.id}: not continued: 1 of its files changed since: src/a\\.ts$`));
-  });
-
-  it('creates a new run when a file was added to a worktree scope since', async (t) => {
-    const { box, first } = await notContinued(t, (sandbox) => write(sandbox.repo, 'notes.txt', 'n\n'), true);
-    logLine(box, new RegExp(`^run ${first.id}: not continued: its files are not the change named: notes\\.txt changed since and not in it$`));
-  });
-
-  it('creates a new run when the change named is of another mode', async (t) => {
-    const { box, first } = await notContinued(t, (sandbox) => write(sandbox.repo, 'notes.txt', 'n\n'));
-    logLine(box, new RegExp(`^run ${first.id}: not continued: its scope is last-commit ${first.scope!.base}\\.\\.${first.scope!.head}, not the one named$`));
-  });
-
-  it('creates a new run when HEAD moved, the change otherwise the same', async (t) => {
-    const { box, first } = await notContinued(t, (sandbox) => git(sandbox.repo, 'commit', '-q', '--amend', '-m', 'the change under review, reworded'));
-    logLine(box, new RegExp(`^run ${first.id}: not continued: HEAD is ${git(box.repo, 'rev-parse', 'HEAD')}, not ${first.scope!.head}$`));
   });
 
   /** The settings of a review whose --set leaves docs/ out of the change, with no file of the operator's or the clone's. */
