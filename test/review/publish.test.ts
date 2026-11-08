@@ -21,8 +21,8 @@ import { refreshReportCopy } from '../../src/review/report-copy.ts';
 import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { fakeGh, fakeGhCalls, fakeGhHeld, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
-import { fixerAnswer, type Script } from '../helpers/fake-runtime.ts';
-import { fixedA, fixedB, reviewScript } from '../helpers/fix-pass-fixture.ts';
+import type { Script } from '../helpers/fake-runtime.ts';
+import { fixingReviewScript, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { fakeClaude } from '../helpers/launcher.ts';
 import { git } from '../helpers/repository.ts';
 import { cliEntry, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
@@ -343,13 +343,6 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     for (const box of [blocked, other, narrowed]) assert.deepEqual(publications(box), []);
   });
 
-  /** The review of reviewScript with a fixer for each of its two clusters. */
-  const fixingScript: Script = {
-    ...reviewScript,
-    'fixer:fixes:c1-1': { edits: [{ writes: { 'src/a.ts': fixedA }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/a.ts'] }]) },
-    'fixer:fixes:c2-1': { edits: [{ writes: { 'src/b.ts': fixedB }, snapshot: 0 }], output: fixerAnswer([{ files: ['src/b.ts'] }]) },
-  };
-
   /** A sandbox whose `review --pr 42 --fix`, with `change`, reviewed the pull request, wrote the read-only report and continued the run into the fix pass, and what that command ended with. */
   async function continued(t: TestContext, script: Script, change: Partial<ReviewOptions> = {}): Promise<{ box: ReviewSandbox; outcome: ReviewOutcome }> {
     const box = ReviewSandbox.forTest(t, script);
@@ -360,7 +353,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
   }
 
   it('posts the review of a run that review --pr --fix continued as the run stood at its read-only report, with the words of a run that went on to fix and no --fix, records it on the whole run, and posts nothing the second time (R5, R6 of the review of a fix run)', async (t) => {
-    const { box, outcome } = await continued(t, fixingScript);
+    const { box, outcome } = await continued(t, fixingReviewScript);
     assert.equal(outcome.kind, 'report', 'the fix pass wrote its report');
     const runId = box.run().id;
     const dry = publishGh(t, publishSteps(box));
@@ -386,7 +379,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
 
   it('chooses with no --run a run whose fix pass blocked, since its review is finished, and refuses it once it is abandoned in its fix pass (R5 of the review of a fix run)', async (t) => {
     // No flag settles a check, so the continuation asks the surveyor again for the checks, and it fails twice.
-    const { box, outcome } = await continued(t, { ...fixingScript, surveyor: [{}, { exit: 2 }] }, { fix: flagCheckSettings({}, []) });
+    const { box, outcome } = await continued(t, { ...fixingReviewScript, surveyor: [{}, { exit: 2 }] }, { fix: flagCheckSettings({}, []) });
     assert.equal(outcome.kind, 'blocked');
     const runId = box.run().id;
     const { gh } = publishGh(t, publishSteps(box));
@@ -410,7 +403,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     const requested = pullRequestSource(box, gh).request();
     const { id } = box.checkpoint.createRun({ worktree: box.repo });
     box.checkpoint.append(id, captureScope(box.checkpoint, id, requested.request, { pullRequest: requested.pullRequest! }).lastSequence, [{ kind: 'review.configured', version: 9, payload: pinned }]);
-    box.script(fixingScript);
+    box.script(fixingReviewScript);
     reportText(await box.fix('claude'));
     assert.equal(box.checkpoint.fold(id).review!.continuedFrom, null, 'a fix run from its start');
     refused(() => publishWith(box, () => assert.fail('a refusal before GitHub resolves no gh'), { runId: id }), new RegExp(`^run ${id} reviewed and fixed in one pass, as an engine before this one ran review --pr --fix, so it holds no review written for a reader of the pull request; review the pull request again with deep-review review --pr 42, with or without --fix$`));
