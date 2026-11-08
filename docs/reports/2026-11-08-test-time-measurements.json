@@ -1799,5 +1799,655 @@
       "Mutation evidence covers only the selected rule and wiring faults; it does not prove preservation against all defects.",
       "No whole-suite before/after timing comparison, CI-wide saving or cross-platform performance result is established."
     ]
+  },
+  "boundaryPaddingReduction": {
+    "status": "locally-validated",
+    "proposal": "docs/changes/2026-11-09-boundary-padding-tests.md",
+    "files": [
+      "test/review/pull-request-form.test.ts",
+      "test/review/pull-request-areas.test.ts"
+    ],
+    "productionBehaviorChanged": false,
+    "boundaryPolicy": {
+      "cap": 60000,
+      "literalCuts": [
+        "refuted",
+        "left",
+        "minor-table",
+        "area-diagrams"
+      ],
+      "bodyCutStatesWithDiagram": 5,
+      "bodyCutStatesWithoutDiagram": 4,
+      "uncutStateLengthNeighbors": [
+        59999,
+        60000,
+        60001
+      ],
+      "seedPadding": 1,
+      "paddingBound": "Strict positive progress, no more than60000 padding characters, fixed5/4 states; no discovery loop.",
+      "secretVariants": "Plain and redacted titles calibrated separately at each literal state; additional secret count1.",
+      "protectedContent": "Questions, major area heading/title/intro, full finding and final markers retained in successful states."
+    },
+    "executionAccounting": {
+      "namedCasesBefore": 71,
+      "namedCasesAfter": 71,
+      "changedScenarioFormCalls": {
+        "before": 1082,
+        "after": 65,
+        "reductionPercent": 93.99260628465804
+      },
+      "changedScenarioBodyRenders": {
+        "before": 1209,
+        "after": 187,
+        "reductionPercent": 84.53267162944582
+      },
+      "allFileFormCalls": {
+        "before": 1165,
+        "after": 148
+      },
+      "counts": [
+        {
+          "side": "before",
+          "allFileCalls": {
+            "form": 1165,
+            "body": 1298,
+            "comment": 1149
+          },
+          "changedScenarioCalls": {
+            "form": 1082,
+            "body": 1209,
+            "comment": 1082
+          },
+          "byFile": {
+            "test/review/pull-request-form.test.ts": {
+              "all": {
+                "form": 626,
+                "body": 702,
+                "comment": 610
+              },
+              "changedScenarios": {
+                "form": 546,
+                "body": 616,
+                "comment": 546
+              }
+            },
+            "test/review/pull-request-areas.test.ts": {
+              "all": {
+                "form": 539,
+                "body": 596,
+                "comment": 539
+              },
+              "changedScenarios": {
+                "form": 536,
+                "body": 593,
+                "comment": 536
+              }
+            }
+          },
+          "tests": {
+            "tests": 71,
+            "failed": 0,
+            "passed": 71,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0,
+            "topLevel": 8,
+            "suites": 9
+          }
+        },
+        {
+          "side": "after",
+          "allFileCalls": {
+            "form": 148,
+            "body": 276,
+            "comment": 135
+          },
+          "changedScenarioCalls": {
+            "form": 65,
+            "body": 187,
+            "comment": 68
+          },
+          "byFile": {
+            "test/review/pull-request-areas.test.ts": {
+              "all": {
+                "form": 35,
+                "body": 103,
+                "comment": 35
+              },
+              "changedScenarios": {
+                "form": 32,
+                "body": 100,
+                "comment": 32
+              }
+            },
+            "test/review/pull-request-form.test.ts": {
+              "all": {
+                "form": 113,
+                "body": 173,
+                "comment": 100
+              },
+              "changedScenarios": {
+                "form": 33,
+                "body": 87,
+                "comment": 36
+              }
+            }
+          },
+          "tests": {
+            "tests": 71,
+            "failed": 0,
+            "passed": 71,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0,
+            "topLevel": 8,
+            "suites": 9
+          }
+        }
+      ],
+      "method": "Untimed instrumented runs count entry to pullRequestForm, renderBody and commentOf. A stack frame within the form fit describe or the secret-title case identifies the changed scenarios; other module setup and tests remain in all-file totals.",
+      "instrumentation": "At each renderer entry, append JSON {kind,stack:new Error().stack} to an external file. Counters are removed before timing and exact-source validation."
+    },
+    "method": {
+      "pairs": 3,
+      "timedSamplesPerSide": 3,
+      "order": [
+        "before,after",
+        "after,before",
+        "before,after"
+      ],
+      "primaryMetric": "Process spawn to close, two affected files together.",
+      "command": [
+        "node",
+        "--import",
+        "./test/setup.ts",
+        "--test",
+        "--test-reporter=<same JSON summary reporter>",
+        "test/review/pull-request-form.test.ts",
+        "test/review/pull-request-areas.test.ts"
+      ],
+      "commonExperimentalScan": {
+        "scope": "Both timed variants and temporary probes use the same O1 expression solely to evaluate marginal O2 construction work. Neither timed variant is the exact proposed-commit production source.",
+        "source": "src/review/finding-names.ts",
+        "original": "const slashJoined = /[\\w.~-]*(?:[/\\\\][\\w.~-]*)+/g;",
+        "bothComparisonVariants": "const slashJoined = /(?<![\\w.~-])[\\w.~-]*(?:[/\\\\][\\w.~-]*)+/g;"
+      },
+      "exactCommitValidation": "Original committed production source and roles plus only the proposed test edits. Independently prepared O1 and unrelated role work excluded.",
+      "nodeCompileCache": "Fresh primary NODE_COMPILE_CACHE directory for each timed invocation; existing helper cache behavior unchanged.",
+      "osPageCache": "Not flushed.",
+      "environment": {
+        "node": "v26.12.1",
+        "platform": "linux",
+        "arch": "x64",
+        "kernel": "7.2.11-arch1-1",
+        "cpu": "AMD Ryzen 9 3900X 12-Core Processor",
+        "availableParallelism": 24,
+        "packageLockSha256": "529de1944a8f189fc0462b4f3b39fccddb0b03fc79bc82998b7339b6ddf2eea4"
+      },
+      "fingerprint": {
+        "method": "SHA256 of Git-ordered path,NUL,bytes,NUL for src,roles,test,scripts,package.json,package-lock.json,tsconfig.json,.tool-versions excluding the two intentionally changed test files.",
+        "before": {
+          "files": 1723,
+          "sha256": "bcf9a92da5375a097fe43744eb7b77413b32e9d1e5432892be82b32e951c9a5e"
+        },
+        "after": {
+          "files": 1723,
+          "sha256": "bcf9a92da5375a097fe43744eb7b77413b32e9d1e5432892be82b32e951c9a5e"
+        },
+        "exact": {
+          "files": 1723,
+          "sha256": "085423aedc8ef2a4fdca93223db17b97439508b499039fe96378dd6738a2280e"
+        }
+      },
+      "allPlannedSamplesIncluded": true
+    },
+    "pairs": [
+      {
+        "pair": 1,
+        "order": [
+          "before",
+          "after"
+        ],
+        "runs": [
+          {
+            "side": "before",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:09.562Z",
+            "elapsedSeconds": 1.9461098170000004,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 1907.990231
+          },
+          {
+            "side": "after",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:11.510Z",
+            "elapsedSeconds": 0.9577806939999991,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 916.91031
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "order": [
+          "after",
+          "before"
+        ],
+        "runs": [
+          {
+            "side": "after",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:12.470Z",
+            "elapsedSeconds": 0.9912099679999992,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 954.28921
+          },
+          {
+            "side": "before",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:13.463Z",
+            "elapsedSeconds": 1.9234829289999997,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 1886.094252
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "order": [
+          "before",
+          "after"
+        ],
+        "runs": [
+          {
+            "side": "before",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:15.389Z",
+            "elapsedSeconds": 2.0136498669999985,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 1977.243115
+          },
+          {
+            "side": "after",
+            "exitCode": 0,
+            "startedAt": "2026-11-08T15:22:17.404Z",
+            "elapsedSeconds": 1.0313233959999997,
+            "counts": {
+              "tests": 71,
+              "failed": 0,
+              "passed": 71,
+              "cancelled": 0,
+              "skipped": 0,
+              "todo": 0,
+              "topLevel": 8,
+              "suites": 9
+            },
+            "runnerDurationMs": 993.913358
+          }
+        ]
+      }
+    ],
+    "statistics": {
+      "before": {
+        "samples": 3,
+        "medianSeconds": 1.9461098170000004,
+        "rangeSeconds": [
+          1.9234829289999997,
+          2.0136498669999985
+        ]
+      },
+      "after": {
+        "samples": 3,
+        "medianSeconds": 0.9912099679999992,
+        "rangeSeconds": [
+          0.9577806939999991,
+          1.0313233959999997
+        ]
+      },
+      "savingSeconds": 0.9548998490000012,
+      "reductionPercent": 49.06711022464366,
+      "formula": "(median before - median after) / median before *100"
+    },
+    "targetedValidation": {
+      "counts": {
+        "tests": 71,
+        "failed": 0,
+        "passed": 71,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0,
+        "topLevel": 8,
+        "suites": 9
+      },
+      "runnerDurationMs": 934.413031,
+      "exitCode": 0,
+      "commonExperimentalScan": true
+    },
+    "mutationProbes": {
+      "attempted": 10,
+      "rejected": 10,
+      "cases": [
+        {
+          "name": "mutation-public-cap",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "export const maxPostedLength = 60_000;",
+          "with": "export const maxPostedLength = 60_001;",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=cuts a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "each fixed cut state makes positive progress toward its limit"
+            }
+          ]
+        },
+        {
+          "name": "mutation-body-exact-fit",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "while (body.text.length > maxPostedLength && made < applicable.length)",
+          "with": "while (body.text.length >= maxPostedLength && made < applicable.length)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=cuts a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n\n59398 !== 60000\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-comment-exact-fit",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "if (body.length > maxPostedLength)",
+          "with": "if (body.length >= maxPostedLength)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=refuses a comment over the limit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "refuses a comment over the limit, with its size and parts",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "{\"kind\":\"refused\",\"text\":{\"kind\":\"comment\",\"finding\":\"RIPPLE-1\",\"path\":\"src/a.ts\",\"line\":4},\"size\":60000,\"limit\":60000,\"parts\":[{\"part\":\"explanation\",\"size\":59162},{\"part\":\"decision\",\"size\":244},{\"part\":\"checked\",\"size\":154},{\"part\":\"code\",\"size\":341}]}\n+ actual - expected\n\n+ 'refused'\n- 'rendered'\n     ^\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-cut-order",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "export const bodyCuts = ['refuted', 'left', 'minor-table', 'area-diagrams'] as const;",
+          "with": "export const bodyCuts = ['left', 'refuted', 'minor-table', 'area-diagrams'] as const;",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=cuts a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n+   'left',\n    'refuted',\n-   'left',\n    'minor-table',\n    'area-diagrams'\n  ]\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-area-cut-selection",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);",
+          "with": "return false;",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=cuts a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "a successful seed for cut state 4\n+ actual - expected\n\n+ 'refused'\n- 'rendered'\n     ^\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-body-refusal",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "if (body.text.length > maxPostedLength) {",
+          "with": "if (false) {",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=refuses a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "refuses a body that does not fit after every cut, with its size and parts",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'rendered'\n- 'refused'\n     ^\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-comment-refusal",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "if (body.length > maxPostedLength)",
+          "with": "if (false)",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=refuses a comment over the limit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "refuses a comment over the limit, with its size and parts",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ 'rendered'\n- 'refused'\n     ^\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-secret-after-diagram-cut",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "secrets: secrets + body.secrets,",
+          "with": "secrets: secrets + (made === 4 ? 0 : body.secrets),",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=counts a secret of an area's title once",
+            "test/review/pull-request-areas.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-areas.test.ts",
+              "test": "counts a secret of an area's title once, whether the body is cut of the diagrams of the areas or not",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n\n0 !== 1\n"
+            }
+          ]
+        },
+        {
+          "name": "mutation-protected-area-intro",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;",
+          "with": "const intro = '';",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=names each cut where it is made",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "names each cut where it is made, and never cuts what needs a person, the areas or the findings in full",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "\"**Parsing an empty input.** What parse() does with an empty file.\" in:\n## deep-review's review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`, and changed no file.\n\n### Summary\n\nThe review keeps 3 findings. The major one is what matters before the merge; the 2 minor ones are smaller. An empty input still crashes parse(), and the author must choose how parse treats one.\n\ndeep-review would fix 2 findings; 1 is left as is. Nothing on this branch changes until the person who ran the review applies the fixes, and the answers given by then, with `deep-review re"
+            }
+          ]
+        },
+        {
+          "name": "mutation-final-marker",
+          "source": "src/review/pull-request-form.ts",
+          "replace": "markerLine(publicationMarker(view.state.id, view.input.serial)),",
+          "with": "'',",
+          "command": [
+            "node",
+            "--import",
+            "./test/setup.ts",
+            "--test",
+            "--test-reporter=<same JSON summary reporter>",
+            "--test-name-pattern=cuts a body that does not fit",
+            "test/review/pull-request-form.test.ts"
+          ],
+          "exitCode": 1,
+          "witnesses": [
+            {
+              "file": "test/review/pull-request-form.test.ts",
+              "test": "cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit",
+              "failureType": "testCodeFailure",
+              "diagnosticExcerpt": "Expected values to be strictly equal:\n+ actual - expected\n\n+ ''\n- '<!-- deep-review publication run-1 1 -->'\n"
+            }
+          ]
+        }
+      ],
+      "scope": "Disposable common-O1 checkout, one mutation at a time; semantic assertion witnesses, all mutations restored before measurements and exact-source validation."
+    },
+    "validation": {
+      "status": "passed",
+      "commands": [
+        {
+          "command": "npm run check",
+          "exitCode": 0,
+          "elapsedSeconds": 240.214927545
+        },
+        {
+          "command": "npm run verify",
+          "exitCode": 0,
+          "elapsedSeconds": 0.37436189400000147
+        }
+      ],
+      "ordinarySuite": {
+        "tests": 3731,
+        "passed": 3718,
+        "failed": 0,
+        "skipped": 13,
+        "cancelled": 0,
+        "runnerDurationMs": 215956.818623
+      },
+      "scope": "Exact proposed test change on original committed production source, without experimental O1 or unrelated role changes.",
+      "contractRun": false,
+      "realReviewRun": false,
+      "logs": "The author keeps full measurement, instrumentation, mutation and validation logs outside the repository."
+    },
+    "limitations": [
+      "The reported49.07% timing reduction is marginal O2 on a common isolated O1 expression, not shipped-source, identical-work or cumulative O1+O2 performance.",
+      "Named cases remain71 while construction renders decrease; callback and content assertions are strengthened.",
+      "Three local Linux samples establish no confidence interval, tail percentile, cross-platform or CI-wide improvement.",
+      "Original-scan full check is single correctness evidence, not a before/after suite timing comparison.",
+      "Temporary mutations probe selected faults rather than proving every possible regression is covered."
+    ]
   }
 }
