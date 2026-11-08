@@ -64,7 +64,7 @@ In a diagram, the form replaces an id in the text that the diagram shows: a quot
 
 ### R5: The name reads right in its sentence
 
-In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel.
+In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel. A particle right after the closing backtick of a code span that R3 replaces counts as right after the id, since the prompts' example writes the id in backticks and a Korean writer attaches the particle to the span, as in `` `RIPPLE-2`를 ``.
 
 ### R6: The trace line keeps the id
 
