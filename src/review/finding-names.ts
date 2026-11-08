@@ -27,11 +27,14 @@ const idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
 /** A URL in a text: a scheme and `://`, up to a space, an angle bracket or a parenthesis that closes no parenthesis of its own, as the one that ends a Markdown link's target. */
 const urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
 
-/** Where a sentence starts: the start of a text, after the end of a sentence, or at the start of a line or a list item. */
-const sentenceStart = /(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)$/;
+/** What can open a sentence before its first word: Markdown emphasis, an opening parenthesis or bracket, and an opening quote, as in `**RIPPLE-2** crashes` or `|"RIPPLE-2"|`. */
+const sentenceOpening = String.raw`[*_(\["'“‘]*`;
 
-/** A common abbreviation that ends in a period and goes on with its sentence, as `e.g.`, right before a name: no sentence starts after it. */
-const abbreviationBefore = /(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+$/iu;
+/** Where a sentence starts: the start of a text, after the end of a sentence, or at the start of a line or a list item, past what opens the sentence. */
+const sentenceStart = new RegExp(String.raw`(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)${sentenceOpening}$`);
+
+/** A common abbreviation that ends in a period and goes on with its sentence, as `e.g.`, right before a name or what opens it: no sentence starts after it. */
+const abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, 'iu');
 
 /** A Korean particle with two forms, written right after a name and followed by no other Hangul letter (R5, PD7). */
 const particleAfter = /^(으로|로|은|는|이|가|을|를|과|와)(?!\p{Script=Hangul})/u;
