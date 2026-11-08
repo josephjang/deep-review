@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 # Replace obsolete PR work across both matrices. Main pushes each get a
 # unique group so neither running nor pending validation is superseded.
@@ -12,6 +18,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  contract-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.plan.outputs.required }}
+      reason: ${{ steps.plan.outputs.reason }}
+      files: ${{ steps.plan.outputs.files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .tool-versions
+      - id: plan
+        run: node scripts/contract-ci.ts plan
+
   check:
     strategy:
       fail-fast: false
@@ -43,8 +65,11 @@ jobs:
   # at each of its points and runs it again, which makes it the costliest
   # file of the tests by far. It runs here, beside the check job, rather
   # than in `npm run check`. Its marks of known failures differ by system,
-  # so it runs on all three.
+  # so relevant PRs, main pushes, schedules and manual runs use all three.
+  # Docs-only PRs retain the existing job names and a validated exemption.
   contract:
+    needs: contract-plan
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -56,9 +81,41 @@ jobs:
         with:
           node-version-file: .tool-versions
           cache: npm
+      - id: gate
+        name: Validate contract plan
+        continue-on-error: true
+        run: node scripts/contract-ci.ts gate
+        env:
+          CONTRACT_PLAN_RESULT: ${{ needs.contract-plan.result }}
+          CONTRACT_REQUIRED: ${{ needs.contract-plan.outputs.required }}
+          CONTRACT_REASON: ${{ needs.contract-plan.outputs.reason }}
+          CONTRACT_FILES: ${{ needs.contract-plan.outputs.files }}
       - run: npm ci
+        if: ${{ steps.gate.outputs.exempt != 'true' }}
       - run: npm run test:contract
+        if: ${{ steps.gate.outputs.exempt != 'true' }}
         # The workspace disk for the sandboxes on Windows, as in the check job.
         env:
           TEMP: ${{ runner.temp }}
           TMP: ${{ runner.temp }}
+      - name: Require a valid contract plan
+        if: ${{ !cancelled() && steps.gate.outcome != 'success' }}
+        run: node -e "process.exitCode = 1"
+
+  contract-status:
+    needs: [contract-plan, contract]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .tool-versions
+      - run: node scripts/contract-ci.ts status
+        env:
+          CONTRACT_PLAN_RESULT: ${{ needs.contract-plan.result }}
+          CONTRACT_REQUIRED: ${{ needs.contract-plan.outputs.required }}
+          CONTRACT_REASON: ${{ needs.contract-plan.outputs.reason }}
+          CONTRACT_FILES: ${{ needs.contract-plan.outputs.files }}
+          CONTRACT_MATRIX_RESULT: ${{ needs.contract.result }}

@@ -934,22 +934,11 @@ npm run replay-score -- --results <results.json> --labels <labels.json>   # the 
 npm run replay-decider -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>   # a recorded run's decider again, with the current roles, by hand
 ```
 
-`npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the
-`node:test` suites against the TypeScript sources directly; nothing is
-transpiled. `npm run build` bundles `src/cli.ts` with esbuild into each
-artifact's `engine/main.mjs`, writes the sidecar and copies `roles/`
-beside it, then copies the skill sources. It replaces each
-`dist/<runtime>` tree wholesale, so a renamed or removed source never
-leaves a stale file behind. `npm run verify` assembles both
-artifacts into a temporary tree and compares them with the committed
-`dist/`, bundle included, so a commit that claims to change only where
-text lives can be checked rather than trusted. Continuous integration
-runs both on Windows, macOS and Linux. `npm run test:contract` stops a
-fix run on the fakes at a fixed set of points and runs the same command
-again (the contract of resumable runs); it starts the engine as a real
-process for each case, which makes it the costliest file of the tests, so
-`npm run check` leaves it out and continuous integration runs it as a job
-of its own on the same three systems.
+`npm run check` runs ESLint with type-aware rules, `tsc --noEmit`, and the `node:test` suites against the TypeScript sources directly; nothing is transpiled. `npm run build` bundles `src/cli.ts` with esbuild into each artifact's `engine/main.mjs`, writes the sidecar and copies `roles/` beside it, then copies the skill sources. It replaces each `dist/<runtime>` tree wholesale, so a renamed or removed source never leaves a stale file behind. `npm run verify` assembles both artifacts into a temporary tree and compares them with the committed `dist/`, bundle included, so a commit that claims to change only where text lives can be checked rather than trusted. Continuous integration runs both on Windows, macOS and Linux.
+
+`npm run test:contract` stops a fix run on the fakes at a fixed set of points and runs the same command again (the contract of resumable runs). It starts the engine as a real process for each case, which makes it the costliest file of the tests, so `npm run check` leaves it out. CI runs it on all three systems for main pushes and for pull requests except changes containing only regular, non-executable Markdown under `docs/` or the exact root `README.md` and `AGENTS.md` paths. The classifier inspects the complete PR change, including renames, deletions and the tested merge; unknown paths or incomplete history run the full tier. Every PR still gets the ordinary checks and verify, and each existing contract job reports either its execution or a validated exemption. The `contract-status` job summarizes the matrix and rejects failed, canceled or invalid prerequisites. An exemption is not a passing contract result.
+
+The full workflow also runs every Monday at 03:23 UTC and through GitHub Actions' Run workflow action, which can force the contract on a selected revision. Schedules use the default branch and can be delayed or dropped; all main pushes retain their own full validation. If a scheduled run fails, inspect its revision and OS, reproduce or manually rerun that revision, and resolve the failure before treating it as validated. See the [conditional-contract proposal](docs/changes/2026-11-08-conditional-contract-ci.md) for the policy and its accepted detection risk. The aggregate status does not become a required branch-protection check automatically; existing contract matrix names and their validation gates are retained.
 
 The suite never calls a model: fake Claude and Codex CLIs stand in for the
 real ones, and for the review they answer from a script per role and
