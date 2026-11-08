@@ -73,20 +73,20 @@ export function scopeMismatch(resolved: ResolvedScope, scope: ScopeState, change
     const differences = [...(added.length === 0 ? [] : [`${pathList(added)} changed since and not in it`]), ...(gone.length === 0 ? [] : [`${pathList(gone)} in it and no longer changed`])];
     return `its files are not the change named: ${differences.join('; ')}`;
   }
-  return treeMismatch(scope, changedSince, resolved.guard.head);
+  return treeMismatch(scope, changedSince(scope), resolved.guard.head);
 }
 
 /**
  * The part of `scopeMismatch` that reads the tree and not the request:
  * why the tree no longer holds the change a scope captured, or null when
- * it does. One of the scope's files differs from what the scope froze, by
- * `changedSince`, or `head`, the `HEAD` of the tree now, is not the
- * scope's head. The command that brought a run to its read-only report
- * holds the run to this alone before it continues it, since it names the
- * run and reads no request (R4 of the review of a fix run).
+ * it does. One of the scope's files differs from what the scope froze, as
+ * `changed`, the paths the caller found so, lists, or `head`, the `HEAD`
+ * of the tree now, is not the scope's head. The command that brought a
+ * run to its read-only report holds the run to this alone before it
+ * continues it, since it names the run and reads no request (R4 of the
+ * review of a fix run).
  */
-export function treeMismatch(scope: ScopeState, changedSince: (scope: ScopeState) => readonly string[], head: string): string | null {
-  const changed = changedSince(scope);
+export function treeMismatch(scope: ScopeState, changed: readonly string[], head: string): string | null {
   if (changed.length > 0) return `${String(changed.length)} of its files changed since: ${pathList(changed)}`;
   if (head !== scope.head) return `HEAD is ${head}, not ${scope.head}`;
   return null;
