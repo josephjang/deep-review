@@ -151,7 +151,7 @@ The proposal rejects running the writer only when `publish` is first asked, whic
 
 ### PD6: `--fix` on a resumed read-only run of a pull request continues it after its report
 
-PD4 of fix pass continuation rejected switching a resumed read-only run to the fix pass before its report, because the survey would be asked again mid-run and the person had not read a report. The switch here happens only after the report is written, as that decision requires, and the command's `--fix` states the intent. Without it, a `review --pr --fix` cut short by a stop would resume as a read-only run and end without fixing, since the ledger does not record that the command asked for fixes.
+PD4 of fix pass continuation rejected switching a resumed read-only run to the fix pass before its report, because the survey would be asked again mid-run and the person had not read a report. The switch here happens only after the report is written, as that decision requires, and the command's `--fix`, with a `--pr` that names the run's pull request, states the intent; a command of another scope names no run of this pull request, so its `--fix` is ignored. Without it, a `review --pr --fix` cut short by a stop would resume as a read-only run and end without fixing, since the ledger does not record that the command asked for fixes.
 
 The proposal rejects recording that intent on the ledger. It would be a new event for what the command already says, and the person who resumes without `--fix` gets the read-only run, as before.
 
