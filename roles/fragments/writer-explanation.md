@@ -124,6 +124,7 @@ each refuted candidate your task lists has exactly one line, each cited
 path and range of a major finding is at its side, no part holds a
 verdict of the review, and each diagram keeps the rules above. An answer
 that fails a check is given back to a fresh writer once, with what
-failed; the parts of the first answer that passed are kept. A part that
-fails again is dropped, and the review gives the engine's own words in
-its place.
+failed; the parts of the first answer that passed are kept, but the
+conclusion, whose summary names the areas, is kept only from the answer
+whose areas are kept. A part that fails again is dropped, and the review
+gives the engine's own words in its place.
