@@ -741,8 +741,6 @@ describe('the fit of the review (TD5)', () => {
     if (known !== undefined) return known;
     let pad = 1;
     let seed = renderedOf(state, answerOf(pad, diagram), filesOf(true));
-    const cuts: string[][] = [];
-    const forms: PullRequestForm[] = [];
     const boundaries: Boundary[] = [];
     for (let index = 0; index < (diagram ? 5 : 4); index += 1) {
       assert.equal(seed.kind, 'rendered', `a successful seed for cut state ${String(index)}`);
@@ -753,14 +751,12 @@ describe('the fit of the review (TD5)', () => {
       const at = formOf(state, answerOf(atPad, diagram), filesOf(true));
       const above = renderedOf(state, answerOf(atPad + 1, diagram), filesOf(true));
       boundaries.push({ below, at, above });
-      for (const form of [below, at, ...(above.kind === 'rendered' ? [above] : [])]) {
-        forms.push(form);
-        if (JSON.stringify(cuts.at(-1)) !== JSON.stringify(form.cuts)) cuts.push([...form.cuts]);
-      }
       pad = atPad + 1;
       seed = above;
     }
-    const result = { cuts, forms, last: seed, boundaries };
+    const forms = boundaries.flatMap(({ below, at, above }) => [below, at, ...(above.kind === 'rendered' ? [above] : [])]);
+    const cuts = forms.filter((form, index) => index === 0 || JSON.stringify(forms[index - 1]!.cuts) !== JSON.stringify(form.cuts)).map((form) => [...form.cuts]);
+    const result = { cuts, forms, last: boundaries.at(-1)!.above, boundaries };
     sampled.set(diagram, result);
     return result;
   };
