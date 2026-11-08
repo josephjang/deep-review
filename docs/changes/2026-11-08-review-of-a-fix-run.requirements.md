@@ -97,7 +97,7 @@ The posted review of a continued run states what followed the review, in place o
 
 ### R8: The skills and the README
 
-The skills offer to post the review after any run of `--pr`, and no longer tell the host to post before it continues a run with `--fix`. The README says that `review --pr <n> --fix` reviews, writes the read-only report and continues the run in one command, that `publish` posts the review of such a run before or after its fix pass, what the posted review then says, and that the fixes must not be pushed to the branch of the pull request before the post. The skill texts change in their own commit.
+The skills offer to post the review after any run of `--pr`, and no longer tell the host to post before it continues a run with `--fix`. The README says that `review --pr <n> --fix` reviews, writes the read-only report and continues the run in one command, that `publish` posts the review of such a run once the command has ended, whether its fix pass finished, blocked or was stopped, what the posted review then says, and that the fixes must not be pushed to the branch of the pull request before the post. The skill texts change in their own commit.
 
 ### R9: The gate
 
