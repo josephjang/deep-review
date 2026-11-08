@@ -224,7 +224,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     const fallback = formOf(dropped, { conclusion: null, account: null, areas: null, refuted: null, findings: [writerAnswer().findings[1]!] });
     includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. Fix: Guard the null once, before parse reads it. Against a written rule.`);
     excludes(fallback.body, '```mermaid\nflowchart LR');
-    includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that passed deep-review\'s checks, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
+    includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
     const none = formOf(runBeforeExplanation().fold(), null);
     includes(none.body, 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.');
     excludes(none.body, 'A model wrote the explanations');
@@ -247,7 +247,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     includes(trustOf(nothingKept, { ...empty, refuted: [{ id: 'RIPPLE-2', claim: 'A cache entry outlives a logout.', why: 'Logout clears the cache first.' }] }), 'A model wrote the explanations');
   });
 
-  it('names the writer\'s areas and refuted lines when the checks dropped them, in each language', () => {
+  it('names the writer\'s summary, areas and refuted lines when the checks dropped them, in each language', () => {
     /** The trust section of a run whose review reads as a report, in `language`, its explanation dropping the part named. */
     const trustOf = (language: string, part: string): string => {
       const history = withSettings(run(answerableDecisions(), explanation(worker(60), { dropped: [{ part, failures: ['x'] }], unexplained: ['SWEEP-1'] })), { 'review.language': language }, { 'review.language': 'repository' });
@@ -263,7 +263,13 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
       const refuted = trustOf(language, 'refuted');
       includes(refuted, `\n\n${refutedDropped}\n`);
       for (const other of [areasDropped, conclusionDropped]) excludes(refuted, other);
+      const conclusion = trustOf(language, 'conclusion');
+      includes(conclusion, `\n\n${conclusionDropped}\n`);
+      for (const other of [areasDropped, refutedDropped]) excludes(conclusion, other);
     }
+    // A summary that passed is dropped when its answer's areas were not kept, so the note says none could be kept, not that none passed.
+    includes(trustOf('en', 'conclusion'), 'The writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review\'s own words.');
+    excludes(trustOf('en', 'conclusion'), 'no summary that passed');
     includes(trustOf('en', 'areas'), 'The writer gave no areas that passed deep-review\'s checks, so the major findings are listed in one area in deep-review\'s own words.');
     includes(trustOf('en', 'refuted'), 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.');
   });
