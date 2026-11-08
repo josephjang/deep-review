@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "date": "2026-11-08",
+  "scope": "Test-time investigation; experimental measurements do not establish a CI speedup.",
+  "pairedPathScan": {
+    "subject": "namedFindings",
+    "node": "v26.12.1",
+    "platform": "linux",
+    "architecture": "x64",
+    "method": {
+      "pairsPerInput": 5,
+      "order": "before/after on even pairs; after/before on odd pairs",
+      "warmup": "two calls to each implementation using 1000 letters and the same finding id",
+      "timedRegion": "one public function call; module loading, process startup and output assertion excluded",
+      "input": "q repeated length times, followed by a space and RIPPLE-2.",
+      "expected": "same q prefix, followed by a space and finding 3.",
+      "before": "original path expression recorded in the report",
+      "after": "boundary-constrained path expression recorded in the report",
+      "comparison": "same process, dependencies, names map and English naming; outputs asserted equal",
+      "cache": "modules loaded before timing; no test-result cache"
+    },
+    "results": [
+      {
+        "length": 10000,
+        "samples": {
+          "before": [
+            74.81431599999999,
+            74.44782999999998,
+            74.44300100000004,
+            74.73160899999999,
+            74.04200900000001
+          ],
+          "after": [
+            0.1350569999999891,
+            0.12236200000000963,
+            0.20063099999998713,
+            0.18535300000002053,
+            0.10587099999997918
+          ]
+        },
+        "beforeMedianMs": 74.44782999999998,
+        "afterMedianMs": 0.1350569999999891,
+        "reductionPercent": 99.81858839942012,
+        "speedup": 551.2326647267894
+      },
+      {
+        "length": 20000,
+        "samples": {
+          "before": [
+            295.43895999999995,
+            295.5190630000001,
+            296.05536099999995,
+            295.66526999999996,
+            295.5113079999999
+          ],
+          "after": [
+            0.20925799999997707,
+            0.2032369999999446,
+            0.21062999999981002,
+            0.22168099999998958,
+            0.2968639999999141
+          ]
+        },
+        "beforeMedianMs": 295.5190630000001,
+        "afterMedianMs": 0.21062999999981002,
+        "reductionPercent": 99.92872541017775,
+        "speedup": 1403.024559655636
+      },
+      {
+        "length": 40000,
+        "samples": {
+          "before": [
+            1095.000949,
+            1076.5395029999995,
+            1075.1988460000002,
+            1075.5288730000002,
+            1075.6943570000003
+          ],
+          "after": [
+            0.36914200000001074,
+            0.3789999999999054,
+            0.3676390000000538,
+            0.3526799999999639,
+            0.41046000000005733
+          ]
+        },
+        "beforeMedianMs": 1075.6943570000003,
+        "afterMedianMs": 0.36914200000001074,
+        "reductionPercent": 99.96568337487336,
+        "speedup": 2914.0394671968215
+      }
+    ]
+  },
+  "checkCacheExperiments": {
+    "node": "v26.12.1",
+    "platform": "linux",
+    "repetitionsPerCondition": 1,
+    "sourceChanged": false,
+    "unit": "seconds",
+    "allExitCodes": 0,
+    "typecheck": {
+      "baseline": 8.646,
+      "coldIncremental": 8.351,
+      "warmIncremental": 1.655,
+      "warmReductionPercent": 80.9,
+      "adopted": false
+    },
+    "lint": {
+      "baseline": 14.963,
+      "coldCache": 15.299,
+      "warmCache": 0.666,
+      "warmReductionPercent": 95.5,
+      "adopted": false,
+      "limitation": "File caches do not invalidate dependent files for typed lint rules."
+    }
+  },
+  "ordinarySuite": {
+    "baseline": {
+      "status": "intentionally interrupted",
+      "elapsedSeconds": 252.542,
+      "passed": 3629,
+      "skipped": 13,
+      "terminatedFileFailures": 2
+    },
+    "followUp": {
+      "status": "passed in isolated checkout",
+      "elapsedSeconds": 66.122,
+      "tests": 3715,
+      "passed": 3702,
+      "skipped": 13,
+      "failed": 0,
+      "addedCases": 2
+    },
+    "reductionPercent": null,
+    "limitation": "The baseline did not complete, and suite inputs differ by two regression cases; no full-suite improvement percentage is established."
+  }
+}

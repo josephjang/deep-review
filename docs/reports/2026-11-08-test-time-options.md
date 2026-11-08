@@ -25,6 +25,59 @@ The order weighs measured effect, implementation cost and the possibility of mis
 
 Implement the first four as separate changes where possible, so their effects and policy decisions remain attributable. Do not add their measured or estimated savings: they affect different runs, overlap, and can move the bottleneck to another job. Conditional contract execution, for example, saves no work on a PR that still qualifies for the full contract.
 
+## Evaluation record
+
+Each option gets a before-and-after evaluation when implemented. [The measurement data](2026-11-08-test-time-measurements.json) records the paired path-scan samples, the earlier cache experiments and the incomplete full-suite baseline. A blank improvement figure means not established, not zero improvement. Measurements of an experiment do not mean that its configuration has been adopted.
+
+| Option | Current evaluation | Established improvement | Evidence still needed |
+|---|---|---|---|
+| O1: Bound the path scan | Locally implemented; five alternating pairs per input | Public-API median at 40,000 letters: 1,075.694 to 0.369 ms, 99.97% less elapsed time for that synthetic input | Comparable completed whole-suite runs and CI results; the old whole-suite baseline was interrupted |
+| O2: Boundary cases | A temporary threshold-jump variant passed 71 tests in 149.721 s using the original scan | No incremental improvement over the implemented O1 established | Run the same cut/refusal coverage before and after O2 with O1 present on both sides |
+| O3: Git calls | Not implemented or newly profiled | Not measured | Call counts and cumulative time per subcommand, plus drift and filter compatibility |
+| O4: Concurrency and splitting | Not implemented | Not measured | Alternating runs at each concurrency, longest-file tail, CPU, memory and failures on each OS |
+| O5: Sharding | Not implemented | Not measured | Latest-revision latency, slowest shard and total runner time including setup and queues |
+| O6: Focused edit-loop tests | Available practice; no comparative sample recorded | Not measured | Time to feedback for fixed representative edits; final full-check cost reported separately |
+| O7: Cancel obsolete CI | Not implemented | Not measured | Obsolete runner time avoided and latest-push-to-result latency over a recorded observation window |
+| O8: Conditional contract | Not implemented; current every-PR policy remains | Not measured | Exempted PR fraction, contract executions avoided, total runner time and coverage/detection delay |
+| O9: Incremental checks | One unchanged-input run per condition; neither cache adopted | Typecheck warm run: 8.646 to 1.655 s, 80.9% less time; cold incremental run: 8.351 s | Repeated runs after edits and invalidation tests. Lint's 95.5% warm reduction is not acceptable evidence for required typed linting |
+| O10: Duplicate cases and layering | Six candidate executions identified; none removed | Not measured | Before/after executed case counts by layer and preserved defect detection, then elapsed time |
+| O11: Deliberate waits | Not implemented | Not measured | Time spent waiting, retained real-clock cases and timeout regressions |
+| O12: Remaining fake-worker children | Not implemented | Not measured | Child-start counts and time, with representative CLI wiring checks preserved |
+| O13: Preparation reuse | Not implemented | Not measured | Setup/copy/cleanup time and proof of independent writable state |
+| O14: Smaller contract scenarios | Not implemented | Not measured | All required stop points/methods reached, five contract parts checked and scenario elapsed times |
+| O15: CI compile cache and scheduling | Not implemented | Not measured | Cache transfer cost, cold/warm time and worker idle tail |
+| O16: Stable inputs and capacity | One contaminated full-suite experiment discarded; no prevention change implemented | Not measured | Rerun rate over an observation window; runner price/time and memory/GC evidence for any capacity change |
+
+### E1: Compare one change at a time
+
+Use the last validated configuration as the baseline for the next option, so its marginal contribution is visible. Also record cumulative time against a completed original baseline when one is available. Keep the test command, input revision, dependencies, OS, runtime version, runner capacity and cache state fixed except for the factor under test. Name changes by proposal, file or PR rather than branch commit hashes, and record the exact commands. Compilation-cache, result-cache and cold/warm conditions must be explicit.
+
+Use at least five alternating before/after pairs for local elapsed-time comparisons where practical, report the sample count, median and range, and retain failed runs rather than silently dropping them. Separate OS and runner classes in CI comparisons. Do not present a tail percentile from a handful of samples. A deliberately timed-out baseline is a regression reproduction, not a completed timing sample.
+
+### E2: Record time, work and verification separately
+
+Record ordinary-test and contract elapsed times separately, and distinguish the test stage from lint, typecheck, install, build/verify and complete CI latency. Include time from the latest push to the required result and total runner time when evaluating CI policy. For the proposed mechanism, add child starts, Git calls, deliberate waits, cache transfer bytes/time or setup/cleanup time as appropriate.
+
+Record passed, failed, skipped and canceled cases, the selected files and scenarios, and their unit/integration/engine-E2E classification when established. Count required OS and stop-method executions too: moving work to a schedule changes when coverage exists even when the logical case list stays the same. A reduced case count is not itself a speedup, and a test exemption is not a passing test. Layer classification has not yet been completed for this suite.
+
+### E3: State the result and its limits
+
+For comparable completed runs, absolute saving is `before - after`; reduction is `(before - after) / before * 100`; speedup is `before / after`. Publish negative changes as regressions. For policy changes compare equivalent PR cohorts and account for added scheduled work, rather than treating every skipped job as pure net savings. Record the coverage consequence and decide whether to retain, revise or reject the change. Keep synthetic function, local suite and CI results separate, and do not sum improvements from different baselines.
+
+## Paired evaluation of bounded path scanning
+
+The follow-up benchmark calls the public `namedFindings` function on 10,000, 20,000 and 40,000 `q` characters followed by ` RIPPLE-2.`. Both implementations must return the same letters followed by ` finding 3.`. Only the path expression and its explanatory comment differ between the source copies. They share the Markdown dependency, the same one-entry names map and English naming rules. This measures the actual public transformation rather than the expression alone.
+
+Node 26.12.1 on Linux x64 loaded both modules before timing and warmed each with two calls using 1,000 letters and the same id. Each input then ran in five pairs, alternating which implementation ran first. The timed region contains only the function call; startup, module compilation and the assertion of each output are excluded. The raw samples are in the measurement data. The author keeps the temporary benchmark driver outside the repository; the method and complete samples are recorded here so the comparison can be reproduced.
+
+| Letters before the id | Before median (range), ms | After median (range), ms | Reduction in median |
+|---|---:|---:|---:|
+| 10,000 | 74.448 (74.042 to 74.814) | 0.135 (0.106 to 0.201) | 99.82% |
+| 20,000 | 295.519 (295.439 to 296.055) | 0.211 (0.203 to 0.297) | 99.93% |
+| 40,000 | 1,075.694 (1,075.199 to 1,095.001) | 0.369 (0.353 to 0.410) | 99.97% |
+
+All 30 measured outputs matched their expected text. This supports retaining O1 for the observed long-word bottleneck. It is not a 99.97% suite or CI improvement: the workload is deliberately synthetic, and the original full-suite timing did not complete. The passing 66.122 s suite is an absolute post-change measurement, with two added regression cases, not a measured full-suite percentage reduction.
+
 ## What is already implemented
 
 The review sandbox already runs ordinary fake workers, preflight probes and stand-in checks in the test process (`test/helpers/in-process-runner.ts`). Fakes that need a real process tree, runtime tests, command-line tests and the resumable contract retain real processes. Recommending this migration again would repeat the 2026-10-22 work.
