@@ -663,8 +663,8 @@ function goodReport(ids: readonly string[] = ['RIPPLE-1', 'SWEEP-1']): WriterOut
   };
 }
 
-/** What the run of these tests holds an answer of version 2 to: RIPPLE-1 major, SWEEP-1 minor, SCAN-1 refuted. */
-const report = { major: ['RIPPLE-1'], refuted: ['SCAN-1'] };
+/** What the run of these tests holds an answer of version 2 to: RIPPLE-1 major, SWEEP-1 minor, neither a question, SCAN-1 refuted. */
+const report = { major: ['RIPPLE-1'], asks: [], refuted: ['SCAN-1'] };
 const checkReport = (output: WriterOutputV2, ids: readonly string[] = ['RIPPLE-1', 'SWEEP-1']) => checkAnswer(output, { ids, lineCount: fakeLines, report });
 /** The failures of every part of a checked answer of version 2, by part. */
 const reportFailures = (output: WriterOutputV2): Record<string, readonly string[]> => {
@@ -693,7 +693,22 @@ describe('the checks of the writer\'s answer in the form of the review that read
       'area 1 holds the verdict CONFIRMED, which the engine writes beside the finding',
       'the diagram of area 1 is no diagram GitHub draws: it starts with "pie", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws',
     ]);
-    assert.deepEqual(checkAnswer({ ...goodReport(['SWEEP-1']), areas: [] }, { ids: ['SWEEP-1'], lineCount: fakeLines, report: { major: [], refuted: ['SCAN-1'] } }).areas?.failures, [], 'a run with no major finding to explain has no area');
+    assert.deepEqual(checkAnswer({ ...goodReport(['SWEEP-1']), areas: [] }, { ids: ['SWEEP-1'], lineCount: fakeLines, report: { major: [], asks: [], refuted: ['SCAN-1'] } }).areas?.failures, [], 'a run with no major finding to explain has no area');
+  });
+
+  it('holds the sentence of a question, which the form does not post, to nothing, and still refuses an id of no finding', () => {
+    const asked = { ...report, asks: ['SWEEP-1'] };
+    const conclusionOf = (actions: WriterOutputV2['conclusion']['actions']): readonly string[] => checkAnswer({ ...goodReport(), conclusion: { ...goodReport().conclusion, actions } }, { ids: ['RIPPLE-1', 'SWEEP-1'], lineCount: fakeLines, report: asked }).conclusion.failures;
+    const fix = { id: 'RIPPLE-1', sentence: 'Guard the null once, before parse reads it.' };
+    assert.deepEqual(conclusionOf([fix, { id: 'SWEEP-1', sentence: 'It asks, and recommends the CONFIRMED fix.' }]), [], 'a verdict word in the sentence of a question');
+    assert.deepEqual(conclusionOf([fix]), [], 'no sentence for a question');
+    assert.deepEqual(conclusionOf([fix, { id: 'SWEEP-1', sentence: ' ' }, { id: 'SWEEP-1', sentence: 'Again.' }]), [], 'an empty sentence for a question, given twice');
+    assert.deepEqual(conclusionOf([{ ...fix, sentence: 'Fix it, as CONFIRMED.' }, { id: 'NOPE-9', sentence: 'It is CONFIRMED.' }]), [
+      'the conclusion names "NOPE-9", which is no finding of the run that asks a person to act',
+      'the conclusion holds the verdict CONFIRMED, which the engine writes beside the finding',
+    ], 'the sentence of a fix, and of an id of no finding, is still checked');
+    assert.deepEqual(conclusionOf([{ id: 'SWEEP-1', sentence: 'It asks.' }]), ['the conclusion has no sentence for RIPPLE-1'], 'a fix still needs its sentence');
+    assert.deepEqual(checkReport({ ...goodReport(), conclusion: { ...goodReport().conclusion, actions: [fix] } }).conclusion.failures, ['the conclusion has no sentence for SWEEP-1'], 'a finding to fix that is minor still needs its sentence');
   });
 
   it('refuses refuted lines that leave a refuted candidate out, give it two, name another id, or say nothing', () => {
