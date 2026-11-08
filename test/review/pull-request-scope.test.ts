@@ -463,7 +463,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     assert.notDeepEqual(review.report!.report, review.continuedFrom!.report.report, 'the fix report follows the read-only one');
     assert.equal(review.fix!.revisions.length, 2, 'both fixers revised the tree');
     assert.equal(fakeGhCalls(script).length, 4, 'GitHub was read once, for the capture');
-    assert.ok(box.logs.some((line) => line.startsWith(`run ${run!.id}: configured for `) && line.endsWith('; this command continues it into the fix pass once its report is written')), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => line.startsWith(`run ${run!.id}: configured for `) && line.endsWith('; once its report is written, this command continues it into the fix pass when its decisions send a finding to a fixer')), box.logs.join('\n'));
     assert.ok(box.logs.some((line) => line.startsWith(`run ${run!.id}: continued into the fix pass; its read-only report is ${box.checkpoint.evidence.pathOf(review.continuedFrom!.report.report)}; `)), box.logs.join('\n'));
   });
 
@@ -477,6 +477,8 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     assert.equal(run.review!.fix, null, 'the run stays read-only');
     assert.equal(box.events(run.id).some(([kind]) => kind === 'fix.pinned'), false);
     assert.ok(box.logs.includes(`run ${run.id} has no finding to fix: 0 decided fix, 3 left, 0 asked with the code kept; it ends with its read-only report, and its fix pass does not run`), box.logs.join('\n'));
+    // The configuration's line promised the fix pass only on the condition that did not hold, so no line predicts a pass that does not run.
+    assert.ok(box.logs.some((line) => line.startsWith(`run ${run.id}: configured for `) && line.endsWith('; once its report is written, this command continues it into the fix pass when its decisions send a finding to a fixer')), box.logs.join('\n'));
   });
 
   it('refuses a continuation that its run budget no longer allows, naming the read-only report, creating no second run and leaving the run complete, which the same command continues once the budget is raised (R4)', async (t) => {
@@ -510,7 +512,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     box.logs.length = 0;
     reportText(await box.fix('claude', { scope: pullRequestSource(box, gh) }));
     // The check flags of the command that started the run are not recorded, so the line asks for them again.
-    assert.ok(box.logs.includes(`run ${blocked.id} is a read-only run of a pull request; this command continues it into the fix pass once its report is written, with the checks that its --check and --no-check settle, since a read-only run records none at configuration, so give again every one the command that started the run gave`), box.logs.join('\n'));
+    assert.ok(box.logs.includes(`run ${blocked.id} is a read-only run of a pull request; once its report is written, this command continues it into the fix pass when its decisions send a finding to a fixer; its --check and --no-check settle the checks of that pass, since a read-only run records none at configuration, so give again every one the command that started the run gave`), box.logs.join('\n'));
     assert.ok(!box.logs.some((line) => /--fix\b.* ignored/.test(line)), 'no line says --fix is ignored');
     const run = box.run();
     assert.equal(run.id, blocked.id);
