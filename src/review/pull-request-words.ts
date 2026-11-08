@@ -16,7 +16,7 @@
  */
 import type { FindingStatus } from './brief.ts';
 import type { Layer } from '../config/settings.ts';
-import { koreanParticle, type FindingNaming } from './finding-names.ts';
+import { koreanParticle, type FindingNaming, type IdName } from './finding-names.ts';
 import { capitalized, counted, findingWords, listed } from './markdown.ts';
 import { leaveReasonWords, settleStepWords, type LeaveReason, type SettleStep, type Severity, type Verdict, type VerdictBasis } from './vocabulary.ts';
 
@@ -296,6 +296,30 @@ const reviewNodesEnglish = [
 /** A fix against a written rule, in English: the rule, its source, the fact against it, and who accepts or rejects it with which command and where, then `then`, what follows the review, from its first character. */
 const departureEnglish = (rule: string, source: string, fact: string, accept: string, reject: string, then: string): string => `**This fix goes against a written rule.** The rule: "${rule}" Its source: ${source} The fact against it: ${fact} The person who ran this review accepts the departure with ${accept} or rejects it with ${reject}, on the machine that holds the run${then}`;
 
+/** An English word that determines the noun after it, so a name after it takes no article of its own. */
+const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|every|another|any|no)\s+`;
+
+/**
+ * The English name of a refuted candidate (R2, R5 of the finding names in
+ * the review), which says each of its words once with the words around
+ * the id: a noun `candidate` right before the id or right after it is
+ * taken into the name, a `refuted` already written before it is not
+ * written again, and the name takes the article `a` only when no
+ * determiner comes before it and its noun is not plural, as `this
+ * DESIGN-1` names `this refuted candidate` and `The candidate DESIGN-1`
+ * names `The refuted candidate`.
+ */
+function englishRefuted(before: string, after: string): IdName {
+  const preceding = /(?<![\w-])candidate\s+$/i.exec(before)?.[0] ?? '';
+  const rest = before.slice(0, before.length - preceding.length);
+  const following = /^\s+(candidates?)\b/i.exec(after);
+  const said = /\brefuted\s+$/i.test(rest);
+  const determined = new RegExp(`${englishDeterminer}${said ? String.raw`refuted\s+` : ''}$`, 'i').test(rest);
+  const article = determined || following !== null ? '' : 'a';
+  const words = [article, said ? '' : 'refuted', following?.[1] ?? 'candidate'].filter((word) => word !== '');
+  return { name: words.join(' '), before: preceding.length, after: following?.[0].length ?? 0 };
+}
+
 const english: PullRequestWords = {
   heading: '## deep-review\'s review of this pull request',
   reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}, and changed no file.`,
@@ -409,7 +433,7 @@ const english: PullRequestWords = {
       // A noun after the id that says finding, as in `the RIPPLE-2 finding`, is said by the name.
       after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
     }),
-    refuted: (before, after) => ({ name: /^\s+candidates?\b/i.test(after) ? 'refuted' : /\b(?:the|a|an)\s+$/i.test(before) ? 'refuted candidate' : 'a refuted candidate', before: 0, after: 0 }),
+    refuted: englishRefuted,
     starting: capitalized,
     particle: (_name, particle) => particle,
   },
@@ -529,6 +553,18 @@ const departureKorean = (rule: string, source: string, fact: string, accept: str
 
 /** A Korean noun right after an id that says finding, 지적 사항 or 지적, followed by a particle and then no Hangul, or by no Hangul at all, so that it is no part of a longer word such as 지적했다. */
 const koreanFindingNoun = /^\s*지적(?:\s*사항)?(?!\s*사항)(?=(?:으로|로|은|는|이|가|을|를|과|와|의|에서|에|도|만)?(?!\p{Script=Hangul}))/u;
+
+/**
+ * The Korean name of a refuted candidate (R2, R5 of the finding names in
+ * the review), 반박된 후보, which takes into itself a noun 후보 right
+ * before the id or right after it, and writes 후보 alone after a 반박된
+ * already written, as `후보 DESIGN-1은` names `반박된 후보는`.
+ */
+function koreanRefuted(before: string, after: string): IdName {
+  const preceding = /(?<!\p{Script=Hangul})후보\s*$/u.exec(before)?.[0] ?? '';
+  const said = /(?<!\p{Script=Hangul})반박된\s*$/u.test(before.slice(0, before.length - preceding.length));
+  return { name: said ? '후보' : '반박된 후보', before: preceding.length, after: /^\s*후보/.exec(after)?.[0].length ?? 0 };
+}
 
 const korean: PullRequestWords = {
   heading: '## deep-review의 풀 리퀘스트 리뷰',
@@ -650,7 +686,7 @@ const korean: PullRequestWords = {
       // A noun after the id that says finding, 지적 사항 or 지적 as in `RIPPLE-2 지적은`, is said by the name; the particle after it then follows the name.
       after: koreanFindingNoun.exec(after)?.[0].length ?? 0,
     }),
-    refuted: (_before, after) => ({ name: /^\s*후보/.test(after) ? '반박된' : '반박된 후보', before: 0, after: 0 }),
+    refuted: koreanRefuted,
     starting: (name) => name,
     particle: koreanParticle,
   },
