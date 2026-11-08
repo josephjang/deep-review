@@ -104,9 +104,27 @@ const holdsId = (text: string, names: ReadonlyMap<string, NamedId>): boolean => 
 /** The kind of a diagram, from its first line. */
 const diagramKind = (header: string): 'flowchart' | 'sequence' | 'state' | 'other' => (/^(?:flowchart|graph)\b/.test(header) ? 'flowchart' : /^sequenceDiagram\b/.test(header) ? 'sequence' : /^stateDiagram/.test(header) ? 'state' : 'other');
 
+/**
+ * A text a diagram shows between quotes or between bars, its marks
+ * included, named as a text of its own. A quoted Mermaid markdown string,
+ * whose whole text is between backticks as in "`RIPPLE-2 crashes`", is
+ * named inside its backticks, unless its text is one id alone, which is
+ * named whole as such a code span is in prose. A quoted text between bars
+ * is named as a quoted text.
+ */
+function shownNamed(shown: string, named: (text: string) => string): string {
+  const inner = shown.slice(1, -1);
+  if (shown.startsWith('|')) {
+    const quoted = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
+    return `|${quoted === null ? named(inner) : `${quoted[1]!}${shownNamed(quoted[2]!, named)}${quoted[3]!}`}|`;
+  }
+  const markdown = /^`([^`]+)`$/.exec(inner);
+  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]!) ? named(inner) : `\`${named(markdown[1]!)}\``}"`;
+}
+
 /** A text of a diagram with each of its quoted texts, and with `bars` each of its texts between bars, named as a text of its own, and each other part named as it stands. */
 function partsNamed(text: string, named: (text: string) => string, bars: boolean): string {
-  return text.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') || (bars && part.startsWith('|')) ? `${part.charAt(0)}${named(part.slice(1, -1))}${part.charAt(0)}` : named(part)));
+  return text.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') || (bars && part.startsWith('|')) ? shownNamed(part, named) : named(part)));
 }
 
 /** The lines of a flowchart that style or link what is drawn, and its comments: `diagramFailures` reads no label in them. */
@@ -153,14 +171,14 @@ function edgeTextAt(line: string, at: number): { readonly start: number; readonl
  * line. Node ids are left as they are.
  */
 function flowchartLineNamed(line: string, named: (text: string) => string): string {
-  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
   const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
   if (subgraph !== null) {
     const rest = subgraph[2]!;
     const bracketed = subgraphBracketed.exec(rest);
     if (bracketed !== null) return `${subgraph[1]!}${bracketed[1]!}${named(bracketed[2]!)}${bracketed[3]!}`;
     // A title alone is shown whole; an id with a quoted title between brackets keeps its id.
-    return `${subgraph[1]!}${rest.includes('[') ? rest.replace(/"([^"]*)"/g, (_whole, quoted: string) => `"${named(quoted)}"`) : partsNamed(rest, named, false)}`;
+    return `${subgraph[1]!}${rest.includes('[') ? rest.replace(/"[^"]*"/g, (quoted) => shownNamed(quoted, named)) : partsNamed(rest, named, false)}`;
   }
   let out = '';
   let at = 0;
@@ -175,7 +193,7 @@ function flowchartLineNamed(line: string, named: (text: string) => string): stri
     if (char === '"' || char === '|') {
       const close = line.indexOf(char, at + 1);
       if (close === -1) return `${out}${line.slice(at)}`;
-      out += `${char}${named(line.slice(at + 1, close))}${char}`;
+      out += shownNamed(line.slice(at, close + 1), named);
       at = close + 1;
       continue;
     }
@@ -192,7 +210,7 @@ function flowchartLineNamed(line: string, named: (text: string) => string): stri
     let close = at + 2;
     while (close < line.length && line.charAt(close) !== '}') close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
     if (close === line.length) return `${out}${line.slice(at)}`;
-    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') ? `"${named(part.slice(1, -1))}"` : part.replace(shapeLabel, (_whole, open: string, value: string) => `${open}${named(value)}`)));
+    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => (part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel, (_whole, open: string, value: string) => `${open}${named(value)}`)));
     out += `@{${body}}`;
     at = close + 1;
   }
@@ -225,7 +243,7 @@ export function namedInDiagram(diagram: string, names: ReadonlyMap<string, Named
     const lead = /^\s*/.exec(text)![0];
     return `${lead}${namedFindings(text.slice(lead.length), names, naming)}`;
   };
-  const labelled = (text: string): string => text.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  const labelled = (text: string): string => text.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
   let inNote = false;
   const result = lines.map((line, index) => {
     if (index <= headerAt) return line;
