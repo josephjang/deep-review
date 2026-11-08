@@ -618,6 +618,15 @@ describe('the cleaning of what the review posts (R11)', () => {
     assert.equal(lastLine(form.comments[0]!.body), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
   });
 
+  it('redacts a secret before it names an id of the run that a hyphen joins inside it, so a name splits no secret (R1 of the finding names in the review)', () => {
+    const said = writerAnswer();
+    said.conclusion.why = 'The key sk-ant-api03-abcdefghij-RIPPLE-1-klmnopqrstuvwxyz0123 leaked, and a RIPPLE-1-style guard stops it.';
+    const form = formOf(run().fold(), said);
+    includes(section(form.body, '### Summary'), 'The key \\[redacted Anthropic key] leaked, and a finding 1-style guard stops it.');
+    assert.ok(!form.body.includes('klmnopqrstuvwxyz0123'), 'no part of the key');
+    assert.equal(form.secrets - formOf(run().fold()).secrets, 1, 'the key is counted once');
+  });
+
   it('cleans the runtime\'s version, the models and the excluded patterns that the settings name, and counts their secrets', () => {
     const token = `ghp_${'A1b2C3d4'.repeat(5)}`;
     const history = rewritten(run(), (kind, payload) => {

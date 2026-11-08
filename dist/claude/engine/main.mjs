@@ -36282,6 +36282,12 @@ function cleaned(text3, machine, voice) {
 }
 function withoutMachine(text3, machine) {
   const compiled = compiledOf(machine);
+  const { text: redacted, secrets } = withoutSecrets(text3, machine);
+  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
+  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
+}
+function withoutSecrets(text3, machine) {
+  const compiled = compiledOf(machine);
   let secrets = 0;
   const redact = (from, pattern, mark) => from.replace(pattern, (found) => {
     secrets += 1;
@@ -36289,8 +36295,7 @@ function withoutMachine(text3, machine) {
   });
   let redacted = secretForms.reduce((from, [kind, pattern]) => redact(from, pattern, () => `[redacted ${kind}]`), text3);
   if (compiled.secretValues !== null) redacted = redact(redacted, compiled.secretValues, (value) => `[redacted value of ${compiled.secretNames.get(value)}]`);
-  const placed = compiled.places.reduce((from, [pattern, mark]) => from.replace(pattern, mark), withoutScratch(redacted, machine.scratch));
-  return { text: withoutLocalPaths(compiled.home.reduce((from, pattern) => from.replace(pattern, localPathMark), placed), compiled.roots), secrets };
+  return { text: redacted, secrets };
 }
 function compiledOf(machine) {
   const known = compiledContexts.get(machine);
@@ -38359,9 +38364,11 @@ var init_settings_report = __esm({
 });
 
 // src/review/finding-names.ts
-function outsideUrls(text3, pattern) {
+function outsideKept(text3, pattern) {
   const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
-  return [...text3.matchAll(pattern)].filter((match) => !urls.some((url2) => url2.start <= match.index && match.index < url2.end));
+  const outsideUrls = (index2) => !urls.some((url2) => url2.start <= index2 && index2 < url2.end);
+  const paths = [...text3.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList2(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
+  return [...text3.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
 }
 function slotsOf(text3, names2) {
   const slots = [];
@@ -38371,7 +38378,7 @@ function slotsOf(text3, names2) {
       const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
       if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
     } else {
-      for (const match of outsideUrls(part.text, idPattern)) {
+      for (const match of outsideKept(part.text, idPattern)) {
         const named = names2.get(match[0]);
         if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
       }
@@ -38402,8 +38409,8 @@ function namedFindings2(text3, names2, naming) {
   return out + text3.slice(at);
 }
 function holdsId(diagram, names2) {
-  const leftover = new RegExp(String.raw`(?<![\w/\\.#])(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?![\w/]|\.\w)`, "g");
-  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideUrls(part.text, leftover).length > 0));
+  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g");
+  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
 }
 function shownNamed(shown, named) {
   const inner = shown.slice(1, -1);
@@ -38538,13 +38545,16 @@ function koreanParticle(name, particle) {
   if (final === "rieul" && forms[0] === "\uC73C\uB85C") return "\uB85C";
   return forms[0];
 }
-var idPattern, urlPattern, sentenceOpening, sentenceStart, abbreviationBefore, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel, koreanForms;
+var idPattern, urlPattern, slashJoined, idPart, idList2, sentenceOpening, sentenceStart, abbreviationBefore, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel, koreanForms;
 var init_finding_names = __esm({
   "src/review/finding-names.ts"() {
     "use strict";
     init_markdown();
-    idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
+    idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
     urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+    slashJoined = /[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+    idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
+    idList2 = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
     sentenceOpening = String.raw`[*_(\["'“‘]*`;
     sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
     abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
@@ -38589,8 +38599,13 @@ function decidedEnglish(counts) {
 }
 function englishFinding(number5, before, after) {
   const said2 = englishFindingSaid.test(before);
+  const plain = said2 ? String(number5) : `finding ${String(number5)}`;
+  if (englishCompound.test(after)) {
+    const an = said2 ? "" : /(?<![\w-])an\s+$/i.exec(before)?.[0] ?? "";
+    return { name: an === "" ? plain : `a ${plain}`, before: an.length, after: 0 };
+  }
   return {
-    name: said2 ? String(number5) : `finding ${String(number5)}`,
+    name: plain,
     before: said2 ? 0 : englishIndefinite.exec(before)?.[0].length ?? 0,
     after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0
   };
@@ -38603,7 +38618,7 @@ function englishRefuted(before, after) {
   const rest2 = unsaid.slice(0, unsaid.length - an.length);
   const following = /^\s+(candidates?)\b/i.exec(after);
   const determined = new RegExp(`${englishDeterminer}${said2 ? String.raw`refuted\s+` : ""}$`, "i").test(rest2);
-  const article = determined || /s$/i.test(following?.[1] ?? "") ? "" : "a";
+  const article = englishCompound.test(after) ? an === "" ? "" : "a" : determined || /s$/i.test(following?.[1] ?? "") ? "" : "a";
   const words = [article, said2 ? "" : "refuted", following?.[1] ?? "candidate"].filter((word2) => word2 !== "");
   return { name: words.join(" "), before: preceding.length + an.length, after: following?.[0].length ?? 0 };
 }
@@ -38629,7 +38644,7 @@ function pullRequestWords(language) {
   const primary = language.split("-")[0].toLowerCase();
   return pullRequestLanguages.includes(primary) ? pullRequestWordTables[primary] : english;
 }
-var standingEnglish, reviewedEnglish, reviewNodesEnglish, departureEnglish, englishFindingSaid, englishDeterminer, englishIndefinite, english, standingKorean, reviewNodesKorean, departureKorean, koreanFindingSaid, koreanFindingNoun, korean, pullRequestLanguages, pullRequestWordTables;
+var standingEnglish, reviewedEnglish, reviewNodesEnglish, departureEnglish, englishFindingSaid, englishDeterminer, englishIndefinite, englishCompound, english, standingKorean, reviewNodesKorean, departureKorean, koreanFindingSaid, koreanFindingNoun, korean, pullRequestLanguages, pullRequestWordTables;
 var init_pull_request_words = __esm({
   "src/review/pull-request-words.ts"() {
     "use strict";
@@ -38651,6 +38666,7 @@ var init_pull_request_words = __esm({
     englishFindingSaid = /\b(?:findings?\s+|findings\s+\d+(?:(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+)\d+)*(?:\s*,\s*|\s+(?:and|or)\s+|,\s+(?:and|or)\s+))$/i;
     englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|every|another|any|no)\s+`;
     englishIndefinite = /(?<![\w-])an?\s+$/i;
+    englishCompound = new RegExp("^-\\p{L}", "u");
     english = {
       heading: "## deep-review's review of this pull request",
       reviewed: (head2, files, base) => `${reviewedEnglish(head2, files, base)}, and changed no file.`,
@@ -40795,7 +40811,7 @@ function speakerOf(machine, words, names2) {
     secrets += cleaned2.secrets;
     return cleaned2.text;
   };
-  const named = (text3) => inlineText(namedFindings2(text3.trim(), names2, words.naming)).trim();
+  const named = (text3) => inlineText(namedFindings2(counted3(withoutSecrets(text3.trim(), machine)), names2, words.naming)).trim();
   const prose = (text3) => counted3(publicProse(named(text3), machine));
   return {
     words: (text3) => counted3(publicWords(named(text3), machine)),
@@ -40808,11 +40824,12 @@ function speakerOf(machine, words, names2) {
     },
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text3) => {
-      const diagram = namedInDiagram(text3.replace(/\s+$/, ""), names2, words.naming);
+      const unsecret = withoutSecrets(text3.replace(/\s+$/, ""), machine);
+      const diagram = namedInDiagram(unsecret.text, names2, words.naming);
       if (diagram === null) return words.diagramNamesIds;
       const cleaned2 = publicCode(diagram, machine);
       if (diagramFailures(cleaned2.text).length > 0) return words.diagramBroken;
-      return fenced2(counted3(cleaned2));
+      return fenced2(counted3({ text: cleaned2.text, secrets: unsecret.secrets + cleaned2.secrets }));
     },
     secrets: () => secrets
   };

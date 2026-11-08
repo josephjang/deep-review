@@ -305,18 +305,29 @@ const englishDeterminer = String.raw`\b(?:the|a|an|this|that|its|our|their|each|
 /** The article `a` or `an` that ends a text before an id, which a writer chose for the id's sound and not for the name's. */
 const englishIndefinite = /(?<![\w-])an?\s+$/i;
 
+/** The start of a text after an id that a hyphen joins to a word, as `-style fix` after `RIPPLE-2`: the id names what the word is like, and an article before the id is the word's. */
+const englishCompound = /^-\p{L}/u;
+
 /**
  * The English name of a numbered finding (R1, R5 of the finding names in
  * the review), `finding 3`, or its number alone after a text that already
  * says finding. A numbered finding takes no article, so the name takes in
  * an `a` or `an` right before the id, as `an ALTITUDE-6` names `finding
  * 10`, and a noun after the id that says finding, as `the RIPPLE-2
- * finding` names `the finding 3`.
+ * finding` names `the finding 3`. In a word that a hyphen joins to the id,
+ * as `a RIPPLE-2-style fix`, the article is the word's: an `a` stays, and
+ * an `an` becomes `a`, as `an ALTITUDE-6-style fix` names `a finding
+ * 10-style fix`.
  */
 function englishFinding(number: number, before: string, after: string): IdName {
   const said = englishFindingSaid.test(before);
+  const plain = said ? String(number) : `finding ${String(number)}`;
+  if (englishCompound.test(after)) {
+    const an = said ? '' : /(?<![\w-])an\s+$/i.exec(before)?.[0] ?? '';
+    return { name: an === '' ? plain : `a ${plain}`, before: an.length, after: 0 };
+  }
   return {
-    name: said ? String(number) : `finding ${String(number)}`,
+    name: plain,
     before: said ? 0 : englishIndefinite.exec(before)?.[0].length ?? 0,
     after: /^\s+findings?\b/i.exec(after)?.[0].length ?? 0,
   };
@@ -333,7 +344,10 @@ function englishFinding(number: number, before: string, after: string): IdName {
  * names `The refuted candidate` and `DESIGN-1 candidate was` names
  * `A refuted candidate was`. An `an` before it, which a writer chose for
  * an id such as `EFFICIENCY-1`, is taken in and the name writes its own
- * article, as `an EFFICIENCY-1` names `a refuted candidate`.
+ * article, as `an EFFICIENCY-1` names `a refuted candidate`. In a word
+ * that a hyphen joins to the id, the article is the word's, so the name
+ * writes none but the `a` in place of an `an`, as `DESIGN-1-based fixes`
+ * names `refuted candidate-based fixes`.
  */
 function englishRefuted(before: string, after: string): IdName {
   const preceding = /(?<![\w-])(?:candidate|finding)\s+$/i.exec(before)?.[0] ?? '';
@@ -343,7 +357,7 @@ function englishRefuted(before: string, after: string): IdName {
   const rest = unsaid.slice(0, unsaid.length - an.length);
   const following = /^\s+(candidates?)\b/i.exec(after);
   const determined = new RegExp(`${englishDeterminer}${said ? String.raw`refuted\s+` : ''}$`, 'i').test(rest);
-  const article = determined || /s$/i.test(following?.[1] ?? '') ? '' : 'a';
+  const article = englishCompound.test(after) ? (an === '' ? '' : 'a') : determined || /s$/i.test(following?.[1] ?? '') ? '' : 'a';
   const words = [article, said ? '' : 'refuted', following?.[1] ?? 'candidate'].filter((word) => word !== '');
   return { name: words.join(' '), before: preceding.length + an.length, after: following?.[0].length ?? 0 };
 }

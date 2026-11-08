@@ -36,7 +36,7 @@ import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, senten
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
-import { publicCode, publicProse, publicWords, type MachineContext } from './public-text.ts';
+import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { pullRequestWords, type FollowingWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown, mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
@@ -293,10 +293,11 @@ interface Speaker {
 
 /**
  * The speaker of a review: each worker's text cleaned as it is posted,
- * after each id of the run in `names` is given the finding's name in the
- * review's language (R1 to R5 of the finding names in the review), in
- * prose and in what a diagram shows. Code a worker quotes as code, given
- * to `code`, keeps its ids.
+ * each id of the run in `names` given the finding's name in the review's
+ * language (R1 to R5 of the finding names in the review), in prose and in
+ * what a diagram shows, once the text's secrets are marks, so that a name
+ * splits no secret, and before the rest of the cleaning. Code a worker
+ * quotes as code, given to `code`, keeps its ids.
  */
 function speakerOf(machine: MachineContext, words: PullRequestWords, names: ReadonlyMap<string, NamedId>): Speaker {
   let secrets = 0;
@@ -305,7 +306,7 @@ function speakerOf(machine: MachineContext, words: PullRequestWords, names: Read
     return cleaned.text;
   };
   // Named before its lines are joined, so a name that starts a paragraph or a list item reads as the start of a sentence.
-  const named = (text: string): string => inlineText(namedFindings(text.trim(), names, words.naming)).trim();
+  const named = (text: string): string => inlineText(namedFindings(counted(withoutSecrets(text.trim(), machine)), names, words.naming)).trim();
   const prose = (text: string): string => counted(publicProse(named(text), machine));
   return {
     words: (text) => counted(publicWords(named(text), machine)),
@@ -318,11 +319,12 @@ function speakerOf(machine: MachineContext, words: PullRequestWords, names: Read
     },
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text) => {
-      const diagram = namedInDiagram(text.replace(/\s+$/, ''), names, words.naming);
+      const unsecret = withoutSecrets(text.replace(/\s+$/, ''), machine);
+      const diagram = namedInDiagram(unsecret.text, names, words.naming);
       if (diagram === null) return words.diagramNamesIds;
       const cleaned = publicCode(diagram, machine);
       if (diagramFailures(cleaned.text).length > 0) return words.diagramBroken;
-      return fenced(counted(cleaned));
+      return fenced(counted({ text: cleaned.text, secrets: unsecret.secrets + cleaned.secrets }));
     },
     secrets: () => secrets,
   };
