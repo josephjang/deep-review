@@ -93,6 +93,7 @@ describe('the name of a finding in place of its id', () => {
     assert.equal(en('DESIGN-1 candidate was refuted. As DESIGN-1 candidate showed, DESIGN-1 candidates rarely are.'), 'A refuted candidate was refuted. As a refuted candidate showed, refuted candidates rarely are.');
     assert.equal(en('Finding DESIGN-1 was refuted, as the finding DESIGN-1 showed and finding DESIGN-1 did.'), 'A refuted candidate was refuted, as the refuted candidate showed and a refuted candidate did.');
     assert.equal(ko('지적 사항 DESIGN-1은 반박되었고, 지적사항 DESIGN-1을 다시 봅니다.'), '반박된 후보는 반박되었고, 반박된 후보를 다시 봅니다.');
+    assert.equal(ko('DESIGN-1 후보자를 묻습니다.'), '반박된 후보 후보자를 묻습니다.','a 후보자 after the id is a word of its own (finding 19 of the Korean gate run)');
   });
 
   it('takes in the article a writer chose for the sound of an id: a finding takes none, and a refuted candidate writes its own', () => {

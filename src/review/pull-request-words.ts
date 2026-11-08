@@ -603,7 +603,8 @@ const koreanFindingNoun = /^\s*지적(?:\s*사항)?(?!\s*사항)(?=(?:으로|로
 function koreanRefuted(before: string, after: string): IdName {
   const preceding = /(?<!\p{Script=Hangul})(?:후보|지적\s*사항)\s*$/u.exec(before)?.[0] ?? '';
   const said = /(?<!\p{Script=Hangul})반박된\s*$/u.test(before.slice(0, before.length - preceding.length));
-  return { name: said ? '후보' : '반박된 후보', before: preceding.length, after: /^\s*후보/.exec(after)?.[0].length ?? 0 };
+  // 후보자 is a person who stands for something, not the noun the name says, so only a 후보 that 자 does not follow is taken in.
+  return { name: said ? '후보' : '반박된 후보', before: preceding.length, after: /^\s*후보(?!자)/.exec(after)?.[0].length ?? 0 };
 }
 
 const korean: PullRequestWords = {
