@@ -4,8 +4,7 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
 import { publicationMarker } from '../../src/review/markers.ts';
-import type { PullRequestForm } from '../../src/review/pull-request-form.ts';
-import { answerWithArea, formOf, pullRequestRun as run, renderedOf, rewritten } from '../helpers/pull-request-review.ts';
+import { answerWithArea, formOf, pullRequestRun as run, renderedOf, rewritten, sampleBoundaries } from '../helpers/pull-request-review.ts';
 import { answerableDecisions, decisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
@@ -67,27 +66,8 @@ describe('the writer\'s areas in the body', () => {
     const expectedCuts = [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']];
     // Redaction changes the title's length, so calibrate each variant independently at the same literal cut states.
     const variants = [false, true].map((secret) => {
-      let pad = 1;
-      let seed = formOf(state, answerOf(pad, secret), files);
-      return expectedCuts.map((cuts, index) => {
-        const atPad = pad + limit - seed.body.length;
-        assert.ok(atPad > pad, 'each fixed cut state makes positive progress toward its limit');
-        assert.ok(atPad <= limit, 'padding stays within the fixed public cap');
-        const below = formOf(state, answerOf(atPad - 1, secret), files);
-        const at = formOf(state, answerOf(atPad, secret), files);
-        const above = renderedOf(state, answerOf(atPad + 1, secret), files);
-        assert.equal(below.body.length, limit - 1);
-        assert.equal(at.body.length, limit);
-        assert.deepEqual(below.cuts, cuts);
-        assert.deepEqual(at.cuts, cuts);
-        if (index + 1 < expectedCuts.length) {
-          assert.equal(above.kind, 'rendered');
-          assert.deepEqual((above as PullRequestForm).cuts, expectedCuts[index + 1]);
-          seed = above as PullRequestForm;
-        } else {
-          assert.equal(above.kind, 'refused');
-          if (above.kind === 'refused') assert.equal(above.size, limit + 1);
-        }
+      const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad, secret), files), limit, expectedCuts);
+      for (const { below, at, above } of boundaries) {
         for (const form of [below, at, ...(above.kind === 'rendered' ? [above] : [])]) {
           excludes(form.body, token);
           includes(form.body, '### The major findings');
@@ -95,9 +75,8 @@ describe('the writer\'s areas in the body', () => {
           includes(form.body, 'What parse() does with an empty file.');
           assert.equal(form.body.split('\n').at(-1), `<!-- ${publicationMarker('run-1', 1)} -->`);
         }
-        pad = atPad + 1;
-        return { below, at, above };
-      });
+      }
+      return boundaries;
     });
     for (const [index, cuts] of expectedCuts.entries()) {
       const plain = variants[0]![index]!;
