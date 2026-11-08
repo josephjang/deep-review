@@ -48,7 +48,7 @@ The writer's role prompt and the decider's task keep asking for ids. Neither pro
 
 ### R1: A finding is named by its number
 
-In every text of a worker that the review on a pull request posts, the form puts the finding's name in place of each id that the run numbers: the id of a ranked finding, and the id of each candidate merged into it, which names the finding it joined. The name is "finding 3" in English and "지적 사항 3" in Korean, the number being the one the headings and tables show. A finding's own id in its own comment is named by its number too. The text of a worker is the writer's, the decider's, a verifier's and a finder's, wherever the form shows it: the summary, the areas, the explanations, the decided fix and its rejected options, a question and its options, a departure, a settled choice, a verifier's reason or choice, a finder's summary when the writer gave none, and a refuted candidate's lines.
+In every text of a worker that the review on a pull request posts, the form puts the finding's name in place of each id that the run numbers: the id of a ranked finding, and the id of each candidate merged into it, which names the finding it joined. The name is "finding 3" in English and "지적 사항 3" in Korean, the number being the one the headings and tables show. A finding's own id in its own comment is named by its number too. The text of a worker is every text the form cleans as a worker's before it posts it, which is the writer's, the decider's, a verifier's and a finder's wherever the form shows it, so the list is complete by construction; the engine's own words, its commands and the patterns of the settings name no finding by id. The names are put in before the cleaning of secrets and places. That order splits no secret, since an id is replaced only where no letter, digit, hyphen, slash or dot is joined to it.
 
 ### R2: A refuted candidate is named as such
 
@@ -64,7 +64,7 @@ In a diagram, the form replaces an id in each text that the diagram shows, the t
 
 ### R5: The name reads right in its sentence
 
-In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read: after a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel.
+In English, a name that starts a sentence or a text starts with a capital letter, "Finding 3". In Korean, when the id is followed at once by a particle that has two forms, 은 or 는, 이 or 가, 을 or 를, 과 or 와, 으로 or 로, and then by no other Hangul letter, the form writes the form of the particle that agrees with how the name is read. A number is read in Sino-Korean, as 일, 이, 삼: 1, 7 and 8 end in ㄹ; 2, 4, 5 and 9 end in a vowel; 3 and 6 end in another consonant, and so does a number whose last digit is 0, which ends in 십, 백, 천 or 만. "No other Hangul letter" means the very next character. After a number whose reading ends in a consonant, 은, 이, 을, 과 and 으로, and 로 after a reading that ends in ㄹ; after one that ends in a vowel, 는, 가, 를, 와 and 로. "반박된 후보" ends in a vowel.
 
 A word next to the id that already says what it names is not said twice. After "finding" or "findings" in English, or 지적 사항 in Korean, the form writes the number alone, so "finding RIPPLE-2" becomes "finding 3", not "finding finding 3". A refuted candidate followed by "candidate" or 후보 is named "refuted" or 반박된 alone, so "the DESIGN-1 candidate" becomes "the refuted candidate"; one after "the", "a" or "an" is named "refuted candidate", without an article of its own. A particle right after the closing backtick of a code span that R3 replaces counts as right after the id, since the prompts' example writes the id in backticks and a Korean writer attaches the particle to the span, as in `` `RIPPLE-2`를 ``.
 
@@ -84,7 +84,7 @@ The form resolves the id where it posts the text, as the report on the machine a
 
 ### PD2: Rejected: ask the models for numbers
 
-Asking the writer for numbers would keep a rule of form in a prompt, which W3 found is where the rule failed, and asking the decider for them would give the fixer names it does not use. The writer's task does give each finding's number, so a writer may write "finding 3" today; the form leaves such text as it is.
+Asking the writer for numbers would keep a rule of form in a prompt, which W3 found is where the rule failed, and asking the decider for them would give the fixer names it does not use. The prompts forbid a number, the writer's "never by a number" and the decider's "never by its index or its number here"; a number a model writes anyway is left as it is.
 
 ### PD3: Replace the id, not add the number beside it
 
@@ -134,7 +134,7 @@ A constant or a ticket key in the repository, such as `SCAN-1`, can match an id 
 
 ### RK2: Two refuted candidates in one sentence
 
-"a refuted candidate" does not say which, so a sentence that contrasts two refuted candidates by id loses the contrast. Refuted candidates are named rarely, and the lines of the refuted candidates give each by its place.
+"a refuted candidate" does not say which, so a sentence that contrasts two refuted candidates by id loses the contrast. Refuted candidates are named rarely, and the lines of the refuted candidates give each by its place. Naming a refuted candidate by its place in the text, such as "the refuted candidate at `src/a.ts:9`", was rejected: a candidate's place can be absent or outside the repository, and a place in the middle of a worker's sentence is a reference the reader must look up, where the list of refuted candidates already holds each place.
 
 ### RK3: A Korean particle the rule does not know
 
