@@ -103,9 +103,12 @@ Bash tool from then on.
    in the last message of the turn, after any other command you run. Do
    not summarize, quote or interpret the findings beyond those lines.
    Answer the user in the language that the user writes, and quote ids,
-   paths and commands as printed. After a run with `--fix`, also say
-   that the fixes are in the working tree, uncommitted, one patch per
-   finding as the report's Patches lists them, and offer to commit them.
+   paths and commands as printed. After a run with `--fix` that ran its
+   fix pass, also say that the fixes are in the working tree,
+   uncommitted, one patch per finding as the report's Patches lists them,
+   and offer to commit them. When stderr says that a run of `--pr` has
+   no finding to fix and ends with its read-only report, say that
+   instead, and offer nothing to commit.
    After a run of `--pr`, with or without `--fix`, also offer to post its review
    on the pull request.
    When the user asks for more on one finding, run the `main.mjs` of
