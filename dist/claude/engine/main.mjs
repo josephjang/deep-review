@@ -38358,6 +38358,130 @@ var init_settings_report = __esm({
   }
 });
 
+// src/review/finding-names.ts
+function slotsOf(text3, names2) {
+  const slots = [];
+  let offset = 0;
+  for (const part of codeParts(text3)) {
+    if (part.code) {
+      const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
+      if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
+    } else {
+      for (const match of part.text.matchAll(idPattern)) {
+        const named = names2.get(match[0]);
+        if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
+      }
+    }
+    offset += part.text.length;
+  }
+  return slots;
+}
+function namedFindings2(text3, names2, naming) {
+  if (names2.size === 0) return text3;
+  let out = "";
+  let at = 0;
+  for (const slot of slotsOf(text3, names2)) {
+    out += text3.slice(at, slot.start);
+    const after = text3.slice(slot.end);
+    const plain = slot.named.kind === "finding" ? naming.finding(slot.named.number, out) : naming.refuted(out, after);
+    const name = sentenceStart.test(out) ? naming.starting(plain) : plain;
+    out += name;
+    at = slot.end;
+    const particle = particleAfter.exec(after);
+    if (particle !== null) {
+      out += naming.particle(name, particle[1]);
+      at += particle[1].length;
+    }
+  }
+  return out + text3.slice(at);
+}
+function namedInDiagram(diagram, names2, naming) {
+  if (names2.size === 0) return diagram;
+  const lines = diagram.split("\n");
+  const headerAt = lines.findIndex((line) => line.trim() !== "");
+  const kind = diagramKind(lines[headerAt]?.trim() ?? "");
+  const named = (text3) => {
+    const lead = /^\s*/.exec(text3)[0];
+    return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
+  };
+  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => `${shown.charAt(0)}${named(shown.slice(1, -1))}${shown.charAt(0)}`);
+  let inNote = false;
+  const result = lines.map((line, index2) => {
+    if (index2 <= headerAt) return line;
+    if (inNote) {
+      if (/^\s*end\s+note\s*$/i.test(line)) inNote = false;
+      else return named(line);
+      return line;
+    }
+    if (kind === "state" && /^\s*note\s/i.test(line) && !line.includes(":")) {
+      inNote = true;
+      return line;
+    }
+    const colon = kind === "flowchart" ? -1 : line.indexOf(":");
+    if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
+    return shownTexts[kind].reduce((text3, pattern) => text3.replace(pattern, (_whole, open2, shown, close) => `${open2}${named(shown)}${close}`), labelled(line));
+  }).join("\n");
+  return holdsId(result, names2) ? null : result;
+}
+function numberFinal(digits) {
+  const last = digits.at(-1);
+  if (last === "0") return "other";
+  return "2459".includes(last) ? "none" : "178".includes(last) ? "rieul" : "other";
+}
+function koreanFinal(name) {
+  const digits = /[0-9]+$/.exec(name);
+  if (digits !== null) return numberFinal(digits[0]);
+  const code = name.charCodeAt(name.length - 1) - 44032;
+  if (code < 0 || code > 11171) return "other";
+  const final = code % 28;
+  return final === 0 ? "none" : final === 8 ? "rieul" : "other";
+}
+function koreanParticle(name, particle) {
+  const forms = koreanForms[particle];
+  if (forms === void 0) return particle;
+  const final = koreanFinal(name);
+  if (final === "none") return forms[1];
+  if (final === "rieul" && forms[0] === "\uC73C\uB85C") return "\uB85C";
+  return forms[0];
+}
+var idPattern, sentenceStart, particleAfter, holdsId, diagramKind, shownTexts, koreanForms;
+var init_finding_names = __esm({
+  "src/review/finding-names.ts"() {
+    "use strict";
+    init_markdown();
+    idPattern = /(?<![\w/\\.#-])[A-Z]+-[1-9][0-9]*(?![\w-]|\/|\.\w)/g;
+    sentenceStart = /(?:^|[.!?]["')\]]*\s+|\n[ \t]*(?:[-*+][ \t]+|[0-9]+\.[ \t]+)?)$/;
+    particleAfter = new RegExp("^(\uC73C\uB85C|\uB85C|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640)(?!\\p{Script=Hangul})", "u");
+    holdsId = (text3, names2) => [...names2.keys()].some((id) => new RegExp(`(?<![\\w-])${RegExp.escape(id)}(?!\\w)`).test(text3));
+    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
+    shownTexts = {
+      flowchart: [
+        /((?:--|==|-\.)[ \t]+)([^-=."|\s][^"|]*?)([ \t]+(?:-->|==>|\.->|---|===|-\.-))/g,
+        /^([ \t]*subgraph[ \t]+\S+[ \t]*\[)([^\]"]*)(\])/
+      ],
+      sequence: [
+        /^([ \t]*(?:loop|alt|else|opt|par|and|critical|option|break|box)[ \t]+)([^:]+)()$/,
+        /^([ \t]*(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+)([^:]+)()$/,
+        /^([ \t]*title[ \t]+)([^:]+)()$/
+      ],
+      state: [],
+      other: []
+    };
+    koreanForms = {
+      \uC740: ["\uC740", "\uB294"],
+      \uB294: ["\uC740", "\uB294"],
+      \uC774: ["\uC774", "\uAC00"],
+      \uAC00: ["\uC774", "\uAC00"],
+      \uC744: ["\uC744", "\uB97C"],
+      \uB97C: ["\uC744", "\uB97C"],
+      \uACFC: ["\uACFC", "\uC640"],
+      \uC640: ["\uACFC", "\uC640"],
+      \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uB85C: ["\uC73C\uB85C", "\uB85C"]
+    };
+  }
+});
+
 // src/review/pull-request-words.ts
 function basesEnglish(counts) {
   const ways = [["ran", "by running code"], ["traced", "by tracing it"], ["read", "by reading it"]].filter(([basis]) => counts.bases[basis] > 0);
@@ -38394,6 +38518,7 @@ var standingEnglish, reviewedEnglish, reviewNodesEnglish, departureEnglish, engl
 var init_pull_request_words = __esm({
   "src/review/pull-request-words.ts"() {
     "use strict";
+    init_finding_names();
     init_markdown();
     init_vocabulary();
     standingEnglish = (edited) => (recommended, applied, edits, option) => {
@@ -38508,6 +38633,13 @@ var init_pull_request_words = __esm({
       atBase: (link) => `${link} (at the merge base)`,
       trace: (id, run2) => `<sub>Finding ${id} of run ${run2}.</sub>`,
       diagramBroken: "A diagram is left out here, because cleaning it of secrets and of the places of the machine that ran this review broke it; the writer's answer on the machine that holds the run keeps it.",
+      diagramNamesIds: "A diagram is left out here, because it names a finding by deep-review's internal id where the review cannot write the finding's number; the writer's answer on the machine that holds the run keeps it.",
+      naming: {
+        finding: (number5, before) => /\bfindings?\s+$/i.test(before) ? String(number5) : `finding ${String(number5)}`,
+        refuted: (before, after) => /^\s+candidates?\b/i.test(after) ? "refuted" : /\b(?:the|a|an)\s+$/i.test(before) ? "refuted candidate" : "a refuted candidate",
+        starting: capitalized,
+        particle: (_name, particle) => particle
+      },
       minorHeading: "### The minor findings",
       minorLead: (counts) => {
         const each = counts.total === 1 ? "" : "each ";
@@ -38697,6 +38829,13 @@ var init_pull_request_words = __esm({
       atBase: (link) => `${link} (merge base\uC758 \uCF54\uB4DC)`,
       trace: (id, run2) => `<sub>\uC2E4\uD589 ${run2}\uC758 \uC9C0\uC801 \uC0AC\uD56D ${id}.</sub>`,
       diagramBroken: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uCEF4\uD4E8\uD130\uC758 \uACBD\uB85C\uC640 \uBE44\uBC00 \uAC12\uC744 \uC9C0\uC6B0\uB294 \uACFC\uC815\uC5D0\uC11C \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC774 \uAE68\uC838 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      diagramNamesIds: "\uC774 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uC9C0\uC801 \uC0AC\uD56D\uC744 deep-review \uB0B4\uBD80 id\uB85C \uAC00\uB9AC\uD0A4\uB294\uB370, \uADF8 \uC790\uB9AC\uC5D0\uB294 \uB9AC\uBDF0\uAC00 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uBC88\uD638\uB97C \uC4F8 \uC218 \uC5C6\uC5B4 \uC5EC\uAE30\uC11C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      naming: {
+        finding: (number5, before) => /지적\s*사항\s*$/.test(before) ? String(number5) : `\uC9C0\uC801 \uC0AC\uD56D ${String(number5)}`,
+        refuted: (_before, after) => /^\s*후보/.test(after) ? "\uBC18\uBC15\uB41C" : "\uBC18\uBC15\uB41C \uD6C4\uBCF4",
+        starting: (name) => name,
+        particle: koreanParticle
+      },
       minorHeading: "### minor \uC9C0\uC801 \uC0AC\uD56D",
       minorLead: (counts) => {
         const where = counts.onLine === counts.total ? "\uBAA8\uB450 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uC2B5\uB2C8\uB2E4" : counts.onLine === 0 ? "\uBAA8\uB450 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4" : `${String(counts.onLine)}\uAC74\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uACE0, \uB098\uBA38\uC9C0\uB294 \uC704\uC5D0 \uC804\uBB38\uC744 \uC801\uC5C8\uC2B5\uB2C8\uB2E4`;
@@ -40525,25 +40664,28 @@ function formRefusalWords(refusal) {
   const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(", ");
   return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
 }
-function speakerOf(machine, words) {
+function speakerOf(machine, words, names2) {
   let secrets = 0;
   const counted3 = (cleaned2) => {
     secrets += cleaned2.secrets;
     return cleaned2.text;
   };
-  const prose = (text3) => counted3(publicProse(inlineText(text3).trim(), machine));
+  const named = (text3) => namedFindings2(inlineText(text3).trim(), names2, words.naming);
+  const prose = (text3) => counted3(publicProse(named(text3), machine));
   return {
-    words: (text3) => counted3(publicWords(inlineText(text3).trim(), machine)),
+    words: (text3) => counted3(publicWords(named(text3), machine)),
     prose,
     paragraphs: (text3) => text3.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== "").map(paragraphText),
     code: (text3) => codeSpan(counted3(publicCode(inlineText(text3), machine))),
     sentence: (text3) => {
-      const cleaned2 = counted3(publicWords(inlineText(text3).trim(), machine));
+      const cleaned2 = counted3(publicWords(named(text3), machine));
       return sentenceText(/^[a-z]+(?: |$)/.test(cleaned2) ? `${cleaned2.charAt(0).toUpperCase()}${cleaned2.slice(1)}` : cleaned2);
     },
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text3) => {
-      const cleaned2 = publicCode(text3.replace(/\s+$/, ""), machine);
+      const diagram = namedInDiagram(text3.replace(/\s+$/, ""), names2, words.naming);
+      if (diagram === null) return words.diagramNamesIds;
+      const cleaned2 = publicCode(diagram, machine);
       if (diagramFailures(cleaned2.text).length > 0) return words.diagramBroken;
       return fenced2(counted3(cleaned2));
     },
@@ -40700,7 +40842,7 @@ function findingParts(view, finding, say) {
   };
 }
 function commentOf(view, finding) {
-  const say = speakerOf(view.input.machine, view.words);
+  const say = speakerOf(view.input.machine, view.words, view.names);
   const heading = `**${String(finding.finding.number)}. ${titleOf(finding, say)}**`;
   const parts = findingParts(view, finding, say);
   const trace = view.words.trace(codeSpan(inlineText(finding.finding.id)), codeSpan(shortRunId(view.state.id)));
@@ -40892,7 +41034,7 @@ function lastSection(view, say) {
   };
 }
 function renderBody(view, cuts) {
-  const say = speakerOf(view.input.machine, view.words);
+  const say = speakerOf(view.input.machine, view.words, view.names);
   const sections = [
     headingSection(view),
     summarySection(view, say),
@@ -41001,6 +41143,10 @@ function formViewOf(input2) {
     counts: reviewCountsOf(review2),
     conclusion: conclusion === null ? null : { why: conclusion.why },
     recorded,
+    names: new Map([
+      ...refuted(review2).map(({ candidate }) => [candidate.id, { kind: "refuted" }]),
+      ...[...brief.numbers].map(([id, number5]) => [id, { kind: "finding", number: number5 }])
+    ]),
     input: input2
   };
 }
@@ -41043,6 +41189,7 @@ var init_pull_request_form = __esm({
     init_pull_request();
     init_brief();
     init_explanation();
+    init_finding_names();
     init_markdown();
     init_markers();
     init_needs();
