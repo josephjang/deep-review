@@ -117,6 +117,12 @@ describe('the Korean particle after a name', () => {
     assert.equal(ko('DESIGN-1을 다시 보지 않습니다.'), '반박된 후보를 다시 보지 않습니다.');
   });
 
+  it('agrees 으로서, 으로써 and 으로부터 as 으로, ㄹ included, and leaves one that more Hangul follows (finding 16 of the Korean gate run)', () => {
+    assert.equal(ko('RIPPLE-2로서 남고, SWEEP-1으로써 고치며, ALTITUDE-6로부터 옵니다.'), '지적 사항 3으로서 남고, 지적 사항 1로써 고치며, 지적 사항 10으로부터 옵니다.');
+    assert.equal(ko('`FOOTGUNS-3`으로써, DESIGN-1으로서'), '지적 사항 12로써, 반박된 후보로서');
+    assert.equal(ko('RIPPLE-2로서는 남습니다.'), '지적 사항 3로서는 남습니다.');
+  });
+
   it('agrees a particle right after the closing backtick of a span it names (M1 of the review of the proposal)', () => {
     assert.equal(ko('`RIPPLE-2`을 먼저, `SWEEP-1`으로 합치고 `ALTITUDE-6`가 남습니다.'), '지적 사항 3을 먼저, 지적 사항 1로 합치고 지적 사항 10이 남습니다.');
   });
