@@ -31,6 +31,7 @@ import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
 import { diagramFailures, reviewLanguage, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
 import { codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerArguments, answerCommand } from './needs.ts';
@@ -251,6 +252,8 @@ interface FormView {
   /** The writer's sentence that names the areas. */
   readonly conclusion: { readonly why: string } | null;
   readonly recorded: ExplanationRecorded | null;
+  /** What each id of the run names in a worker's text: a finding by its number, merged candidates included, or a refuted candidate (R1, R2 of the finding names in the review). */
+  readonly names: ReadonlyMap<string, NamedId>;
   readonly input: PullRequestFormInput;
 }
 
@@ -288,25 +291,35 @@ interface Speaker {
   readonly secrets: () => number;
 }
 
-function speakerOf(machine: MachineContext, words: PullRequestWords): Speaker {
+/**
+ * The speaker of a review: each worker's text cleaned as it is posted,
+ * after each id of the run in `names` is given the finding's name in the
+ * review's language (R1 to R5 of the finding names in the review), in
+ * prose and in what a diagram shows. Code a worker quotes as code, given
+ * to `code`, keeps its ids.
+ */
+function speakerOf(machine: MachineContext, words: PullRequestWords, names: ReadonlyMap<string, NamedId>): Speaker {
   let secrets = 0;
   const counted = (cleaned: { readonly text: string; readonly secrets: number }): string => {
     secrets += cleaned.secrets;
     return cleaned.text;
   };
-  const prose = (text: string): string => counted(publicProse(inlineText(text).trim(), machine));
+  const named = (text: string): string => namedFindings(inlineText(text).trim(), names, words.naming);
+  const prose = (text: string): string => counted(publicProse(named(text), machine));
   return {
-    words: (text) => counted(publicWords(inlineText(text).trim(), machine)),
+    words: (text) => counted(publicWords(named(text), machine)),
     prose,
     paragraphs: (text) => text.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== '').map(paragraphText),
     code: (text) => codeSpan(counted(publicCode(inlineText(text), machine))),
     sentence: (text) => {
-      const cleaned = counted(publicWords(inlineText(text).trim(), machine));
+      const cleaned = counted(publicWords(named(text), machine));
       return sentenceText(/^[a-z]+(?: |$)/.test(cleaned) ? `${cleaned.charAt(0).toUpperCase()}${cleaned.slice(1)}` : cleaned);
     },
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
     diagram: (text) => {
-      const cleaned = publicCode(text.replace(/\s+$/, ''), machine);
+      const diagram = namedInDiagram(text.replace(/\s+$/, ''), names, words.naming);
+      if (diagram === null) return words.diagramNamesIds;
+      const cleaned = publicCode(diagram, machine);
       if (diagramFailures(cleaned.text).length > 0) return words.diagramBroken;
       return fenced(counted(cleaned));
     },
@@ -558,7 +571,7 @@ const joinedParts = (parts: FindingParts): string[] => blocks(parts.explanation,
 
 /** The comment of a finding on its line, with the id of the finding and its marker as its last lines, or the refusal of one over the limit. */
 function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
-  const say = speakerOf(view.input.machine, view.words);
+  const say = speakerOf(view.input.machine, view.words, view.names);
   const heading = `**${String(finding.finding.number)}. ${titleOf(finding, say)}**`;
   const parts = findingParts(view, finding, say);
   const trace = view.words.trace(codeSpan(inlineText(finding.finding.id)), codeSpan(shortRunId(view.state.id)));
@@ -843,7 +856,7 @@ function lastSection(view: FormView, say: Speaker): Section {
 
 /** The body with the cuts given, in the order of R1, and the secrets its cleaning replaced. */
 function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
-  const say = speakerOf(view.input.machine, view.words);
+  const say = speakerOf(view.input.machine, view.words, view.names);
   const sections = [
     headingSection(view),
     summarySection(view, say),
@@ -974,6 +987,10 @@ function formViewOf(input: PullRequestFormInput): FormView {
     counts: reviewCountsOf(review),
     conclusion: conclusion === null ? null : { why: conclusion.why },
     recorded,
+    names: new Map<string, NamedId>([
+      ...refuted(review).map(({ candidate }): [string, NamedId] => [candidate.id, { kind: 'refuted' }]),
+      ...[...brief.numbers].map(([id, number]): [string, NamedId] => [id, { kind: 'finding', number }]),
+    ]),
     input,
   };
 }
