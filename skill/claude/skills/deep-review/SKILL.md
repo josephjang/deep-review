@@ -110,7 +110,10 @@ Bash tool from then on.
    no finding to fix and ends with its read-only report, say that
    instead, and offer nothing to commit.
    After a run of `--pr`, with or without `--fix`, also offer to post its review
-   on the pull request.
+   on the pull request. After a run of `--pr` with `--fix`, offer to post
+   it before the fixes are pushed to the branch of the pull request, and
+   say why: a push moves the head of the pull request, and `publish`
+   refuses a head that is not the one the run reviewed.
    When the user asks for more on one finding, run the `main.mjs` of
    step 3 with only `report --finding <number>`, with the number that
    the brief shows. When the user asks for the whole result, run it with

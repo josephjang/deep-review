@@ -59,7 +59,7 @@ The posted review shows the run as it stood when its read-only report was writte
 
 ### NG4: A pull request that moved
 
-A run is still posted only on the head and the merge base it reviewed (PD2 of the review on the pull request). Fixes pushed to the branch of the pull request move its head, so `publish` refuses after such a push. The README says to post before the fixes are pushed to that branch.
+A run is still posted only on the head and the merge base it reviewed (PD2 of the review on the pull request). Fixes pushed to the branch of the pull request move its head, so `publish` refuses after such a push. The README and the skills say to post before the fixes are pushed to that branch.
 
 ### NG5: Other scopes
 
@@ -97,7 +97,7 @@ The posted review of a continued run states what followed the review, in place o
 
 ### R8: The skills and the README
 
-The skills offer to post the review after any run of `--pr`, and no longer tell the host to post before it continues a run with `--fix`. The README says that `review --pr <n> --fix` reviews, writes the read-only report and continues the run in one command, that `publish` posts the review of such a run once the command has ended, whether its fix pass finished, blocked or was stopped, what the posted review then says, and that the fixes must not be pushed to the branch of the pull request before the post. The skill texts change in their own commit.
+The skills offer to post the review after any run of `--pr`, and no longer tell the host to post before it continues a run with `--fix`. After a run of `--pr` with `--fix`, they offer to post the review before the fixes are pushed to the branch of the pull request, and say why: a push moves its head, and `publish` refuses a head that is not the run's. The README says that `review --pr <n> --fix` reviews, writes the read-only report and continues the run in one command, that `publish` posts the review of such a run once the command has ended, whether its fix pass finished, blocked or was stopped, what the posted review then says, and that the fixes must not be pushed to the branch of the pull request before the post. The skill texts change in their own commit.
 
 ### R9: The gate
 
@@ -209,7 +209,7 @@ A fix run of a pull request that is never posted still pays for its writer (PD5)
 
 ### RK3: The fixes reach the branch before the post
 
-When the person pushes the fixes to the branch of the pull request before running `publish`, its head moves, and `publish` refuses as for any pull request that moved. The README says to post first. Fixes that go to a pull request stacked on this one do not move its head.
+When the person pushes the fixes to the branch of the pull request before running `publish`, its head moves, and `publish` refuses as for any pull request that moved. The README says to post first, and after a run of `--pr` with `--fix` the skills offer to post before the fixes are pushed, and say why. Fixes that go to a pull request stacked on this one do not move its head.
 
 ### RK4: A run that an older engine started
 
