@@ -90,6 +90,19 @@ describe('a name at the start of a sentence opened by emphasis, a parenthesis or
   });
 });
 
+// R4 of the finding names in the review: a quoted Mermaid markdown string.
+describe('the name of a finding in a Mermaid markdown string', () => {
+  it('names an id inside the backticks of a markdown string that holds more than the id, and keeps the backticks', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["`RIPPLE-2 crashes`"] --> B["`**SWEEP-1** waits`"]'), 'flowchart LR\n  A["`Finding 3 crashes`"] --> B["`**Finding 1** waits`"]');
+    assert.equal(namedPassing('flowchart LR\n  A["a"] -->|"`waits on RIPPLE-2`"| B["b"]\n  B -- "`SWEEP-1 then`" --> C["c"]'), 'flowchart LR\n  A["a"] -->|"`waits on finding 3`"| B["b"]\n  B -- "`Finding 1 then`" --> C["c"]');
+    assert.equal(namedPassing('sequenceDiagram\n  participant A as "`RIPPLE-2 fix`"\n  A->>B: x'), 'sequenceDiagram\n  participant A as "`Finding 3 fix`"\n  A->>B: x');
+  });
+
+  it('names a markdown string that holds one id alone in place of its backticks', () => {
+    assert.equal(namedPassing('flowchart LR\n  A["`RIPPLE-2`"] --> B["`NOPE-9`"]'), 'flowchart LR\n  A["Finding 3"] --> B["`NOPE-9`"]');
+  });
+});
+
 // R4 of the finding names in the review: the texts of a flowchart that diagramFailures reads as labels.
 describe('the name of a finding in each text of a flowchart that the diagram checks read', () => {
   it('names an id in the title of a subgraph given alone, quoted or between brackets', () => {
