@@ -132,6 +132,314 @@
       "addedCases": 2
     },
     "reductionPercent": null,
-    "limitation": "The baseline did not complete, and suite inputs differ by two regression cases; no full-suite improvement percentage is established."
+    "limitation": "Historical non-comparable validation runs: the baseline was interrupted and the follow-up added two cases. Use controlledOrdinarySuite for the completed same-workload comparison."
+  },
+  "controlledOrdinarySuite": {
+    "status": "complete",
+    "schema": 1,
+    "environment": {
+      "node": "v26.12.1",
+      "platform": "linux",
+      "architecture": "x64",
+      "osRelease": "7.2.11-arch1-1",
+      "availableParallelism": 24,
+      "cpu": "AMD Ryzen 9 3900X 12-Core Processor",
+      "files": 150,
+      "lockSha256": "529de1944a8f189fc0462b4f3b39fccddb0b03fc79bc82998b7339b6ddf2eea4",
+      "testFilesSha256": "778af9910907fb9b95f24edbff91b4ce4a4c7f03e10070b1ba89682d94930d1a",
+      "compileCache": "fresh primary NODE_COMPILE_CACHE directory per measured run; tests retain their own explicit cache setup",
+      "scope": "complete ordinary test suite, same original 3713 cases on both sides; added long-word regression cases excluded from both sides; contract, lint, typecheck, install and build excluded"
+    },
+    "method": {
+      "pairs": 3,
+      "selection": "first three pairs, as requested by the user; later completed or interrupted runs excluded",
+      "execution": "serial; before/after in odd pairs and after/before in even pairs",
+      "command": "node --import ./test/setup.ts --test --test-reporter=<same summary reporter> \"test/**/*.test.ts\"",
+      "primaryMetric": "child process elapsed time from spawn through close, including startup and reporter",
+      "sourceChange": "only the slashJoined expression changes; all 150 original test files and helper inputs remain identical",
+      "coverage": "3713 existing ordinary cases on each side; new long-word regression cases excluded from both sides because they intentionally fail before the change",
+      "exclusions": "contract tier, npm wrapper, lint, typecheck, dependency installation, build and verification",
+      "cache": "fresh primary NODE_COMPILE_CACHE directory per measured run; tests retain their own explicit cache setup",
+      "startupPilot": "an instrumentation pilot was interrupted after its reporter output was misread; it is excluded and its raw logs are retained outside the repository"
+    },
+    "startedAt": "2026-11-08T12:11:43.828Z",
+    "endedAt": "2026-11-08T12:53:04.697Z",
+    "excludedCompletedRuns": [
+      {
+        "pair": 4,
+        "side": "after",
+        "elapsedMs": 63354.90228299983,
+        "exitCode": 0,
+        "reason": "outside the requested first three pairs"
+      },
+      {
+        "pair": 4,
+        "side": "before",
+        "elapsedMs": 554714.820968,
+        "exitCode": 0,
+        "reason": "outside the requested first three pairs"
+      }
+    ],
+    "interruptedRun": {
+      "pair": 5,
+      "side": "before",
+      "sequence": 9,
+      "reason": "User requested only three before/after pairs."
+    },
+    "records": [
+      {
+        "pair": 1,
+        "side": "before",
+        "sequence": 1,
+        "elapsedMs": 552981.785962,
+        "runnerDurationMs": 552935.995947,
+        "startedAt": "2026-11-08T12:11:48.810Z",
+        "endedAt": "2026-11-08T12:21:01.792Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          4.54,
+          3.79,
+          2.21
+        ],
+        "afterLoad": [
+          1.41,
+          2.91,
+          2.93
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      },
+      {
+        "pair": 1,
+        "side": "after",
+        "sequence": 2,
+        "elapsedMs": 63513.2506139999,
+        "runnerDurationMs": 63456.750859,
+        "startedAt": "2026-11-08T12:21:01.793Z",
+        "endedAt": "2026-11-08T12:22:05.306Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          1.41,
+          2.91,
+          2.93
+        ],
+        "afterLoad": [
+          11.19,
+          6.24,
+          4.13
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      },
+      {
+        "pair": 2,
+        "side": "after",
+        "sequence": 3,
+        "elapsedMs": 63257.357634000015,
+        "runnerDurationMs": 63200.032313,
+        "startedAt": "2026-11-08T12:22:05.307Z",
+        "endedAt": "2026-11-08T12:23:08.564Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          11.19,
+          6.24,
+          4.13
+        ],
+        "afterLoad": [
+          15.5,
+          9.08,
+          5.28
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      },
+      {
+        "pair": 2,
+        "side": "before",
+        "sequence": 4,
+        "elapsedMs": 554487.375595,
+        "runnerDurationMs": 554439.709337,
+        "startedAt": "2026-11-08T12:23:08.565Z",
+        "endedAt": "2026-11-08T12:32:23.053Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          15.5,
+          9.08,
+          5.28
+        ],
+        "afterLoad": [
+          1.36,
+          3.69,
+          4.57
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      },
+      {
+        "pair": 3,
+        "side": "before",
+        "sequence": 5,
+        "elapsedMs": 554139.9631699999,
+        "runnerDurationMs": 554099.152668,
+        "startedAt": "2026-11-08T12:32:23.053Z",
+        "endedAt": "2026-11-08T12:41:37.193Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          1.36,
+          3.69,
+          4.57
+        ],
+        "afterLoad": [
+          1.4,
+          2.99,
+          4.33
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      },
+      {
+        "pair": 3,
+        "side": "after",
+        "sequence": 6,
+        "elapsedMs": 62769.15989300003,
+        "runnerDurationMs": 62716.784216,
+        "startedAt": "2026-11-08T12:41:37.194Z",
+        "endedAt": "2026-11-08T12:42:39.963Z",
+        "exitCode": 0,
+        "signal": null,
+        "beforeLoad": [
+          1.4,
+          2.99,
+          4.33
+        ],
+        "afterLoad": [
+          12.26,
+          6.4,
+          5.45
+        ],
+        "counts": {
+          "tests": 3713,
+          "failed": 0,
+          "passed": 3700,
+          "cancelled": 0,
+          "skipped": 13,
+          "todo": 0,
+          "topLevel": 483,
+          "suites": 555
+        }
+      }
+    ],
+    "processElapsed": {
+      "before": {
+        "samples": [
+          552981.785962,
+          554487.375595,
+          554139.9631699999
+        ],
+        "median": 554139.9631699999,
+        "min": 552981.785962,
+        "max": 554487.375595
+      },
+      "after": {
+        "samples": [
+          63513.2506139999,
+          63257.357634000015,
+          62769.15989300003
+        ],
+        "median": 63257.357634000015,
+        "min": 62769.15989300003,
+        "max": 63513.2506139999
+      },
+      "savedMs": 490882.6055359999,
+      "reductionPercent": 88.5845884003508,
+      "speedup": 8.760087109173792
+    },
+    "runnerReported": {
+      "before": {
+        "samples": [
+          552935.995947,
+          554439.709337,
+          554099.152668
+        ],
+        "median": 554099.152668,
+        "min": 552935.995947,
+        "max": 554439.709337
+      },
+      "after": {
+        "samples": [
+          63456.750859,
+          63200.032313,
+          62716.784216
+        ],
+        "median": 63200.032313,
+        "min": 62716.784216,
+        "max": 63456.750859
+      },
+      "savedMs": 490899.12035499996,
+      "reductionPercent": 88.59409331187561,
+      "speedup": 8.767387173535099
+    },
+    "pairReductionPercent": [
+      {
+        "pair": 1,
+        "reductionPercent": 88.5144045922763
+      },
+      {
+        "pair": 2,
+        "reductionPercent": 88.59174069272166
+      },
+      {
+        "pair": 3,
+        "reductionPercent": 88.6726884785706
+      }
+    ],
+    "selectedStartedAt": "2026-11-08T12:11:48.810Z",
+    "selectedEndedAt": "2026-11-08T12:42:39.963Z",
+    "collectionStoppedAt": "2026-11-08T12:53:04.697Z"
   }
 }

@@ -4,7 +4,7 @@ This report evaluates reducing the work of the tests, reducing duplicate cases, 
 
 ## Recommendation
 
-First address the repeated scanning of long words in `src/review/finding-names.ts`. An isolated change to the path recognition expression made all 71 tests in `pull-request-form.test.ts` and `pull-request-areas.test.ts` pass in 2.182 s. In the original full-suite run, those two files were still consuming a core each after 244 s and were deliberately stopped. This is a stronger immediate opportunity than changing test runners, adding CI shards, or weakening the process tests.
+First address the repeated scanning of long words in `src/review/finding-names.ts`. A completed comparison of the same 150 files and 3,713 ordinary cases, with three runs per implementation, reduced median process elapsed time from 554.140 to 63.257 s: 88.58% less time, or 8.76 times faster. The path expression was the only source change. This is a stronger immediate opportunity than changing test runners, adding CI shards, or weakening the process tests. The controlled comparison below separates this local result from CI and from the earlier interrupted experiments.
 
 For CI, cancel obsolete PR runs and make contract execution conditional on the change, backed by scheduled and manual runs. For local iteration, enable incremental typechecking. Remove demonstrably duplicate integration cases, then replace length-limit sweeps with boundary cases. Remeasure both test tiers after the path fix before investing in process, Git, concurrency or shard changes. The current findings do not justify a percentage claim about the eventual CI improvement.
 
@@ -14,7 +14,7 @@ The order weighs measured effect, implementation cost and the possibility of mis
 
 | Order | Work | Primary outcome | Evidence and reason |
 |---|---|---|---|
-| 1 | Bound the path scan (O1) | Less work in every affected run | Prepared and locally validated; implementation is separate from this report-only change. See Implementation progress. The original form tests exceeded 244 s; the experiment passed them in 2.182 s and the ordinary suite in 64.945 s. It preserves the inputs. |
+| 1 | Bound the path scan (O1) | Less work in every affected run | Prepared and locally validated; implementation is separate from this report-only change. Three same-workload whole-suite pairs reduced median elapsed time by 88.58%, with the same passing case counts. |
 | 2 | Cancel superseded PR workflows (O7) | Less obsolete work and queue contention | A small workflow change with no loss of checks on the latest revision. Benefit depends on how often pushes overlap. |
 | 3 | Run the contract conditionally (O8) | Less CI work on unrelated changes | Windows contract steps took 472 to 801 s in the sampled runs. It requires a policy proposal and reliable change classification, so it follows the two simpler changes. |
 | 4 | Incremental typecheck (O9) | Faster local repetition | Measured at 8.646 s normally and 1.655 s on an unchanged warm run. Cold runs remain about as expensive as today. |
@@ -27,11 +27,11 @@ Implement the first four as separate changes where possible, so their effects an
 
 ## Evaluation record
 
-Each option gets a before-and-after evaluation when implemented. [The measurement data](2026-11-08-test-time-measurements.json) records the paired path-scan samples, the earlier cache experiments and the incomplete full-suite baseline. A blank improvement figure means not established, not zero improvement. Measurements of an experiment do not mean that its configuration has been adopted.
+Each option gets a before-and-after evaluation when implemented. [The measurement data](2026-11-08-test-time-measurements.json) records the completed whole-suite comparison under `controlledOrdinarySuite`, the paired path-scan samples, the earlier cache experiments and the historical incomplete full-suite baseline. A blank improvement figure means not established, not zero improvement. Measurements of an experiment do not mean that its configuration has been adopted.
 
 | Option | Current evaluation | Established improvement | Evidence still needed |
 |---|---|---|---|
-| O1: Bound the path scan | Locally implemented; five alternating pairs per input | Public-API median at 40,000 letters: 1,075.694 to 0.369 ms, 99.97% less elapsed time for that synthetic input | Comparable completed whole-suite runs and CI results; the old whole-suite baseline was interrupted |
+| O1: Bound the path scan | Locally implemented; three alternating whole-suite pairs, plus five public-API pairs per synthetic input | Same-workload whole-suite median: 554.140 to 63.257 s, 88.58% less process elapsed time. Synthetic 40,000-letter public-API case: 99.97% less time | CI and complete check-pipeline results; contract tier not timed |
 | O2: Boundary cases | A temporary threshold-jump variant passed 71 tests in 149.721 s using the original scan | No incremental improvement over the implemented O1 established | Run the same cut/refusal coverage before and after O2 with O1 present on both sides |
 | O3: Git calls | Not implemented or newly profiled | Not measured | Call counts and cumulative time per subcommand, plus drift and filter compatibility |
 | O4: Concurrency and splitting | Not implemented | Not measured | Alternating runs at each concurrency, longest-file tail, CPU, memory and failures on each OS |
@@ -52,7 +52,7 @@ Each option gets a before-and-after evaluation when implemented. [The measuremen
 
 Use the last validated configuration as the baseline for the next option, so its marginal contribution is visible. Also record cumulative time against a completed original baseline when one is available. Keep the test command, input revision, dependencies, OS, runtime version, runner capacity and cache state fixed except for the factor under test. Name changes by proposal, file or PR rather than branch commit hashes, and record the exact commands. Compilation-cache, result-cache and cold/warm conditions must be explicit.
 
-Use at least five alternating before/after pairs for local elapsed-time comparisons where practical, report the sample count, median and range, and retain failed runs rather than silently dropping them. Separate OS and runner classes in CI comparisons. Do not present a tail percentile from a handful of samples. A deliberately timed-out baseline is a regression reproduction, not a completed timing sample.
+Use at least five alternating before/after pairs for local elapsed-time comparisons where practical, or the smaller count the operator requests; state that limit and which runs were selected. Report the sample count, median and range, and retain failed runs rather than silently dropping them. Keep excluded runs traceable. Separate OS and runner classes in CI comparisons. Do not present a tail percentile from a handful of samples. A deliberately timed-out baseline is a regression reproduction, not a completed timing sample.
 
 ### E2: Record time, work and verification separately
 
@@ -76,7 +76,26 @@ Node 26.12.1 on Linux x64 loaded both modules before timing and warmed each with
 | 20,000 | 295.519 (295.439 to 296.055) | 0.211 (0.203 to 0.297) | 99.93% |
 | 40,000 | 1,075.694 (1,075.199 to 1,095.001) | 0.369 (0.353 to 0.410) | 99.97% |
 
-All 30 measured outputs matched their expected text. This supports retaining O1 for the observed long-word bottleneck. It is not a 99.97% suite or CI improvement: the workload is deliberately synthetic, and the original full-suite timing did not complete. The passing 66.122 s suite is an absolute post-change measurement, with two added regression cases, not a measured full-suite percentage reduction.
+All 30 measured outputs matched their expected text. This supports retaining O1 for the observed long-word bottleneck. It is not a 99.97% suite or CI improvement: the workload is deliberately synthetic. The later same-workload suite comparison below establishes a separate local improvement of 88.58%. The earlier passing 66.122 s suite remains an absolute validation measurement with two added regression cases, not one of the paired timing samples.
+
+## Controlled whole-suite evaluation
+
+The comparison used two clean copies of the same committed input tree, with identical dependency installation from the lock file and fixed role files. All 150 original ordinary test files and their helpers stayed the same. Only `slashJoined` in `src/review/finding-names.ts` changed to the boundary-constrained expression. The two new compatibility/performance regression cases were excluded from both copies: the long-word case intentionally fails on the original expression. Thus this is a same-workload measurement of the complete existing ordinary suite, not a speedup obtained by deleting cases.
+
+Both sides used Node 26.12.1 on Linux x64 with an AMD Ryzen 9 3900X and 24 available logical processors. The command was `node --import ./test/setup.ts --test --test-reporter=<same summary reporter> "test/**/*.test.ts"`, equivalent to the test selection and setup of `npm test`, with summary recording instead of its usual reporter. Each timed run received a fresh primary `NODE_COMPILE_CACHE` directory; tests that explicitly configure their own caches retained that behavior. Dependency installation, cloning, the npm wrapper, lint, typecheck, build/verify and the contract tier were outside the timed region. The OS page cache was not flushed.
+
+The primary metric is process elapsed time from spawning the test runner to its close, including startup and reporting. The secondary runner-reported durations are retained in the data. Runs were serial, alternating order by pair: before/after, after/before, before/after. The user limited the final comparison to the first three pairs. A fourth pair had already completed when that request arrived and was excluded in full, and the following run was stopped. Those exclusions and the instrumentation pilot are recorded separately; they were not selected by their timings or outcomes.
+
+| Pair | Execution order | Before, s | After, s | Time reduction |
+|---|---|---:|---:|---:|
+| 1 | Before, after | 552.982 | 63.513 | 88.51% |
+| 2 | After, before | 554.487 | 63.257 | 88.59% |
+| 3 | Before, after | 554.140 | 62.769 | 88.67% |
+| Median by implementation | Three runs each | 554.140 | 63.257 | 88.58% |
+
+The median saving is 490.883 s, about 8 minutes 11 seconds per ordinary-suite run, and the speedup is 8.76 times. The before range is 552.982 to 554.487 s; the after range is 62.769 to 63.513 s. Every selected run exited zero with 3,713 cases: 3,700 passed, 13 skipped, zero failed and zero canceled. The recorded test-file fingerprint and lock-file hash allow the input set to be checked. No tail percentile or statistical confidence interval is inferred from three pairs.
+
+This establishes a local same-workload ordinary-suite improvement for O1. It does not establish an 88.58% improvement for CI, `npm run check`, the contract tier, the two newly added cases or a real model review. The earlier interrupted baseline remains historical evidence only and is not used in this percentage.
 
 ## What is already implemented
 
@@ -294,7 +313,7 @@ The isolated path-expression experiment passed the two original PR form files, 7
 
 The follow-up baseline, cold-cache and warm-cache typecheck and lint commands all exited zero; their timings and unchanged-input limitation are recorded under O9. They ran against the workspace and do not establish that the temporary path-expression implementation passed lint or typecheck. No duplicate case was removed, no conditional-execution classifier was tested, and no scheduled CI run was added.
 
-O1 is prepared and locally validated as recorded below; its implementation is a separate change. Next perform O7 as an independent CI change, then prepare the policy proposal for O8 and validate O9's incremental invalidation. Review the six O10 removal candidates before deleting any, and treat O2 as a small follow-up. For each change, record ordinary-suite and contract elapsed time separately, latest-push-to-result time, total runner minutes, failures and reruns, and any newly exempted revisions. Remeasure before selecting the remaining options; none of the unmeasured ones has a promised speedup.
+O1 is prepared and locally validated as recorded below; its implementation is a separate change. The later controlled comparison establishes its ordinary-suite improvement at 88.58% on the measured environment. Next perform O7 as an independent CI change, then prepare the policy proposal for O8 and validate O9's incremental invalidation. Review the six O10 removal candidates before deleting any, and treat O2 as a small follow-up. For each change, record ordinary-suite and contract elapsed time separately, latest-push-to-result time, total runner minutes, failures and reruns, and any newly exempted revisions. Remeasure before selecting the remaining options; none of the unmeasured ones has a promised speedup.
 
 ## Implementation progress
 
