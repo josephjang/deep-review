@@ -177,7 +177,9 @@ The order of the posted review does not change. Each question and each departure
 
 ### Principle 6, easy to understand, with little context
 
-The review says in plain words that deep-review fixed on another machine and that the fixes are not in it. It does not tell the reader to wait for a command that has already run, and it does not leave the reader to guess whether "would fix" means a fix to come or a fix made. The proposal adds no text to read: each new sentence replaces one that a read-only review has.
+The review says in plain words that deep-review fixed on another machine and that the fixes are not in it. It does not tell the reader to wait for a command that has already run, and it does not leave the reader to guess whether "would fix" means a fix to come or a fix made. Most of its new words replace those of a read-only review, but not all: the review of a continued run adds to the line on what the run reviewed what followed the review and where it is recorded, one sentence in English and two in Korean, and adds one sentence to the line on the checks, in each language, that says the fix pass runs the repository's checks and where their results are.
+
+This departs from the vision note, under which a proposal that increases what the person must read goes against the vision ("How to use this document"). The reason is principle 8: the review must say what it does not show, the edits of the fix pass and the results of its checks, and where each is kept, and no sentence of a read-only review says that. The added sentences are only in the review of a continued run, and a read-only review reads as before.
 
 ### Principle 7, nothing waits for a person
 
@@ -193,7 +195,7 @@ R9 makes one real run and one real post the gate.
 
 ### How to use this document
 
-The proposal does not increase what the person reads, hides no question and no departure, and makes no question block a run. NG3 can show a question that the person has already answered on the machine. It does not decide that question inside deep-review: the answer stays on the ledger and in the report, and the section on principle 4 above names the departure.
+The proposal increases what the person reads by the sentences that the section on principle 6 above names, in the review of a continued run only, and names that departure there with its reason. It hides no question and no departure, and makes no question block a run. NG3 can show a question that the person has already answered on the machine. It does not decide that question inside deep-review: the answer stays on the ledger and in the report, and the section on principle 4 above names the departure.
 
 ## Risks
 
