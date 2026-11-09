@@ -69,6 +69,12 @@ describe('the core of the change in the body', () => {
     includes(bodyOf(cored(), answerWith(writerCore({ whyFrom: ['abcdef'] }))), 'The change says so in `abcdef`.');
   });
 
+  it('links a commit named in capitals or by a whole SHA-256 id at its full id, as the check of the core takes it', () => {
+    const sha256 = `${'c'.repeat(8)}${'0'.repeat(56)}`;
+    const body = bodyOf(cored(), answerWith(writerCore({ whyFrom: ['ABCDEF1', sha256] })), { commits: [...commits, sha256] });
+    includes(body, `The change says so in [\`abcdef12\`](https://github.com/octo/parse/commit/${commits[0]!}) and [\`cccccccc\`](https://github.com/octo/parse/commit/${sha256}).`);
+  });
+
   it('names a source of the change whose cleaning changes its path as cleaned code with no link, and counts its secret', () => {
     const secret = 'test/fixtures/ghp_abcdefghijklmnopqrstuvwxyz0123.json';
     const state = cored();
