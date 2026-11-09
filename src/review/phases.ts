@@ -87,7 +87,7 @@ export interface PhaseContext {
   readonly scopeBlock: (phase: Unit['phase']) => string;
   /** What this invocation knows for the survey, for the surveyor's task. */
   readonly survey: () => SurveyInputs;
-  /** The commit messages of the change, for the triage's task, read when first asked for (R6 of the brief of a run). */
+  /** The commit messages of the change, for the triage's task and the task of a writer that gives the core of the change, read when first asked for (R6 of the brief of a run; TD7 of the core of the change on the pull request). */
   readonly commitMessages: () => ChangeMessages;
   /** The evidence store, for the frozen logs a repair task quotes. */
   readonly evidence: Pick<EvidenceStore, 'read' | 'pathOf'>;
@@ -541,8 +541,8 @@ export interface TaskOptions {
   readonly survey?: SurveyInputs | null;
   readonly commitMessages?: ChangeMessages | null;
   readonly documentation?: DocumentationTaskOptions | null;
-  /** The writer's: the fold as a whole, which its brief is rendered from, the worktree its earlier answer is checked in, and the machine its quotes are cleaned of. */
-  readonly writer?: { readonly state: RunState; readonly worktree: string; readonly machine: MachineContext } | null;
+  /** The writer's: the fold as a whole, which its brief is rendered from, the worktree its earlier answer is checked in, the machine its quotes are cleaned of, and the commit messages of the change, which the task of a writer that gives the core of the change lists. */
+  readonly writer?: { readonly state: RunState; readonly worktree: string; readonly machine: MachineContext; readonly commitMessages: ChangeMessages | null } | null;
 }
 
 /**
@@ -649,7 +649,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       throw new Error('The report phase has no worker');
     case 'explanation':
       if (evidence === null || options.writer === undefined || options.writer === null) throw new Error('The writer\'s task renders the brief from the fold, checks an earlier answer in the evidence store and cleans what it quotes, and needs them');
-      return writerTask(options.writer.state, { worktree: options.writer.worktree, evidence, machine: options.writer.machine });
+      return writerTask(options.writer.state, { worktree: options.writer.worktree, evidence, machine: options.writer.machine, commitMessages: options.writer.commitMessages });
   }
 }
 
@@ -675,10 +675,11 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const review = requireReview(live === null ? context.state : settleClaims(context.state, unit.key, live, context.worktree).state);
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join(scratch, snapshotsDirectoryName)), claimCommand: shared === null ? null : context.claims.command(unit.key, shared), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === 'survey' ? context.survey() : null;
-  const commitMessages = unit.phase === 'triage' ? context.commitMessages() : null;
+  // The triage, and a writer that gives the core of the change, read the same commit messages (TD7 of the core of the change on the pull request).
+  const commitMessages = unit.phase === 'triage' || (unit.phase === 'explanation' && review.coreForm) ? context.commitMessages() : null;
   const documentation = unit.phase === 'documentation' ? context.documentation() : null;
   const writer = unit.phase === 'explanation' ? writerLaunchOf(context) : null;
-  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine };
+  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine, commitMessages };
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation, readerScratch: context.readerScratch, writer: writerTaskInput }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,

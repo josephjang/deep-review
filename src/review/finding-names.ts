@@ -181,6 +181,19 @@ function holdsId(diagram: string, names: ReadonlyMap<string, NamedId>): boolean 
   return diagram.split('\n').some((line) => !line.trim().startsWith('%%') && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
 }
 
+/**
+ * The ids of `ids` that a text holds, each once, in the order of `ids`
+ * (R5, TD6 of the core of the change on the pull request): each where the
+ * boundaries of an id hold, as `holdsId` finds one left in a diagram, in
+ * prose, in code, in a path or in a URL alike, since a text that must name
+ * no id of the review names none anywhere.
+ */
+export function idsIn(text: string, ids: readonly string[]): string[] {
+  if (ids.length === 0) return [];
+  const found = new Set([...text.matchAll(new RegExp(String.raw`(?<![\w#]|\w\.)(?:${ids.map((id) => RegExp.escape(id)).join('|')})(?!\w|\.\w)`, 'g'))].map((match) => match[0]));
+  return ids.filter((id) => found.has(id));
+}
+
 /** The kind of a diagram, from its first line. */
 const diagramKind = (header: string): 'flowchart' | 'sequence' | 'state' | 'other' => (/^(?:flowchart|graph)\b/.test(header) ? 'flowchart' : /^sequenceDiagram\b/.test(header) ? 'sequence' : /^stateDiagram/.test(header) ? 'state' : 'other');
 

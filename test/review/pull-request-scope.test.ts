@@ -181,7 +181,7 @@ describe('the capture of a pull request (R2, R3, R5, R6, R15 of the review on th
     const { head, base } = commitsOf(box);
     const captured = box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'scope.captured')!;
     assert.equal(captured.version, 3);
-    assert.equal(box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'review.configured')!.version, 11, 'a read-only run of a pull request explains its review, which reads as a report');
+    assert.equal(box.checkpoint.ledger.events(state.id).find((event) => event.kind === 'review.configured')!.version, 12, 'a read-only run of a pull request explains its review, which reads as a report and opens with the core of the change');
     const scopeState = state.scope!;
     assert.deepEqual([scopeState.mode, scopeState.base, scopeState.head, scopeState.request.range, scopeState.request.pullRequest], ['range', base, head, { from: base, to: 'HEAD', mergeBase: false }, { number: 42, repository: null }]);
     const { body, ...facts } = scopeState.pullRequest!;
@@ -441,7 +441,7 @@ describe('the review of a fix run (R1 to R4 of the review of a fix run)', { time
     const [run, ...more] = box.checkpoint.foldRuns();
     assert.deepEqual(more, [], 'one run');
     const configured = box.checkpoint.ledger.events(run!.id).find((event) => event.kind === 'review.configured')!;
-    assert.deepEqual([configured.version, (JSON.parse(configured.payload) as { fix: boolean }).fix], [11, false], 'configured as a read-only run of a pull request');
+    assert.deepEqual([configured.version, (JSON.parse(configured.payload) as { fix: boolean }).fix], [12, false], 'configured as a read-only run of a pull request');
     // The writer explains the review before the read-only report, which comes before the pin and every phase of the fix pass.
     const explained = indexOf(box, run!.id, (kind) => kind === 'explanation.recorded');
     const readOnlyReport = indexOf(box, run!.id, (kind) => kind === 'report.written');
