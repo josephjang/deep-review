@@ -200,6 +200,16 @@ describe('the reasons to look in what needs a person', () => {
     excludes(section(bodyOf(state, { ...only, conditions: null }), '### How far to trust this review'), 'A model wrote the explanations');
   });
 
+  it('says in how far to trust the review that the reasons to look are in the triage\'s words when the checks dropped the writer\'s conditions, and only when a condition holds', () => {
+    const note = 'The writer gave no sentences on the conditions that passed deep-review\'s checks, so the reasons to look give each condition in the words of deep-review\'s triage.';
+    const trustOf = (state: RunState): string => section(bodyOf(state, { ...answerWith(writerCore()), conditions: null }), '### How far to trust this review');
+    const held = withAccount(withCoreForm(run(decisions, explanation(worker(60), { dropped: [{ part: 'conditions', failures: ['x'] }] }))).fold());
+    includes(needsOf(bodyOf(held, { ...answerWith(writerCore()), conditions: null })), interfaceInTriageWords);
+    includes(trustOf(held), note);
+    excludes(trustOf(withReading(held, reading({ publicInterface: { holds: false, what: null, files: [] } }))), note);
+    excludes(trustOf(withAccount(withCoreForm(run(decisions)).fold())), note);
+  });
+
   it('writes the reasons to look in Korean with no particle after a number', () => {
     const state = withAccount(withSettings(run(plausibleFix()), { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold());
     const needs = needsOf(bodyOf(state, writerAnswer()).replace('### 사람이 해야 할 일', '### What needs a person'));

@@ -263,6 +263,8 @@ export interface PullRequestWords {
   readonly conclusionDropped: string;
   readonly areasDropped: string;
   readonly refutedDropped: string;
+  /** That the checks dropped the writer's sentences on the conditions the triage judged to hold, so the reasons to look give them in the triage's words. */
+  readonly conditionsDropped: string;
   readonly findingsDropped: (findings: string, count: number) => string;
   readonly noExplanation: string;
   /** Why the review does not open with the writer's core: the checks dropped it, or the run's writer answered before the core; the review then opens with the triage's account, or with none. */
@@ -561,6 +563,7 @@ const english: PullRequestWords = {
   conclusionDropped: 'The writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review\'s own words.',
   areasDropped: 'The writer gave no areas that passed deep-review\'s checks, so the major findings are listed in one area in deep-review\'s own words.',
   refutedDropped: 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.',
+  conditionsDropped: 'The writer gave no sentences on the conditions that passed deep-review\'s checks, so the reasons to look give each condition in the words of deep-review\'s triage.',
   findingsDropped: (findings, count) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count === 1 ? 'it is' : 'each is'} given in deep-review's own words.`,
   noExplanation: 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.',
   coreDropped: (triage) => `The writer gave no account of the change that passed deep-review's checks, so the review opens with ${triage ? 'the account of deep-review\'s triage' : 'no account of the change'}.`,
@@ -840,6 +843,7 @@ const korean: PullRequestWords = {
   conclusionDropped: '설명 모델이 낸 요약 가운데 deep-review가 쓸 수 있는 것이 없어, 요약과 조치는 deep-review가 직접 쓴 문장으로 적었습니다.',
   areasDropped: '설명 모델이 deep-review의 검사를 통과한 영역을 내지 못해, major 지적 사항은 deep-review가 직접 이름 붙인 한 영역에 모아 적었습니다.',
   refutedDropped: '설명 모델이 반박된 후보에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 각 후보는 찾는 작업자의 요약으로 적었습니다.',
+  conditionsDropped: '설명 모델이 조건에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 살펴볼 이유는 각 조건을 deep-review 분류 작업자(triage)의 말로 적었습니다.',
   findingsDropped: (findings) => `설명 모델이 ${findings}에 대해 deep-review의 검사를 통과한 설명을 내지 못해, deep-review가 직접 쓴 문장으로 적었습니다.`,
   noExplanation: '이 실행에는 설명 모델의 설명이 기록되지 않아, 리뷰 전체를 deep-review가 직접 쓴 문장으로 적었습니다.',
   coreDropped: (triage) => `설명 모델이 deep-review의 검사를 통과한 변경 설명을 내지 못해, 리뷰는 ${triage ? 'deep-review 분류 작업자(triage)의 설명으로 시작합니다' : '변경 설명 없이 시작합니다'}.`,
