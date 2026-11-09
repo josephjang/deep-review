@@ -532,7 +532,7 @@ export interface DocumentationPatch {
   readonly subject: string;
 }
 
-/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, the commit messages of the change the triage's task lists, and the documentation step's patches and patterns. */
+/** What a unit's task may need beyond the fold: an editing unit's snapshot command, the evidence store a fixer or repair task names frozen output from, the survey's inputs, the commit messages of the change the triage's task lists and the task of a writer that gives the core of the change, and the documentation step's patches and patterns. */
 export interface TaskOptions {
   readonly editing?: EditingTaskInput | null;
   /** Whether a read-only worker is given a scratch directory, which a verifier's task of a run with runs on the record names (`PhaseContext.readerScratch`). */
@@ -541,8 +541,8 @@ export interface TaskOptions {
   readonly survey?: SurveyInputs | null;
   readonly commitMessages?: ChangeMessages | null;
   readonly documentation?: DocumentationTaskOptions | null;
-  /** The writer's: the fold as a whole, which its brief is rendered from, the worktree its earlier answer is checked in, the machine its quotes are cleaned of, and the commit messages of the change, which the task of a writer that gives the core of the change lists. */
-  readonly writer?: { readonly state: RunState; readonly worktree: string; readonly machine: MachineContext; readonly commitMessages: ChangeMessages | null } | null;
+  /** The writer's: the fold as a whole, which its brief is rendered from, the worktree its earlier answer is checked in, and the machine its quotes are cleaned of. */
+  readonly writer?: { readonly state: RunState; readonly worktree: string; readonly machine: MachineContext } | null;
 }
 
 /**
@@ -649,7 +649,7 @@ export function taskFor(unit: Unit, review: ReviewState, options: TaskOptions = 
       throw new Error('The report phase has no worker');
     case 'explanation':
       if (evidence === null || options.writer === undefined || options.writer === null) throw new Error('The writer\'s task renders the brief from the fold, checks an earlier answer in the evidence store and cleans what it quotes, and needs them');
-      return writerTask(options.writer.state, { worktree: options.writer.worktree, evidence, machine: options.writer.machine, commitMessages: options.writer.commitMessages });
+      return writerTask(options.writer.state, { worktree: options.writer.worktree, evidence, machine: options.writer.machine, commitMessages: options.commitMessages ?? null });
   }
 }
 
@@ -679,7 +679,7 @@ export function invocationFor(unit: Unit, context: PhaseContext): InvocationInpu
   const commitMessages = unit.phase === 'triage' || (unit.phase === 'explanation' && review.coreForm) ? context.commitMessages() : null;
   const documentation = unit.phase === 'documentation' ? context.documentation() : null;
   const writer = unit.phase === 'explanation' ? writerLaunchOf(context) : null;
-  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine, commitMessages };
+  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine };
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review, { editing, evidence: context.evidence, survey, commitMessages, documentation, readerScratch: context.readerScratch, writer: writerTaskInput }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
