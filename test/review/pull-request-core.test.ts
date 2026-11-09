@@ -187,7 +187,9 @@ describe('the reasons to look in what needs a person', () => {
 
   it('says nothing needs a person, with the triage\'s judgment that no condition holds and that no fix rests on a PLAUSIBLE verdict, only when none of the four holds', () => {
     const none = withReading(run(decisions).fold(), reading({ publicInterface: { holds: false, what: null, files: [] } }));
-    assert.equal(needsOf(bodyOf(none, writerAnswer())), '### What needs a person\n\nNothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review\'s judgment the change alters no public interface and affects no file beyond its own.\n');
+    assert.equal(needsOf(bodyOf(none, writerAnswer())), '### What needs a person\n\nNothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review\'s judgment the change alters no public interface and does not affect many files beyond the ones it changes.\n');
+    const inKorean = withReading(withSettings(run(decisions), { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold(), reading({ publicInterface: { holds: false, what: null, files: [] } }));
+    includes(bodyOf(inKorean, writerAnswer()), '이 변경은 공개 인터페이스를 바꾸지 않고 바꾼 파일 밖의 많은 파일에 영향을 주지 않습니다.');
   });
 
   it('says a model wrote the review when it posts the writer\'s sentence on a condition alone', () => {
