@@ -29,8 +29,8 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { repositoryLocation, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
-import { briefOf, firstSentence, type Brief, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { diagramFailures, reviewLanguage, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { briefOf, firstSentence, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
+import { diagramFailures, reviewLanguage, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
 import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
@@ -138,6 +138,8 @@ export interface PullRequestFormInput {
   readonly engine: string;
   /** The serial of the publication, counting the prepared publications of the run from 1. */
   readonly serial: number;
+  /** The full ids of the change's commits, read by the caller with git from the run's base to its head, which a source of the core's reason names by a prefix (TD3, TD4 of the core of the change on the pull request); null or absent when git could not read them, and the body then names such a source as code with no link. */
+  readonly commits?: readonly string[] | null;
 }
 
 /** A comment on a line of the new side of the diff, with the finding it is for. */
@@ -234,6 +236,17 @@ interface RefutedView {
   readonly why: string | null;
 }
 
+/**
+ * The core of the change that the body opens with (R1, R10 of the core of
+ * the change on the pull request): the writer's, from an answer of
+ * version 3 that kept it; else the account of the triage, from the brief,
+ * with its title; else none, with why the run has no account.
+ */
+type CoreView =
+  | { readonly kind: 'writer'; readonly core: Core }
+  | { readonly kind: 'triage'; readonly title: string; readonly change: Extract<BriefChange, { readonly state: 'given' }> }
+  | { readonly kind: 'none'; readonly state: 'none' | 'unrecorded' };
+
 /** The run as every part of the form reads it, built once by `formViewOf`. */
 interface FormView {
   readonly state: RunState;
@@ -242,6 +255,7 @@ interface FormView {
   readonly pullRequest: PullRequestFacts;
   readonly brief: Brief;
   readonly words: PullRequestWords;
+  readonly core: CoreView;
   /** The words of what follows the review, for the run's fix pass (`followingOf`). */
   readonly following: FollowingWords;
   readonly findings: readonly FindingView[];
@@ -345,9 +359,37 @@ const details = (summary: string, ...parts: readonly (readonly string[])[]): str
 /** A path from the root of the repository as a URL path, each name percent-encoded, its parentheses too, so no `)` of a name closes the Markdown link the URL is put in. */
 const urlPath = (path: string): string => path.split('/').map((name) => encodeURIComponent(name).replace(/\(/g, '%28').replace(/\)/g, '%29')).join('/');
 
-/** The lines `from` to `to` of `path` at `commit`, as GitHub shows them in the repository of the pull request: a permalink, which no later push moves (R14). */
+/** The repository of the pull request on its host, as every link of the review starts. */
+const repositoryUrl = (pullRequest: PullRequestFacts): string => `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}`;
+
+/** The file `path` at `commit`, as GitHub shows it in the repository of the pull request: a permalink, which no later push moves (R14). */
+const fileUrl = (pullRequest: PullRequestFacts, commit: string, path: string): string => `${repositoryUrl(pullRequest)}/blob/${commit}/${urlPath(path)}`;
+
+/** The lines `from` to `to` of `path` at `commit`, a permalink as `fileUrl` is. */
 function blobUrl(pullRequest: PullRequestFacts, commit: string, path: string, from: number, to: number): string {
-  return `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}/blob/${commit}/${urlPath(path)}#L${String(from)}${to === from ? '' : `-L${String(to)}`}`;
+  return `${fileUrl(pullRequest, commit, path)}#L${String(from)}${to === from ? '' : `-L${String(to)}`}`;
+}
+
+/** A commit by its full id in the repository of the pull request (TD4 of the core of the change on the pull request): a permalink, which no later push moves. */
+const commitUrl = (pullRequest: PullRequestFacts, commit: string): string => `${repositoryUrl(pullRequest)}/commit/${commit}`;
+
+/** A prefix of a commit's id that a source of a reason may name it by: from the 7 characters git shows to the 40 of a whole id. */
+const commitPrefix = /^[0-9a-f]{7,40}$/;
+
+/**
+ * A source of a reason as a link (R3, TD4 of the core of the change on the
+ * pull request): a file of the change at the reviewed head, or at the
+ * merge base for one the change removed; a commit of the change, named by
+ * a prefix of its id that begins no other of its commits, at its
+ * permalink by its full id; or null for a source that is neither, or a
+ * commit when the caller could not read the commits.
+ */
+function sourceLink(view: FormView, source: string): string | null {
+  const file = view.scope.files.find((entry) => entry.path === source);
+  if (file !== undefined) return `[${codeSpan(inlineText(source))}](${fileUrl(view.pullRequest, file.status === 'deleted' ? view.scope.base : view.scope.head, source)})`;
+  if (!commitPrefix.test(source)) return null;
+  const commits = (view.input.commits ?? []).filter((commit) => commit.startsWith(source));
+  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]!))}](${commitUrl(view.pullRequest, commits[0]!)})` : null;
 }
 
 /** The line of a location at the reviewed head. */
@@ -605,6 +647,29 @@ function headingSection(view: FormView): Section {
   return { part: 'heading', lines: [words.heading, '', view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
 
+/**
+ * The core of the change (R1 to R4, R10, R11 of the core of the change on
+ * the pull request), never cut: the writer's title, what the change does,
+ * why with a link to each source or that the change states no reason, its
+ * diagram, and whose reading it is; or the triage's title, account and
+ * reason with its sources, each a link where it is one of the change and
+ * code otherwise, and that it is the triage's; or that the run has no
+ * account, and why. Each text of a worker goes through the Speaker.
+ */
+function coreSection(view: FormView, say: Speaker): Section {
+  const { words, core } = view;
+  if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone(core.state)] };
+  const links = (sources: readonly string[]): string[] => sources.map((source) => sourceLink(view, source) ?? say.code(source));
+  if (core.kind === 'writer') {
+    const { title, what, why, whyFrom, diagram } = core.core;
+    const reason = why === null ? words.coreNoReason : words.coreWhy(sentenceText(say.prose(why)), links(whyFrom));
+    return { part: 'core', lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), [reason], diagram === null ? [] : [say.diagram(diagram)], [words.coreWhoseWriter]) };
+  }
+  const { title, change } = core;
+  const reason = change.why === null ? words.coreNoReason : words.coreWhyTriage(sentenceText(say.words(change.why)), links(change.whyFrom));
+  return { part: 'core', lines: blocks([words.coreHeading], [`**${say.words(title)}**`], [paragraphText(say.words(change.what))], [reason], [words.coreWhoseTriage]) };
+}
+
 /** The writer's sentence on the areas that the summary posts: none when the answer kept no conclusion, or when the checks dropped the writer's areas, which the body then does not show. */
 const postedWhy = (view: FormView): string | null => (view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === 'areas') ?? false) ? null : view.conclusion.why);
 
@@ -799,28 +864,32 @@ function postsWriterFinding(finding: FindingView, cuts: ReadonlySet<BodyCut>): b
 
 /**
  * Whether the body with the cuts given, or a comment, posts any text of
- * the writer (R12): the summary's sentence on the areas, the writer's
- * areas when a major finding acts, a refuted line the cuts keep, or a
- * finding's text (`postsWriterFinding`). A frozen answer can post none: a
+ * the writer (R12): the writer's core of the change, the summary's
+ * sentence on the areas, the writer's areas when a major finding acts, a
+ * refuted line the cuts keep, or a finding's text (`postsWriterFinding`). A frozen answer can post none: a
  * writer that completed its unit has its answer frozen even when the
  * checks dropped every part, an answer of version 1 may keep only its
  * account, which the form does not post, and the parts it kept may be
  * ones the body leaves out.
  */
 function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
-  return postedWhy(view) !== null
+  return view.core.kind === 'writer'
+    || postedWhy(view) !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!cuts.has('refuted') && view.refuted.some((line) => line.claim !== null || line.why !== null))
     || view.findings.some((finding) => postsWriterFinding(finding, cuts));
 }
 
-/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation, each part the checks dropped, and the findings whose answers the explanation predates. */
+/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation; why the review does not open with the writer's core, its checks having dropped it or its writer having answered before the core (R10, R12 of the core of the change on the pull request); each other part the checks dropped; and the findings whose answers the explanation predates. */
 function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
   const { words, brief, recorded } = view;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
   const notes: string[] = [];
   if (recorded === null) notes.push(words.noExplanation);
   else {
+    const triage = view.core.kind === 'triage';
+    if (recorded.dropped.some((part) => part.part === 'core')) notes.push(words.coreDropped(triage));
+    else if (recorded.version < 3) notes.push(words.coreBeforeWriter(triage));
     if (recorded.dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
     if (recorded.dropped.some((part) => part.part === 'areas')) notes.push(words.areasDropped);
     if (recorded.dropped.some((part) => part.part === 'refuted')) notes.push(words.refutedDropped);
@@ -859,7 +928,9 @@ function lastSection(view: FormView, say: Speaker): Section {
 
 /**
  * The body with the cuts given, and the secrets its cleaning replaced: the
- * first part of principle 5 in its order, what needs a person and then
+ * first part of principle 5 in its order, the core of the change right
+ * after the heading (R1 of the core of the change on the pull request),
+ * the summary, what needs a person and then
  * what the review did not examine (R9, PD9 of the core of the change on
  * the pull request), then how the review worked and the evidence, in the
  * order of R1 of the review that reads as a report.
@@ -868,6 +939,7 @@ function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sect
   const say = speakerOf(view.input.machine, view.words, view.names);
   const sections = [
     headingSection(view),
+    coreSection(view, say),
     summarySection(view, say),
     needsSection(view, say),
     notExaminedSection(view, say, cuts),
@@ -954,6 +1026,8 @@ function formViewOf(input: PullRequestFormInput): FormView {
   if (review === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
   const brief = briefOf(state);
   const words = pullRequestWords(reviewLanguage(review));
+  const writerCore = input.answer?.core ?? null;
+  const core: CoreView = writerCore !== null ? { kind: 'writer', core: writerCore } : brief.change.state === 'given' ? { kind: 'triage', title: brief.title, change: brief.change } : { kind: 'none', state: brief.change.state };
   const placements = new Map(input.places.map((placement) => [placement.finding, placement]));
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
@@ -986,6 +1060,7 @@ function formViewOf(input: PullRequestFormInput): FormView {
     pullRequest: scope.pullRequest,
     brief,
     words,
+    core,
     following: followingOf(words, input.fixPass, scope.pullRequest.number),
     findings,
     areas: input.answer?.areas ?? null,
