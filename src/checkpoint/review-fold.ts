@@ -882,11 +882,14 @@ const decisionsRecorded: Reducer<DecisionsRecorded> = (state, payload, event, dr
 const decisionsRecordedV1: Reducer<DecisionsRecordedV1> = (state, payload, event, drafts) =>
   recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: [] })) }, event, drafts, 1);
 
-/** The version of `explanation.recorded` a run's configuration asks for: 3 at `review.configured@12`, 2 at version 11, and 1 at version 10. */
-const explanationVersionOf = (review: ReviewState): 1 | 2 | 3 => (review.coreForm ? 3 : review.reportForm ? 2 : 1);
+/** A version of `explanation.recorded`, which is also the version of the writer's answer it records and of the schema the writer answers in. */
+export type ExplanationVersion = 1 | 2 | 3;
+
+/** The version of `explanation.recorded` a run's configuration asks for, also when this engine resumes it: 3 at `review.configured@12`, 2 at version 11, and 1 at version 10. The fold, the writer's schema and the explanation all read it here, so a later version is added in one place. */
+export const explanationVersionOf = (review: Pick<ReviewState, 'reportForm' | 'coreForm'>): ExplanationVersion => (review.coreForm ? 3 : review.reportForm ? 2 : 1);
 
 /** The configuration that asks for each version of `explanation.recorded`, named rather than worked out, so a later configuration that keeps a version or skips a number is named as it is. */
-const explanationConfiguredAt: Record<1 | 2 | 3, string> = { 1: 'review.configured@10', 2: 'review.configured@11', 3: 'review.configured@12' };
+const explanationConfiguredAt: Record<ExplanationVersion, string> = { 1: 'review.configured@10', 2: 'review.configured@11', 3: 'review.configured@12' };
 
 /**
  * The writer's explanation (R18, R19 of the review on the pull request),
@@ -900,7 +903,7 @@ const explanationConfiguredAt: Record<1 | 2 | 3, string> = { 1: 'review.configur
  * explanation recorded as its phase degrades answers none. The fold holds
  * it with its version, which says the shape of its frozen answer.
  */
-function recordExplanation(state: RunState | undefined, payload: ExplanationRecordedV1 | ExplanationRecordedV2 | ExplanationRecordedV3, event: DecodedEvent, drafts: FoldDrafts, version: 1 | 2 | 3): RunState {
+function recordExplanation(state: RunState | undefined, payload: ExplanationRecordedV1 | ExplanationRecordedV2 | ExplanationRecordedV3, event: DecodedEvent, drafts: FoldDrafts, version: ExplanationVersion): RunState {
   const { current, review } = requireReview(state, event);
   if (!review.explanationStep) throw invalid(event, 'records an explanation, which only a run configured at review.configured@10 or later has');
   const asked = explanationVersionOf(review);
