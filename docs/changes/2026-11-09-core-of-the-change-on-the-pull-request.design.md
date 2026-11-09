@@ -214,7 +214,9 @@ The gate runs as R13 of the requirements says, and the Verification section reco
 
 ## Verification
 
-No checks have run yet.
+### Implementation
+
+The work is in pull request #132, after the proposal. It came in units, each a commit that passes typecheck and lint alone: the ledger (`review.configured@12`, `reviewVocabularyV14`, `explanation.recorded@3`, `coreForm` in the fold, `writerOutputSchemaV3` and the reading of its frozen answer, and the golden fixture `schema-1-21`), which no engine configured yet; the writer's answer of version 3 (`checkCore`, `checkConditions`, the merge of the two parts each on its own, the commits read with git for the check, the writer's task with the commit messages and the conditions held), with a read-only run of a pull request now configured at version 12; the writer's role prompt; the body with what the review did not examine moved up; the core of the change in the body, with its words in both tables, the trust notes and the commit ids that `publish` reads for the links; the reasons to look in what needs a person, with the new sentences of nothing that needs a person; a test that a body cut to fit keeps the core; the README; the changes below; and the build of `dist/`.
 
 ### Changes of the proposal during the work
 
@@ -223,3 +225,12 @@ The form takes the full ids of the change's commits as an input, `commits` of `P
 When git cannot read the commits of the change at check time, `checkCore` fails a commit source with a sentence that says so and asks for the files of the change that state the reason instead, and the writer's retry is told why; a core that fails again gives way to the triage's account, as any dropped core does. TD3 read the commits with git and said nothing of a failure. Stopping the explanation on it would hold the run for a gap that the triage meets the same way: `changeMessages` gives the triage no commit messages when git cannot read them, and the run goes on (principle 11).
 
 The notes of how far to trust the review, `coreDropped` and `coreBeforeWriter`, take whether the review opens with the triage's account, since a run whose triage gave none opens with no account and its note must not say otherwise. A file that a condition names is linked when it is a path of the repository that the cleaning leaves as it is, and is code otherwise, so no link carries a local path. The check that the core names no id of the run reads its every text, its code spans, paths and URLs included, since the core names no finding anywhere. `checkConditions` and the writer's task read the conditions from the triage's account in the fold, which the brief's `change` is built from.
+
+### Checks
+
+At the head of the work, `npm run check` passed (3777 tests: 3764 passed, 0 failed, 13 skipped, against 3721 passed before the work), `npm run verify` passed, and `npm run test:contract` passed 109 of 109, at the commit that configures a read-only run of a pull request at version 12 and again at the head. Every commit of the series passed `npm run typecheck` and `npm run lint` alone. `npm run golden` wrote the fixture `schema-1-21`, and every older fixture still opens and folds. `npm run build` changed the engine bundle of each artifact and its hash, and the two role prompt fragments of the writer, so the digest of the roles changes, and a run configured before this change and resumed after it is refused with the action to name the old roles directory (RK6 of the requirements).
+
+### The gate (R13)
+
+The gate has not run yet. Its four runs call paid models and prepare posts, and the author decides when they run.
+
