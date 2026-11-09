@@ -110,6 +110,27 @@ const notesWords = 'Give each verdict `unconfirmed` and `authorChoice`';
 /** The words a writer's task ends with when it answers in the form of the review that reads as a report (TD2). */
 const reportFormWords = 'Return `conclusion`, `areas`, `findings` and `refuted`';
 
+/** The words a writer's task ends with when it also gives the core of the change and the conditions (TD2 of the core of the change on the pull request). */
+const coreFormWords = 'Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions`';
+
+/** The conditions a writer's task asks it to explain, by name, none when it asks for none. */
+const conditionsOf = (prompt: string): string[] => [...prompt.matchAll(/^- `(public-interface|wide-effect)`, /gm)].map((match) => match[1]!);
+
+/**
+ * A writer's answer that also gives the core of the change and the
+ * conditions, from one scripted in an earlier form (`reportFormAnswer`):
+ * a core that states no reason, unless the script gives the core, and an
+ * explanation of each condition the task lists, unless the script gives
+ * the conditions.
+ */
+function coreFormAnswer(output: Record<string, unknown>, prompt: string): Record<string, unknown> {
+  return {
+    ...reportFormAnswer(output, prompt),
+    core: output.core ?? { title: 'fake: what the change is', what: 'fake: what the change does, from its code.', why: null, whyFrom: [], diagram: null },
+    conditions: output.conditions ?? conditionsOf(prompt).map((condition) => ({ condition, explanation: `fake: what the code shows of ${condition}.`, unexplained: null })),
+  };
+}
+
 /** The ids a writer's task lists after `pattern`, none when it lists none. */
 const listedIds = (prompt: string, pattern: RegExp): string[] => pattern.exec(prompt)?.[1]?.split(', ') ?? [];
 
@@ -409,7 +430,9 @@ export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], p
  * gives each verdict its notes, so a scripted verdict that names none is
  * PLAUSIBLE for a fact not settled, or has no note, and leaves the author
  * no choice. A writer of such a run answers in its form
- * (`reportFormAnswer`).
+ * (`reportFormAnswer`), and one of a run whose review opens with the core
+ * of the change also gives the core and the conditions
+ * (`coreFormAnswer`).
  */
 function answerFor(output: unknown, prompt: string): unknown {
   if (typeof output !== 'object' || output === null) return output;
@@ -417,6 +440,7 @@ function answerFor(output: unknown, prompt: string): unknown {
     const noted = (verdict: Record<string, unknown>): object => (!prompt.includes(notesWords) || 'unconfirmed' in verdict ? verdict : { ...verdict, unconfirmed: verdict.verdict === 'PLAUSIBLE' ? { kind: 'fact', text: 'fake: one condition is not settled here.' } : null, authorChoice: null });
     return { ...output, verdicts: (output as { readonly verdicts: readonly Record<string, unknown>[] }).verdicts.map((verdict) => noted('basis' in verdict ? verdict : { ...verdict, basis: 'traced', runs: [] })) };
   }
+  if (prompt.includes(coreFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return coreFormAnswer(output as Record<string, unknown>, prompt);
   if (prompt.includes(reportFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return reportFormAnswer(output as Record<string, unknown>, prompt);
   if (!prompt.includes('Return `comparisons`') || Object.hasOwn(output, 'comparisons')) return output;
   return { ...output, comparisons: [] };

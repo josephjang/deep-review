@@ -93,6 +93,18 @@ export function commitMessages(repo: string, base: string, head: string): Commit
 }
 
 /**
+ * The full ids of the commits of a change from `base` to `head`, as
+ * `commitMessages` reads them (TD3 of the core of the change on the pull
+ * request): the commits `head` reaches and `base` does not; `head` alone
+ * when `base` is the empty tree; and none when `base` is `head`.
+ */
+export function commitIds(repo: string, base: string, head: string): string[] {
+  if (base === head) return [];
+  const range = base === emptyTree(repo) ? ['-1', head] : [`${base}..${head}`];
+  return gitText(repo, ['rev-list', ...range, '--']).split('\n').filter((line) => line !== '');
+}
+
+/**
  * How many commits a change holds (R12 of the questions in the chat): the
  * commits on the first parent from `head` back to `base`, so a merge
  * counts as one, and with `paths` only those that change one of them; a

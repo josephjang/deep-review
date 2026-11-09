@@ -5,9 +5,13 @@
  * checks the engine can count in its answer, part by part, the merge of
  * an answer with the earlier one of its unit, what `explanation.recorded`
  * records of them, and the writer's task. A run configured at
- * `review.configured@11` has its writer answer in the second form, with
- * the areas and the refuted lines and no account, recorded at version 2;
- * a run configured before keeps the first, at version 1. The answer as
+ * `review.configured@12` has its writer answer in the third form, which
+ * adds the core of the change and the sentences of the conditions (R2,
+ * R3, R5, R8, TD2 of the core of the change on the pull request),
+ * recorded at version 3; a run configured at version 11 keeps the second
+ * form, with the areas and the refuted lines and no account, recorded at
+ * version 2; and a run configured before keeps the first, at version 1.
+ * The answer as
  * the evidence store freezes it reads as one `RecordedAnswer` whatever
  * its version, which the form of the pull request renders beside the
  * ledger's own words.
@@ -16,20 +20,21 @@ import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type DroppedPartV3, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type ExplanationRecordedV3, type CandidateChoice, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import type { CandidateState, ReviewState, UnitFailure, UnitState } from '../checkpoint/review-fold.ts';
+import { changeReadingOf, type CandidateState, type ReviewState, type UnitFailure, type UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
-import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
+import { blobsRaw, commitIds, treeEntries, type TreeEntry } from '../scope/git.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
 import { StructuralCheckError } from './errors.ts';
+import { idsIn } from './finding-names.ts';
 import { counted, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
-import { writerOutputSchema, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from './schemas.ts';
+import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from './schemas.ts';
 import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
-import { describeLocation } from './tasks.ts';
-import { asksToAct, singleUnitKey, verdictBasisWords, verdicts, type FindingKind } from './vocabulary.ts';
+import { commitMessagesSection, describeLocation, type ChangeMessages } from './tasks.ts';
+import { asksToAct, changeConditions, singleUnitKey, verdictBasisWords, verdicts, type ChangeConditionName, type FindingKind } from './vocabulary.ts';
 
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
@@ -41,10 +46,10 @@ const explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanatio
 export type AnswerVersion = 1 | 2 | 3;
 
 /** The version of the writer's answer a run asks for, by its configuration, also when this engine resumes it. */
-export const answerVersionOf = (review: Pick<ReviewState, 'reportForm'>): AnswerVersion => (review.reportForm ? 2 : 1);
+export const answerVersionOf = (review: Pick<ReviewState, 'reportForm' | 'coreForm'>): AnswerVersion => (review.coreForm ? 3 : review.reportForm ? 2 : 1);
 
-/** The writer's answer as it gave it, of either version. */
-export type AnyWriterOutput = WriterOutput | WriterOutputV2;
+/** The writer's answer as it gave it, of any version. */
+export type AnyWriterOutput = WriterOutput | WriterOutputV2 | WriterOutputV3;
 
 /** The conclusion as the writer gives it: why the pull request needs what it needs, a sentence for each action by the id of its finding, and a diagram or none. */
 export type Conclusion = WriterOutput['conclusion'];
@@ -197,24 +202,63 @@ export interface CheckedPart<T> {
 /**
  * An answer checked part by part (TD9): its conclusion; the account of an
  * answer of version 1, or the areas and the refuted lines of one of
- * version 2, each null in the other; and its explanation of each finding
- * to explain, by id.
+ * version 2 or 3, each null in the other; the core and the conditions of
+ * an answer of version 3, null in any other; and its explanation of each
+ * finding to explain, by id.
  */
 export interface CheckedAnswer {
   readonly conclusion: CheckedPart<Conclusion>;
   readonly account: CheckedPart<Account> | null;
   readonly areas: CheckedPart<Area[]> | null;
   readonly refuted: CheckedPart<RefutedLine[]> | null;
+  readonly core: CheckedPart<Core> | null;
+  readonly conditions: CheckedPart<ConditionSentence[]> | null;
   readonly findings: ReadonlyMap<string, CheckedPart<FindingExplanation>>;
   /** The ids of the entries of `findings` that name no finding to explain: refused, so never kept, and they cost no part. */
   readonly strays: readonly string[];
 }
 
-/** What the checks read beyond the answer: the findings to explain, the count of lines of a path at a side, or null when its commit holds no such file, and for an answer of version 2 what the run holds it to. */
+/**
+ * A condition of principle 8 that the triage judged to hold (R4 of the
+ * brief of a run; R6, R8 of the core of the change on the pull request):
+ * its name, the triage's sentence of what, or null when it gave none, and
+ * the files that show it.
+ */
+export interface HeldCondition {
+  readonly condition: ChangeConditionName;
+  readonly what: string | null;
+  readonly files: readonly string[];
+}
+
+/** The conditions the run's triage judged to hold, in the order public interface, wide effect; none for a run whose triage gave no account or recorded none. */
+export function heldConditions(review: Pick<ReviewState, 'change'>): HeldCondition[] {
+  const reading = changeReadingOf(review.change);
+  if (reading === null) return [];
+  const judged = { 'public-interface': reading.publicInterface, 'wide-effect': reading.wideEffect };
+  return changeConditions.flatMap((condition) => (judged[condition].holds ? [{ condition, what: judged[condition].what, files: judged[condition].files }] : []));
+}
+
+/**
+ * What an answer of version 3 is held to beyond version 2 (R3, R5, R8,
+ * TD3, TD6 of the core of the change on the pull request): the full ids
+ * of the change's commits, which a source of the core's reason names by a
+ * prefix, or null when git could not read them; the paths of the change's files, which a source names whole; the
+ * ids of the run's candidates, which the core names none of; and the
+ * conditions the triage judged to hold, which the conditions explain.
+ */
+export interface CoreCheckInput {
+  readonly commits: readonly string[] | null;
+  readonly files: readonly string[];
+  readonly candidates: readonly string[];
+  readonly held: readonly HeldCondition[];
+}
+
+/** What the checks read beyond the answer: the findings to explain, the count of lines of a path at a side, or null when its commit holds no such file, for an answer of version 2 or 3 what the run holds it to, and for one of version 3 what it holds the core and the conditions to. */
 export interface AnswerCheckInput {
   readonly ids: readonly string[];
   readonly lineCount: (side: CitedSide, path: string) => number | null;
   readonly report?: ReportCheckInput;
+  readonly core?: CoreCheckInput;
 }
 
 /** The count of lines a file holds: each line feed ends one, and text after the last is one more. */
@@ -646,6 +690,68 @@ function checkRefuted(lines: readonly RefutedLine[], refutedIds: readonly string
   ];
 }
 
+/** The shortest and the longest prefix of a commit's id that names it as a source of the core's reason (TD3 of the core of the change on the pull request): the 7 characters git shows by default, and the 40 of a whole id. */
+const commitPrefix = /^[0-9a-f]{7,40}$/;
+
+/** The failure of one source of the core's reason, or null when it is a file of the change, or a commit of the change named by a prefix of its id that begins no other commit of the change (R3, TD3). */
+function sourceFailure(source: string, input: CoreCheckInput): string | null {
+  if (input.files.includes(source)) return null;
+  const named = JSON.stringify(source);
+  if (!commitPrefix.test(source)) return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id`;
+  if (input.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
+  const commits = input.commits.filter((commit) => commit.startsWith(source));
+  if (commits.length === 0) return `the core's reason names ${named}, which begins no commit of the change`;
+  if (commits.length > 1) return `the core's reason names ${named}, which begins ${String(commits.length)} commits of the change; name the commit by more characters of its id`;
+  return null;
+}
+
+/**
+ * The core of the change checked (R2, R3, R5, TD3, TD6 of the core of the
+ * change on the pull request): a title and what the change does; a reason
+ * with a source, or no reason and no source; each source a commit or a
+ * file of the change; no verdict of the review and no id of a candidate
+ * of the run in any text or the diagram; and the diagram one GitHub
+ * draws. Whether the core is true of the code and its sources state its
+ * reason is left to the gate (PD5).
+ */
+export function checkCore(core: Core, input: CoreCheckInput): string[] {
+  const texts = [core.title, core.what, core.why ?? '', core.diagram ?? ''];
+  return [
+    ...(blank(core.title) ? ['the core has no title'] : []),
+    ...(blank(core.what) ? ['the core says nothing of what the change does'] : []),
+    ...(core.why !== null && blank(core.why) ? ['the core\'s reason is empty; give null when the change states no reason'] : []),
+    ...(core.why === null && core.whyFrom.length > 0 ? ['the core gives no reason and names where the reason comes from'] : []),
+    ...(core.why !== null && !blank(core.why) && core.whyFrom.length === 0 ? ['the core gives a reason and names no commit or file it comes from'] : []),
+    ...core.whyFrom.flatMap((source) => sourceFailure(source, input) ?? []),
+    ...verdictFailures('the core', texts),
+    ...idsIn(texts.join('\n'), input.candidates).map((id) => `the core names ${id}, an id of this review; the core is about the change as submitted, and names no finding or candidate`),
+    ...diagramFailuresOf('the core\'s diagram', core.diagram),
+  ];
+}
+
+/**
+ * The conditions checked (R8 of the core of the change on the pull
+ * request): one entry for each condition the triage judged to hold and
+ * for no other, each with its explanation or the sentence of what the
+ * writer found instead, not both and not neither, no empty text, and no
+ * verdict of the review.
+ */
+export function checkConditions(conditions: readonly ConditionSentence[], held: readonly HeldCondition[]): string[] {
+  const { missing, repeated, stray } = idCoverage(conditions.map((entry) => entry.condition), held.map((entry) => entry.condition));
+  return [
+    ...stray.map((condition) => `the conditions give ${condition}, which the triage did not judge to hold`),
+    ...repeated.map(([condition, count]) => `the conditions give ${condition} ${String(count)} times, and a condition has one entry`),
+    ...missing.map((condition) => `the conditions give no entry for ${condition}, which the triage judged to hold`),
+    ...conditions.flatMap((entry) => {
+      const { condition, explanation, unexplained } = entry;
+      if (explanation === null && unexplained === null) return [`the entry for ${condition} has neither an explanation nor what the code shows instead`];
+      if (explanation !== null && unexplained !== null) return [`the entry for ${condition} has both an explanation and what the code shows instead`];
+      const text = explanation ?? unexplained ?? '';
+      return [...(blank(text) ? [`the entry for ${condition} is empty`] : []), ...verdictFailures(`the entry for ${condition}`, [text])];
+    }),
+  ];
+}
+
 /**
  * An answer checked part by part, with what the engine can count (TD9):
  * each id is a finding to explain, the conclusion has a sentence for each
@@ -666,15 +772,19 @@ export function checkAnswer(output: AnyWriterOutput, input: AnswerCheckInput): C
   }
   const conclusion = { value: output.conclusion, failures: checkConclusion(output.conclusion, input.ids, 'account' in output ? 1 : 2, input.report?.asks ?? []) };
   if ('account' in output) {
-    return { conclusion, account: { value: output.account, failures: checkAccount(output.account) }, areas: null, refuted: null, findings: new Map(input.ids.map((id) => [id, checkFinding(id, entries.get(id)!, input.lineCount, null)])), strays };
+    return { conclusion, account: { value: output.account, failures: checkAccount(output.account) }, areas: null, refuted: null, core: null, conditions: null, findings: new Map(input.ids.map((id) => [id, checkFinding(id, entries.get(id)!, input.lineCount, null)])), strays };
   }
   if (input.report === undefined) throw new Error('An answer in the form of the review that reads as a report is checked against the major findings and the refuted candidates of its run');
   const { major, refuted: refutedIds } = input.report;
+  const cored = 'core' in output ? output : null;
+  if (cored !== null && input.core === undefined) throw new Error('An answer with the core of the change is checked against the commits, the files and the candidates of its run and the conditions its triage judged');
   return {
     conclusion,
     account: null,
     areas: { value: output.areas, failures: checkAreas(output.areas, input.ids, major) },
     refuted: { value: output.refuted, failures: checkRefuted(output.refuted, refutedIds) },
+    core: cored === null ? null : { value: cored.core, failures: checkCore(cored.core, input.core!) },
+    conditions: cored === null ? null : { value: cored.conditions, failures: checkConditions(cored.conditions, input.core!.held) },
     findings: new Map(input.ids.map((id) => [id, checkFinding(id, entries.get(id)!, input.lineCount, major.includes(id))])),
     strays,
   };
@@ -704,7 +814,11 @@ export interface MergedAnswer {
  * `extra`, such as why no other answer came. A finding kept is in the
  * order of `ids`. A part the version does not have is null.
  *
- * In an answer of version 2 the conclusion's `why` is the summary that
+ * The core and the conditions of an answer of version 3 are taken each
+ * on its own, as a finding is (TD2 of the core of the change on the pull
+ * request): the summary names neither.
+ *
+ * In an answer of version 2 or 3 the conclusion's `why` is the summary that
  * names the areas (R1, PD6 of the review that reads as a report), so the
  * two are taken from one answer: the first that passed both. When none
  * did, the areas are taken from the first answer that passed them, and
@@ -723,23 +837,25 @@ export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAn
     return null;
   };
   const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
-  const areasFrom = version === 2 ? (paired ?? answers.find((answer) => passes(answer.areas))) : undefined;
+  const areasFrom = version === 1 ? undefined : (paired ?? answers.find((answer) => passes(answer.areas)));
   const pairedSource = areasFrom === undefined ? answers : [areasFrom];
   const conclusion = pick(pairedSource.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
   const account = version === 1 ? pick(answers.map((answer) => answer.account), (failures) => ({ part: 'account', failures })) : null;
-  const areas = version === 2 ? pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures })) : null;
-  const lines = version === 2 ? pick(answers.map((answer) => answer.refuted), (failures) => ({ part: 'refuted', failures })) : null;
+  const areas = version === 1 ? null : pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures }));
+  const lines = version === 1 ? null : pick(answers.map((answer) => answer.refuted), (failures) => ({ part: 'refuted', failures }));
+  const core = version === 3 ? pick(answers.map((answer) => answer.core), (failures) => ({ part: 'core', failures })) : null;
+  const conditions = version === 3 ? pick(answers.map((answer) => answer.conditions), (failures) => ({ part: 'conditions', failures })) : null;
   const findings = ids.flatMap((id) => {
     const kept = pick(answers.map((answer) => answer.findings.get(id)!), (failures) => ({ part: 'finding', finding: id, failures }));
     return kept === null ? [] : [kept];
   });
-  return { answer: { conclusion, account, areas, refuted: lines, core: null, conditions: null, findings }, dropped };
+  return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
 }
 
 /** Whether the merge kept any part. */
-const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || answer.areas !== null || answer.refuted !== null || answer.findings.length > 0;
+const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || answer.areas !== null || answer.refuted !== null || answer.core !== null || answer.conditions !== null || answer.findings.length > 0;
 
-/** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted` or `finding <id>`. */
+/** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted`, `core`, `conditions` or `finding <id>`. */
 const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
 
 /** The event that records a writer's explanation, at the version of its answer, typed as a pair. */
@@ -795,7 +911,7 @@ const writerFailures = (review: ReviewState): readonly UnitFailure[] => writerUn
  * re-entered phase cleared, gives none.
  */
 function earlierAnswers(state: RunState, review: ReviewState, evidence: Pick<EvidenceStore, 'read'>): AnyWriterOutput[] {
-  const schema = answerVersionOf(review) === 2 ? writerOutputSchemaV2 : writerOutputSchema;
+  const schema = writerOutputSchemaFor(review);
   return writerFailures(review).flatMap((failure) => {
     const worker = Object.hasOwn(state.workers, failure.workerId) ? state.workers[failure.workerId] : undefined;
     if (worker?.status !== 'finished' || worker.finish.output === null) return [];
@@ -811,8 +927,31 @@ function checkedAnswers(state: RunState, review: ReviewState, context: { readonl
   const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
   const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
   const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') });
-  const input: AnswerCheckInput = answerVersionOf(review) === 2 ? { ids, lineCount, report: reportCheckInputOf(review) } : { ids, lineCount };
-  return answers.map((answer) => checkAnswer(answer, input));
+  const version = answerVersionOf(review);
+  const report = version === 1 ? {} : { report: reportCheckInputOf(review) };
+  const core = version === 3 && answers.length > 0 ? { core: coreCheckInputOf(review, state.scope, context.worktree) } : {};
+  return answers.map((answer) => checkAnswer(answer, { ids, lineCount, ...report, ...core }));
+}
+
+/**
+ * What the run holds the core and the conditions of an answer of version 3
+ * to (`CoreCheckInput`): the commits of the change, read with git in the
+ * worktree from the base and the head the run recorded, so a check of a
+ * resumed run sees the same ones (TD3 of the core of the change on the
+ * pull request), or null when git cannot read them, which leaves the
+ * writer to name the files; the paths of the files the scope captured;
+ * the ids of the run's candidates; and the conditions the triage judged
+ * to hold.
+ */
+function coreCheckInputOf(review: ReviewState, scope: ScopeState, worktree: string): CoreCheckInput {
+  let commits: string[] | null;
+  try {
+    commits = commitIds(worktree, scope.base, scope.head);
+  } catch {
+    // A history git cannot read costs the writer its commits as sources, never the run: a source that names one fails its check, and the retry is told why.
+    commits = null;
+  }
+  return { commits, files: scope.files.map((file) => file.path), candidates: Object.keys(review.candidates), held: heldConditions(review) };
 }
 
 /** The failures of the parts a merge dropped, as one reason of an attempt that failed and as the task of the next names them. */
@@ -877,11 +1016,12 @@ function languageWords(tag: string): string {
   }
 }
 
-/** What the writer's task needs beyond the fold: the worktree and the evidence store an earlier answer is read and checked from, and the machine whose places and secrets each quoted text is cleaned of. */
+/** What the writer's task needs beyond the fold: the worktree and the evidence store an earlier answer is read and checked from, the machine whose places and secrets each quoted text is cleaned of, and for an answer of version 3 the commit messages of the change, as the triage was given them (TD7 of the core of the change on the pull request). */
 export interface WriterTaskInput {
   readonly worktree: string;
   readonly evidence: Pick<EvidenceStore, 'read'>;
   readonly machine: MachineContext;
+  readonly commitMessages?: ChangeMessages | null;
 }
 
 /** A text fenced so nothing in it can end its fence, as the task embeds what the brief and a cited run printed. */
@@ -991,6 +1131,42 @@ function reportAsks(ids: readonly string[], report: ReportCheckInput): string[] 
   ];
 }
 
+/** How a condition of principle 8 is named in the writer's task and answer. */
+const conditionWords: Readonly<Record<ChangeConditionName, string>> = { 'public-interface': 'a change to a public interface', 'wide-effect': 'an effect on many files beyond the ones the change changes' };
+
+/**
+ * What an answer of version 3 is asked beyond version 2 (R2, R3, R8, PD4,
+ * TD7 of the core of the change on the pull request): the commit messages
+ * of the change, the triage's account read as an unverified start, and
+ * each condition the triage judged to hold, with its sentence and files,
+ * to explain in `conditions`, or that `conditions` is empty.
+ */
+function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: string) => string): string[] {
+  const held = heldConditions(review);
+  const given = changeReadingOf(review.change) !== null;
+  const conditions = held.length === 0
+    ? [given ? 'The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty.' : 'The triage gave no account of the change, so it judged no condition: give `conditions` empty.']
+    : [
+      `The triage judged ${held.length === 1 ? 'this condition' : 'these conditions'} to hold. Give one entry of \`conditions\` for each, by its name, and for no other:`,
+      '',
+      ...held.map((entry) => `- \`${entry.condition}\`, ${conditionWords[entry.condition]}: ${entry.what === null ? 'the triage gave no sentence' : clean(entry.what)}${entry.files.length === 0 ? '' : ` (files: ${entry.files.map((file) => clean(file)).join(', ')})`}`),
+    ];
+  return [
+    '### The commit messages of the change',
+    '',
+    'The change\'s own words, as the triage was given them. Take the reason of the core from these and from the documents the change adds or edits, and name each commit in `whyFrom` by its id as it is listed here.',
+    '',
+    ...commitMessagesSection(messages),
+    '',
+    '### The core of the change and the conditions',
+    '',
+    'The brief above opens with the triage\'s account of the change: deep-review\'s earlier reading, written before the review for its other workers, and not verified. Start from it, check each statement against the patch and the code, and never copy it: where the code says otherwise, follow the code.',
+    '',
+    ...conditions,
+    '',
+  ];
+}
+
 /**
  * The writer's task (R18, R20, TD8 of the review on the pull request; R4,
  * R10, R11, R13, TD2 of the review that reads as a report): the language
@@ -1000,10 +1176,13 @@ function reportAsks(ids: readonly string[], report: ReportCheckInput): string[] 
  * with its decision, its evidence, the runs its verdict cites and the
  * notes of its verifier; in an answer of version 2, every refuted
  * candidate with its evidence; and, after a refused answer, the parts that
- * still fail with their failures. Each text of a worker is cleaned as the
- * review cleans the text it posts (R11), and the brief and each printed
- * output are fenced. The scope block that follows the task carries the
- * patch. Neither the title nor the body of the pull request is in it (PD8).
+ * still fail with their failures. In an answer of version 3, after the
+ * brief, the commit messages of the change and what the core and the
+ * conditions start from (`coreAsks`). Each text of a worker is cleaned as
+ * the review cleans the text it posts (R11), and the brief and each
+ * printed output are fenced. The scope block that follows the task carries
+ * the patch. Neither the title nor the body of the pull request is in it
+ * (PD8).
  */
 export function writerTask(state: RunState, input: WriterTaskInput): string {
   const review = requireReview(state);
@@ -1017,7 +1196,9 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   const ranked = rankedFindings(review);
   const answers = checkedAnswers(state, review, input, ids, null);
   const dropped = answers.length === 0 ? [] : mergeAnswers(version, answers, ids).dropped;
-  const report = version === 2 ? reportCheckInputOf(review) : null;
+  const report = version === 1 ? null : reportCheckInputOf(review);
+  if (version === 3 && (input.commitMessages === undefined || input.commitMessages === null)) throw new Error('The writer\'s task of an answer with the core of the change lists the commit messages of the change and needs them');
+  const core = version === 3 ? coreAsks(review, input.commitMessages!, clean) : [];
   const refutedCandidates = refuted(review);
   return [
     `Write every text of your answer in the language ${languageWords(reviewLanguage(review))}.`,
@@ -1033,6 +1214,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     '',
     quote(briefMarkdown(briefOf(state), 'report').join('\n'), 'markdown'),
     '',
+    ...core,
     '### The findings',
     '',
     `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked.some((entry) => (decided.get(entry.finding.id)?.settled.length ?? 0) > 0) ? ' A choice a decision settles, on its line `settled by the decision`, is the decision\'s and not the author\'s to make, whatever a verifier\'s note says: explain it as decided.' : ''}`,
@@ -1049,13 +1231,15 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     ...(dropped.length === 0 ? [] : [
       '### What failed in the earlier answer',
       '',
-      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version === 2 && dropped.some((part) => part.part === 'conclusion' || part.part === 'areas') ? ' The conclusion and the areas go together, since the conclusion\'s summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.' : ''}`,
+      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version !== 1 && dropped.some((part) => part.part === 'conclusion' || part.part === 'areas') ? ' The conclusion and the areas go together, since the conclusion\'s summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.' : ''}`,
       '',
       ...dropped.map((part) => `- ${partNameOf(part)}: ${part.failures.map((failure) => inlineText(failure)).join('; ')}`),
       '',
     ]),
     version === 1
       ? 'Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null.'
-      : 'Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them.',
+      : version === 2
+        ? 'Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them.'
+        : 'Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them.',
   ].join('\n');
 }

@@ -4,20 +4,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { explanationRecordedV1, explanationRecordedV2, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
+import { explanationRecordedV1, explanationRecordedV2, explanationRecordedV3, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
+import type { RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { checkAnswer, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput, type WriterTaskInput } from '../../src/review/explanation.ts';
+import { checkAnswer, checkConditions, checkCore, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput, type ConditionSentence, type Core, type CoreCheckInput, type HeldCondition, type WriterTaskInput } from '../../src/review/explanation.ts';
 import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
-import { writerOutputSchemaV2, type WriterOutput, type WriterOutputV2 } from '../../src/review/schemas.ts';
+import { writerOutputSchemaV2, writerOutputSchemaV3, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from '../../src/review/schemas.ts';
+import type { ChangeMessages } from '../../src/review/tasks.ts';
 import { nextStep, type Live, type Step } from '../../src/review/steps.ts';
 import { reviewRoles } from '../../src/review/vocabulary.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { claudeTools } from '../../src/runtime/claude.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
-import { askDecision, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, withReportForm, worker } from '../helpers/review-history.ts';
+import { askDecision, changeReading, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest, withReportForm, worker } from '../helpers/review-history.ts';
 import { commitAll, createRepository, remove, write } from '../helpers/repository.ts';
 
 /** Ten numbered lines, as the base's `src/a.ts` holds them. */
@@ -395,6 +397,7 @@ const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt,
 /** The explanation an event records, held to the schema of its version, as the fold holds it. */
 const recorded = (event: NewEvent | undefined): ExplanationRecorded => {
   assert.equal(event?.kind, 'explanation.recorded', JSON.stringify(event));
+  if (event.version === 3) return { ...explanationRecordedV3.parse(event.payload), version: 3 };
   if (event.version === 2) return { ...explanationRecordedV2.parse(event.payload), version: 2 };
   assert.equal(event.version, 1);
   return { ...explanationRecordedV1.parse(event.payload), version: 1 };
@@ -924,3 +927,184 @@ describe('the explanation phase of a run whose review reads as a report (R4, R10
     assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.checked, finding.kind])), [[null, null]]);
   });
 });
+
+/** Two commits of a change whose ids begin alike, as `checkCore` reads them, and a third. */
+const commitsOfChange = ['abcdef1234567890abcdef1234567890abcdef12', 'abcdef9999999999999999999999999999999999', '1234567890123456789012345678901234567890'];
+/** What the checks of this block hold a core to: the commits above, `src/a.ts` and `docs/why.md` changed, two candidates, and the public interface judged to hold. */
+const coreInput: CoreCheckInput = {
+  commits: commitsOfChange,
+  files: ['src/a.ts', 'docs/why.md'],
+  candidates: ['RIPPLE-1', 'SCAN-1'],
+  held: [{ condition: 'public-interface', what: 'parse() can now return null.', files: ['src/a.ts'] }],
+};
+/** A core that passes every check against `coreInput`, with `change` over it. */
+const goodCore = (change: Partial<Core> = {}): Core => ({
+  title: 'parse() accepts an empty file',
+  what: 'parse(), which reads a file into a value, now returns null for an empty file instead of throwing.',
+  why: 'The commit says an empty file is a valid input.',
+  whyFrom: ['1234567', 'docs/why.md'],
+  diagram: 'flowchart LR\n  E["empty file"] --> N["null"]',
+  ...change,
+});
+const explained = (condition: ConditionSentence['condition'], change: Partial<ConditionSentence> = {}): ConditionSentence => ({ condition, explanation: `${condition} in plain words.`, unexplained: null, ...change });
+
+// R2, R3, R5, R8, TD3, TD6 of the core of the change on the pull request.
+describe('the checks of the core of the change and of the conditions', () => {
+  it('passes a core whose every text says something, whose reason names a commit and a file of the change, and a core with no reason and no source', () => {
+    assert.deepEqual(checkCore(goodCore(), coreInput), []);
+    assert.deepEqual(checkCore(goodCore({ why: null, whyFrom: [], diagram: null }), coreInput), []);
+  });
+
+  it('refuses a blank title or account, a blank reason, a reason with no source and a source with no reason', () => {
+    assert.deepEqual(checkCore(goodCore({ title: ' ', what: '' }), coreInput), ['the core has no title', 'the core says nothing of what the change does']);
+    assert.deepEqual(checkCore(goodCore({ why: '  ', whyFrom: [] }), coreInput), ['the core\'s reason is empty; give null when the change states no reason']);
+    assert.deepEqual(checkCore(goodCore({ whyFrom: [] }), coreInput), ['the core gives a reason and names no commit or file it comes from']);
+    assert.deepEqual(checkCore(goodCore({ why: null }), coreInput), ['the core gives no reason and names where the reason comes from']);
+  });
+
+  it('takes a commit of the change by a prefix of 7 to 40 characters that begins it alone, and refuses a shorter prefix, a shared one, a commit outside the change and a path outside it', () => {
+    const sources = (...whyFrom: string[]): string[] => checkCore(goodCore({ whyFrom }), coreInput);
+    assert.deepEqual(sources('1234567', commitsOfChange[0]!, commitsOfChange[1]!.slice(0, 12), 'src/a.ts'), [], 'a prefix of 7, an id of 40, a prefix of 12 and a file of the change');
+    assert.deepEqual(sources('123456'), ['the core\'s reason names "123456", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.deepEqual(sources('abcdef1'), [], 'abcdef1 begins one commit alone');
+    assert.deepEqual(sources('abcdef'), ['the core\'s reason names "abcdef", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.deepEqual(checkCore(goodCore({ whyFrom: ['abcdef1'] }), { ...coreInput, commits: [...commitsOfChange, 'abcdef1000000000000000000000000000000000'] }), ['the core\'s reason names "abcdef1", which begins 2 commits of the change; name the commit by more characters of its id']);
+    assert.deepEqual(sources('fedcba9'), ['the core\'s reason names "fedcba9", which begins no commit of the change']);
+    assert.deepEqual(sources('src/b.ts'), ['the core\'s reason names "src/b.ts", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.match(checkCore(goodCore(), { ...coreInput, commits: null })[0] ?? '', /^the core's reason names "1234567", a commit, and the engine could not read the commits of the change/);
+  });
+
+  it('refuses a verdict of the review and an id of a candidate of the run in each text and in the diagram, and a diagram GitHub does not draw', () => {
+    assert.deepEqual(checkCore(goodCore({ what: 'parse() is CONFIRMED to crash.' }), coreInput), ['the core holds the verdict CONFIRMED, which the engine writes beside the finding']);
+    assert.deepEqual(checkCore(goodCore({ diagram: 'flowchart LR\n  A["PLAUSIBLE"] --> B["x"]' }), coreInput), ['the core holds the verdict PLAUSIBLE, which the engine writes beside the finding']);
+    for (const change of [{ title: 'RIPPLE-1 is fixed' }, { what: 'It fixes `RIPPLE-1`.' }, { why: 'Because of RIPPLE-1.' }, { diagram: 'flowchart LR\n  A["RIPPLE-1"] --> B["x"]' }]) {
+      assert.deepEqual(checkCore(goodCore(change), coreInput), ['the core names RIPPLE-1, an id of this review; the core is about the change as submitted, and names no finding or candidate'], JSON.stringify(change));
+    }
+    assert.deepEqual(checkCore(goodCore({ what: 'It names SCAN-1, a refuted candidate, and SCAN-10, no id of the run.' }), coreInput), ['the core names SCAN-1, an id of this review; the core is about the change as submitted, and names no finding or candidate']);
+    assert.deepEqual(checkCore(goodCore({ diagram: 'graph LR\n  A --> B' }), coreInput), ['the core\'s diagram is no diagram GitHub draws: it starts with "graph LR", not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws']);
+  });
+
+  it('holds the conditions to one entry for each the triage judged to hold, with one sentence each, and no verdict', () => {
+    const held = coreInput.held;
+    const both: HeldCondition[] = [...held, { condition: 'wide-effect', what: null, files: [] }];
+    assert.deepEqual(checkConditions([explained('public-interface')], held), []);
+    assert.deepEqual(checkConditions([explained('public-interface', { explanation: null, unexplained: 'The code shows no caller outside the module.' })], held), [], 'what the code shows instead');
+    assert.deepEqual(checkConditions([], []), [], 'no condition held, none given');
+    assert.deepEqual(checkConditions([explained('public-interface'), explained('wide-effect')], held), ['the conditions give wide-effect, which the triage did not judge to hold']);
+    assert.deepEqual(checkConditions([explained('public-interface')], both), ['the conditions give no entry for wide-effect, which the triage judged to hold']);
+    assert.deepEqual(checkConditions([explained('public-interface'), explained('public-interface')], held), ['the conditions give public-interface 2 times, and a condition has one entry']);
+    assert.deepEqual(checkConditions([explained('public-interface', { unexplained: 'both' })], held), ['the entry for public-interface has both an explanation and what the code shows instead']);
+    assert.deepEqual(checkConditions([explained('public-interface', { explanation: null })], held), ['the entry for public-interface has neither an explanation nor what the code shows instead']);
+    assert.deepEqual(checkConditions([explained('public-interface', { explanation: ' ' })], held), ['the entry for public-interface is empty']);
+    assert.deepEqual(checkConditions([explained('public-interface', { explanation: 'It is REFUTED.' })], held), ['the entry for public-interface holds the verdict REFUTED, which the engine writes beside the finding']);
+  });
+});
+
+/** An answer of version 3 that passes every check against the run below, with the core and the conditions as given. */
+const goodCored = (core: Core = goodCore(), conditions: ConditionSentence[] = [explained('public-interface')]): WriterOutputV3 => ({ ...goodReport(), core, conditions });
+const checkCored = (output: WriterOutputV3) => checkAnswer(output, { ids: ['RIPPLE-1', 'SWEEP-1'], lineCount: fakeLines, report, core: coreInput });
+
+describe('the merge of answers of version 3 (TD2 of the core of the change on the pull request)', () => {
+  it('takes the core and the conditions each from the first answer that passed it, and drops each that no answer passed alone', () => {
+    const coreFails = goodCored(goodCore({ title: '' }));
+    const conditionsFail = goodCored(goodCore(), []);
+    const kept = mergeAnswers(3, [checkCored(coreFails), checkCored(conditionsFail)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(kept.dropped, []);
+    assert.deepEqual([kept.answer.core, kept.answer.conditions], [goodCore(), coreFails.conditions], 'the core of the second answer and the conditions of the first');
+    const bothFail = goodCored(goodCore({ title: '' }), []);
+    const dropped = mergeAnswers(3, [checkCored(bothFail), checkCored(bothFail)], ['RIPPLE-1', 'SWEEP-1']);
+    assert.deepEqual(dropped.dropped, [{ part: 'core', failures: ['the core has no title'] }, { part: 'conditions', failures: ['the conditions give no entry for public-interface, which the triage judged to hold'] }]);
+    assert.deepEqual([dropped.answer.core, dropped.answer.conditions, dropped.answer.conclusion?.why, dropped.answer.areas?.length], [null, null, goodReport().conclusion.why, 1], 'every other part is kept');
+    assert.deepEqual(mergeAnswers(3, [], ['RIPPLE-1'], ['the run budget stopped the writer']).dropped.map((part) => part.part), ['conclusion', 'areas', 'refuted', 'core', 'conditions', 'finding']);
+    assert.deepEqual([mergeAnswers(2, [checkReport(goodReport())], ['RIPPLE-1', 'SWEEP-1']).answer.core, checkReport(goodReport()).core], [null, null], 'an answer of version 2 has neither part');
+  });
+});
+
+describe('the explanation phase of a run whose review opens with the core of the change (R2, R3, R8, TD3, TD7)', () => {
+  let directory = '';
+  let fixture: Fixture;
+  let commits: string[] = [];
+  before(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-core-form-')));
+    const repo = createRepository(join(directory, 'repo'));
+    write(repo, 'src/a.ts', numbered(10));
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(11));
+    const first = commitAll(repo, 'first');
+    write(repo, 'src/a.ts', numbered(12));
+    const head = commitAll(repo, 'head');
+    commits = [first, head];
+    fixture = { repo, base, head, evidence: new EvidenceStore(join(directory, 'evidence')) };
+  });
+  after(() => rmSync(directory, { recursive: true, force: true }));
+
+  /** The decided run of a pull request configured at version 12, whose triage gave `reading` or no account. */
+  const coring = (reading: unknown = changeReading): RunState => {
+    const state = withCoreForm(decided(fixture, askDecision('SWEEP-1', true))).start('explanation').fold();
+    return reading === null ? state : { ...state, review: { ...state.review!, change: { kind: 'given', reading: reading as never } } };
+  };
+  const messages: ChangeMessages = { kind: 'read', messages: [{ commit: 'f'.repeat(40), message: 'Accept an empty file\n\nAn empty file is a valid input.' }], withTree: false };
+  const input = (): WriterTaskInput => ({ worktree: fixture.repo, evidence: fixture.evidence, machine: machine(fixture.repo), commitMessages: messages });
+  /** An answer of version 3 for this run, which refutes no candidate. */
+  const answered = (core: Core = goodCore(), conditions: ConditionSentence[] = [explained('public-interface')]): WriterOutputV3 => ({ ...goodCored(core, conditions), refuted: [] });
+  const contributionAt = (state: RunState, answer: WorkerReceipt): NewEvent[] =>
+    contributionOf(writerUnit, answer, { state, worktree: fixture.repo, evidence: fixture.evidence, match: () => { throw new Error('the writer compares no file'); }, claims: null, survey: () => { throw new Error('the writer has no survey'); }, claimsLost: false, log: () => {} });
+
+  it('gives the commit messages, reads the triage\'s account as a start to check, lists each condition held with its sentence and files, and asks for the core and the conditions', () => {
+    const task = writerTask(coring(), input());
+    assert.match(task, /^### The commit messages of the change\n\nThe change's own words, as the triage was given them\. [^\n]*\n\nThe subjects of the 1 commit of the change, oldest first:$/m);
+    assert.match(task, /^ffffffffffff Accept an empty file$/m, 'each commit by the 12 characters the triage is shown');
+    assert.match(task, /^The brief above opens with the triage's account of the change: deep-review's earlier reading, [^\n]*never copy it: where the code says otherwise, follow the code\.$/m);
+    assert.match(task, /^The triage judged this condition to hold\. Give one entry of `conditions` for each, by its name, and for no other:\n\n- `public-interface`, a change to a public interface: parse\(\) can now return null\. \(files: src\/a\.ts\)$/m);
+    assert.match(task, /^Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\.$/m);
+    assert.ok(task.indexOf('### The brief of the run') < task.indexOf('### The commit messages of the change') && task.indexOf('### The commit messages of the change') < task.indexOf('### The findings'), 'after the brief and before the findings');
+    assert.match(writerTask(coring({ ...changeReading, publicInterface: { holds: false, what: null, files: [] } }), input()), /^The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty\.$/m);
+    assert.match(writerTask(coring(null), input()), /^The triage gave no account of the change, so it judged no condition: give `conditions` empty\.$/m);
+    assert.throws(() => writerTask(coring(), { ...input(), commitMessages: null }), /lists the commit messages of the change and needs them/);
+    const older = writerTask(withReportForm(decided(fixture)).start('explanation').fold(), { ...input(), commitMessages: null });
+    assert.doesNotMatch(older, /### The commit messages of the change|`core`/, 'a run configured at version 11 keeps its answer');
+  });
+
+  it('answers in the schema of the third form, holds each source to the commits git reads from the base to the head, and records the answer at version 3', () => {
+    const state = coring();
+    const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+    const seen: string[] = [];
+    const context: PhaseContext = {
+      state, worktree: fixture.repo, roles,
+      configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 1_800_000 })) },
+      scopeBlock: () => '## Scope', survey: () => { throw new Error('no survey'); }, commitMessages: () => { seen.push('read'); return messages; }, evidence: fixture.evidence,
+      newScratch: () => { throw new Error('the writer has no scratch'); }, snapshotCommand: () => 'snapshot', unelevatedEditors: false, readerScratch: true,
+      claims: { directoryOf: () => '/claims', command: () => 'claim', live: () => null, caseInsensitive: () => false }, documentation: () => ({ patches: [], exclude: [] }),
+      writer: () => ({ machine: machine(fixture.repo), withholdShell: true }),
+    };
+    const invocation = invocationFor(writerUnit, context);
+    assert.equal(invocation.outputSchema, writerOutputSchemaV3);
+    assert.deepEqual(seen, ['read'], 'the writer is given the commit messages');
+    assert.match(invocation.prompt, /^ffffffffffff Accept an empty file$/m);
+    const sourced = answered(goodCore({ whyFrom: [commits[0]!.slice(0, 7), commits[1]!, 'src/a.ts'] }));
+    const [event] = contributionAt(state, receipt(sourced));
+    const explanation = recorded(event);
+    assert.deepEqual([explanation.version, explanation.dropped], [3, []]);
+    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    assert.deepEqual([answer?.core, answer?.conditions, answer?.account], [sourced.core, sourced.conditions, null]);
+    const [failure] = contributionAt(state, receipt(answered(goodCore({ whyFrom: [fixture.base.slice(0, 12)] }))));
+    assert.equal(failure?.kind, 'attempt.failed');
+    assert.match((failure?.payload as { reason: string }).reason, new RegExp(`core: the core's reason names "${fixture.base.slice(0, 12)}", which begins no commit of the change`), 'the base is no commit of the change');
+  });
+
+  it('drops the core and the conditions alone on the last attempt, each with its failures', () => {
+    const bad = answered(goodCore({ what: 'It fixes RIPPLE-1.', why: null, whyFrom: [] }), []);
+    const state = coring();
+    const history = withCoreForm(decided(fixture, askDecision('SWEEP-1', true))).start('explanation');
+    const retried = failedOnce(history, fixture, bad as unknown as WriterOutput).fold();
+    const retriedState = { ...retried, review: { ...retried.review!, change: state.review!.change } };
+    const task = writerTask(retriedState, input());
+    assert.match(task, /^- core: the core names RIPPLE-1, an id of this review; [^\n]*$/m);
+    assert.match(task, /^- conditions: the conditions give no entry for public-interface, which the triage judged to hold$/m);
+    const explanation = recorded(contributionAt(retriedState, receipt(bad))[0]);
+    assert.deepEqual(explanation.dropped.map((part) => part.part), ['core', 'conditions']);
+    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    assert.deepEqual([answer?.core, answer?.conditions, answer?.areas?.length], [null, null, 1]);
+  });
+});
+
