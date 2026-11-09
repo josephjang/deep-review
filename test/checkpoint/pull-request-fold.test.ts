@@ -17,6 +17,7 @@ import {
   withCitedRuns,
   unconfirmedFact,
   withDocumentationStep,
+  withCoreForm,
   withReportForm,
   worker,
 } from '../helpers/review-history.ts';
@@ -243,7 +244,7 @@ describe('review.configured@11, verdicts.recorded@3 and explanation.recorded@2',
     const atVersion1 = new History();
     for (const event of asReport().events) atVersion1.add(event.kind, event.payload, event.kind === 'explanation.recorded' ? 1 : event.version);
     assert.throws(() => atVersion1.fold(), /records an explanation at version 1, which a run configured at review\.configured@11 records at version 2/);
-    assert.throws(() => pullRequestDecided().start('explanation').worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60)), 2).fold(), /records an explanation at version 2, which only a run configured at review\.configured@11 does/);
+    assert.throws(() => pullRequestDecided().start('explanation').worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60)), 2).fold(), /records an explanation at version 2, which a run configured at review\.configured@10 records at version 1/);
   });
 
   it('names the parts of version 2 by the areas and the refuted lines, never the account, and drops each of them when no answer passed', () => {
@@ -251,6 +252,43 @@ describe('review.configured@11, verdicts.recorded@3 and explanation.recorded@2',
     const unanswered = (parts: readonly string[]): History => asReport({ workerId: null, answer: null, dropped: parts.map((part) => ({ part, failures: ['f'] })) });
     assert.throws(() => unanswered(['conclusion', 'areas']).fold(), /explanation\.recorded@2\) has a payload its schema rejects/, 'no answer drops the refuted lines too');
     assert.equal(unanswered(['conclusion', 'areas', 'refuted']).fold().explanation?.answer, null);
+  });
+});
+
+// TD1, TD2 of the core of the change on the pull request.
+describe('review.configured@12 and explanation.recorded@3', () => {
+  /** The run of a pull request whose review opens with the core of the change, its writer answering with `change` over the explanation. */
+  const withCore = (change: Record<string, unknown> = {}): History =>
+    withCoreForm(pullRequestReported((history) => history.worker(60, 'writer explanation:explanation').add('explanation.recorded', explanation(worker(60), change))));
+  /** The history with its explanation recorded at `version`. */
+  const explanationAt = (history: History, version: number): History => {
+    const result = new History();
+    for (const event of history.events) result.add(event.kind, event.payload, event.kind === 'explanation.recorded' ? version : event.version);
+    return result;
+  };
+
+  it('folds a run configured at version 12 as one whose review opens with the core and reads as a report, and every older run as one whose review does not open with it', () => {
+    const review = withCore().review();
+    assert.deepEqual([review.coreForm, review.reportForm, review.explanationStep], [true, true, true]);
+    assert.deepEqual(review.phases.explanation, { status: 'completed', attempt: 1 });
+    for (const history of [withReportForm(pullRequestReported()), pullRequestReported(), atVersion9(), readOnlyReported()]) assert.equal(history.review().coreForm, false);
+  });
+
+  it('holds the explanation at version 3 in a run configured at version 12, and refuses version 3 in an older run and an older version in it', () => {
+    const dropped = [{ part: 'core', failures: ['the core names RIPPLE-1'] }, { part: 'conditions', failures: ['no sentence for wide-effect'] }];
+    const state = withCore({ dropped }).fold();
+    assert.deepEqual(state.explanation, { ...explanation(worker(60), { dropped }), version: 3 });
+    assert.equal(state.review!.explanationDegraded, true, 'a part dropped degrades the explanation');
+    assert.throws(() => explanationAt(withCore(), 2).fold(), /records an explanation at version 2, which a run configured at review\.configured@12 records at version 3/);
+    assert.throws(() => explanationAt(withReportForm(pullRequestReported()), 3).fold(), /records an explanation at version 3, which a run configured at review\.configured@11 records at version 2/);
+    assert.throws(() => explanationAt(pullRequestReported(), 3).fold(), /records an explanation at version 3, which a run configured at review\.configured@10 records at version 1/);
+  });
+
+  it('names the parts of version 3 by those of version 2, the core and the conditions, and drops each of them but the findings when no answer passed', () => {
+    assert.throws(() => withCore({ dropped: [{ part: 'account', failures: ['f'] }] }).fold(), /explanation\.recorded@3\) has a payload its schema rejects/);
+    const unanswered = (parts: readonly string[]): History => withCore({ workerId: null, answer: null, dropped: parts.map((part) => ({ part, failures: ['f'] })) });
+    assert.throws(() => unanswered(['conclusion', 'areas', 'refuted']).fold(), /explanation\.recorded@3\) has a payload its schema rejects/, 'no answer drops the core and the conditions too');
+    assert.equal(unanswered(['conclusion', 'areas', 'refuted', 'core', 'conditions']).fold().explanation?.answer, null);
   });
 });
 

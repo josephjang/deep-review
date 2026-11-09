@@ -247,7 +247,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
 
   it('falls back to the engine\'s words for each part the writer dropped, names it, and for a run with no explanation', () => {
     const dropped = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }], unexplained: ['SWEEP-1'] })).fold();
-    const fallback = formOf(dropped, { conclusion: null, account: null, areas: null, refuted: null, findings: [writerAnswer().findings[1]!] });
+    const fallback = formOf(dropped, { conclusion: null, account: null, areas: null, refuted: null, core: null, conditions: null, findings: [writerAnswer().findings[1]!] });
     includes(fallback.body, `- **[1. null dereference](${blob(head, 'src/a.ts', '4')}).** CONFIRMED. Fix: Guard the null once, before parse reads it. Against a written rule.`);
     excludes(fallback.body, '```mermaid\nflowchart LR');
     includes(section(fallback.body, '### How far to trust this review'), '\n\nThe writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review\'s own words.\n\nThe writer gave no explanation of finding 1 that passed deep-review\'s checks, so it is given in deep-review\'s own words.');
@@ -260,7 +260,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
 
   it('says a model wrote the explanations only when the review posts some text of the writer, whatever answer it froze', () => {
     const trustOf = (state: RunState, answer: RecordedAnswer): string => section(formOf(state, answer).body, '### How far to trust this review');
-    const empty: RecordedAnswer = { conclusion: null, account: null, areas: null, refuted: null, findings: [] };
+    const empty: RecordedAnswer = { conclusion: null, account: null, areas: null, refuted: null, core: null, conditions: null, findings: [] };
     // A writer that completed its unit has its answer frozen, even with every part dropped.
     const nothingKept = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'account', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
     excludes(trustOf(nothingKept, empty), 'A model wrote the explanations');

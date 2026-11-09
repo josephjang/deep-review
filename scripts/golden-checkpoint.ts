@@ -2678,6 +2678,126 @@ try {
       patches: [],
     }, 8);
   });
+  // A read-only run of the same pull request whose review opens with the
+  // core of the change (TD1, TD2 of the core of the change on the pull
+  // request): configured at version 12, its triage records an account
+  // that judges both conditions of principle 8 to hold; it ranks one major
+  // finding to fix, and its writer answers once with the core of the
+  // change, whose reason names a commit and a file of the change, and a
+  // sentence for the public interface alone; the explanation, at version
+  // 3, keeps the core and drops the conditions, which leave out the wide
+  // effect.
+  const coreRun = checkpoint.createRun({ worktree: '/fixture/core-form' });
+  const cored = new ReviewHistory(checkpoint, coreRun.id, checkpoint.append(coreRun.id, coreRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: { ...pullRequestScope, pullRequest: { ...pullRequestScope.pullRequest, body: null } } }]).lastSequence);
+  cored.add('review.configured', reportFormConfiguration, 12);
+  cored.phaseV6('survey', () => {
+    cored.launch('1c01', 'surveyor survey:survey');
+    cored.finishWorker('1c01');
+    cored.add('survey.recorded', { workerId: cored.id('1c01'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  cored.phaseV6('triage', () => {
+    cored.launch('1c02', 'triage triage:SCAN');
+    cored.finishWorker('1c02');
+    cored.add('candidates.recorded', {
+      phase: 'triage',
+      key: 'SCAN',
+      workerId: cored.id('1c02'),
+      candidates: [cored.candidate('SCAN-1', 'SCAN', 1)],
+      leads: finderAngles.map((angle) => ({ angle, lead: null })),
+      change: {
+        title: 'Accept an empty input in changed()',
+        what: 'changed() returns no value for an empty input, where it threw before.',
+        why: 'An empty file is a valid input, the commit message says.',
+        whyFrom: [fixScope.head],
+        restsOn: ['src/changed.ts'],
+        publicInterface: { holds: true, what: 'changed() can now return null, which its callers read.', files: ['src/changed.ts'] },
+        wideEffect: { holds: true, what: 'Every caller of changed() must handle the null.', files: ['src/changed.ts'] },
+      },
+    }, 2);
+  });
+  cored.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `1c${String(10 + finderAngles.indexOf(angle))}`;
+      cored.launch(tag, `finder-${angle} finders:${angle}`);
+      cored.finishWorker(tag);
+      cored.add('candidates.recorded', { phase: 'finders', key: angle, workerId: cored.id(tag), candidates: [], leads: null, change: null }, 2);
+    }
+  });
+  cored.phaseV6('deduplication', () => {
+    cored.launch('1c20', 'deduplication deduplication:deduplication');
+    cored.finishWorker('1c20');
+    cored.add('deduplication.recorded', { phase: 'deduplication', workerId: cored.id('1c20'), groups: [] });
+  });
+  cored.phaseV6('verification', () => {
+    cored.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1'] }] });
+    cored.launch('1c21', 'verifier verification:g1');
+    cored.finishWorker('1c21');
+    cored.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: cored.id('1c21'), verdicts: [
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [], unconfirmed: null, authorChoice: null },
+    ] }, 3);
+  });
+  cored.phaseV6('sweep', () => {
+    cored.launch('1c30', 'sweep sweep:sweep');
+    cored.finishWorker('1c30');
+    cored.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: cored.id('1c30'), candidates: [], leads: null, change: null }, 2);
+  });
+  cored.phaseV6('sweep-deduplication', () => {});
+  cored.phaseV6('sweep-verification', () => cored.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  cored.phaseV6('merge-rank', () => {
+    cored.launch('1c31', 'merge-rank merge-rank:merge-rank');
+    cored.finishWorker('1c31');
+    cored.add('ranking.recorded', { workerId: cored.id('1c31'), findings: [{ id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' }] });
+  });
+  cored.phaseV6('decision', () => {
+    cored.launch('1c32', 'decider decision:decision');
+    cored.finishWorker('1c32');
+    cored.add('decisions.recorded', { workerId: cored.id('1c32'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null, settled: [] },
+    ] }, 2);
+  });
+  cored.add('phase.started', { phase: 'explanation', attempt: 1 }, 8);
+  cored.add('worktree.checked', { phase: 'explanation', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 9);
+  cored.launch('1c40', 'writer explanation:explanation');
+  cored.finishWorker('1c40');
+  const coreAnswer = {
+    conclusion: { why: 'An empty input crashes changed(), so the pull request needs a guard before a merge.', actions: [{ id: 'SCAN-1', sentence: 'deep-review would guard the null before changed() reads it.' }], diagram: null },
+    areas: [{ title: 'An empty input crashes the caller of changed()', intro: 'A caller that passes an empty input meets a crash instead of an empty result.', diagram: null, findings: ['SCAN-1'] }],
+    refuted: [],
+    core: {
+      title: 'changed() accepts an empty input',
+      what: 'changed(), which reports the lines a change touches, now returns null for an empty input instead of throwing.',
+      why: 'The commit says that an empty file is a valid input, so reading one must not fail.',
+      whyFrom: [fixScope.head.slice(0, 12), 'src/changed.ts'],
+      diagram: null,
+    },
+    conditions: null,
+    findings: [
+      {
+        id: 'SCAN-1', unexplained: false,
+        title: 'An empty input crashes the caller of changed()',
+        problem: 'A caller that passes an empty input meets a crash.',
+        cases: [{ sentence: 'An empty input reaches the read on line 1.', lines: { side: 'head', path: 'src/changed.ts', from: 1, to: 1 } }],
+        diagram: null,
+        decision: 'deep-review would guard the null once, before changed() reads it.',
+        checked: 'The verifier traced an empty input from the caller to the read on line 1.',
+        kind: null,
+      },
+    ],
+  };
+  cored.add('explanation.recorded', {
+    workerId: cored.id('1c40'),
+    answer: checkpoint.evidence.put(`${JSON.stringify(coreAnswer)}\n`),
+    dropped: [{ part: 'conditions', failures: ['the conditions have no entry for wide-effect, which the triage judged to hold'] }],
+    unexplained: [],
+  }, 3);
+  cored.add('phase.finished', { phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 9);
+  cored.phaseV6('report', () => {
+    cored.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run whose review opens with the core of the change\n'),
+      statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(16), budgetApplied: true },
+      patches: [],
+    }, 8);
+  });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

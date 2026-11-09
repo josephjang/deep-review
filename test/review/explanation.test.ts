@@ -276,7 +276,7 @@ describe('the merge of a first and a second answer (R19)', () => {
       { part: 'account', failures: ['the account holds the verdict CONFIRMED, which the engine writes beside the finding', 'the run budget stopped the writer'] },
       { part: 'finding', finding: 'RIPPLE-1', failures: ['case 1 of RIPPLE-1 cites src/a.ts:40-41, which has 12 lines at the head', 'the run budget stopped the writer'] },
     ]);
-    assert.deepEqual(merged.answer, { conclusion: first.conclusion, account: null, areas: null, refuted: null, findings: [] });
+    assert.deepEqual(merged.answer, { conclusion: first.conclusion, account: null, areas: null, refuted: null, core: null, conditions: null, findings: [] });
   });
 
   it('drops every part, each with the reason, when no answer came', () => {

@@ -36,6 +36,7 @@ import {
   documentationPlannedV1,
   explanationRecordedV1,
   explanationRecordedV2,
+  explanationRecordedV3,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
@@ -83,6 +84,7 @@ import {
   reviewConfiguredV9,
   reviewConfiguredV10,
   reviewConfiguredV11,
+  reviewConfiguredV12,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -98,6 +100,7 @@ import {
   reviewVocabularyV11,
   reviewVocabularyV12,
   reviewVocabularyV13,
+  reviewVocabularyV14,
   scopeCapturedV2,
   scopeCapturedV3,
   surveyFailedV1,
@@ -147,6 +150,7 @@ import {
   decisionKinds,
   deduplicationPhases,
   editingPhases,
+  changeConditions,
   explanationParts,
   finderAngles,
   findingPlaces,
@@ -1095,7 +1099,7 @@ describe('the review vocabulary frozen by the v12 events', () => {
   const verdicts = (...given: Record<string, unknown>[]): boolean => verdictsRecordedV3.safeParse({ phase: 'verification', groupId: 'g1', workerId, verdicts: given }).success;
 
   it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV12, { unconfirmedKinds, explanationParts });
+    assert.deepEqual(reviewVocabularyV12, { unconfirmedKinds, explanationParts: ['conclusion', 'areas', 'refuted', 'finding'] });
   });
 
   it('records a review.configured@11 exactly as version 10 records it: the version alone says the review reads as a report', () => {
@@ -1116,8 +1120,9 @@ describe('the review vocabulary frozen by the v12 events', () => {
   it('names the dropped parts of explanation.recorded@2 by the areas and the refuted lines, and holds it to the rules of version 1', () => {
     const accepts = (change: Record<string, unknown>): boolean => explanationRecordedV2.safeParse({ workerId, answer: blob, dropped: [], unexplained: [], ...change }).success;
     const parts = (...names: string[]) => names.map((part) => (part === 'finding' ? { part, finding: 'RIPPLE-1', failures: ['f'] } : { part, failures: ['f'] }));
-    assert.equal(accepts({ dropped: parts(...explanationParts) }), true);
+    assert.equal(accepts({ dropped: parts('conclusion', 'areas', 'refuted', 'finding') }), true);
     assert.equal(accepts({ dropped: parts('account') }), false, 'version 2 has no account');
+    assert.equal(accepts({ dropped: parts('core') }), false, 'nor the core');
     assert.equal(explanationRecordedV1.safeParse({ workerId, answer: blob, dropped: parts('areas'), unexplained: [] }).success, false, 'version 1 has no areas');
     assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted') }), true, 'a phase that degraded with no answer that passed');
     assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas') }), false, 'with no answer, every part but the findings is dropped');
@@ -1197,5 +1202,31 @@ describe('the review vocabulary frozen by the v13 events', () => {
     assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [withoutSettled] }).success, false, 'version 1 has three reasons');
     assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [{ ...withoutSettled, leave: { reason: 'intended', supersededBy: null } }] }).success, true, 'and reads each of them');
     assert.equal(decisionsRecordedV1.safeParse({ workerId, decisions: [{ ...fix, settled: null }] }).success, false, 'version 1 has no settled choice');
+  });
+});
+
+// Version 14 of the review events records the words the core of the
+// change on the pull request added; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v14 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = { sha256: 'a'.repeat(64), bytes: 120 };
+  const accepts = (change: Record<string, unknown>): boolean => explanationRecordedV3.safeParse({ workerId, answer: blob, dropped: [], unexplained: [], ...change }).success;
+  const parts = (...names: string[]) => names.map((part) => (part === 'finding' ? { part, finding: 'RIPPLE-1', failures: ['f'] } : { part, failures: ['f'] }));
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV14, { explanationParts, changeConditions });
+  });
+
+  it('records a review.configured@12 exactly as version 11 records it: the version alone says the review opens with the core of the change', () => {
+    assert.equal(reviewConfiguredV12, reviewConfiguredV11);
+  });
+
+  it('names the dropped parts of explanation.recorded@3 by those of version 2, the core and the conditions, and holds it to the rules of version 2', () => {
+    assert.equal(accepts({ dropped: parts(...explanationParts) }), true);
+    assert.equal(accepts({ dropped: parts('account') }), false, 'version 3 has no account');
+    assert.equal(explanationRecordedV2.safeParse({ workerId, answer: blob, dropped: parts('core'), unexplained: [] }).success, false, 'version 2 has no core');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted', 'core', 'conditions') }), true, 'a phase that degraded with no answer that passed');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted') }), false, 'with no answer, every part but the findings is dropped');
+    assert.equal(accepts({ dropped: parts('core', 'core') }), false, 'each part once');
   });
 });
