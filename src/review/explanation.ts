@@ -23,7 +23,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { changeReadingOf, explanationVersionOf, type CandidateState, type ExplanationVersion, type ReviewState, type UnitFailure, type UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
-import { blobsRaw, commitIds, treeEntries, type TreeEntry } from '../scope/git.ts';
+import { blobsRaw, commitIdsOrNull, treeEntries, type TreeEntry } from '../scope/git.ts';
 import { briefMarkdown, briefOf } from './brief.ts';
 import { StructuralCheckError } from './errors.ts';
 import { idsIn } from './finding-names.ts';
@@ -960,13 +960,8 @@ function checkedAnswers(state: RunState, review: ReviewState, context: { readonl
  * to hold.
  */
 function coreCheckInputOf(review: ReviewState, scope: ScopeState, worktree: string): CoreCheckInput {
-  let commits: string[] | null;
-  try {
-    commits = commitIds(worktree, scope.base, scope.head);
-  } catch {
-    // A history git cannot read costs the writer its commits as sources, never the run: a source that names one fails its check, and the retry is told why.
-    commits = null;
-  }
+  // A history git cannot read costs the writer its commits as sources, never the run: a source that names one fails its check, and the retry is told why.
+  const commits = commitIdsOrNull(worktree, scope.base, scope.head);
   return { commits, files: scope.files.map((file) => file.path), candidates: Object.keys(review.candidates), held: heldConditions(review) };
 }
 
