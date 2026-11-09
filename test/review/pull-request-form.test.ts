@@ -734,9 +734,10 @@ describe('the fit of the review (TD5)', () => {
     for (const form of forms) markedLast(form);
   });
 
-  it('names each cut where it is made, and never cuts what needs a person, the areas or the findings in full', () => {
+  it('names each cut where it is made, and never cuts the core of the change, what needs a person, the areas or the findings in full', () => {
     const { forms } = samples(true);
     const cutTo = (count: number): string => forms.find((form) => form.cuts.length === count)!.body;
+    for (const form of forms) includes(form.body, '### What this change does\n\ndeep-review has no account of this change, because an engine before the account reviewed it.\n\n### Summary');
     includes(cutTo(1), '- To fit the length GitHub takes, the candidate that the verifiers refuted is not listed here; the report of the run holds each with its evidence.');
     excludes(cutTo(1), '<details><summary>The refuted candidate</summary>');
     includes(cutTo(2), '### The findings left as is\n\nTo fit the length GitHub takes, the finding left as is is not listed here; the report of the run holds it.');
