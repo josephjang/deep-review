@@ -839,11 +839,13 @@ async function runPass(options: ReviewOptions, log: (line: string) => void, cont
 
     const scope = state.scope!;
     /**
-     * The commit messages of the change, which the triage's task lists,
-     * read from git when the triage first launches (R6 of the brief of a
-     * run); a commit does not change, so a relaunch lists the same ones. A
-     * history git cannot read costs the triage those words, never the run:
-     * the task says so, as the log does.
+     * The commit messages of the change, which the triage's task lists, as
+     * does the task of a writer that gives the core of the change, read
+     * from git when the first of them launches (R6 of the brief of a run);
+     * a run resumed after its triage reads them at its writer's launch. A
+     * commit does not change, so a relaunch lists the same ones. A history
+     * git cannot read costs the triage and the writer those words, never
+     * the run: each task says so, as the log does.
      */
     const changeMessages = once((): ChangeMessages => {
       try {
@@ -853,7 +855,7 @@ async function runPass(options: ReviewOptions, log: (line: string) => void, cont
         return { kind: 'read', messages: commitMessages(options.worktree, scope.base, scope.head), withTree: shape === 'commits-and-tree' };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        log(`run ${runId}: could not read the commit messages of the change, so the triage reads none: ${reason}`);
+        log(`run ${runId}: could not read the commit messages of the change, so the triage and the writer read none: ${reason}`);
         return { kind: 'unreadable', reason };
       }
     });
