@@ -40,7 +40,7 @@ import { publicCode, publicProse, publicWords, withoutSecrets, type MachineConte
 import { pullRequestWords, type FollowingWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown, mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { asksToAct, verdictBases, type ChangeConditionName, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
+import { asksToAct, changeConditions, verdictBases, type ChangeConditionName, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
@@ -708,12 +708,21 @@ function fileLink(view: FormView, path: string, say: Speaker): string {
 /** The writer's sentences on a condition, or null when its answer kept none for it. */
 const writerConditionOf = (view: FormView, condition: ChangeConditionName): ConditionSentence | null => view.conditions?.find((entry) => entry.condition === condition) ?? null;
 
-/** The conditions the triage judged to hold, in the order public interface, wide effect, each with its label; none for a run with no account. */
+/** For each condition, the judgment of the triage's account that holds it and the word that labels it among the reasons to look, so a condition added to the list has both or fails to type-check. */
+const conditionReading: Record<ChangeConditionName, { readonly judgment: 'publicInterface' | 'wideEffect'; readonly label: 'lookInterface' | 'lookWide' }> = {
+  'public-interface': { judgment: 'publicInterface', label: 'lookInterface' },
+  'wide-effect': { judgment: 'wideEffect', label: 'lookWide' },
+};
+
+/** The conditions the triage judged to hold, in the order of `changeConditions`, each with its label; none for a run with no account. */
 function heldConditionsOf(view: FormView): { readonly condition: ChangeConditionName; readonly label: string; readonly what: string | null; readonly files: readonly string[] }[] {
   const { change } = view.brief;
   if (change.state !== 'given') return [];
-  const judged = [{ condition: 'public-interface' as const, label: view.words.lookInterface, ...change.publicInterface }, { condition: 'wide-effect' as const, label: view.words.lookWide, ...change.wideEffect }];
-  return judged.filter((entry) => entry.holds);
+  return changeConditions.flatMap((condition) => {
+    const { judgment, label } = conditionReading[condition];
+    const { holds, what, files } = change[judgment];
+    return holds ? [{ condition, label: view.words[label], what, files }] : [];
+  });
 }
 
 /**
