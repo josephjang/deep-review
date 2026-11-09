@@ -1058,7 +1058,7 @@ describe('the explanation phase of a run whose review opens with the core of the
     assert.match(task, /^The triage judged this condition to hold\. Give one entry of `conditions` for each, by its name, and for no other:\n\n- `public-interface`, a change to a public interface: parse\(\) can now return null\. \(files: src\/a\.ts\)$/m);
     assert.match(task, /^Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\.$/m);
     assert.ok(task.indexOf('### The brief of the run') < task.indexOf('### The commit messages of the change') && task.indexOf('### The commit messages of the change') < task.indexOf('### The findings'), 'after the brief and before the findings');
-    assert.match(writerTask(coring({ ...changeReading, publicInterface: { holds: false, what: null, files: [] } }), input()), /^The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty\.$/m);
+    assert.match(writerTask(coring({ ...changeReading, publicInterface: { holds: false, what: null, files: [] } }), input()), /^The triage judged that the change alters no public interface and does not affect many files beyond the ones it changes, so give `conditions` empty\.$/m);
     assert.match(writerTask(coring(null), input()), /^The triage gave no account of the change, so it judged no condition: give `conditions` empty\.$/m);
     assert.throws(() => writerTask(coring(), { ...input(), commitMessages: null }), /lists the commit messages of the change and needs them/);
     const older = writerTask(withReportForm(decided(fixture)).start('explanation').fold(), { ...input(), commitMessages: null });

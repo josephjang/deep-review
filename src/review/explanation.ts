@@ -1145,7 +1145,7 @@ function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: s
   const held = heldConditions(review);
   const given = changeReadingOf(review.change) !== null;
   const conditions = held.length === 0
-    ? [given ? 'The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty.' : 'The triage gave no account of the change, so it judged no condition: give `conditions` empty.']
+    ? [given ? 'The triage judged that the change alters no public interface and does not affect many files beyond the ones it changes, so give `conditions` empty.' : 'The triage gave no account of the change, so it judged no condition: give `conditions` empty.']
     : [
       `The triage judged ${held.length === 1 ? 'this condition' : 'these conditions'} to hold. Give one entry of \`conditions\` for each, by its name, and for no other:`,
       '',

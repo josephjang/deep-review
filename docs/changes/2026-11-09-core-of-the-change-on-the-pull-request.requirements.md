@@ -125,7 +125,7 @@ A departure from a rule is the fourth condition, and it is listed once, as today
 
 ### R7: The review says "nothing needs a person" only when nothing holds
 
-When no question, no departure and no reason to look holds, what needs a person says so, and also says that no fix rests on a `PLAUSIBLE` verdict and that, in deep-review's judgment, the change alters no public interface and affects no file beyond its own. When the run has no judgment of a public interface or of a wide effect, because its triage gave no account or an earlier engine ran it, the review says that it has none, and never states that a condition does not hold. When only reasons to look hold, the section says that nothing waits for an answer and lists them.
+When no question, no departure and no reason to look holds, what needs a person says so, and also says that no fix rests on a `PLAUSIBLE` verdict and that, in deep-review's judgment, the change alters no public interface and does not affect many files beyond the ones it changes. When the run has no judgment of a public interface or of a wide effect, because its triage gave no account or an earlier engine ran it, the review says that it has none, and never states that a condition does not hold. When only reasons to look hold, the section says that nothing waits for an answer and lists them.
 
 ### R8: The writer explains each condition the triage judged, and adds none
 
