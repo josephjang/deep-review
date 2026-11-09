@@ -947,7 +947,7 @@ function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
     || view.findings.some((finding) => postsWriterFinding(finding, cuts));
 }
 
-/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation; why the review does not open with the writer's core, its checks having dropped it or its writer having answered before the core (R10, R12 of the core of the change on the pull request); each other part the checks dropped; and the findings whose answers the explanation predates. */
+/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation; why the review does not open with the writer's core, its checks having dropped it or its writer having answered before the core (R10, R12 of the core of the change on the pull request); each other part the checks dropped, the writer's sentences on the conditions when the triage judged one to hold; and the findings whose answers the explanation predates. */
 function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
   const { words, brief, recorded } = view;
   const numberOf = (id: string): number => brief.numbers.get(id)!;
@@ -958,6 +958,8 @@ function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
     if (recorded.dropped.some((part) => part.part === 'core')) notes.push(words.coreDropped(triage));
     else if (recorded.version < 3) notes.push(words.coreBeforeWriter(triage));
     if (recorded.dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
+    // Only when a condition holds, since with none the review gives no condition in other words.
+    if (recorded.dropped.some((part) => part.part === 'conditions') && heldConditionsOf(view).length > 0) notes.push(words.conditionsDropped);
     if (recorded.dropped.some((part) => part.part === 'areas')) notes.push(words.areasDropped);
     if (recorded.dropped.some((part) => part.part === 'refuted')) notes.push(words.refutedDropped);
     const findings = recorded.dropped.flatMap((part) => (part.part === 'finding' ? [numberOf(part.finding)] : []));
