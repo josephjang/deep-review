@@ -1,9 +1,57 @@
 ### What you write
 
-Your answer has four parts, each for its own reader. The review posts
-them as a report: a summary, what needs a person, the major findings by
-area, then the minor findings and the refuted candidates folded, and a
-comment on the line of each finding.
+Your answer has six parts, each for its own reader. The review posts
+them as a report: the core of the change, a summary, what needs a
+person with the conditions under which a person should look, the major
+findings by area, then the minor findings and the refuted candidates
+folded, and a comment on the line of each finding.
+
+**The core of the change** is the first thing every reader reads, and
+the one part about the change rather than the review. Write it for a
+reader who knows the craft and neither this repository nor the change,
+such as an engineer who joined the team last week. Give:
+
+- a `title` that says what the change is, in plain words;
+- `what` the change does, in a few short paragraphs, in the order the
+  reader needs: what it does first, then how, only as far as the
+  reader needs it to follow the findings. Write it from the patch and
+  the code at the head and at the merge base, and say nothing of the
+  change that the code at the head does not show;
+- `why` the change does it, in the change's own words: restate, or
+  quote where the exact words matter, the commit messages your task
+  lists and the proposals and other documents the change adds or
+  edits. Give no reason of your own. Give `why` null when the change
+  states no reason;
+- `whyFrom`, each commit and each file that states the reason: a
+  commit by its id as your task lists it, a file by its path from the
+  root of the repository. Give it empty when `why` is null;
+- a `diagram` where the flow of the change takes long to say, else
+  null.
+
+Explain each name of the code or of the change where you first use it,
+or leave it out: a reader must follow the core with no reference to
+look up. Introduce here the names of the change that the titles of the
+findings use, so a reader meets them in the core first. The triage's
+account at the top of the brief is deep-review's earlier reading of the
+change, not verified: start from it, check it against the code, and
+never copy it. The core is about the change as submitted: name no
+finding and no candidate, by id or otherwise, and say nothing of what
+the review found, which the summary and the findings say.
+
+**The conditions** are for a maintainer who must know when to look at
+the change even where no finding asks. Your task lists each condition
+the triage judged to hold: a change to a public interface, or an effect
+on many files beyond the ones the change changes. For each, give one
+entry with its `condition`, by the name your task gives, and in
+`explanation` one or two sentences from the code: which part of the
+change is the public interface and who reads or calls it, or which
+files beyond the change its effect reaches and how. When the code does
+not show what the triage judged, give `explanation` null and, in
+`unexplained`, a sentence of what you found instead; the review then
+gives the triage's own sentence with a mark. Give an entry for each
+listed condition and for no other: the triage made the judgment, and
+you neither add a condition nor remove one. Give `conditions` empty
+when your task lists none.
 
 **The conclusion** is for the author and the reviewers, who know the
 change and look first for what to do. Its `why` says, in one or two
@@ -74,9 +122,6 @@ give its `id`, its `claim` in one sentence, and `why` it was refuted in
 one sentence, from its verifier's evidence. The engine folds them with
 their lines.
 
-You give no account of the pull request: its own description says what
-it does, and the review starts with what it found.
-
 ### The lines of a case
 
 Each case cites one range of lines with `side`, `path`, `from` and
@@ -114,15 +159,21 @@ code, commands and the ids of findings stay as they are, in any
 language. Your text holds no link and no image of its own, and no URL:
 the engine builds every link of the review, to the lines of each case
 among them. Name code in backticks. Name a finding by its id, as
-`RIPPLE-2`, never by a number.
+`RIPPLE-2`, never by a number, except in the core, which names none.
 
 The engine checks your answer before it keeps it: each id is a finding
 your task lists, the conclusion has a sentence for each of them and for
 no other, each major finding is in exactly one area and no other
 finding is in any, each minor finding has a kind and no major one has,
 each refuted candidate your task lists has exactly one line, each cited
-path and range of a major finding is at its side, no part holds a
-verdict of the review, and each diagram keeps the rules above. An answer
+path and range of a major finding is at its side, the core has a title
+and says what the change does, its `why` has a source and its sources
+have a `why`, each source is a commit of the change named by at least 7
+characters of its id that begin no other of its commits, or a file the
+change adds, edits or removes, the core names no id of a finding or a
+candidate, each listed condition has exactly one entry with exactly one
+of `explanation` and `unexplained`, no part holds a verdict of the
+review, and each diagram keeps the rules above. An answer
 that fails a check is given back to a fresh writer once, with what
 failed; the parts of the first answer that passed are kept, but the
 conclusion, whose summary names the areas, is kept only from the answer
