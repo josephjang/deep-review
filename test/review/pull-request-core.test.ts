@@ -69,6 +69,17 @@ describe('the core of the change in the body', () => {
     includes(bodyOf(cored(), answerWith(writerCore({ whyFrom: ['abcdef'] }))), 'The change says so in `abcdef`.');
   });
 
+  it('names a source of the change whose cleaning changes its path as cleaned code with no link, and counts its secret', () => {
+    const secret = 'test/fixtures/ghp_abcdefghijklmnopqrstuvwxyz0123.json';
+    const state = cored();
+    const withSecret: RunState = { ...state, scope: { ...state.scope!, files: [...state.scope!.files, { path: secret, status: 'added', symlink: false, before: null, after: { blob: reference('s') } }] } };
+    const plain = formOf(withSecret, answerWith(writerCore({ whyFrom: ['src/a.ts'] })), undefined, { commits });
+    const form = formOf(withSecret, answerWith(writerCore({ whyFrom: [secret] })), undefined, { commits });
+    includes(form.body, 'The change says so in `test/fixtures/[redacted GitHub token].json`.');
+    excludes(form.body, 'ghp_');
+    assert.equal(form.secrets - plain.secrets, 1, 'the token in the path of the source');
+  });
+
   it('opens with the triage\'s account, marked as the triage\'s, when the writer\'s core was dropped, and says why in how far to trust it', () => {
     const state = cored(explanation(worker(60), { dropped: [{ part: 'core', failures: ['the core has no title'] }] }));
     const body = bodyOf(state, answerWith(null));
