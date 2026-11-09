@@ -215,3 +215,7 @@ The gate runs as R13 of the requirements says, and the Verification section reco
 ## Verification
 
 No checks have run yet.
+
+### Changes of the proposal during the work
+
+The form takes the full ids of the change's commits as an input, `commits` of `PullRequestFormInput`, which `publish` reads with git from the run's base to its head in the worktree it runs in, as the check of the core reads them (TD3). The design linked a commit by its full id (TD4) and did not say where the form, which reads nothing itself, takes that id from. A history that git cannot read when `publish` runs costs the links, never the post: the body then names a commit source as code, with no link. A replay of the decider, which renders the form with no answer of the writer, passes none.
