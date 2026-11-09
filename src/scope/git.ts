@@ -105,6 +105,22 @@ export function commitIds(repo: string, base: string, head: string): string[] {
 }
 
 /**
+ * The commits of a change as `commitIds` reads them, or null when git
+ * cannot read them, as `commitCount` gives: a history git cannot read
+ * costs the core of the change its commits as sources, never the run
+ * (TD3, TD4 of the core of the change on the pull request). `unreadable`
+ * hears git's reason, so a caller can say why in its log.
+ */
+export function commitIdsOrNull(repo: string, base: string, head: string, unreadable?: (reason: string) => void): string[] | null {
+  try {
+    return commitIds(repo, base, head);
+  } catch (error) {
+    unreadable?.(error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/**
  * How many commits a change holds (R12 of the questions in the chat): the
  * commits on the first parent from `head` back to `base`, so a merge
  * counts as one, and with `paths` only those that change one of them; a

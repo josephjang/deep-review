@@ -20,7 +20,7 @@ import type { RunState } from '../checkpoint/fold.ts';
 import { GitHubCallError, refusingGitHub, type GitHubRefusal } from '../github/errors.ts';
 import { accountAction, type Gh, type GhAnswer } from '../github/gh.ts';
 import { closedState, listPullRequestFiles, listReviewComments, listReviews, postReview, pullRequestLabel, readCurrentMergeBase, readPullRequest, reviewInput, type NewReview, type PullRequestTarget } from '../github/pull-request.ts';
-import { commitIds } from '../scope/git.ts';
+import { commitIdsOrNull } from '../scope/git.ts';
 import { briefOf, cutAtWord } from './brief.ts';
 import { PublicationOpenError, ReviewRefusedError } from './errors.ts';
 import { recordedAnswerOf } from './explanation.ts';
@@ -379,12 +379,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const placements = placeFindings(reviewed.review!, files);
   const serial = run.publications.length + 1;
   // The commits a source of the core's reason names, which the body links by their full ids (TD4 of the core of the change on the pull request); a history git cannot read names them as code, and posts all the same.
-  let commits: string[] | null;
-  try {
-    commits = commitIds(options.worktree, scope.base, scope.head);
-  } catch {
-    commits = null;
-  }
+  const commits = commitIdsOrNull(options.worktree, scope.base, scope.head);
   const form = pullRequestForm({
     state: reviewed,
     fixPass: run.review!.continuedFrom === null ? 'to-come' : 'continued',
