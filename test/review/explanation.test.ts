@@ -962,15 +962,19 @@ describe('the checks of the core of the change and of the conditions', () => {
     assert.deepEqual(checkCore(goodCore({ why: null }), coreInput), ['the core gives no reason and names where the reason comes from']);
   });
 
-  it('takes a commit of the change by a prefix of 7 to 40 characters that begins it alone, and refuses a shorter prefix, a shared one, a commit outside the change and a path outside it', () => {
+  it('takes a commit of the change by a prefix of 7 to 64 characters in either case that begins it alone, and refuses a shorter prefix, a longer one, a shared one, a commit outside the change and a path outside it', () => {
     const sources = (...whyFrom: string[]): string[] => checkCore(goodCore({ whyFrom }), coreInput);
     assert.deepEqual(sources('1234567', commitsOfChange[0]!, commitsOfChange[1]!.slice(0, 12), 'src/a.ts'), [], 'a prefix of 7, an id of 40, a prefix of 12 and a file of the change');
-    assert.deepEqual(sources('123456'), ['the core\'s reason names "123456", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.deepEqual(sources('ABCDEF1', commitsOfChange[0]!.toUpperCase()), [], 'a prefix and a whole id in capitals');
+    const sha256 = `${'c'.repeat(8)}${'0'.repeat(56)}`;
+    assert.deepEqual(checkCore(goodCore({ whyFrom: [sha256, sha256.slice(0, 50)] }), { ...coreInput, commits: [...commitsOfChange, sha256] }), [], 'a whole SHA-256 id of 64 and a prefix of 50');
+    assert.deepEqual(sources(`${sha256}0`), [`the core's reason names "${sha256}0", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id`]);
+    assert.deepEqual(sources('123456'), ['the core\'s reason names "123456", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id']);
     assert.deepEqual(sources('abcdef1'), [], 'abcdef1 begins one commit alone');
-    assert.deepEqual(sources('abcdef'), ['the core\'s reason names "abcdef", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.deepEqual(sources('abcdef'), ['the core\'s reason names "abcdef", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id']);
     assert.deepEqual(checkCore(goodCore({ whyFrom: ['abcdef1'] }), { ...coreInput, commits: [...commitsOfChange, 'abcdef1000000000000000000000000000000000'] }), ['the core\'s reason names "abcdef1", which begins 2 commits of the change; name the commit by more characters of its id']);
     assert.deepEqual(sources('fedcba9'), ['the core\'s reason names "fedcba9", which begins no commit of the change']);
-    assert.deepEqual(sources('src/b.ts'), ['the core\'s reason names "src/b.ts", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
+    assert.deepEqual(sources('src/b.ts'), ['the core\'s reason names "src/b.ts", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id']);
     assert.match(checkCore(goodCore(), { ...coreInput, commits: null })[0] ?? '', /^the core's reason names "1234567", a commit, and the engine could not read the commits of the change/);
   });
 
@@ -983,6 +987,9 @@ describe('the checks of the core of the change and of the conditions', () => {
     assert.deepEqual(resolveCommitSource('1234567', []), { kind: 'none' });
     assert.deepEqual(resolveCommitSource('123456', commitsOfChange), { kind: 'not-a-commit' }, 'shorter than 7');
     assert.deepEqual(resolveCommitSource('src/a.ts', commitsOfChange), { kind: 'not-a-commit' });
+    assert.deepEqual(resolveCommitSource('AbCdEf1', commitsOfChange), { kind: 'one', commit: commitsOfChange[0]! }, 'compared in lower case, linked by the listed id');
+    assert.deepEqual(resolveCommitSource('f'.repeat(64), ['f'.repeat(64)]), { kind: 'one', commit: 'f'.repeat(64) }, 'a whole SHA-256 id');
+    assert.deepEqual(resolveCommitSource('f'.repeat(65), ['f'.repeat(64)]), { kind: 'not-a-commit' }, 'longer than 64');
   });
 
   it('refuses a verdict of the review and an id of a candidate of the run in each text and in the diagram, and a diagram GitHub does not draw', () => {
