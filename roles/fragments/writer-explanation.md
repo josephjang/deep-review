@@ -2,9 +2,10 @@
 
 Your answer has six parts, each for its own reader. The review posts
 them as a report: the core of the change, a summary, what needs a
-person with the conditions under which a person should look, the major
-findings by area, then the minor findings and the refuted candidates
-folded, and a comment on the line of each finding.
+person with the conditions under which a person should look, what the
+review did not examine with the refuted candidates folded in it, the
+major findings by area, then the minor findings, and a comment on the
+line of each finding.
 
 **The core of the change** is the first thing every reader reads, and
 the one part about the change rather than the review. Write it for a
