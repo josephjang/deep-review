@@ -430,7 +430,7 @@ describe('runReview', { timeout: 600_000, concurrency: sandboxConcurrency }, () 
     assert.ok(!box.logs.some((line) => line.includes('its survey was asked with')), box.logs.join('\n'));
     // The commit messages are read with `git log` too: a history git cannot read costs the triage their words, never the run (R6 of the brief of a run).
     assert.match(box.promptOf(state, 'triage triage:SCAN'), /^The engine could not read the commit messages of the change \(git log [^\n]*unknown date format[^\n]*\)\. Take the reason only from the documents the change adds or edits\.$/m);
-    assert.equal(box.logs.filter((line) => line.startsWith(`run ${state.id}: could not read the commit messages of the change, so the triage reads none: git log `)).length, 1, box.logs.join('\n'));
+    assert.equal(box.logs.filter((line) => line.startsWith(`run ${state.id}: could not read the commit messages of the change, so the triage and the writer read none: git log `)).length, 1, box.logs.join('\n'));
   });
 
   /** A surveyed check of the fake package.json, its tool missing when one is named. */
