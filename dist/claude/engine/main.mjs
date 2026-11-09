@@ -24245,7 +24245,7 @@ function recordExplanation(state, payload, event, drafts, version2) {
   const { current, review: review2 } = requireReview(state, event);
   if (!review2.explanationStep) throw invalid(event, "records an explanation, which only a run configured at review.configured@10 or later has");
   const asked = explanationVersionOf(review2);
-  if (asked !== version2) throw invalid(event, `records an explanation at version ${String(version2)}, which a run configured at review.configured@${String(asked + 9)} records at version ${String(asked)}`);
+  if (asked !== version2) throw invalid(event, `records an explanation at version ${String(version2)}, which a run configured at ${explanationConfiguredAt[asked]} records at version ${String(asked)}`);
   if (current.explanation !== null) throw invalid(event, "records its explanation twice");
   requireRunning(review2, event, "explanation");
   const ranked2 = new Set((review2.ranking ?? []).map((finding) => finding.id));
@@ -24269,7 +24269,7 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV11, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, decisionsRecordedV12, explanationVersionOf, explanationRecorded, explanationRecordedV22, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV11, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, decisionsRecordedV12, explanationVersionOf, explanationConfiguredAt, explanationRecorded, explanationRecordedV22, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
@@ -24430,6 +24430,7 @@ var init_review_fold = __esm({
     decisionsRecorded = (state, payload, event, drafts) => recordDecisions(state, payload, event, drafts, 2);
     decisionsRecordedV12 = (state, payload, event, drafts) => recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: [] })) }, event, drafts, 1);
     explanationVersionOf = (review2) => review2.coreForm ? 3 : review2.reportForm ? 2 : 1;
+    explanationConfiguredAt = { 1: "review.configured@10", 2: "review.configured@11", 3: "review.configured@12" };
     explanationRecorded = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 3);
     explanationRecordedV22 = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 2);
     explanationRecordedV12 = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 1);
@@ -27176,6 +27177,14 @@ function commitIds(repo, base, head2) {
   if (base === head2) return [];
   const range = base === emptyTree(repo) ? ["-1", head2] : [`${base}..${head2}`];
   return gitText(repo, ["rev-list", ...range, "--"]).split("\n").filter((line) => line !== "");
+}
+function commitIdsOrNull(repo, base, head2, unreadable) {
+  try {
+    return commitIds(repo, base, head2);
+  } catch (error62) {
+    unreadable?.(error62 instanceof Error ? error62.message : String(error62));
+    return null;
+  }
 }
 function commitCount(repo, base, head2, paths = [], exclude = []) {
   const range = isEmptyTree(base) ? [head2] : [`${base}..${head2}`];
@@ -31526,8 +31535,7 @@ function verifierOutputSchemaFor(review2) {
   return review2.citedRuns ? verifierOutputSchemaV2 : verifierOutputSchema;
 }
 function writerOutputSchemaFor(review2) {
-  if (review2.coreForm) return writerOutputSchemaV3;
-  return review2.reportForm ? writerOutputSchemaV2 : writerOutputSchema;
+  return writerOutputSchemas[explanationVersionOf(review2)];
 }
 function checkFixerAnswer(output2, count3, blocks2 = true) {
   const seen = /* @__PURE__ */ new Set();
@@ -31682,12 +31690,13 @@ function checkDecisions(output2, findings) {
   if (missing.length > 0) faults.push(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count3)} the task gave`);
   if (faults.length > 0) throw new StructuralCheckError(faultsMessage(faults));
 }
-var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, verifierNote, verifierOutputSchemaV3, mergeRankOutputSchema, decisionText2, deciderOutputSchema, citedSides, writerText, writerDiagram, writerOutputSchema, writerOutputSchemaV2, writerCoreSchema, writerConditionSchema, writerOutputSchemaV3, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
+var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, verifierNote, verifierOutputSchemaV3, mergeRankOutputSchema, decisionText2, deciderOutputSchema, citedSides, writerText, writerDiagram, writerOutputSchema, writerOutputSchemaV2, writerCoreSchema, writerConditionSchema, writerOutputSchemaV3, writerOutputSchemas, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
 var init_schemas3 = __esm({
   "src/review/schemas.ts"() {
     "use strict";
     init_zod();
     init_events();
+    init_review_fold();
     init_cited_runs();
     init_errors7();
     init_steps();
@@ -31847,6 +31856,7 @@ var init_schemas3 = __esm({
       core: writerCoreSchema,
       conditions: external_exports.array(writerConditionSchema).max(changeConditions.length)
     });
+    writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3 };
     reportedPath = external_exports.string().min(1).max(1e3);
     surveyorCheckSchema = external_exports.strictObject({
       kind: checkKindSchema,
@@ -37674,14 +37684,21 @@ function checkRefuted(lines, refutedIds) {
     ])
   ];
 }
+function resolveCommitSource(source, commits) {
+  if (!commitPrefix.test(source)) return { kind: "not-a-commit" };
+  const prefix = source.toLowerCase();
+  const begun = commits.filter((commit2) => commit2.startsWith(prefix));
+  if (begun.length === 0) return { kind: "none" };
+  return begun.length === 1 ? { kind: "one", commit: begun[0] } : { kind: "many", count: begun.length };
+}
 function sourceFailure(source, input2) {
   if (input2.files.includes(source)) return null;
   const named = JSON.stringify(source);
-  if (!commitPrefix.test(source)) return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id`;
+  const resolved = resolveCommitSource(source, input2.commits ?? []);
+  if (resolved.kind === "not-a-commit") return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id`;
   if (input2.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
-  const commits = input2.commits.filter((commit2) => commit2.startsWith(source));
-  if (commits.length === 0) return `the core's reason names ${named}, which begins no commit of the change`;
-  if (commits.length > 1) return `the core's reason names ${named}, which begins ${String(commits.length)} commits of the change; name the commit by more characters of its id`;
+  if (resolved.kind === "none") return `the core's reason names ${named}, which begins no commit of the change`;
+  if (resolved.kind === "many") return `the core's reason names ${named}, which begins ${String(resolved.count)} commits of the change; name the commit by more characters of its id`;
   return null;
 }
 function checkCore(core, input2) {
@@ -37796,18 +37813,13 @@ function checkedAnswers(state, review2, context, ids2, latest) {
   const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
   const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
   const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
-  const version2 = answerVersionOf(review2);
+  const version2 = explanationVersionOf(review2);
   const report2 = version2 === 1 ? {} : { report: reportCheckInputOf(review2) };
   const core = version2 === 3 && answers.length > 0 ? { core: coreCheckInputOf(review2, state.scope, context.worktree) } : {};
   return answers.map((answer3) => checkAnswer(answer3, { ids: ids2, lineCount, ...report2, ...core }));
 }
 function coreCheckInputOf(review2, scope, worktree) {
-  let commits;
-  try {
-    commits = commitIds(worktree, scope.base, scope.head);
-  } catch {
-    commits = null;
-  }
+  const commits = commitIdsOrNull(worktree, scope.base, scope.head);
   return { commits, files: scope.files.map((file2) => file2.path), candidates: Object.keys(review2.candidates), held: heldConditions(review2) };
 }
 function droppedWords(dropped) {
@@ -37819,7 +37831,7 @@ function writerContribution(state, receipt, context) {
   const answers = checkedAnswers(state, review2, context, ids2, receipt.output);
   const strays = answers.at(-1).strays;
   if (strays.length > 0) context.log(`the answer explains ${strays.join(", ")}, which ${strays.length === 1 ? "is no finding" : "are no findings"} of the run that asks a person to act; not kept`);
-  const version2 = answerVersionOf(review2);
+  const version2 = explanationVersionOf(review2);
   const merged = mergeAnswers(version2, answers, ids2);
   if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review2))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
   return explanationRecord(version2, receipt.workerId, merged, context.evidence);
@@ -37827,8 +37839,8 @@ function writerContribution(state, receipt, context) {
 function droppedExplanation(state, context, reason) {
   const review2 = requireReview2(state);
   const ids2 = findingsToExplain(review2);
-  const merged = mergeAnswers(answerVersionOf(review2), checkedAnswers(state, review2, context, ids2, null), ids2, [reason]);
-  return explanationRecord(answerVersionOf(review2), null, merged, context.evidence);
+  const merged = mergeAnswers(explanationVersionOf(review2), checkedAnswers(state, review2, context, ids2, null), ids2, [reason]);
+  return explanationRecord(explanationVersionOf(review2), null, merged, context.evidence);
 }
 function reviewLanguage(review2) {
   const values = review2.configuration.settings?.values;
@@ -37921,7 +37933,7 @@ function reportAsks(ids2, report2) {
 function coreAsks(review2, messages, clean) {
   const held = heldConditions(review2);
   const given = changeReadingOf(review2.change) !== null;
-  const conditions = held.length === 0 ? [given ? "The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty." : "The triage gave no account of the change, so it judged no condition: give `conditions` empty."] : [
+  const conditions = held.length === 0 ? [given ? "The triage judged that the change alters no public interface and does not affect many files beyond the ones it changes, so give `conditions` empty." : "The triage gave no account of the change, so it judged no condition: give `conditions` empty."] : [
     `The triage judged ${held.length === 1 ? "this condition" : "these conditions"} to hold. Give one entry of \`conditions\` for each, by its name, and for no other:`,
     "",
     ...held.map((entry) => `- \`${entry.condition}\`, ${conditionWords2[entry.condition]}: ${entry.what === null ? "the triage gave no sentence" : clean(entry.what)}${entry.files.length === 0 ? "" : ` (files: ${entry.files.map((file2) => clean(file2)).join(", ")})`}`)
@@ -37943,7 +37955,7 @@ function coreAsks(review2, messages, clean) {
 }
 function writerTask(state, input2) {
   const review2 = requireReview2(state);
-  const version2 = answerVersionOf(review2);
+  const version2 = explanationVersionOf(review2);
   const ids2 = findingsToExplain(review2);
   const clean = (text3) => inlineText(publicWords(text3, input2.machine).text);
   const quote = (text3, info = "") => fenced(publicCode(text3, input2.machine).text, info);
@@ -37993,7 +38005,7 @@ function writerTask(state, input2) {
     version2 === 1 ? "Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null." : version2 === 2 ? "Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them." : "Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them."
   ].join("\n");
 }
-var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, explanationShape, explanationShapeV2, answerVersionOf, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, isMajor, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, writerUnit, writerFailures, idList2, conditionWords2;
+var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, explanationShape, explanationShapeV2, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, isMajor, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, writerUnit, writerFailures, idList2, conditionWords2;
 var init_explanation = __esm({
   "src/review/explanation.ts"() {
     "use strict";
@@ -38018,7 +38030,6 @@ var init_explanation = __esm({
     writerOutputShapeV3 = writerOutputSchemaV3.shape;
     explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
     explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
-    answerVersionOf = (review2) => review2.coreForm ? 3 : review2.reportForm ? 2 : 1;
     explainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShape });
     explainedFindingSchemaV2 = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShapeV2 });
     unexplainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(true), reason: external_exports.string() });
@@ -38059,13 +38070,13 @@ var init_explanation = __esm({
     sequenceTitle = /^title\s+(.+)$/;
     diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
     sideWords = { head: "the head", base: "the merge base" };
-    commitPrefix = /^[0-9a-f]{7,40}$/;
+    commitPrefix = /^[0-9a-f]{7,64}$/i;
     maxPartFailures = 100;
     keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.core !== null || answer3.conditions !== null || answer3.findings.length > 0;
     partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
     isPartV1 = (part) => part.part === "conclusion" || part.part === "account" || part.part === "finding";
     isPartV2 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding";
-    isPartV3 = (part) => part.part !== "account";
+    isPartV3 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding" || part.part === "core" || part.part === "conditions";
     writerUnit = (review2) => review2.units.explanation[singleUnitKey("explanation")];
     writerFailures = (review2) => writerUnit(review2)?.failures ?? [];
     idList2 = (ids2) => ids2.join(", ");
@@ -38475,7 +38486,7 @@ function taskFor(unit, review2, options2 = {}) {
       throw new Error("The report phase has no worker");
     case "explanation":
       if (evidence === null || options2.writer === void 0 || options2.writer === null) throw new Error("The writer's task renders the brief from the fold, checks an earlier answer in the evidence store and cleans what it quotes, and needs them");
-      return writerTask(options2.writer.state, { worktree: options2.writer.worktree, evidence, machine: options2.writer.machine, commitMessages: options2.writer.commitMessages });
+      return writerTask(options2.writer.state, { worktree: options2.writer.worktree, evidence, machine: options2.writer.machine, commitMessages: options2.commitMessages ?? null });
   }
 }
 function invocationFor(unit, context) {
@@ -38491,7 +38502,7 @@ function invocationFor(unit, context) {
   const commitMessages2 = unit.phase === "triage" || unit.phase === "explanation" && review2.coreForm ? context.commitMessages() : null;
   const documentation = unit.phase === "documentation" ? context.documentation() : null;
   const writer = unit.phase === "explanation" ? writerLaunchOf(context) : null;
-  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine, commitMessages: commitMessages2 };
+  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine };
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2, documentation, readerScratch: context.readerScratch, writer: writerTaskInput }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
@@ -38861,7 +38872,7 @@ var init_pull_request_words = __esm({
       needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
       departureStands: "`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.",
       needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0] : `one of ${listed(flags, "or")}`}. A reply on this pull request is not read yet.`,
-      needsNothing: "Nothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review's judgment the change alters no public interface and affects no file beyond its own.",
+      needsNothing: "Nothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review's judgment the change alters no public interface and does not affect many files beyond the ones it changes.",
       needsLookAlso: "A person should also look at the change for these reasons. Nothing waits for them, and no command answers them:",
       needsLookOnly: "Nothing here waits for an answer: deep-review asks no question, and no fix goes against a written rule. A person should still look at the change for these reasons:",
       needsNothingUnjudged: "Nothing here needs a person that deep-review can name: it asks no question, and no fix goes against a written rule or rests on a PLAUSIBLE verdict. deep-review has no judgment for this run of whether the change alters a public interface or affects files beyond its own.",
@@ -38998,6 +39009,7 @@ var init_pull_request_words = __esm({
       conclusionDropped: "The writer gave no summary that deep-review could keep, so the summary and the actions are in deep-review's own words.",
       areasDropped: "The writer gave no areas that passed deep-review's checks, so the major findings are listed in one area in deep-review's own words.",
       refutedDropped: "The writer gave no lines for the refuted candidates that passed deep-review's checks, so each is given by its finder's summary.",
+      conditionsDropped: "The writer gave no sentences on the conditions that passed deep-review's checks, so the reasons to look give each condition in the words of deep-review's triage.",
       findingsDropped: (findings, count3) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count3 === 1 ? "it is" : "each is"} given in deep-review's own words.`,
       noExplanation: "deep-review recorded no explanation by its writer for this run, so the review is in deep-review's own words.",
       coreDropped: (triage) => `The writer gave no account of the change that passed deep-review's checks, so the review opens with ${triage ? "the account of deep-review's triage" : "no account of the change"}.`,
@@ -39069,7 +39081,7 @@ var init_pull_request_words = __esm({
       needsDeparture: (finding, href, rule, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC758 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" ${tail}`,
       departureStands: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 `--fix`\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4. \uACE0\uCE5C \uB4A4\uC5D0 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
       needsAnswer: (command, flags) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${command} \uBA85\uB839\uC5D0 ${flags.length === 1 ? `${flags[0]}\uB97C` : `${flags.join(", ")} \uC911 \uD558\uB098\uB97C`} \uBD99\uC5EC \uB2F5\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
-      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4, PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815\uB3C4 \uC5C6\uC73C\uBA70, deep-review\uAC00 \uD310\uB2E8\uD558\uAE30\uC5D0 \uC774 \uBCC0\uACBD\uC740 \uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFB8\uC9C0 \uC54A\uACE0 \uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC8FC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4, PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815\uB3C4 \uC5C6\uC73C\uBA70, deep-review\uAC00 \uD310\uB2E8\uD558\uAE30\uC5D0 \uC774 \uBCC0\uACBD\uC740 \uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFB8\uC9C0 \uC54A\uACE0 \uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uB9CE\uC740 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC8FC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
       needsLookAlso: "\uB2E4\uC74C \uC774\uC720\uB85C\uB3C4 \uC0AC\uB78C\uC774 \uBCC0\uACBD\uC744 \uC0B4\uD3B4\uBD10\uC57C \uD569\uB2C8\uB2E4. \uC774\uB97C \uAE30\uB2E4\uB9AC\uB294 \uAC83\uC740 \uC5C6\uC73C\uBA70, \uB2F5\uD558\uB294 \uBA85\uB839\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
       needsLookOnly: "\uB2F5\uC744 \uAE30\uB2E4\uB9AC\uB294 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4. \uADF8\uB798\uB3C4 \uB2E4\uC74C \uC774\uC720\uB85C \uC0AC\uB78C\uC774 \uBCC0\uACBD\uC744 \uC0B4\uD3B4\uBD10\uC57C \uD569\uB2C8\uB2E4.",
       needsNothingUnjudged: "deep-review\uAC00 \uC9DA\uC744 \uC218 \uC788\uB294 \uC0AC\uB78C\uC758 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4, PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uB9CC \uC774 \uC2E4\uD589\uC5D0\uB294 \uBCC0\uACBD\uC774 \uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFB8\uB294\uC9C0, \uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC8FC\uB294\uC9C0\uC5D0 \uB300\uD55C deep-review\uC758 \uD310\uB2E8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
@@ -39222,6 +39234,7 @@ var init_pull_request_words = __esm({
       conclusionDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uB0B8 \uC694\uC57D \uAC00\uC6B4\uB370 deep-review\uAC00 \uC4F8 \uC218 \uC788\uB294 \uAC83\uC774 \uC5C6\uC5B4, \uC694\uC57D\uACFC \uC870\uCE58\uB294 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       areasDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC601\uC5ED\uC744 \uB0B4\uC9C0 \uBABB\uD574, major \uC9C0\uC801 \uC0AC\uD56D\uC740 deep-review\uAC00 \uC9C1\uC811 \uC774\uB984 \uBD99\uC778 \uD55C \uC601\uC5ED\uC5D0 \uBAA8\uC544 \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       refutedDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uAC01 \uD6C4\uBCF4\uB294 \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC694\uC57D\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      conditionsDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uC870\uAC74\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uC0B4\uD3B4\uBCFC \uC774\uC720\uB294 \uAC01 \uC870\uAC74\uC744 deep-review \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uC758 \uB9D0\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       findingsDropped: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC774 ${findings}\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
       noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0 \uC804\uCCB4\uB97C deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       coreDropped: (triage) => `\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBCC0\uACBD \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uB9AC\uBDF0\uB294 ${triage ? "deep-review \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uC758 \uC124\uBA85\uC73C\uB85C \uC2DC\uC791\uD569\uB2C8\uB2E4" : "\uBCC0\uACBD \uC124\uBA85 \uC5C6\uC774 \uC2DC\uC791\uD569\uB2C8\uB2E4"}.`,
@@ -39972,7 +39985,7 @@ async function runPass(options2, log, continuing) {
         return { kind: "read", messages: commitMessages(options2.worktree, scope.base, scope.head), withTree: shape === "commits-and-tree" };
       } catch (error62) {
         const reason = error62 instanceof Error ? error62.message : String(error62);
-        log(`run ${runId}: could not read the commit messages of the change, so the triage reads none: ${reason}`);
+        log(`run ${runId}: could not read the commit messages of the change, so the triage and the writer read none: ${reason}`);
         return { kind: "unreadable", reason };
       }
     });
@@ -41043,12 +41056,17 @@ ${fence}`;
 function blobUrl(pullRequest, commit2, path, from, to) {
   return `${fileUrl(pullRequest, commit2, path)}#L${String(from)}${to === from ? "" : `-L${String(to)}`}`;
 }
-function sourceLink(view, source) {
-  const file2 = view.scope.files.find((entry) => entry.path === source);
-  if (file2 !== void 0) return `[${codeSpan(inlineText(source))}](${fileUrl(view.pullRequest, file2.status === "deleted" ? view.scope.base : view.scope.head, source)})`;
-  if (!commitPrefix2.test(source)) return null;
-  const commits = (view.input.commits ?? []).filter((commit2) => commit2.startsWith(source));
-  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]))}](${commitUrl(view.pullRequest, commits[0])})` : null;
+function fileSideUrl(view, path) {
+  const removed = view.scope.files.some((file2) => file2.path === path && file2.status === "deleted");
+  return fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path);
+}
+function sourceLink(view, source, say) {
+  if (view.scope.files.some((entry) => entry.path === source)) {
+    const shown = say.code(source);
+    return shown === codeSpan(inlineText(source)) ? `[${shown}](${fileSideUrl(view, source)})` : shown;
+  }
+  const resolved = resolveCommitSource(source, view.input.commits ?? []);
+  return resolved.kind === "one" ? `[${codeSpan(shortCommit(resolved.commit))}](${commitUrl(view.pullRequest, resolved.commit)})` : say.code(source);
 }
 function followingOf(words, fixPass, pullRequest) {
   if (fixPass === "continued") return words.continued;
@@ -41216,7 +41234,7 @@ function headingSection(view) {
 function coreSection(view, say) {
   const { words, core } = view;
   if (core.kind === "none") return { part: "core", lines: [words.coreHeading, "", words.coreNone(core.state)] };
-  const links = (sources) => sources.map((source) => sourceLink(view, source) ?? say.code(source));
+  const links = (sources) => sources.map((source) => sourceLink(view, source, say));
   if (core.kind === "writer") {
     const { title: title2, what, why, whyFrom, diagram } = core.core;
     const reason2 = why === null ? words.coreNoReason : words.coreWhy(sentenceText(say.prose(why)), links(whyFrom));
@@ -41241,14 +41259,16 @@ function summarySection(view, say) {
 function fileLink(view, path, say) {
   const shown = say.code(path);
   if (!repositoryPathLike(path) || shown !== codeSpan(inlineText(path))) return shown;
-  const removed = view.scope.files.some((file2) => file2.path === path && file2.status === "deleted");
-  return `[${shown}](${fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path)})`;
+  return `[${shown}](${fileSideUrl(view, path)})`;
 }
 function heldConditionsOf(view) {
   const { change } = view.brief;
   if (change.state !== "given") return [];
-  const judged2 = [{ condition: "public-interface", label: view.words.lookInterface, ...change.publicInterface }, { condition: "wide-effect", label: view.words.lookWide, ...change.wideEffect }];
-  return judged2.filter((entry) => entry.holds);
+  return changeConditions.flatMap((condition2) => {
+    const { judgment, label } = conditionReading[condition2];
+    const { holds, what, files } = change[judgment];
+    return holds ? [{ condition: condition2, label: view.words[label], what, files }] : [];
+  });
 }
 function reasonsToLook(view, say) {
   const { words } = view;
@@ -41394,6 +41414,7 @@ function trustSection(view, cuts) {
     if (recorded.dropped.some((part) => part.part === "core")) notes.push(words.coreDropped(triage));
     else if (recorded.version < 3) notes.push(words.coreBeforeWriter(triage));
     if (recorded.dropped.some((part) => part.part === "conclusion")) notes.push(words.conclusionDropped);
+    if (recorded.dropped.some((part) => part.part === "conditions") && heldConditionsOf(view).length > 0) notes.push(words.conditionsDropped);
     if (recorded.dropped.some((part) => part.part === "areas")) notes.push(words.areasDropped);
     if (recorded.dropped.some((part) => part.part === "refuted")) notes.push(words.refutedDropped);
     const findings = recorded.dropped.flatMap((part) => part.part === "finding" ? [numberOf(part.finding)] : []);
@@ -41576,7 +41597,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, commitPrefix2, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, postedWhy, repositoryPathLike, writerConditionOf, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, postedWhy, repositoryPathLike, writerConditionOf, conditionReading, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -41607,7 +41628,6 @@ var init_pull_request_form = __esm({
     repositoryUrl = (pullRequest) => `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}`;
     fileUrl = (pullRequest, commit2, path) => `${repositoryUrl(pullRequest)}/blob/${commit2}/${urlPath(path)}`;
     commitUrl = (pullRequest, commit2) => `${repositoryUrl(pullRequest)}/commit/${commit2}`;
-    commitPrefix2 = /^[0-9a-f]{7,40}$/;
     headUrl = (view, location) => blobUrl(view.pullRequest, view.scope.head, location.path, location.line, location.line);
     locationLink = (view, location) => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
     hrefOf = (view, finding) => finding.placement.place === "line" ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`;
@@ -41618,6 +41638,10 @@ var init_pull_request_form = __esm({
     postedWhy = (view) => view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === "areas") ?? false) ? null : view.conclusion.why;
     repositoryPathLike = (path) => path !== "" && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
     writerConditionOf = (view, condition2) => view.conditions?.find((entry) => entry.condition === condition2) ?? null;
+    conditionReading = {
+      "public-interface": { judgment: "publicInterface", label: "lookInterface" },
+      "wide-effect": { judgment: "wideEffect", label: "lookWide" }
+    };
     majorActing = (view) => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
     minorActing = (view) => {
       const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
@@ -41875,12 +41899,9 @@ function publishLocked(options2, runId, log) {
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded2));
   const placements = placeFindings(reviewed.review, files);
   const serial = run2.publications.length + 1;
-  let commits;
-  try {
-    commits = commitIds(options2.worktree, scope.base, scope.head);
-  } catch {
-    commits = null;
-  }
+  const commits = commitIdsOrNull(options2.worktree, scope.base, scope.head, (reason) => {
+    log(`run ${run2.id}: could not read the commits of the change, so the review names each commit of the core's reason as code with no link: ${reason}`);
+  });
   const form = pullRequestForm({
     state: reviewed,
     fixPass: run2.review.continuedFrom === null ? "to-come" : "continued",
