@@ -67,7 +67,7 @@ The bounds are those of the schema, which a model must not break or the whole an
 
 - the title or `what` is blank;
 - `why` is blank but not null, or is null while `whyFrom` names a source, or is given with no source;
-- a source is neither a commit of the change nor a file of the change. A commit is named by 7 to 40 hexadecimal characters that begin the id of exactly one commit in `base..head` of the scope. A file is the path of a file of `scope.files`, as the scope captured it;
+- a source is neither a commit of the change nor a file of the change. A commit is named by 7 to 64 hexadecimal characters, in either case, compared in lower case, that begin the id of exactly one commit in `base..head` of the scope. A file is the path of a file of `scope.files`, as the scope captured it;
 - a text or the diagram holds a verdict word, as `verdictFailures` finds them;
 - a text or the diagram names the id of a candidate of the run, found with the boundaries of an id that `src/review/finding-names.ts` uses;
 - the diagram fails `diagramFailures`.
@@ -116,11 +116,11 @@ Each text of a worker goes through the Speaker, as every worker text does, so it
 - for each condition the brief's `change` holds, in the order public interface, wide effect: `words.lookInterface` or `words.lookWide`, then the writer's sentence for it; or, with an `unexplained` sentence, `words.lookUnexplained` with the writer's sentence and the triage's; or, with no sentence of the writer's, `words.lookInTriageWords` with the triage's sentence, or the label alone when the triage gave none; then `words.lookFiles` with the triage's files, each linked at the head;
 - when any finding whose status is `planned` or `planned-against-rule` has the verdict `PLAUSIBLE`: one item, `words.lookPlausible` with `words.findingList` of their numbers, each linked by `hrefOf`.
 
-With questions or departures, the section lists them, then the answer command as today, then, when a reason to look holds, `words.needsLookAlso` and the reasons. With reasons to look alone, it writes `words.needsLookOnly` and the reasons, and no command. With neither, it writes `words.needsNothing` when the brief's `change` is `given`, which now also says that no fix rests on a `PLAUSIBLE` verdict and that, in deep-review's judgment, the change alters no public interface and affects no file beyond its own; and `words.needsNothingUnjudged` otherwise, which says the same of the questions, the departures and the verdicts, and that deep-review has no judgment of a public interface or of a wide effect for this run.
+With questions or departures, the section lists them, then the answer command as today, then, when a reason to look holds, `words.needsLookAlso` and the reasons. With reasons to look alone, it writes `words.needsLookOnly` and the reasons, and no command. With neither, it writes `words.needsNothing` when the brief's `change` is `given`, which now also says that no fix rests on a `PLAUSIBLE` verdict and that, in deep-review's judgment, the change alters no public interface and does not affect many files beyond the ones it changes; and `words.needsNothingUnjudged` otherwise, which says the same of the questions, the departures and the verdicts, and that deep-review has no judgment of a public interface or of a wide effect for this run.
 
 ### The trust section
 
-`postsWriterText` also returns true when the body posts the writer's core or a sentence of a condition, so `words.modelLine` is written exactly when a text of the writer is posted. `trustSection` adds `words.coreDropped` when the run's explanation dropped the core, and `words.coreBeforeWriter` when the run's writer answered at version 1 or 2, so a reader learns why the review opens with the triage's account.
+`postsWriterText` also returns true when the body posts the writer's core or a sentence of a condition, so `words.modelLine` is written exactly when a text of the writer is posted. `trustSection` adds `words.coreDropped` when the run's explanation dropped the core, and `words.coreBeforeWriter` when the run's writer answered at version 1 or 2, so a reader learns why the review opens with the triage's account. It adds `words.conditionsDropped` when the run's explanation dropped the conditions and the triage judged a condition to hold, so a reader learns why the reasons to look give the triage's sentences.
 
 ### The words (R11, RK8)
 
@@ -194,7 +194,7 @@ A test of `pullRequestForm` holds the order of the sections, with the core secon
 
 ### R2, R3 and R5: The core and its checks
 
-Tests of `checkCore` hold each failure: a blank title or `what`; a blank `why`; a `why` with no source and a null `why` with one; a source that is a commit of the change by a prefix of 7 and of 40 characters, a prefix of 6, a prefix that two commits share, a commit outside the change, a path of the change, and a path that is not; a verdict word in each text and in the diagram; an id of a finding and of a refuted candidate in each text; and a diagram that fails. A test of `checkedAnswers` on a repository with two commits holds that the ids come from `base..head`. A test of `writerTask` holds the commit messages section and the conditions line for a run with an account and for one with none.
+Tests of `checkCore` hold each failure: a blank title or `what`; a blank `why`; a `why` with no source and a null `why` with one; a source that is a commit of the change by a prefix of 7, a whole id of 40 and of 64 characters, and a prefix and an id in capitals, a prefix of 6, a source of 65 characters, a prefix that two commits share, a commit outside the change, a path of the change, and a path that is not; a verdict word in each text and in the diagram; an id of a finding and of a refuted candidate in each text; and a diagram that fails. A test of `checkedAnswers` on a repository with two commits holds that the ids come from `base..head`. A test of `writerTask` holds the commit messages section and the conditions line for a run with an account and for one with none.
 
 ### R4, R10, R11 and R12: The core in the body
 
