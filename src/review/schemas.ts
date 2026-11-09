@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import { changeConditionFilesCountV1, changeRestsOnCountV1, changeTextLengthV1, changeWhyFromCountV1, citedRunLimitsV1, comparisonWordsLengthV1, settlementFaultsV1, verifierNoteLengthV1, type CandidateChoice, type ChangeCondition, type ChangeReading } from '../checkpoint/events.ts';
-import type { ReviewState } from '../checkpoint/review-fold.ts';
+import { explanationVersionOf, type ExplanationVersion, type ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
 import { truncated } from './steps.ts';
@@ -364,10 +364,12 @@ export const writerOutputSchemaV3 = z.strictObject({
 });
 export type WriterOutputV3 = z.infer<typeof writerOutputSchemaV3>;
 
-/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: version 3 in a run whose review opens with the core of the change, version 2 in one whose review reads as a report, version 1 before. */
-export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm'>): typeof writerOutputSchema | typeof writerOutputSchemaV2 | typeof writerOutputSchemaV3 {
-  if (review.coreForm) return writerOutputSchemaV3;
-  return review.reportForm ? writerOutputSchemaV2 : writerOutputSchema;
+/** The schema of each version of the writer's answer, by the version of `explanation.recorded` that records it. */
+const writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3 } as const satisfies Record<ExplanationVersion, z.ZodType>;
+
+/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: the schema of the version `explanationVersionOf` gives, 3 in a run whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
+export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm'>): (typeof writerOutputSchemas)[ExplanationVersion] {
+  return writerOutputSchemas[explanationVersionOf(review)];
 }
 
 /** A repository path as a fixer reports it; the engine resolves it against the worktree. */
