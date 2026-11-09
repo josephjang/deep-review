@@ -23,9 +23,12 @@ reader meets in the same way.
 Your prompt carries a scope block with the patch, the brief of the run,
 every ranked finding with its decision, its evidence, the runs its
 verdict cites and its verifier's notes, which of them you explain, the
-candidates the verifiers refuted, and the language you write in.
-It carries neither the title nor the description of the pull request,
-and you do not look for them. Read the code each finding points at:
+candidates the verifiers refuted, the commit messages of the change,
+the conditions the triage judged to hold, and the language you write
+in. It carries neither the title nor the description of the pull
+request, and you do not look for them: the core of the change you write
+is a reading of its code and its commits, apart from what its
+description says. Read the code each finding points at:
 the files at head in your working directory, and the before state of a
 changed file at the path the scope block gives. Run no command: you
 cite lines and explain them, and nothing you write rests on code you

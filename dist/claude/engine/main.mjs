@@ -21371,7 +21371,7 @@ function settlementFaultsV1(decision, candidates) {
   if (open2.length > 0) faults.push(`is ${rule.what} and settles no choice for ${open2.join(", ")}, whose verifier named one for the author; name each such candidate in the \`for\` of one entry`);
   return faults;
 }
-var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, reviewVocabularyV13, vocabularyV13, settledChoiceSchemaV1, settlementRulesV1, blankText, recordedFixV1, recordedLeaveV1, recordedAskV1, decidedLeaveV2, recordedDecisionSchemaV2, decisionsRecordedV2, eventRegistry;
+var reviewVocabularyV1, vocabulary, angleSchema, finderAngleSchema, phaseSchema, candidatePhaseSchema, deduplicationPhaseSchema, verificationPhaseSchema, phaseOutcomeSchema, recordedBlockerCodeSchema, verdictSchema, severitySchema, reviewIdentifiersV1, candidateIdSchema, groupIdSchema, unitKeySchema, recordedTextLengthV1, recordedTextSchema, runCreatedV1, runAbandonedV1, commitId, frozenFileSchema, scopeFileSchema, scopeRequestSchema, scopeModeSchema, scopeCapturedV1, effortSchema, accessSchema, deniedToolSchema, sessionIdSchema, workerLaunchedV1, workerOutcomeSchema, workerFinishedV1, workerLostV1, pinnedRoleSchema, reviewConfiguredV1, limitsChangedV1, phaseStartedV1, blockerSchema, phaseFinishedV1, worktreeCheckedV1, recordedCandidateSchema, leadSchema, candidatesRecordedFields, candidatesRecordedV1, changeTextLengthV1, changeTextSchema, changeSourceSchema, changeWhyFromCountV1, changeRestsOnCountV1, changeConditionFilesCountV1, changeConditionSchema, changeReadingSchema, candidatesRecordedV2, attemptFailedV1, angleFailedV1, deduplicationRecordedV1, verificationPlannedV1, verdictsRecordedV1, groupUnverifiedV1, rankedFindingSchema, rankingRecordedV1, spendSchema, reportWrittenV1, reviewVocabularyV2, reviewIdentifiersV2, vocabularyV2, phaseSchemaV2, checkPhaseSchemaV2, editingPhaseSchemaV2, checkKindSchemaV2, clusterIdSchemaV2, batchKeySchemaV2, blockerSchemaV2, reviewConfiguredV2, phaseStartedV2, phaseFinishedV2, maxStraysPerCheck, worktreeCheckedV2, attemptFailedV2, workerLostV2, reportWrittenV2, fixesPlannedV1, fixesReplannedV1, plannedCheckSchema, checksPlannedV1, checkRanV1, commitMessageSchema, fixedFindingSchema, fixRecordedV1, revisedFileSchema, treeRevisedV1, unitUnattemptedV1, commitsCreatedV1, reviewVocabularyV3, vocabularyV3, phaseSchemaV3, checkKindSchemaV3, checkBaseSchemaV3, blockerSchemaV3, reviewConfiguredV3, codexWindowsSandboxesV4, reviewConfiguredV4, phaseStartedV3, phaseFinishedV3, worktreeCheckedV3, attemptFailedV3, workerLostV3, reportWrittenV3, surveyPathSchema, conventionSourceSchema, userRuleDecisionSchema, surveyedCheckSchema, surveyRecordedV1, surveyFailedV1, plannedCheckSchemaV2, checksPlannedV2, reviewVocabularyV4, vocabularyV4, phaseSchemaV4, reviewConfiguredV5, phaseStartedV4, phaseFinishedV4, worktreeCheckedV4, attemptFailedV4, workerLostV4, reportWrittenV4, decisionText, decidedFix, decidedLeave, decidedAsk, decidedDeparture, recordedDecisionSchema, decisionsRecordedV1, reviewVocabularyV5, vocabularyV5, blockerSchemaV5, phaseFinishedV5, attemptFailedV5, claimedPathSchema, maxClaimFilesPerEvent, pathsOnce, filesClaimedV1, claimsLostV1, fixPinnedV1, reviewVocabularyV6, vocabularyV6, phaseSchemaV6, editingPhaseSchemaV6, checkPhaseSchemaV6, phaseStartedV5, phaseFinishedV6, worktreeCheckedV5, attemptFailedV6, workerLostV5, reportWrittenV5, treeRevisedV2, fixRecordedV2, checkRanV2, answerSchemaV1, answerNoteLengthV1, answerRecordedV1, answerPassV1, recordedSettingsV1, settingLayerSchemaV1, fileLayerSchemaV1, settingNameSchemaV1, settingTextSchemaV1, recordedCheckSettingV1, settingLayersSchemaV1, runtimeLayersMatch, settingsSourcesShapeV1, sourcesProblem, refineSources, settingsRecordedV1, reviewConfiguredV6, scopeRequestSchemaV2, scopeCapturedV2, plannedCheckSchemaV3, checksPlannedV3, fixSettingsRecordedV1, fixPinnedV2, reviewVocabularyV7, vocabularyV7, attemptNumber, checkStartedV1, checkRanV3, restoredFileSchemaV1, treeRestoredV1, worktreeCheckedV6, attemptFailedV7, fixReopenedV1, commitsPreparedV1, commitsDroppedV1, reviewVocabularyV8, vocabularyV8, phaseSchemaV8, editingPhaseSchemaV8, reviewConfiguredV7, phaseStartedV6, phaseFinishedV7, worktreeCheckedV7, attemptFailedV8, workerLostV6, reportWrittenV6, treeRevisedV3, fixRecordedV3, unitUnattemptedV2, fixReopenedV2, documentationItemIdSchema, documentationSearchId, documentationItemSchemaV1, documentationPlannedV1, reviewVocabularyV9, vocabularyV9, phaseSchemaV9, checkPhaseSchemaV9, reviewConfiguredV8, phaseStartedV7, phaseFinishedV8, worktreeCheckedV8, checkStartedV2, checkRanV4, comparisonWordsLengthV1, fixRecordedV4, reportWrittenV7, reviewVocabularyV10, verdictBasisSchemaV10, reviewConfiguredV9, citedRunLimitsV1, frozenProbeSchemaV1, citedRunFieldsV1, foundRunFieldsV1, verdictsRecordedV2, validationRunSchemaV1, fixedFindingSchemaV2, fixRecordedV5, reviewVocabularyV11, vocabularyV11, phaseSchemaV11, phaseStartedV8, phaseFinishedV9, worktreeCheckedV9, attemptFailedV9, workerLostV7, reportWrittenV8, githubHostSchemaV1, githubNameSchemaV1, pullRequestTargetSchemaV1, githubUrlSchemaV1, scopeRequestSchemaV3, pullRequestFactsSchemaV1, scopeCapturedV3, recordedSettingsV2, settingNameSchemaV2, languageTagSchemaV1, settingsRecordedV2, reviewConfiguredV10, partFailuresSchemaV1, droppedPartSchemaV1, partName, refineExplanation, explanationRecordedV1, reviewVocabularyV12, vocabularyV12, reviewConfiguredV11, verifierNoteLengthV1, verifierNoteSchemaV1, unconfirmedSchemaV1, verdictsRecordedV3, droppedPartSchemaV2, explanationRecordedV2, publicationMarkerSchemaV1, publishPreparedV1, githubItemSchemaV1, publishPostedV1, publishDroppedV1, reviewVocabularyV13, vocabularyV13, settledChoiceSchemaV1, settlementRulesV1, blankText, recordedFixV1, recordedLeaveV1, recordedAskV1, decidedLeaveV2, recordedDecisionSchemaV2, decisionsRecordedV2, reviewVocabularyV14, vocabularyV14, reviewConfiguredV12, droppedPartSchemaV3, explanationRecordedV3, eventRegistry;
 var init_events = __esm({
   "src/checkpoint/events.ts"() {
     "use strict";
@@ -23063,6 +23063,26 @@ var init_events = __esm({
       message: "each finding is decided once",
       path: ["decisions"]
     });
+    reviewVocabularyV14 = {
+      explanationParts: ["conclusion", "areas", "refuted", "finding", "core", "conditions"],
+      changeConditions: ["public-interface", "wide-effect"]
+    };
+    vocabularyV14 = reviewVocabularyV14;
+    reviewConfiguredV12 = reviewConfiguredV11;
+    droppedPartSchemaV3 = external_exports.discriminatedUnion("part", [
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[0]), failures: partFailuresSchemaV1 }),
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[1]), failures: partFailuresSchemaV1 }),
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[2]), failures: partFailuresSchemaV1 }),
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[3]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[4]), failures: partFailuresSchemaV1 }),
+      external_exports.strictObject({ part: external_exports.literal(vocabularyV14.explanationParts[5]), failures: partFailuresSchemaV1 })
+    ]);
+    explanationRecordedV3 = external_exports.strictObject({
+      workerId: external_exports.uuid().nullable(),
+      answer: artifactReferenceSchema.nullable(),
+      dropped: external_exports.array(droppedPartSchemaV3).max(2005),
+      unexplained: external_exports.array(candidateIdSchema).max(2e3)
+    }).superRefine(refineExplanation(["conclusion", "areas", "refuted", "core", "conditions"], "its conclusion, its areas, its refuted lines, its core and its conditions"));
     eventRegistry = defineRegistry({
       "run.created": { 1: { schema: runCreatedV1 } },
       "run.abandoned": { 1: { schema: runAbandonedV1 } },
@@ -23070,7 +23090,7 @@ var init_events = __esm({
       "worker.launched": { 1: { schema: workerLaunchedV1 } },
       "worker.finished": { 1: { schema: workerFinishedV1 } },
       "worker.lost": { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 }, 7: { schema: workerLostV7 } },
-      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 }, 11: { schema: reviewConfiguredV11 } },
+      "review.configured": { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 }, 11: { schema: reviewConfiguredV11 }, 12: { schema: reviewConfiguredV12 } },
       "limits.changed": { 1: { schema: limitsChangedV1 } },
       "phase.started": { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 }, 8: { schema: phaseStartedV8 } },
       "phase.finished": { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 }, 9: { schema: phaseFinishedV9 } },
@@ -23106,7 +23126,7 @@ var init_events = __esm({
       "documentation.planned": { 1: { schema: documentationPlannedV1 } },
       "answer.recorded": { 1: { schema: answerRecordedV1 } },
       "answer.pass": { 1: { schema: answerPassV1 } },
-      "explanation.recorded": { 1: { schema: explanationRecordedV1 }, 2: { schema: explanationRecordedV2 } },
+      "explanation.recorded": { 1: { schema: explanationRecordedV1 }, 2: { schema: explanationRecordedV2 }, 3: { schema: explanationRecordedV3 } },
       "publish.prepared": { 1: { schema: publishPreparedV1 } },
       "publish.posted": { 1: { schema: publishPostedV1 } },
       "publish.dropped": { 1: { schema: publishDroppedV1 } }
@@ -23141,7 +23161,7 @@ function candidateIdPrefix(phase, key) {
 function singleUnitKey(phase) {
   return phase === "triage" ? triageUnitKey : phase;
 }
-var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, leaveReasonWords, settleSteps, settleStepSchema, settleStepWords, settledChoiceWords, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
+var finderAngles, finderAngleSchema2, angles, angleSchema2, angleClasses, reviewRoles, isFinderRole, phases, phaseSchema2, fixPhases, answerPhases, checkPhases, checkPhaseSchema, editingPhases, editingPhaseSchema, treeCheckPhases, isCheckPhase, isTreeCheckPhase, isEditingPhase, fixPassEditingPhases, answeredUnits, answersFindings, repairUnitKey, documentationUnitKey, budgetDegradingPhases, isBudgetDegradingPhase, claimingPhases, isClaimingPhase, clusterIdSchema, batchKeySchema, checkOutcomes, checkOutcomeSchema, failedOrTimedOut, candidatePhases, candidatePhaseSchema2, deduplicationPhases, deduplicationPhaseSchema2, verificationPhases, verificationPhaseSchema2, phaseOutcomes, phaseOutcomeSchema2, recordedBlockerCodes, recordedBlockerCodeSchema2, lostClaimWords, blockerActions, continuedCheckUnavailableAction, surveyWorkerFailedAction, surveyWorkerFailedActions, checkKinds, checkKindSchema, checkOrigins, checkOriginSchema, checkBases, checkBaseSchema, conventionLevels, conventionLevelSchema, userRulesSettings, userRulesSettingSchema, fixStatuses, fixStatusSchema, baseReadings, baseReadingSchema, baseSkipReasons, baseSkipReasonKeys, validationMethods, validationMethodSchema, suiteResults, suiteResultSchema, verdicts, verdictSchema2, verdictBases, verdictBasisSchema, verdictBasisWords, changeConditions, unconfirmedKinds, findingKinds, decisionKinds, decisionKindSchema, asksToAct, decisionCountWords, leaveReasons, leaveReasonSchema, leaveReasonWords, settleSteps, settleStepSchema, settleStepWords, settledChoiceWords, severities, severitySchema2, candidateIdSchema2, groupIdSchema2, sweepIdPrefix, triageUnitKey, unitKeySchema2, maxRecordedTextLength, unitName;
 var init_vocabulary = __esm({
   "src/review/vocabulary.ts"() {
     "use strict";
@@ -23272,6 +23292,7 @@ var init_vocabulary = __esm({
       traced: "it traced the lines",
       read: "the lines alone settle it"
     };
+    changeConditions = ["public-interface", "wide-effect"];
     unconfirmedKinds = ["fact", "choice"];
     findingKinds = ["user", "code"];
     decisionKinds = ["fix", "leave", "ask"];
@@ -24063,7 +24084,7 @@ function withFailure(review2, drafts, { phase, key }, failure2) {
   ofPhase[key] = { answeredBy: state.answeredBy, failures: [...state.failures, failure2] };
   return { ...review2, units };
 }
-function configure(state, payload, event, { surveyed, decided, documented, compared, cited, explained, reportForm }) {
+function configure(state, payload, event, { surveyed, decided, documented, compared, cited, explained, reportForm, coreForm }) {
   const current = requireRun(state, event);
   if (current.scope === null) throw invalid(event, "is configured for review before its scope is captured");
   if (current.review !== null) throw invalid(event, "is configured for review twice");
@@ -24075,6 +24096,7 @@ function configure(state, payload, event, { surveyed, decided, documented, compa
     citedRuns: cited,
     explanationStep: explained,
     reportForm,
+    coreForm,
     explanationDegraded: false,
     limits: { concurrency: payload.concurrency, runBudgetUsd: payload.runBudgetUsd },
     phases: Object.fromEntries(phases.map((phase) => [phase, { status: skipped.has(phase) ? "skipped" : "pending", attempt: 0 }])),
@@ -24101,10 +24123,10 @@ function configure(state, payload, event, { surveyed, decided, documented, compa
   };
   return withReview(current, review2, event);
 }
-function explainedConfiguration(state, payload, event, reportForm) {
+function explainedConfiguration(state, payload, event, { reportForm, coreForm }) {
   if (payload.fix) throw invalid(event, "is configured to explain its review in a run that fixes, which records version 9");
   if (state !== void 0 && state.scope !== null && state.scope.pullRequest === null) throw invalid(event, "is configured to explain its review for a pull request, but its scope names none");
-  return configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: true, reportForm });
+  return configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: true, reportForm, coreForm });
 }
 function reopened(review2, drafts, phase, key) {
   const { units, ofPhase } = writableUnits(review2, drafts, phase);
@@ -24170,8 +24192,8 @@ function requireOpenGroup(review2, event, phase, groupId) {
   return group.candidateIds;
 }
 function verdictsVersionWords(given, expected) {
-  if (expected === 3) return `records verdicts at version ${String(given)}, which a run configured at review.configured@11 records at version 3, with why each is PLAUSIBLE and the choice left to the author`;
-  if (given === 3) return "records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review.configured@11 does";
+  if (expected === 3) return `records verdicts at version ${String(given)}, which a run configured at review.configured@11 or later records at version 3, with why each is PLAUSIBLE and the choice left to the author`;
+  if (given === 3) return "records verdicts with why each is PLAUSIBLE and the choice left to the author, which only a run configured at review.configured@11 or later does";
   return given === 2 ? "records verdicts with their bases and runs, which a run configured before runs on the record does not" : "records verdicts without their bases and runs, which its configuration asks for";
 }
 function recordVerdicts(state, payload, event, drafts, version2) {
@@ -24222,7 +24244,8 @@ function recordDecisions(state, payload, event, drafts, version2) {
 function recordExplanation(state, payload, event, drafts, version2) {
   const { current, review: review2 } = requireReview(state, event);
   if (!review2.explanationStep) throw invalid(event, "records an explanation, which only a run configured at review.configured@10 or later has");
-  if (review2.reportForm !== (version2 === 2)) throw invalid(event, version2 === 2 ? "records an explanation at version 2, which only a run configured at review.configured@11 does" : "records an explanation at version 1, which a run configured at review.configured@11 records at version 2");
+  const asked = explanationVersionOf(review2);
+  if (asked !== version2) throw invalid(event, `records an explanation at version ${String(version2)}, which a run configured at review.configured@${String(asked + 9)} records at version ${String(asked)}`);
   if (current.explanation !== null) throw invalid(event, "records its explanation twice");
   requireRunning(review2, event, "explanation");
   const ranked2 = new Set((review2.ranking ?? []).map((finding) => finding.id));
@@ -24246,7 +24269,7 @@ function unverifiedGroupsOf(review2) {
     })
   );
 }
-var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, decisionsRecordedV12, explanationRecorded, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
+var invalid, unsettled, unsurveyed, unpinnedCodex, configured, configuredV11, configuredV10, configuredV9, configuredV8, configuredV7, configuredV6, configuredV5, configuredV4, configuredV3, configuredV2, configuredV1, limitsChanged, phaseStarted, phaseFinished, worktreeChecked, worktreeCheckedV12, candidatesRecorded, candidatesRecordedV12, attemptFailed, angleFailed, deduplicationRecorded, verificationPlanned, verdictsVersionOf, verdictsRecorded, verdictsRecordedV22, verdictsRecordedV12, groupUnverified, rankingRecorded, decisionsRecorded, decisionsRecordedV12, explanationVersionOf, explanationRecorded, explanationRecordedV22, explanationRecordedV12, reportWritten, reportWrittenV12, reviewReducers;
 var init_review_fold = __esm({
   "src/checkpoint/review-fold.ts"() {
     "use strict";
@@ -24259,17 +24282,18 @@ var init_review_fold = __esm({
     unsettled = { settings: null, fixSettings: null };
     unsurveyed = { survey: { userRules: "apply" } };
     unpinnedCodex = (runtime, worktree) => ({ codex: runtime === "codex" && !worktree.startsWith("/") ? { windowsSandbox: "unelevated" } : null });
-    configured = (state, payload, event) => explainedConfiguration(state, payload, event, true);
-    configuredV10 = (state, payload, event) => explainedConfiguration(state, payload, event, false);
-    configuredV9 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: false, reportForm: false });
-    configuredV8 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: false, explained: false, reportForm: false });
-    configuredV7 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
-    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false });
+    configured = (state, payload, event) => explainedConfiguration(state, payload, event, { reportForm: true, coreForm: true });
+    configuredV11 = (state, payload, event) => explainedConfiguration(state, payload, event, { reportForm: true, coreForm: false });
+    configuredV10 = (state, payload, event) => explainedConfiguration(state, payload, event, { reportForm: false, coreForm: false });
+    configuredV9 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: true, explained: false, reportForm: false, coreForm: false });
+    configuredV8 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: true, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV7 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: true, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV6 = (state, payload, event) => configure(state, { ...payload, fixSettings: null }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV5 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: true, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV4 = (state, payload, event) => configure(state, { ...payload, ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV3 = (state, payload, event) => configure(state, { ...payload, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: true, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV2 = (state, payload, event) => configure(state, { ...payload, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
+    configuredV1 = (state, payload, event) => configure(state, { ...payload, fix: false, checks: null, fixes: null, ...unsurveyed, ...unpinnedCodex(payload.runtime, state?.worktree ?? ""), ...unsettled }, event, { surveyed: false, decided: false, documented: false, compared: false, cited: false, explained: false, reportForm: false, coreForm: false });
     limitsChanged = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
       if (review2.report !== null) throw invalid(event, "changes its limits after its report");
@@ -24405,7 +24429,9 @@ var init_review_fold = __esm({
     };
     decisionsRecorded = (state, payload, event, drafts) => recordDecisions(state, payload, event, drafts, 2);
     decisionsRecordedV12 = (state, payload, event, drafts) => recordDecisions(state, { ...payload, decisions: payload.decisions.map((decision) => ({ ...decision, settled: [] })) }, event, drafts, 1);
-    explanationRecorded = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 2);
+    explanationVersionOf = (review2) => review2.coreForm ? 3 : review2.reportForm ? 2 : 1;
+    explanationRecorded = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 3);
+    explanationRecordedV22 = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 2);
     explanationRecordedV12 = (state, payload, event, drafts) => recordExplanation(state, payload, event, drafts, 1);
     reportWritten = (state, payload, event) => {
       const { current, review: review2 } = requireReview(state, event);
@@ -24427,7 +24453,8 @@ var init_review_fold = __esm({
       "review.configured@8": configuredV8,
       "review.configured@9": configuredV9,
       "review.configured@10": configuredV10,
-      "review.configured@11": configured,
+      "review.configured@11": configuredV11,
+      "review.configured@12": configured,
       "limits.changed@1": limitsChanged,
       "phase.started@1": phaseStarted,
       "phase.started@2": phaseStarted,
@@ -24485,7 +24512,8 @@ var init_review_fold = __esm({
       "report.written@7": reportWritten,
       "report.written@8": reportWritten,
       "explanation.recorded@1": explanationRecordedV12,
-      "explanation.recorded@2": explanationRecorded
+      "explanation.recorded@2": explanationRecordedV22,
+      "explanation.recorded@3": explanationRecorded
     };
   }
 });
@@ -27143,6 +27171,11 @@ function commitMessages(repo, base, head2) {
   const messages = [];
   for (let index2 = 0; index2 + 1 < fields.length; index2 += 2) messages.push({ commit: fields[index2].trim(), message: fields[index2 + 1].trimEnd() });
   return messages;
+}
+function commitIds(repo, base, head2) {
+  if (base === head2) return [];
+  const range = base === emptyTree(repo) ? ["-1", head2] : [`${base}..${head2}`];
+  return gitText(repo, ["rev-list", ...range, "--"]).split("\n").filter((line) => line !== "");
 }
 function commitCount(repo, base, head2, paths = [], exclude = []) {
   const range = isEmptyTree(base) ? [head2] : [`${base}..${head2}`];
@@ -31493,6 +31526,7 @@ function verifierOutputSchemaFor(review2) {
   return review2.citedRuns ? verifierOutputSchemaV2 : verifierOutputSchema;
 }
 function writerOutputSchemaFor(review2) {
+  if (review2.coreForm) return writerOutputSchemaV3;
   return review2.reportForm ? writerOutputSchemaV2 : writerOutputSchema;
 }
 function checkFixerAnswer(output2, count3, blocks2 = true) {
@@ -31648,7 +31682,7 @@ function checkDecisions(output2, findings) {
   if (missing.length > 0) faults.push(`The answer leaves out finding ${missing.map((position) => `[${String(position)}]`).join(", ")} of the ${String(count3)} the task gave`);
   if (faults.length > 0) throw new StructuralCheckError(faultsMessage(faults));
 }
-var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, verifierNote, verifierOutputSchemaV3, mergeRankOutputSchema, decisionText2, deciderOutputSchema, citedSides, writerText, writerDiagram, writerOutputSchema, writerOutputSchemaV2, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
+var candidateFields, candidateSchema, sweepCandidateSchema, maxCandidates, leadOutputSchema, changeOutputText, changeOutputSources, changeConditionOutputSchema, changeOutputSchema, triageOutputSchema, changeSourceLimits, presentText, presentSources, normalizeCondition, finderOutputSchema, sweepOutputSchema, index, deduplicationOutputSchema, verifierOutputSchema, citedRunSchema, verifierOutputSchemaV2, verifierNote, verifierOutputSchemaV3, mergeRankOutputSchema, decisionText2, deciderOutputSchema, citedSides, writerText, writerDiagram, writerOutputSchema, writerOutputSchemaV2, writerCoreSchema, writerConditionSchema, writerOutputSchemaV3, reportedPath, surveyorCheckSchema, surveyorOutputSchema, fixerOutputSchema, repairOutputSchema, fixerFinding, fixerOutputSchemaV2, repairOutputSchemaV2, outOfRange, missingIndexes;
 var init_schemas3 = __esm({
   "src/review/schemas.ts"() {
     "use strict";
@@ -31795,6 +31829,23 @@ var init_schemas3 = __esm({
         unexplained: writerText(1e3).nullable()
       })).max(200),
       refuted: external_exports.array(external_exports.strictObject({ id: writerText(200), claim: writerText(300), why: writerText(300) })).max(200)
+    });
+    writerCoreSchema = external_exports.strictObject({
+      title: writerText(200),
+      what: writerText(4e3),
+      why: writerText(2e3).nullable(),
+      whyFrom: external_exports.array(writerText(200)).max(20),
+      diagram: writerDiagram
+    });
+    writerConditionSchema = external_exports.strictObject({
+      condition: external_exports.enum(changeConditions),
+      explanation: writerText(1e3).nullable(),
+      unexplained: writerText(1e3).nullable()
+    });
+    writerOutputSchemaV3 = external_exports.strictObject({
+      ...writerOutputSchemaV2.shape,
+      core: writerCoreSchema,
+      conditions: external_exports.array(writerConditionSchema).max(changeConditions.length)
     });
     reportedPath = external_exports.string().min(1).max(1e3);
     surveyorCheckSchema = external_exports.strictObject({
@@ -36092,6 +36143,236 @@ var init_brief = __esm({
   }
 });
 
+// src/review/finding-names.ts
+function outsideKept(text3, pattern) {
+  const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
+  const outsideUrls = (index2) => !urls.some((url2) => url2.start <= index2 && index2 < url2.end);
+  const paths = [...text3.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
+  return [...text3.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
+}
+function slotsOf(text3, names2) {
+  const slots = [];
+  let offset = 0;
+  for (const part of codeParts(text3)) {
+    if (part.code) {
+      const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
+      if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
+    } else {
+      for (const match of outsideKept(part.text, idPattern)) {
+        const named = names2.get(match[0]);
+        if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
+      }
+    }
+    offset += part.text.length;
+  }
+  return slots;
+}
+function namedFindings2(text3, names2, naming) {
+  if (names2.size === 0) return text3;
+  let out = "";
+  let at = 0;
+  for (const slot of slotsOf(text3, names2)) {
+    if (slot.start < at) continue;
+    out += text3.slice(at, slot.start);
+    const after = text3.slice(slot.end);
+    const given = slot.named.kind === "finding" ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
+    out = out.slice(0, out.length - given.before);
+    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
+    out += name;
+    at = slot.end + given.after;
+    const particle = particleAfter.exec(text3.slice(at));
+    if (particle !== null) {
+      out += naming.particle(name, particle[1]);
+      at += particle[1].length;
+    }
+  }
+  return out + text3.slice(at);
+}
+function holdsId(diagram, names2) {
+  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g");
+  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
+}
+function idsIn(text3, ids2) {
+  if (ids2.length === 0) return [];
+  const found = new Set([...text3.matchAll(new RegExp(String.raw`(?<![\w#]|\w\.)(?:${ids2.map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g"))].map((match) => match[0]));
+  return ids2.filter((id) => found.has(id));
+}
+function shownNamed(shown, named) {
+  const inner = shown.slice(1, -1);
+  if (shown.startsWith("|")) {
+    const quoted2 = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
+    return `|${quoted2 === null ? named(inner) : `${quoted2[1]}${shownNamed(quoted2[2], named)}${quoted2[3]}`}|`;
+  }
+  const markdown = /^`([^`]+)`$/.exec(inner);
+  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]) ? named(inner) : `\`${named(markdown[1])}\``}"`;
+}
+function partsNamed(text3, named, bars) {
+  return text3.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => part.startsWith('"') || bars && part.startsWith("|") ? shownNamed(part, named) : named(part));
+}
+function edgeTextAt(line, at) {
+  edgeTextOpening.lastIndex = at;
+  const opening = edgeTextOpening.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing.lastIndex = end;
+    const closing = edgeTextClosing.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+function flowchartLineNamed(line, named) {
+  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
+  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
+  if (subgraph !== null) {
+    const rest2 = subgraph[2];
+    const bracketed = subgraphBracketed.exec(rest2);
+    if (bracketed !== null) return `${subgraph[1]}${bracketed[1]}${named(bracketed[2])}${bracketed[3]}`;
+    return `${subgraph[1]}${rest2.includes("[") ? rest2.replace(/"[^"]*"/g, (quoted2) => shownNamed(quoted2, named)) : partsNamed(rest2, named, false)}`;
+  }
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const edge = edgeTextAt(line, at);
+    if (edge !== null) {
+      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
+      at = edge.closed;
+      continue;
+    }
+    const char = line.charAt(at);
+    if (char === '"' || char === "|") {
+      const close2 = line.indexOf(char, at + 1);
+      if (close2 === -1) return `${out}${line.slice(at)}`;
+      out += shownNamed(line.slice(at, close2 + 1), named);
+      at = close2 + 1;
+      continue;
+    }
+    const id = nodeId.exec(line.slice(at));
+    if (id === null) {
+      out += char;
+      at += 1;
+      continue;
+    }
+    out += id[0];
+    at += id[0].length;
+    if (!line.startsWith("@{", at)) continue;
+    let close = at + 2;
+    while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+    if (close === line.length) return `${out}${line.slice(at)}`;
+    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel, (_whole, open2, value) => `${open2}${named(value)}`));
+    out += `@{${body}}`;
+    at = close + 1;
+  }
+  return out;
+}
+function colonOf(line) {
+  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ":") return match.index;
+  return -1;
+}
+function namedInDiagram(diagram, names2, naming) {
+  if (names2.size === 0) return diagram;
+  const lines = diagram.split("\n");
+  const headerAt = lines.findIndex((line) => line.trim() !== "");
+  const kind = diagramKind(lines[headerAt]?.trim() ?? "");
+  const named = (text3) => {
+    const lead = /^\s*/.exec(text3)[0];
+    return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
+  };
+  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
+  let inNote = false;
+  const result = lines.map((line, index2) => {
+    if (index2 <= headerAt) return line;
+    if (inNote) {
+      if (/^\s*end\s+note\s*$/i.test(line)) inNote = false;
+      else return named(line);
+      return line;
+    }
+    if (kind === "state" && /^\s*note\s/i.test(line) && !line.includes(":")) {
+      inNote = true;
+      return line;
+    }
+    if (kind === "flowchart") return flowchartLineNamed(line, named);
+    const label = kind === "sequence" ? sequenceLabel.exec(line) : null;
+    if (label !== null) return `${label[1]}${partsNamed(label[2], named, false)}`;
+    const colon = colonOf(line);
+    if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
+    return labelled(line);
+  }).join("\n");
+  return holdsId(result, names2) ? null : result;
+}
+function numberFinal(digits) {
+  const last = digits.at(-1);
+  if (last === "0") return "other";
+  return "2459".includes(last) ? "none" : "178".includes(last) ? "rieul" : "other";
+}
+function koreanFinal(name) {
+  const digits = /[0-9]+$/.exec(name);
+  if (digits !== null) return numberFinal(digits[0]);
+  const code = name.charCodeAt(name.length - 1) - 44032;
+  if (code < 0 || code > 11171) return "other";
+  const final = code % 28;
+  return final === 0 ? "none" : final === 8 ? "rieul" : "other";
+}
+function koreanParticle(name, particle) {
+  const forms = koreanForms[particle];
+  if (forms === void 0) return particle;
+  const final = koreanFinal(name);
+  if (final === "none") return forms[1];
+  if (final === "rieul" && forms[0].startsWith("\uC73C\uB85C")) return forms[1];
+  return forms[0];
+}
+var idPattern, urlPattern, slashJoined, idPart, idList, sentenceOpening, sentenceStart, abbreviationBefore, koreanForms, particleAfter, diagramKind, flowchartUnread, nodeId, edgeTextOpening, edgeTextClosing, shapeLabel, subgraphBracketed, sequenceLabel;
+var init_finding_names = __esm({
+  "src/review/finding-names.ts"() {
+    "use strict";
+    init_markdown();
+    idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
+    urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+    slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+    idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
+    idList = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
+    sentenceOpening = String.raw`[*_(\["'“‘]*`;
+    sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
+    abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
+    koreanForms = {
+      \uC740: ["\uC740", "\uB294"],
+      \uB294: ["\uC740", "\uB294"],
+      \uC774: ["\uC774", "\uAC00"],
+      \uAC00: ["\uC774", "\uAC00"],
+      \uC744: ["\uC744", "\uB97C"],
+      \uB97C: ["\uC744", "\uB97C"],
+      \uACFC: ["\uACFC", "\uC640"],
+      \uC640: ["\uACFC", "\uC640"],
+      \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uC73C\uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uC73C\uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uC73C\uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"],
+      \uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"]
+    };
+    particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join("|")})(?!\\p{Script=Hangul})`, "u");
+    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
+    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
+    nodeId = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel = /((?:^|[\s,])label\s*:)([^,]*)/;
+    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
+    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
+  }
+});
+
 // src/review/prompts.ts
 function conditionWords(condition2) {
   if (!condition2.holds) return "no";
@@ -37075,11 +37356,13 @@ var init_tasks = __esm({
 function recordedAnswerOf(recorded, evidence) {
   if (recorded.answer === null) return null;
   const frozen = JSON.parse(evidence.read(recorded.answer).toString("utf8"));
-  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null };
+  if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
+  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
   const answer3 = recordedAnswerSchema.parse(frozen);
-  return { ...answer3, areas: null, refuted: null, findings: answer3.findings.map((finding) => finding.unexplained ? finding : { ...finding, checked: null, kind: null }) };
+  return { ...answer3, areas: null, refuted: null, core: null, conditions: null, findings: answer3.findings.map((finding) => finding.unexplained ? finding : { ...finding, checked: null, kind: null }) };
 }
-function frozenAnswer(version2, { conclusion, account, areas, refuted: lines, findings }) {
+function frozenAnswer(version2, { conclusion, account, areas, refuted: lines, core, conditions, findings }) {
+  if (version2 === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
   if (version2 === 2) return { conclusion, areas, refuted: lines, findings };
   return { conclusion, account, findings: findings.map((finding) => finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest2 }) => rest2)(finding)) };
 }
@@ -37094,6 +37377,12 @@ function reportCheckInputOf(review2) {
     asks: (review2.decisions ?? []).filter((decision) => ids2.has(decision.id) && decision.decision === "ask").map((decision) => decision.id),
     refuted: refuted(review2).map(({ candidate }) => candidate.id)
   };
+}
+function heldConditions(review2) {
+  const reading = changeReadingOf(review2.change);
+  if (reading === null) return [];
+  const judged2 = { "public-interface": reading.publicInterface, "wide-effect": reading.wideEffect };
+  return changeConditions.flatMap((condition2) => judged2[condition2].holds ? [{ condition: condition2, what: judged2[condition2].what, files: judged2[condition2].files }] : []);
 }
 function lineCountOf(bytes) {
   let count3 = 0;
@@ -37143,9 +37432,9 @@ function labelFailures(what, text3) {
     ...text3.replaceAll(htmlEntity, "").includes(";") ? [`${what} holds a semicolon`] : []
   ];
 }
-function edgeTextAt(line, at) {
-  edgeTextOpening.lastIndex = at;
-  const opening = edgeTextOpening.exec(line);
+function edgeTextAt2(line, at) {
+  edgeTextOpening2.lastIndex = at;
+  const opening = edgeTextOpening2.exec(line);
   if (opening === null) return null;
   const start = at + opening[0].length;
   let end = start;
@@ -37157,8 +37446,8 @@ function edgeTextAt(line, at) {
       end = close + 1;
       continue;
     }
-    edgeTextClosing.lastIndex = end;
-    const closing = edgeTextClosing.exec(line);
+    edgeTextClosing2.lastIndex = end;
+    const closing = edgeTextClosing2.exec(line);
     if (closing !== null) return { start, end, closed: end + closing[0].length };
     end += 1;
   }
@@ -37187,7 +37476,7 @@ function flowchartLineFailures(line, number5) {
       continue;
     }
     if (edge === null) {
-      edge = edgeTextAt(line, at);
+      edge = edgeTextAt2(line, at);
       if (edge !== null) {
         failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, line.slice(edge.start, edge.end).replaceAll(/"[^"]*"|\|[^|]*\|/g, '""')));
         at = edge.start;
@@ -37205,7 +37494,7 @@ function flowchartLineFailures(line, number5) {
       at = close + 1;
       continue;
     }
-    const id = nodeId.exec(line.slice(at));
+    const id = nodeId2.exec(line.slice(at));
     if (id === null) {
       at += 1;
       continue;
@@ -37221,7 +37510,7 @@ function flowchartLineFailures(line, number5) {
       }
       const body = line.slice(at + 2, close);
       for (const quoted2 of body.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on line ${String(number5)}`, quoted2[1]));
-      const label = shapeLabel.exec(body.replaceAll(/"[^"]*"/g, '""'));
+      const label = shapeLabel2.exec(body.replaceAll(/"[^"]*"/g, '""'));
       if (label !== null) failures.push(...labelFailures(`the label of node ${id[0]} on line ${String(number5)}`, label[1]));
       at = close + 1;
       continue;
@@ -37385,6 +37674,45 @@ function checkRefuted(lines, refutedIds) {
     ])
   ];
 }
+function sourceFailure(source, input2) {
+  if (input2.files.includes(source)) return null;
+  const named = JSON.stringify(source);
+  if (!commitPrefix.test(source)) return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id`;
+  if (input2.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
+  const commits = input2.commits.filter((commit2) => commit2.startsWith(source));
+  if (commits.length === 0) return `the core's reason names ${named}, which begins no commit of the change`;
+  if (commits.length > 1) return `the core's reason names ${named}, which begins ${String(commits.length)} commits of the change; name the commit by more characters of its id`;
+  return null;
+}
+function checkCore(core, input2) {
+  const texts = [core.title, core.what, core.why ?? "", core.diagram ?? ""];
+  return [
+    ...blank(core.title) ? ["the core has no title"] : [],
+    ...blank(core.what) ? ["the core says nothing of what the change does"] : [],
+    ...core.why !== null && blank(core.why) ? ["the core's reason is empty; give null when the change states no reason"] : [],
+    ...core.why === null && core.whyFrom.length > 0 ? ["the core gives no reason and names where the reason comes from"] : [],
+    ...core.why !== null && !blank(core.why) && core.whyFrom.length === 0 ? ["the core gives a reason and names no commit or file it comes from"] : [],
+    ...core.whyFrom.flatMap((source) => sourceFailure(source, input2) ?? []),
+    ...verdictFailures("the core", texts),
+    ...idsIn(texts.join("\n"), input2.candidates).map((id) => `the core names ${id}, an id of this review; the core is about the change as submitted, and names no finding or candidate`),
+    ...diagramFailuresOf("the core's diagram", core.diagram)
+  ];
+}
+function checkConditions(conditions, held) {
+  const { missing, repeated, stray } = idCoverage(conditions.map((entry) => entry.condition), held.map((entry) => entry.condition));
+  return [
+    ...stray.map((condition2) => `the conditions give ${condition2}, which the triage did not judge to hold`),
+    ...repeated.map(([condition2, count3]) => `the conditions give ${condition2} ${String(count3)} times, and a condition has one entry`),
+    ...missing.map((condition2) => `the conditions give no entry for ${condition2}, which the triage judged to hold`),
+    ...conditions.flatMap((entry) => {
+      const { condition: condition2, explanation, unexplained } = entry;
+      if (explanation === null && unexplained === null) return [`the entry for ${condition2} has neither an explanation nor what the code shows instead`];
+      if (explanation !== null && unexplained !== null) return [`the entry for ${condition2} has both an explanation and what the code shows instead`];
+      const text3 = explanation ?? unexplained ?? "";
+      return [...blank(text3) ? [`the entry for ${condition2} is empty`] : [], ...verdictFailures(`the entry for ${condition2}`, [text3])];
+    })
+  ];
+}
 function checkAnswer(output2, input2) {
   const entries = new Map(input2.ids.map((id) => [id, []]));
   const strays = [];
@@ -37395,15 +37723,19 @@ function checkAnswer(output2, input2) {
   }
   const conclusion = { value: output2.conclusion, failures: checkConclusion(output2.conclusion, input2.ids, "account" in output2 ? 1 : 2, input2.report?.asks ?? []) };
   if ("account" in output2) {
-    return { conclusion, account: { value: output2.account, failures: checkAccount(output2.account) }, areas: null, refuted: null, findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, null)])), strays };
+    return { conclusion, account: { value: output2.account, failures: checkAccount(output2.account) }, areas: null, refuted: null, core: null, conditions: null, findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, null)])), strays };
   }
   if (input2.report === void 0) throw new Error("An answer in the form of the review that reads as a report is checked against the major findings and the refuted candidates of its run");
   const { major, refuted: refutedIds } = input2.report;
+  const cored = "core" in output2 ? output2 : null;
+  if (cored !== null && input2.core === void 0) throw new Error("An answer with the core of the change is checked against the commits, the files and the candidates of its run and the conditions its triage judged");
   return {
     conclusion,
     account: null,
     areas: { value: output2.areas, failures: checkAreas(output2.areas, input2.ids, major) },
     refuted: { value: output2.refuted, failures: checkRefuted(output2.refuted, refutedIds) },
+    core: cored === null ? null : { value: cored.core, failures: checkCore(cored.core, input2.core) },
+    conditions: cored === null ? null : { value: cored.conditions, failures: checkConditions(cored.conditions, input2.core.held) },
     findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, major.includes(id))])),
     strays
   };
@@ -37423,22 +37755,25 @@ function mergeAnswers(version2, answers, ids2, extra = []) {
     return null;
   };
   const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
-  const areasFrom = version2 === 2 ? paired ?? answers.find((answer3) => passes(answer3.areas)) : void 0;
+  const areasFrom = version2 === 1 ? void 0 : paired ?? answers.find((answer3) => passes(answer3.areas));
   const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
   const conclusion = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
   const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
-  const areas = version2 === 2 ? pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures })) : null;
-  const lines = version2 === 2 ? pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures })) : null;
+  const areas = version2 === 1 ? null : pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures }));
+  const lines = version2 === 1 ? null : pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures }));
+  const core = version2 === 3 ? pick2(answers.map((answer3) => answer3.core), (failures) => ({ part: "core", failures })) : null;
+  const conditions = version2 === 3 ? pick2(answers.map((answer3) => answer3.conditions), (failures) => ({ part: "conditions", failures })) : null;
   const findings = ids2.flatMap((id) => {
     const kept = pick2(answers.map((answer3) => answer3.findings.get(id)), (failures) => ({ part: "finding", finding: id, failures }));
     return kept === null ? [] : [kept];
   });
-  return { answer: { conclusion, account, areas, refuted: lines, findings }, dropped };
+  return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
 }
 function explanationRecord(version2, workerId, merged, evidence) {
   const answer3 = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version2, merged.answer))}
 `) : null;
   const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
+  if (version2 === 3) return { kind: "explanation.recorded", version: 3, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV3), unexplained } };
   if (version2 === 2) return { kind: "explanation.recorded", version: 2, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV2), unexplained } };
   return { kind: "explanation.recorded", version: 1, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV1), unexplained } };
 }
@@ -37447,7 +37782,7 @@ function requireReview2(state) {
   return state.review;
 }
 function earlierAnswers(state, review2, evidence) {
-  const schema = answerVersionOf(review2) === 2 ? writerOutputSchemaV2 : writerOutputSchema;
+  const schema = writerOutputSchemaFor(review2);
   return writerFailures(review2).flatMap((failure2) => {
     const worker = Object.hasOwn(state.workers, failure2.workerId) ? state.workers[failure2.workerId] : void 0;
     if (worker?.status !== "finished" || worker.finish.output === null) return [];
@@ -37461,8 +37796,19 @@ function checkedAnswers(state, review2, context, ids2, latest) {
   const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
   const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
   const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
-  const input2 = answerVersionOf(review2) === 2 ? { ids: ids2, lineCount, report: reportCheckInputOf(review2) } : { ids: ids2, lineCount };
-  return answers.map((answer3) => checkAnswer(answer3, input2));
+  const version2 = answerVersionOf(review2);
+  const report2 = version2 === 1 ? {} : { report: reportCheckInputOf(review2) };
+  const core = version2 === 3 && answers.length > 0 ? { core: coreCheckInputOf(review2, state.scope, context.worktree) } : {};
+  return answers.map((answer3) => checkAnswer(answer3, { ids: ids2, lineCount, ...report2, ...core }));
+}
+function coreCheckInputOf(review2, scope, worktree) {
+  let commits;
+  try {
+    commits = commitIds(worktree, scope.base, scope.head);
+  } catch {
+    commits = null;
+  }
+  return { commits, files: scope.files.map((file2) => file2.path), candidates: Object.keys(review2.candidates), held: heldConditions(review2) };
 }
 function droppedWords(dropped) {
   return dropped.map((part) => `${partNameOf(part)}: ${part.failures.join("; ")}`).join(". ");
@@ -37567,9 +37913,32 @@ function findingLines(entry, number5, explained, decision, clean, fence) {
 function reportAsks(ids2, report2) {
   const minor = ids2.filter((id) => !report2.major.includes(id));
   return [
-    report2.major.length === 0 ? "No finding you explain is major, so give `areas` empty." : `Put each of these ${counted(report2.major.length, "major finding", "major findings")} in exactly one area of \`areas\`, and no other finding in any: ${idList(report2.major)}.`,
-    ...minor.length === 0 ? [] : [`Give each of these ${counted(minor.length, "minor finding", "minor findings")} a \`kind\`, and every other finding none: ${idList(minor)}.`],
-    report2.refuted.length === 0 ? "No candidate of this review was refuted, so give `refuted` empty." : `Give one line in \`refuted\` for each of these ${counted(report2.refuted.length, "refuted candidate", "refuted candidates")}, by its id, and for no other: ${idList(report2.refuted)}.`
+    report2.major.length === 0 ? "No finding you explain is major, so give `areas` empty." : `Put each of these ${counted(report2.major.length, "major finding", "major findings")} in exactly one area of \`areas\`, and no other finding in any: ${idList2(report2.major)}.`,
+    ...minor.length === 0 ? [] : [`Give each of these ${counted(minor.length, "minor finding", "minor findings")} a \`kind\`, and every other finding none: ${idList2(minor)}.`],
+    report2.refuted.length === 0 ? "No candidate of this review was refuted, so give `refuted` empty." : `Give one line in \`refuted\` for each of these ${counted(report2.refuted.length, "refuted candidate", "refuted candidates")}, by its id, and for no other: ${idList2(report2.refuted)}.`
+  ];
+}
+function coreAsks(review2, messages, clean) {
+  const held = heldConditions(review2);
+  const given = changeReadingOf(review2.change) !== null;
+  const conditions = held.length === 0 ? [given ? "The triage judged that the change alters no public interface and affects no file beyond its own, so give `conditions` empty." : "The triage gave no account of the change, so it judged no condition: give `conditions` empty."] : [
+    `The triage judged ${held.length === 1 ? "this condition" : "these conditions"} to hold. Give one entry of \`conditions\` for each, by its name, and for no other:`,
+    "",
+    ...held.map((entry) => `- \`${entry.condition}\`, ${conditionWords2[entry.condition]}: ${entry.what === null ? "the triage gave no sentence" : clean(entry.what)}${entry.files.length === 0 ? "" : ` (files: ${entry.files.map((file2) => clean(file2)).join(", ")})`}`)
+  ];
+  return [
+    "### The commit messages of the change",
+    "",
+    "The change's own words, as the triage was given them. Take the reason of the core from these and from the documents the change adds or edits, and name each commit in `whyFrom` by its id as it is listed here.",
+    "",
+    ...commitMessagesSection(messages),
+    "",
+    "### The core of the change and the conditions",
+    "",
+    "The brief above opens with the triage's account of the change: deep-review's earlier reading, written before the review for its other workers, and not verified. Start from it, check each statement against the patch and the code, and never copy it: where the code says otherwise, follow the code.",
+    "",
+    ...conditions,
+    ""
   ];
 }
 function writerTask(state, input2) {
@@ -37583,7 +37952,9 @@ function writerTask(state, input2) {
   const ranked2 = rankedFindings(review2);
   const answers = checkedAnswers(state, review2, input2, ids2, null);
   const dropped = answers.length === 0 ? [] : mergeAnswers(version2, answers, ids2).dropped;
-  const report2 = version2 === 2 ? reportCheckInputOf(review2) : null;
+  const report2 = version2 === 1 ? null : reportCheckInputOf(review2);
+  if (version2 === 3 && (input2.commitMessages === void 0 || input2.commitMessages === null)) throw new Error("The writer's task of an answer with the core of the change lists the commit messages of the change and needs them");
+  const core = version2 === 3 ? coreAsks(review2, input2.commitMessages, clean) : [];
   const refutedCandidates = refuted(review2);
   return [
     `Write every text of your answer in the language ${languageWords(reviewLanguage(review2))}.`,
@@ -37597,6 +37968,7 @@ function writerTask(state, input2) {
     "",
     quote(briefMarkdown(briefOf(state), "report").join("\n"), "markdown"),
     "",
+    ...core,
     "### The findings",
     "",
     `The review's ${counted(ranked2.length, "finding", "findings")}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked2.some((entry) => (decided.get(entry.finding.id)?.settled.length ?? 0) > 0) ? " A choice a decision settles, on its line `settled by the decision`, is the decision's and not the author's to make, whatever a verifier's note says: explain it as decided." : ""}`,
@@ -37613,24 +37985,26 @@ function writerTask(state, input2) {
     ...dropped.length === 0 ? [] : [
       "### What failed in the earlier answer",
       "",
-      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version2 === 2 && dropped.some((part) => part.part === "conclusion" || part.part === "areas") ? " The conclusion and the areas go together, since the conclusion's summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass." : ""}`,
+      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version2 !== 1 && dropped.some((part) => part.part === "conclusion" || part.part === "areas") ? " The conclusion and the areas go together, since the conclusion's summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass." : ""}`,
       "",
       ...dropped.map((part) => `- ${partNameOf(part)}: ${part.failures.map((failure2) => inlineText(failure2)).join("; ")}`),
       ""
     ],
-    version2 === 1 ? "Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null." : "Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them."
+    version2 === 1 ? "Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null." : version2 === 2 ? "Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them." : "Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them."
   ].join("\n");
 }
-var writerOutputShape, writerOutputShapeV2, explanationShape, explanationShapeV2, answerVersionOf, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, isMajor, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId, edgeTextOpening, edgeTextClosing, shapeLabel, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, writerUnit, writerFailures, idList;
+var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, explanationShape, explanationShapeV2, answerVersionOf, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, isMajor, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, writerUnit, writerFailures, idList2, conditionWords2;
 var init_explanation = __esm({
   "src/review/explanation.ts"() {
     "use strict";
     init_zod();
     init_events();
+    init_review_fold();
     init_settings();
     init_git();
     init_brief();
     init_errors7();
+    init_finding_names();
     init_markdown();
     init_prompts();
     init_public_text();
@@ -37641,9 +38015,10 @@ var init_explanation = __esm({
     init_vocabulary();
     writerOutputShape = writerOutputSchema.shape;
     writerOutputShapeV2 = writerOutputSchemaV2.shape;
+    writerOutputShapeV3 = writerOutputSchemaV3.shape;
     explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
     explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
-    answerVersionOf = (review2) => review2.reportForm ? 2 : 1;
+    answerVersionOf = (review2) => review2.coreForm ? 3 : review2.reportForm ? 2 : 1;
     explainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShape });
     explainedFindingSchemaV2 = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShapeV2 });
     unexplainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(true), reason: external_exports.string() });
@@ -37658,6 +38033,11 @@ var init_explanation = __esm({
       refuted: writerOutputShapeV2.refuted.nullable(),
       findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchemaV2, unexplainedFindingSchema]))
     });
+    recordedAnswerSchemaV3 = external_exports.strictObject({
+      ...recordedAnswerSchemaV2.shape,
+      core: writerOutputShapeV3.core.nullable(),
+      conditions: writerOutputShapeV3.conditions.nullable()
+    });
     isMajor = (entry) => entry.finding.severity !== "minor";
     repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
     maxPathCharacters = 8e3;
@@ -37671,22 +38051,25 @@ var init_explanation = __esm({
     ];
     flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
     shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
-    nodeId = /^[\p{L}\p{N}_]+/u;
-    edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
-    edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
-    shapeLabel = /(?:^|[\s,])label\s*:\s*([^,]*)/;
+    nodeId2 = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel2 = /(?:^|[\s,])label\s*:\s*([^,]*)/;
     sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
     sequenceTitle = /^title\s+(.+)$/;
     diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
     sideWords = { head: "the head", base: "the merge base" };
+    commitPrefix = /^[0-9a-f]{7,40}$/;
     maxPartFailures = 100;
-    keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.findings.length > 0;
+    keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.core !== null || answer3.conditions !== null || answer3.findings.length > 0;
     partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
     isPartV1 = (part) => part.part === "conclusion" || part.part === "account" || part.part === "finding";
-    isPartV2 = (part) => part.part !== "account";
+    isPartV2 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding";
+    isPartV3 = (part) => part.part !== "account";
     writerUnit = (review2) => review2.units.explanation[singleUnitKey("explanation")];
     writerFailures = (review2) => writerUnit(review2)?.failures ?? [];
-    idList = (ids2) => ids2.join(", ");
+    idList2 = (ids2) => ids2.join(", ");
+    conditionWords2 = { "public-interface": "a change to a public interface", "wide-effect": "an effect on many files beyond the ones the change changes" };
   }
 });
 
@@ -38092,7 +38475,7 @@ function taskFor(unit, review2, options2 = {}) {
       throw new Error("The report phase has no worker");
     case "explanation":
       if (evidence === null || options2.writer === void 0 || options2.writer === null) throw new Error("The writer's task renders the brief from the fold, checks an earlier answer in the evidence store and cleans what it quotes, and needs them");
-      return writerTask(options2.writer.state, { worktree: options2.writer.worktree, evidence, machine: options2.writer.machine });
+      return writerTask(options2.writer.state, { worktree: options2.writer.worktree, evidence, machine: options2.writer.machine, commitMessages: options2.writer.commitMessages });
   }
 }
 function invocationFor(unit, context) {
@@ -38105,10 +38488,10 @@ function invocationFor(unit, context) {
   const review2 = requireReview3(live2 === null ? context.state : settleClaims(context.state, unit.key, live2, context.worktree).state);
   const editing = scratch === null ? null : { snapshotCommand: context.snapshotCommand(join29(scratch, snapshotsDirectoryName)), claimCommand: shared2 === null ? null : context.claims.command(unit.key, shared2), unelevatedSandbox: context.unelevatedEditors };
   const survey = unit.phase === "survey" ? context.survey() : null;
-  const commitMessages2 = unit.phase === "triage" ? context.commitMessages() : null;
+  const commitMessages2 = unit.phase === "triage" || unit.phase === "explanation" && review2.coreForm ? context.commitMessages() : null;
   const documentation = unit.phase === "documentation" ? context.documentation() : null;
   const writer = unit.phase === "explanation" ? writerLaunchOf(context) : null;
-  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine };
+  const writerTaskInput = writer === null ? null : { state: context.state, worktree: context.worktree, machine: writer.machine, commitMessages: commitMessages2 };
   const prompt = composeWorkerPrompt(role.prompt, { role: unit.role, phase: unit.phase, unitKey: unit.key, task: taskFor(unit, review2, { editing, evidence: context.evidence, survey, commitMessages: commitMessages2, documentation, readerScratch: context.readerScratch, writer: writerTaskInput }) }, context.scopeBlock(unit.phase));
   return {
     runtime: context.configuration.runtime,
@@ -38363,231 +38746,6 @@ var init_settings_report = __esm({
   }
 });
 
-// src/review/finding-names.ts
-function outsideKept(text3, pattern) {
-  const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
-  const outsideUrls = (index2) => !urls.some((url2) => url2.start <= index2 && index2 < url2.end);
-  const paths = [...text3.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList2(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
-  return [...text3.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
-}
-function slotsOf(text3, names2) {
-  const slots = [];
-  let offset = 0;
-  for (const part of codeParts(text3)) {
-    if (part.code) {
-      const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
-      if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
-    } else {
-      for (const match of outsideKept(part.text, idPattern)) {
-        const named = names2.get(match[0]);
-        if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
-      }
-    }
-    offset += part.text.length;
-  }
-  return slots;
-}
-function namedFindings2(text3, names2, naming) {
-  if (names2.size === 0) return text3;
-  let out = "";
-  let at = 0;
-  for (const slot of slotsOf(text3, names2)) {
-    if (slot.start < at) continue;
-    out += text3.slice(at, slot.start);
-    const after = text3.slice(slot.end);
-    const given = slot.named.kind === "finding" ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
-    out = out.slice(0, out.length - given.before);
-    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
-    out += name;
-    at = slot.end + given.after;
-    const particle = particleAfter.exec(text3.slice(at));
-    if (particle !== null) {
-      out += naming.particle(name, particle[1]);
-      at += particle[1].length;
-    }
-  }
-  return out + text3.slice(at);
-}
-function holdsId(diagram, names2) {
-  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g");
-  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
-}
-function shownNamed(shown, named) {
-  const inner = shown.slice(1, -1);
-  if (shown.startsWith("|")) {
-    const quoted2 = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
-    return `|${quoted2 === null ? named(inner) : `${quoted2[1]}${shownNamed(quoted2[2], named)}${quoted2[3]}`}|`;
-  }
-  const markdown = /^`([^`]+)`$/.exec(inner);
-  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]) ? named(inner) : `\`${named(markdown[1])}\``}"`;
-}
-function partsNamed(text3, named, bars) {
-  return text3.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => part.startsWith('"') || bars && part.startsWith("|") ? shownNamed(part, named) : named(part));
-}
-function edgeTextAt2(line, at) {
-  edgeTextOpening2.lastIndex = at;
-  const opening = edgeTextOpening2.exec(line);
-  if (opening === null) return null;
-  const start = at + opening[0].length;
-  let end = start;
-  while (end < line.length) {
-    const char = line.charAt(end);
-    if (char === '"' || char === "|") {
-      const close = line.indexOf(char, end + 1);
-      if (close === -1) return null;
-      end = close + 1;
-      continue;
-    }
-    edgeTextClosing2.lastIndex = end;
-    const closing = edgeTextClosing2.exec(line);
-    if (closing !== null) return { start, end, closed: end + closing[0].length };
-    end += 1;
-  }
-  return null;
-}
-function flowchartLineNamed(line, named) {
-  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
-  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
-  if (subgraph !== null) {
-    const rest2 = subgraph[2];
-    const bracketed = subgraphBracketed.exec(rest2);
-    if (bracketed !== null) return `${subgraph[1]}${bracketed[1]}${named(bracketed[2])}${bracketed[3]}`;
-    return `${subgraph[1]}${rest2.includes("[") ? rest2.replace(/"[^"]*"/g, (quoted2) => shownNamed(quoted2, named)) : partsNamed(rest2, named, false)}`;
-  }
-  let out = "";
-  let at = 0;
-  while (at < line.length) {
-    const edge = edgeTextAt2(line, at);
-    if (edge !== null) {
-      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
-      at = edge.closed;
-      continue;
-    }
-    const char = line.charAt(at);
-    if (char === '"' || char === "|") {
-      const close2 = line.indexOf(char, at + 1);
-      if (close2 === -1) return `${out}${line.slice(at)}`;
-      out += shownNamed(line.slice(at, close2 + 1), named);
-      at = close2 + 1;
-      continue;
-    }
-    const id = nodeId2.exec(line.slice(at));
-    if (id === null) {
-      out += char;
-      at += 1;
-      continue;
-    }
-    out += id[0];
-    at += id[0].length;
-    if (!line.startsWith("@{", at)) continue;
-    let close = at + 2;
-    while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
-    if (close === line.length) return `${out}${line.slice(at)}`;
-    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel2, (_whole, open2, value) => `${open2}${named(value)}`));
-    out += `@{${body}}`;
-    at = close + 1;
-  }
-  return out;
-}
-function colonOf(line) {
-  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ":") return match.index;
-  return -1;
-}
-function namedInDiagram(diagram, names2, naming) {
-  if (names2.size === 0) return diagram;
-  const lines = diagram.split("\n");
-  const headerAt = lines.findIndex((line) => line.trim() !== "");
-  const kind = diagramKind(lines[headerAt]?.trim() ?? "");
-  const named = (text3) => {
-    const lead = /^\s*/.exec(text3)[0];
-    return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
-  };
-  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
-  let inNote = false;
-  const result = lines.map((line, index2) => {
-    if (index2 <= headerAt) return line;
-    if (inNote) {
-      if (/^\s*end\s+note\s*$/i.test(line)) inNote = false;
-      else return named(line);
-      return line;
-    }
-    if (kind === "state" && /^\s*note\s/i.test(line) && !line.includes(":")) {
-      inNote = true;
-      return line;
-    }
-    if (kind === "flowchart") return flowchartLineNamed(line, named);
-    const label = kind === "sequence" ? sequenceLabel.exec(line) : null;
-    if (label !== null) return `${label[1]}${partsNamed(label[2], named, false)}`;
-    const colon = colonOf(line);
-    if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
-    return labelled(line);
-  }).join("\n");
-  return holdsId(result, names2) ? null : result;
-}
-function numberFinal(digits) {
-  const last = digits.at(-1);
-  if (last === "0") return "other";
-  return "2459".includes(last) ? "none" : "178".includes(last) ? "rieul" : "other";
-}
-function koreanFinal(name) {
-  const digits = /[0-9]+$/.exec(name);
-  if (digits !== null) return numberFinal(digits[0]);
-  const code = name.charCodeAt(name.length - 1) - 44032;
-  if (code < 0 || code > 11171) return "other";
-  const final = code % 28;
-  return final === 0 ? "none" : final === 8 ? "rieul" : "other";
-}
-function koreanParticle(name, particle) {
-  const forms = koreanForms[particle];
-  if (forms === void 0) return particle;
-  const final = koreanFinal(name);
-  if (final === "none") return forms[1];
-  if (final === "rieul" && forms[0].startsWith("\uC73C\uB85C")) return forms[1];
-  return forms[0];
-}
-var idPattern, urlPattern, slashJoined, idPart, idList2, sentenceOpening, sentenceStart, abbreviationBefore, koreanForms, particleAfter, diagramKind, flowchartUnread, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, subgraphBracketed, sequenceLabel;
-var init_finding_names = __esm({
-  "src/review/finding-names.ts"() {
-    "use strict";
-    init_markdown();
-    idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
-    urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
-    slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
-    idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
-    idList2 = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
-    sentenceOpening = String.raw`[*_(\["'“‘]*`;
-    sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
-    abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
-    koreanForms = {
-      \uC740: ["\uC740", "\uB294"],
-      \uB294: ["\uC740", "\uB294"],
-      \uC774: ["\uC774", "\uAC00"],
-      \uAC00: ["\uC774", "\uAC00"],
-      \uC744: ["\uC744", "\uB97C"],
-      \uB97C: ["\uC744", "\uB97C"],
-      \uACFC: ["\uACFC", "\uC640"],
-      \uC640: ["\uACFC", "\uC640"],
-      \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
-      \uB85C: ["\uC73C\uB85C", "\uB85C"],
-      \uC73C\uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
-      \uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
-      \uC73C\uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
-      \uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
-      \uC73C\uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"],
-      \uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"]
-    };
-    particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join("|")})(?!\\p{Script=Hangul})`, "u");
-    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
-    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
-    nodeId2 = /^[\p{L}\p{N}_]+/u;
-    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
-    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
-    shapeLabel2 = /((?:^|[\s,])label\s*:)([^,]*)/;
-    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
-    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
-  }
-});
-
 // src/review/pull-request-words.ts
 function basesEnglish(counts) {
   const ways = [["ran", "by running code"], ["traced", "by tracing it"], ["read", "by reading it"]].filter(([basis]) => counts.bases[basis] > 0);
@@ -38677,6 +38835,13 @@ var init_pull_request_words = __esm({
       heading: "## deep-review's review of this pull request",
       reviewed: (head2, files, base) => `${reviewedEnglish(head2, files, base)}, and changed no file.`,
       findingList: (numbers) => findingWords(numbers),
+      coreHeading: "### What this change does",
+      coreWhy: (why, sources) => `**Why.** ${why} The change says so in ${listed(sources)}.`,
+      coreWhyTriage: (why, sources) => `**Why, in the change's own words as deep-review's triage gave them.** ${why}${sources.length === 0 ? " The triage named no source." : ` From ${listed(sources)}.`}`,
+      coreNoReason: "The change states no reason in its commit messages or its documents.",
+      coreWhoseWriter: "This is deep-review's reading of the change, which a model wrote from its code and its commit messages; no verifier examined it.",
+      coreWhoseTriage: "This is the account of deep-review's triage, the first worker to read the change, written before the review, in its own words; no verifier examined it.",
+      coreNone: (state) => state === "unrecorded" ? "deep-review has no account of this change, because an engine before the account reviewed it." : "deep-review has no account of this change: its triage, the first worker to read the change, gave none.",
       summaryHeading: "### Summary",
       summaryCounts: (counts) => {
         if (counts.findings === 0) return "The review keeps no finding: the verifiers refuted every candidate, or the finders proposed none.";
@@ -38696,7 +38861,16 @@ var init_pull_request_words = __esm({
       needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
       departureStands: "`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.",
       needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0] : `one of ${listed(flags, "or")}`}. A reply on this pull request is not read yet.`,
-      needsNothing: "Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.",
+      needsNothing: "Nothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review's judgment the change alters no public interface and affects no file beyond its own.",
+      needsLookAlso: "A person should also look at the change for these reasons. Nothing waits for them, and no command answers them:",
+      needsLookOnly: "Nothing here waits for an answer: deep-review asks no question, and no fix goes against a written rule. A person should still look at the change for these reasons:",
+      needsNothingUnjudged: "Nothing here needs a person that deep-review can name: it asks no question, and no fix goes against a written rule or rests on a PLAUSIBLE verdict. deep-review has no judgment for this run of whether the change alters a public interface or affects files beyond its own.",
+      lookInterface: "**It changes a public interface.**",
+      lookWide: "**It affects many files beyond the ones it changes.**",
+      lookUnexplained: (label, writer, triage) => `${label} deep-review's triage judged so, and its writer could not explain it from the code: ${writer}${triage === null ? "" : ` The triage's words: ${triage}`}`,
+      lookInTriageWords: (label, triage) => `${label} In the words of deep-review's triage, which its writer did not explain: ${triage}`,
+      lookFiles: (files) => `Files that show it: ${files.join(", ")}.`,
+      lookPlausible: (findings) => `**${findings.length === 1 ? "A fix rests" : "Fixes rest"} on a PLAUSIBLE verdict:** ${findings.length === 1 ? "finding" : "findings"} ${findings.join(", ")}. deep-review would change the code on a claim its verifier did not confirm; each finding says why.`,
       howHeading: "### How the review worked",
       howWorked: (counts) => `deep-review runs model sessions, called workers, each in one role. Finders propose candidate defects from several angles, a verifier checks each candidate by reading the code or running it, and a decider chooses to fix, to ask the author, or to leave as is. Here ${counted(counts.candidates, "candidate", "candidates")} became ${String(counts.groups)} after merging duplicates; the verifiers refuted ${String(counts.refuted)} and kept ${String(counts.kept)}, and ${counts.merged === 0 ? "none" : String(counts.merged)} of those joined another finding, which leaves ${String(counts.findings)}.`,
       howDiagram: (pullRequest) => [
@@ -38826,6 +39000,8 @@ var init_pull_request_words = __esm({
       refutedDropped: "The writer gave no lines for the refuted candidates that passed deep-review's checks, so each is given by its finder's summary.",
       findingsDropped: (findings, count3) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count3 === 1 ? "it is" : "each is"} given in deep-review's own words.`,
       noExplanation: "deep-review recorded no explanation by its writer for this run, so the review is in deep-review's own words.",
+      coreDropped: (triage) => `The writer gave no account of the change that passed deep-review's checks, so the review opens with ${triage ? "the account of deep-review's triage" : "no account of the change"}.`,
+      coreBeforeWriter: (triage) => `This run's writer answered before deep-review's writer gave the core of the change, so the review opens with ${triage ? "the account of deep-review's triage" : "no account of the change"}.`,
       predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
       areaDiagramsCut: "To fit the length GitHub takes, the diagrams of the areas are left out; the writer's answer on the machine that holds the run keeps them.",
       lastLine: (facts) => `Reviewed by deep-review ${facts.engine} on ${facts.runtime} ${facts.version} with ${facts.strong} and ${facts.fast}, run ${facts.run}, commits ${facts.base}..${facts.head}.`,
@@ -38868,6 +39044,13 @@ var init_pull_request_words = __esm({
       heading: "## deep-review\uC758 \uD480 \uB9AC\uD018\uC2A4\uD2B8 \uB9AC\uBDF0",
       reviewed: (head2, files, base) => `deep-review\uAC00 \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uB97C head ${head2}\uC5D0\uC11C \uB9AC\uBDF0\uD588\uC2B5\uB2C8\uB2E4. merge base ${base}\uBD80\uD130 \uBC14\uB010 \uD30C\uC77C ${String(files)}\uAC1C\uB97C \uBCF4\uC558\uC73C\uBA70, \uD30C\uC77C\uC740 \uD558\uB098\uB3C4 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`,
       findingList: (numbers) => `\uC9C0\uC801 \uC0AC\uD56D ${[...new Set(numbers)].sort((a, b) => a - b).map(String).join(", ")}`,
+      coreHeading: "### \uC774 \uBCC0\uACBD\uC774 \uD558\uB294 \uC77C",
+      coreWhy: (why, sources) => `**\uC774\uC720.** ${why} \uCD9C\uCC98: ${sources.join(", ")}.`,
+      coreWhyTriage: (why, sources) => `**deep-review\uC758 \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uAC00 \uC62E\uAE34, \uBCC0\uACBD\uC774 \uBC1D\uD78C \uC774\uC720.** ${why}${sources.length === 0 ? " \uBD84\uB958 \uC791\uC5C5\uC790\uB294 \uCD9C\uCC98\uB97C \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : ` \uCD9C\uCC98: ${sources.join(", ")}.`}`,
+      coreNoReason: "\uC774 \uBCC0\uACBD\uC740 \uCEE4\uBC0B \uBA54\uC2DC\uC9C0\uB098 \uBB38\uC11C\uC5D0\uC11C \uC774\uC720\uB97C \uBC1D\uD788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+      coreWhoseWriter: "\uC774 \uB0B4\uC6A9\uC740 \uBAA8\uB378\uC774 \uBCC0\uACBD\uC758 \uCF54\uB4DC\uC640 \uCEE4\uBC0B \uBA54\uC2DC\uC9C0\uB97C \uC77D\uACE0 \uC4F4 deep-review\uC758 \uD574\uC11D\uC774\uBA70, \uC5B4\uB5A4 \uAC80\uC99D\uC790\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+      coreWhoseTriage: "\uC774 \uB0B4\uC6A9\uC740 \uBCC0\uACBD\uC744 \uAC00\uC7A5 \uBA3C\uC800 \uC77D\uB294 deep-review\uC758 \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uAC00 \uB9AC\uBDF0 \uC804\uC5D0 \uC790\uAE30 \uB9D0\uB85C \uC4F4 \uC124\uBA85\uC774\uBA70, \uC5B4\uB5A4 \uAC80\uC99D\uC790\uB3C4 \uAC80\uD1A0\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+      coreNone: (state) => state === "unrecorded" ? "deep-review\uC5D0\uB294 \uC774 \uBCC0\uACBD\uC5D0 \uB300\uD55C \uC124\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uBCC0\uACBD \uC124\uBA85\uC744 \uC4F0\uAE30 \uC804\uC758 \uC5D4\uC9C4\uC774 \uC774 \uC2E4\uD589\uC744 \uB9AC\uBDF0\uD588\uAE30 \uB54C\uBB38\uC785\uB2C8\uB2E4." : "deep-review\uC5D0\uB294 \uC774 \uBCC0\uACBD\uC5D0 \uB300\uD55C \uC124\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uBCC0\uACBD\uC744 \uAC00\uC7A5 \uBA3C\uC800 \uC77D\uB294 \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uAC00 \uC124\uBA85\uC744 \uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
       summaryHeading: "### \uC694\uC57D",
       summaryCounts: (counts) => {
         if (counts.findings === 0) return "\uC774 \uB9AC\uBDF0\uAC00 \uB0A8\uAE34 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uC790\uAC00 \uBAA8\uB4E0 \uD6C4\uBCF4\uB97C \uBC18\uBC15\uD588\uAC70\uB098, \uCC3E\uC740 \uD6C4\uBCF4\uAC00 \uC5C6\uC5C8\uC2B5\uB2C8\uB2E4.";
@@ -38886,7 +39069,16 @@ var init_pull_request_words = __esm({
       needsDeparture: (finding, href, rule, tail) => `**[\uC9C0\uC801 \uC0AC\uD56D ${String(finding)}](${href})\uC758 \uC218\uC815\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB985\uB2C8\uB2E4.** \uADDC\uCE59: "${rule}" ${tail}`,
       departureStands: "\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 \uBA3C\uC800 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC73C\uBA74 `--fix`\uAC00 \uACB0\uC815\uB300\uB85C \uACE0\uCE69\uB2C8\uB2E4. \uACE0\uCE5C \uB4A4\uC5D0 \uAC70\uBD80\uD558\uBA74 \uADF8 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uB2E4\uC2DC \uC218\uC815 \uC791\uC5C5\uC790\uC5D0\uAC8C \uAC11\uB2C8\uB2E4.",
       needsAnswer: (command, flags) => `\uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC774 ${command} \uBA85\uB839\uC5D0 ${flags.length === 1 ? `${flags[0]}\uB97C` : `${flags.join(", ")} \uC911 \uD558\uB098\uB97C`} \uBD99\uC5EC \uB2F5\uD569\uB2C8\uB2E4. \uC774 \uD480 \uB9AC\uD018\uC2A4\uD2B8\uC5D0 \uB2E8 \uB2F5\uAE00\uC740 \uC544\uC9C1 \uC77D\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`,
-      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      needsNothing: "\uC0AC\uB78C\uC774 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4, PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815\uB3C4 \uC5C6\uC73C\uBA70, deep-review\uAC00 \uD310\uB2E8\uD558\uAE30\uC5D0 \uC774 \uBCC0\uACBD\uC740 \uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFB8\uC9C0 \uC54A\uACE0 \uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC8FC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+      needsLookAlso: "\uB2E4\uC74C \uC774\uC720\uB85C\uB3C4 \uC0AC\uB78C\uC774 \uBCC0\uACBD\uC744 \uC0B4\uD3B4\uBD10\uC57C \uD569\uB2C8\uB2E4. \uC774\uB97C \uAE30\uB2E4\uB9AC\uB294 \uAC83\uC740 \uC5C6\uC73C\uBA70, \uB2F5\uD558\uB294 \uBA85\uB839\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      needsLookOnly: "\uB2F5\uC744 \uAE30\uB2E4\uB9AC\uB294 \uAC83\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. deep-review\uAC00 \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4. \uADF8\uB798\uB3C4 \uB2E4\uC74C \uC774\uC720\uB85C \uC0AC\uB78C\uC774 \uBCC0\uACBD\uC744 \uC0B4\uD3B4\uBD10\uC57C \uD569\uB2C8\uB2E4.",
+      needsNothingUnjudged: "deep-review\uAC00 \uC9DA\uC744 \uC218 \uC788\uB294 \uC0AC\uB78C\uC758 \uD560 \uC77C\uC740 \uC5C6\uC2B5\uB2C8\uB2E4. \uBB3B\uB294 \uC9C8\uBB38\uB3C4, \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815\uB3C4, PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uB9CC \uC774 \uC2E4\uD589\uC5D0\uB294 \uBCC0\uACBD\uC774 \uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFB8\uB294\uC9C0, \uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC8FC\uB294\uC9C0\uC5D0 \uB300\uD55C deep-review\uC758 \uD310\uB2E8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      lookInterface: "**\uACF5\uAC1C \uC778\uD130\uD398\uC774\uC2A4\uB97C \uBC14\uAFC9\uB2C8\uB2E4.**",
+      lookWide: "**\uBC14\uAFBC \uD30C\uC77C \uBC16\uC758 \uB9CE\uC740 \uD30C\uC77C\uC5D0 \uC601\uD5A5\uC744 \uC90D\uB2C8\uB2E4.**",
+      lookUnexplained: (label, writer, triage) => `${label} deep-review\uC758 \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uB294 \uADF8\uB807\uAC8C \uD310\uB2E8\uD588\uC9C0\uB9CC, \uC124\uBA85 \uBAA8\uB378\uC740 \uCF54\uB4DC\uC5D0\uC11C \uC774\uB97C \uC124\uBA85\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uB9D0: ${writer}${triage === null ? "" : ` \uBD84\uB958 \uC791\uC5C5\uC790\uC758 \uB9D0: ${triage}`}`,
+      lookInTriageWords: (label, triage) => `${label} \uC124\uBA85 \uBAA8\uB378\uC774 \uC124\uBA85\uD558\uC9C0 \uC54A\uC544 deep-review \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uC758 \uB9D0\uB85C \uC801\uC2B5\uB2C8\uB2E4. ${triage}`,
+      lookFiles: (files) => `\uC774\uB97C \uBCF4\uC5EC \uC8FC\uB294 \uD30C\uC77C: ${files.join(", ")}.`,
+      lookPlausible: (findings) => `**PLAUSIBLE \uD310\uC815\uC5D0 \uAE30\uB300\uB294 \uC218\uC815:** \uC9C0\uC801 \uC0AC\uD56D ${findings.join(", ")}. deep-review\uB294 \uAC80\uC99D\uC790\uAC00 \uD655\uC815\uD558\uC9C0 \uBABB\uD55C \uC8FC\uC7A5\uC744 \uADFC\uAC70\uB85C \uCF54\uB4DC\uB97C \uACE0\uCE58\uB824 \uD569\uB2C8\uB2E4. \uADF8 \uC774\uC720\uB294 \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC5D0 \uC788\uC2B5\uB2C8\uB2E4.`,
       howHeading: "### \uB9AC\uBDF0\uAC00 \uC9C4\uD589\uB41C \uBC29\uC2DD",
       howWorked: (counts) => `deep-review\uB294 \uC791\uC5C5\uC790\uB77C\uACE0 \uBD80\uB974\uB294 \uBAA8\uB378 \uC138\uC158\uC744 \uC5ED\uD560\uB9C8\uB2E4 \uB530\uB85C \uC2E4\uD589\uD569\uB2C8\uB2E4. \uCC3E\uB294 \uC791\uC5C5\uC790\uB294 \uC5EC\uB7EC \uAD00\uC810\uC5D0\uC11C \uACB0\uD568 \uD6C4\uBCF4\uB97C \uB0B4\uACE0, \uAC80\uC99D\uC790\uB294 \uCF54\uB4DC\uB97C \uC77D\uAC70\uB098 \uC2E4\uD589\uD574 \uAC01 \uD6C4\uBCF4\uB97C \uD655\uC778\uD558\uBA70, \uACB0\uC815\uD558\uB294 \uC791\uC5C5\uC790\uB294 \uACE0\uCE60\uC9C0, \uC791\uC131\uC790\uC5D0\uAC8C \uBB3C\uC744\uC9C0, \uADF8\uB300\uB85C \uB458\uC9C0 \uC815\uD569\uB2C8\uB2E4. \uC774\uBC88\uC5D0\uB294 \uD6C4\uBCF4 ${String(counts.candidates)}\uAC1C\uAC00 \uC911\uBCF5\uC744 \uD569\uCE5C \uB4A4 ${String(counts.groups)}\uAC1C\uAC00 \uB418\uC5C8\uACE0, \uAC80\uC99D\uC790\uAC00 \uADF8\uC911 ${String(counts.refuted)}\uAC1C\uB97C \uBC18\uBC15\uD558\uACE0 ${String(counts.kept)}\uAC1C\uB97C \uB0A8\uACBC\uC73C\uBA70, \uB0A8\uC740 \uAC83 \uC911 ${String(counts.merged)}\uAC1C\uAC00 \uB2E4\uB978 \uC9C0\uC801 \uC0AC\uD56D\uC5D0 \uD569\uCCD0\uC838 \uC9C0\uC801 \uC0AC\uD56D ${String(counts.findings)}\uAC74\uC774 \uB0A8\uC558\uC2B5\uB2C8\uB2E4.`,
       howDiagram: (pullRequest) => [
@@ -39032,6 +39224,8 @@ var init_pull_request_words = __esm({
       refutedDropped: "\uC124\uBA85 \uBAA8\uB378\uC774 \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBB38\uC7A5\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uAC01 \uD6C4\uBCF4\uB294 \uCC3E\uB294 \uC791\uC5C5\uC790\uC758 \uC694\uC57D\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       findingsDropped: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC774 ${findings}\uC5D0 \uB300\uD574 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
       noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0 \uC804\uCCB4\uB97C deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
+      coreDropped: (triage) => `\uC124\uBA85 \uBAA8\uB378\uC774 deep-review\uC758 \uAC80\uC0AC\uB97C \uD1B5\uACFC\uD55C \uBCC0\uACBD \uC124\uBA85\uC744 \uB0B4\uC9C0 \uBABB\uD574, \uB9AC\uBDF0\uB294 ${triage ? "deep-review \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uC758 \uC124\uBA85\uC73C\uB85C \uC2DC\uC791\uD569\uB2C8\uB2E4" : "\uBCC0\uACBD \uC124\uBA85 \uC5C6\uC774 \uC2DC\uC791\uD569\uB2C8\uB2E4"}.`,
+      coreBeforeWriter: (triage) => `\uC774 \uC2E4\uD589\uC758 \uC124\uBA85 \uBAA8\uB378\uC740 deep-review\uAC00 \uBCC0\uACBD \uC124\uBA85\uC744 \uC4F0\uAC8C \uB418\uAE30 \uC804\uC5D0 \uB2F5\uD588\uC73C\uBBC0\uB85C, \uB9AC\uBDF0\uB294 ${triage ? "deep-review \uBD84\uB958 \uC791\uC5C5\uC790(triage)\uC758 \uC124\uBA85\uC73C\uB85C \uC2DC\uC791\uD569\uB2C8\uB2E4" : "\uBCC0\uACBD \uC124\uBA85 \uC5C6\uC774 \uC2DC\uC791\uD569\uB2C8\uB2E4"}.`,
       predates: (findings) => `\uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC740 ${findings}\uC5D0 \uB300\uD55C \uB2F5\uC774 \uAE30\uB85D\uB418\uAE30 \uC804\uC5D0 \uC4F0\uC600\uC2B5\uB2C8\uB2E4. \uAC01 \uB2F5\uC740 deep-review\uAC00 \uC9C1\uC811 \uC4F4 \uBB38\uC7A5\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.`,
       areaDiagramsCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC601\uC5ED\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
       lastLine: (facts) => `deep-review ${facts.engine}, ${facts.runtime} ${facts.version} (\uBAA8\uB378 ${facts.strong}, ${facts.fast}), \uC2E4\uD589 ${facts.run}, \uB9AC\uBDF0\uD55C \uCEE4\uBC0B ${facts.base}..${facts.head}.`,
@@ -39752,7 +39946,7 @@ async function runPass(options2, log, continuing) {
     if (configure2 !== null) {
       state = append(checkpoint, state, [{ kind: "review.configured", version: configure2.version, payload: configure2.payload }]);
       const pinnedNow = configure2.payload;
-      const language = configure2.version === 11 ? `; it explains its review in ${configure2.payload.settings.values["review.language"]}` : "";
+      const language = configure2.version === 12 ? `; it explains its review in ${configure2.payload.settings.values["review.language"]}` : "";
       const continues = (options2.fix ?? null) !== null && continuesAfterReport(state, options2.scope) ? `; ${continuedAfterReportWords}` : "";
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ", with the fix pass" : ""}${pinnedNow.codex === null ? "" : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}${continues}`);
       for (const line of configuredLines(runId, configure2.resolved)) log(line);
@@ -40199,8 +40393,8 @@ async function openRun(context) {
       const version2 = await qualify2(context.adapter, executable, executableArgs, toolsPath, context, null);
       const { checks, fixes, survey, ...rest2 } = policyResolved;
       const payload = { ...rest2, roles: [...policyResolved.roles], executable, executableArgs, version: version2, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
-      configure2 = explains ? { version: 11, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
-      const recordable = (configure2.version === 11 ? reviewConfiguredV11 : reviewConfiguredV9).safeParse(configure2.payload);
+      configure2 = explains ? { version: 12, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
+      const recordable = (configure2.version === 12 ? reviewConfiguredV12 : reviewConfiguredV9).safeParse(configure2.payload);
       if (!recordable.success) throw new Error(`The engine built a configuration its ledger refuses, so no run is created: ${recordable.error.message}`);
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
@@ -40847,7 +41041,14 @@ ${diagram}
 ${fence}`;
 }
 function blobUrl(pullRequest, commit2, path, from, to) {
-  return `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}/blob/${commit2}/${urlPath(path)}#L${String(from)}${to === from ? "" : `-L${String(to)}`}`;
+  return `${fileUrl(pullRequest, commit2, path)}#L${String(from)}${to === from ? "" : `-L${String(to)}`}`;
+}
+function sourceLink(view, source) {
+  const file2 = view.scope.files.find((entry) => entry.path === source);
+  if (file2 !== void 0) return `[${codeSpan(inlineText(source))}](${fileUrl(view.pullRequest, file2.status === "deleted" ? view.scope.base : view.scope.head, source)})`;
+  if (!commitPrefix2.test(source)) return null;
+  const commits = (view.input.commits ?? []).filter((commit2) => commit2.startsWith(source));
+  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]))}](${commitUrl(view.pullRequest, commits[0])})` : null;
 }
 function followingOf(words, fixPass, pullRequest) {
   if (fixPass === "continued") return words.continued;
@@ -41012,6 +41213,19 @@ function headingSection(view) {
   const { words, scope } = view;
   return { part: "heading", lines: [words.heading, "", view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
 }
+function coreSection(view, say) {
+  const { words, core } = view;
+  if (core.kind === "none") return { part: "core", lines: [words.coreHeading, "", words.coreNone(core.state)] };
+  const links = (sources) => sources.map((source) => sourceLink(view, source) ?? say.code(source));
+  if (core.kind === "writer") {
+    const { title: title2, what, why, whyFrom, diagram } = core.core;
+    const reason2 = why === null ? words.coreNoReason : words.coreWhy(sentenceText(say.prose(why)), links(whyFrom));
+    return { part: "core", lines: blocks([words.coreHeading], [`**${say.prose(title2)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), [reason2], diagram === null ? [] : [say.diagram(diagram)], [words.coreWhoseWriter]) };
+  }
+  const { title, change } = core;
+  const reason = change.why === null ? words.coreNoReason : words.coreWhyTriage(sentenceText(say.words(change.why)), links(change.whyFrom));
+  return { part: "core", lines: blocks([words.coreHeading], [`**${say.words(title)}**`], [paragraphText(say.words(change.what))], [reason], [words.coreWhoseTriage]) };
+}
 function summarySection(view, say) {
   const { words, findings } = view;
   const given = postedWhy(view);
@@ -41023,6 +41237,30 @@ function summarySection(view, say) {
   };
   const next = findings.length === 0 ? [] : [[view.following.summaryNext(decided)]];
   return { part: "summary", lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(" ")], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
+}
+function fileLink(view, path, say) {
+  const shown = say.code(path);
+  if (!repositoryPathLike(path) || shown !== codeSpan(inlineText(path))) return shown;
+  const removed = view.scope.files.some((file2) => file2.path === path && file2.status === "deleted");
+  return `[${shown}](${fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path)})`;
+}
+function heldConditionsOf(view) {
+  const { change } = view.brief;
+  if (change.state !== "given") return [];
+  const judged2 = [{ condition: "public-interface", label: view.words.lookInterface, ...change.publicInterface }, { condition: "wide-effect", label: view.words.lookWide, ...change.wideEffect }];
+  return judged2.filter((entry) => entry.holds);
+}
+function reasonsToLook(view, say) {
+  const { words } = view;
+  const conditions = heldConditionsOf(view).map(({ condition: condition2, label, what, files }) => {
+    const triage = what === null ? null : sentenceText(say.words(what));
+    const given = writerConditionOf(view, condition2);
+    const text3 = given?.explanation !== null && given?.explanation !== void 0 ? `${label} ${sentenceText(say.prose(given.explanation))}` : given?.unexplained !== null && given?.unexplained !== void 0 ? words.lookUnexplained(label, sentenceText(say.prose(given.unexplained)), triage) : triage === null ? label : words.lookInTriageWords(label, triage);
+    return [text3, ...files.length === 0 ? [] : [words.lookFiles(files.map((file2) => fileLink(view, file2, say)))]].join(" ");
+  });
+  const plausible = view.findings.filter((finding) => (finding.finding.status === "planned" || finding.finding.status === "planned-against-rule") && finding.finding.verdict === "PLAUSIBLE");
+  const fixes = plausible.length === 0 ? [] : [words.lookPlausible(plausible.map((finding) => `[${String(finding.finding.number)}](${hrefOf(view, finding)})`))];
+  return [...conditions, ...fixes].map((item) => `- ${item}`);
 }
 function needsSection(view, say) {
   const { words } = view;
@@ -41042,10 +41280,12 @@ function needsSection(view, say) {
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence2(departure.rule), tail)}`];
   });
   const items = [...questions, ...departures];
-  if (items.length === 0) return { part: "needs", lines: [words.needsHeading, "", words.needsNothing] };
+  const looks = reasonsToLook(view, say);
+  if (items.length === 0 && looks.length > 0) return { part: "needs", lines: blocks([words.needsHeading], [words.needsLookOnly], looks) };
+  if (items.length === 0) return { part: "needs", lines: [words.needsHeading, "", view.brief.change.state === "given" ? words.needsNothing : words.needsNothingUnjudged] };
   const flags = [...questions.length === 0 ? [] : ["--option <k>"], ...departures.length === 0 ? [] : ["--accept", "--reject"]].map(codeSpan);
   const answer3 = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, "<n>", "").trimEnd()}`), flags)]];
-  return { part: "needs", lines: blocks([words.needsHeading], items, ...answer3) };
+  return { part: "needs", lines: blocks([words.needsHeading], items, ...answer3, ...looks.length === 0 ? [] : [[words.needsLookAlso], looks]) };
 }
 function howSection(view) {
   const { words, counts } = view;
@@ -41142,7 +41382,7 @@ function postsWriterFinding(finding, cuts) {
   return explained.kind === "explained" || explained.kind === "unexplained" && explained.reason !== null || finding.decision?.decision === "fix" && finding.action !== null;
 }
 function postsWriterText(view, cuts) {
-  return postedWhy(view) !== null || view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0 || !cuts.has("refuted") && view.refuted.some((line) => line.claim !== null || line.why !== null) || view.findings.some((finding) => postsWriterFinding(finding, cuts));
+  return view.core.kind === "writer" || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null) || postedWhy(view) !== null || view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0 || !cuts.has("refuted") && view.refuted.some((line) => line.claim !== null || line.why !== null) || view.findings.some((finding) => postsWriterFinding(finding, cuts));
 }
 function trustSection(view, cuts) {
   const { words, brief, recorded } = view;
@@ -41150,6 +41390,9 @@ function trustSection(view, cuts) {
   const notes = [];
   if (recorded === null) notes.push(words.noExplanation);
   else {
+    const triage = view.core.kind === "triage";
+    if (recorded.dropped.some((part) => part.part === "core")) notes.push(words.coreDropped(triage));
+    else if (recorded.version < 3) notes.push(words.coreBeforeWriter(triage));
     if (recorded.dropped.some((part) => part.part === "conclusion")) notes.push(words.conclusionDropped);
     if (recorded.dropped.some((part) => part.part === "areas")) notes.push(words.areasDropped);
     if (recorded.dropped.some((part) => part.part === "refuted")) notes.push(words.refutedDropped);
@@ -41185,14 +41428,15 @@ function renderBody(view, cuts) {
   const say = speakerOf(view.input.machine, view.words, view.names);
   const sections = [
     headingSection(view),
+    coreSection(view, say),
     summarySection(view, say),
     needsSection(view, say),
+    notExaminedSection(view, say, cuts),
     howSection(view),
     areasSection(view, say, cuts),
     inFullSection(view, say),
     minorSection(view, say, cuts),
     leftSection(view, say, cuts),
-    notExaminedSection(view, say, cuts),
     trustSection(view, cuts),
     lastSection(view, say)
   ].filter((section) => section.lines.length > 0);
@@ -41249,6 +41493,8 @@ function formViewOf(input2) {
   if (review2 === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
   const brief = briefOf(state);
   const words = pullRequestWords(reviewLanguage(review2));
+  const writerCore = input2.answer?.core ?? null;
+  const core = writerCore !== null ? { kind: "writer", core: writerCore } : brief.change.state === "given" ? { kind: "triage", title: brief.title, change: brief.change } : { kind: "none", state: brief.change.state };
   const placements = new Map(input2.places.map((placement) => [placement.finding, placement]));
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
@@ -41281,6 +41527,8 @@ function formViewOf(input2) {
     pullRequest: scope.pullRequest,
     brief,
     words,
+    core,
+    conditions: input2.answer?.conditions ?? null,
     following: followingOf(words, input2.fixPass, scope.pullRequest.number),
     findings,
     areas: input2.answer?.areas ?? null,
@@ -41328,7 +41576,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, postedWhy, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, commitPrefix2, headUrl, locationLink, hrefOf, verdictMarks, verdictText, titleOf, joinedParts, postedWhy, repositoryPathLike, writerConditionOf, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -41356,6 +41604,10 @@ var init_pull_request_form = __esm({
     blocks = (...parts) => parts.filter((part) => part.length > 0).flatMap((part, index2) => index2 === 0 ? [...part] : ["", ...part]);
     details = (summary, ...parts) => blocks([`<details><summary>${summary}</summary>`], ...parts, ["</details>"]);
     urlPath = (path) => path.split("/").map((name) => encodeURIComponent(name).replace(/\(/g, "%28").replace(/\)/g, "%29")).join("/");
+    repositoryUrl = (pullRequest) => `https://${pullRequest.host}/${encodeURIComponent(pullRequest.owner)}/${encodeURIComponent(pullRequest.repository)}`;
+    fileUrl = (pullRequest, commit2, path) => `${repositoryUrl(pullRequest)}/blob/${commit2}/${urlPath(path)}`;
+    commitUrl = (pullRequest, commit2) => `${repositoryUrl(pullRequest)}/commit/${commit2}`;
+    commitPrefix2 = /^[0-9a-f]{7,40}$/;
     headUrl = (view, location) => blobUrl(view.pullRequest, view.scope.head, location.path, location.line, location.line);
     locationLink = (view, location) => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
     hrefOf = (view, finding) => finding.placement.place === "line" ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`;
@@ -41364,6 +41616,8 @@ var init_pull_request_form = __esm({
     titleOf = (finding, say) => finding.explained.kind === "explained" ? say.prose(finding.explained.value.title) : say.words(firstSentence(finding.entry.finding.summary));
     joinedParts = (parts) => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
     postedWhy = (view) => view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === "areas") ?? false) ? null : view.conclusion.why;
+    repositoryPathLike = (path) => path !== "" && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
+    writerConditionOf = (view, condition2) => view.conditions?.find((entry) => entry.condition === condition2) ?? null;
     majorActing = (view) => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
     minorActing = (view) => {
       const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
@@ -41621,6 +41875,12 @@ function publishLocked(options2, runId, log) {
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded2));
   const placements = placeFindings(reviewed.review, files);
   const serial = run2.publications.length + 1;
+  let commits;
+  try {
+    commits = commitIds(options2.worktree, scope.base, scope.head);
+  } catch {
+    commits = null;
+  }
   const form = pullRequestForm({
     state: reviewed,
     fixPass: run2.review.continuedFrom === null ? "to-come" : "continued",
@@ -41628,7 +41888,8 @@ function publishLocked(options2, runId, log) {
     places: placements,
     machine: machineContextOf({ worktree: run2.worktree, checkpoint: checkpoint.root, gitCommon: options2.gitCommon, engine: dirname7(options2.engineEntry), workers: run2.workers, environment: options2.environment, platform: options2.platform ?? process.platform }),
     engine: checkpoint.engine,
-    serial
+    serial,
+    commits
   });
   if (form.kind === "refused") throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded2}, and the report of the run holds all of it`);
   if (dryRun) return { kind: "dry-run", runId: run2.id, lines: dryRunLines(reviewed, placements, form, notes) };
@@ -41676,6 +41937,7 @@ var init_publish = __esm({
     init_errors8();
     init_gh();
     init_pull_request();
+    init_git();
     init_brief();
     init_errors7();
     init_explanation();
