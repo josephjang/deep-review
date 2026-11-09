@@ -885,6 +885,9 @@ const decisionsRecordedV1: Reducer<DecisionsRecordedV1> = (state, payload, event
 /** The version of `explanation.recorded` a run's configuration asks for: 3 at `review.configured@12`, 2 at version 11, and 1 at version 10. */
 const explanationVersionOf = (review: ReviewState): 1 | 2 | 3 => (review.coreForm ? 3 : review.reportForm ? 2 : 1);
 
+/** The configuration that asks for each version of `explanation.recorded`, named rather than worked out, so a later configuration that keeps a version or skips a number is named as it is. */
+const explanationConfiguredAt: Record<1 | 2 | 3, string> = { 1: 'review.configured@10', 2: 'review.configured@11', 3: 'review.configured@12' };
+
 /**
  * The writer's explanation (R18, R19 of the review on the pull request),
  * once, in a run that explains its review while its `explanation` runs,
@@ -901,7 +904,7 @@ function recordExplanation(state: RunState | undefined, payload: ExplanationReco
   const { current, review } = requireReview(state, event);
   if (!review.explanationStep) throw invalid(event, 'records an explanation, which only a run configured at review.configured@10 or later has');
   const asked = explanationVersionOf(review);
-  if (asked !== version) throw invalid(event, `records an explanation at version ${String(version)}, which a run configured at review.configured@${String(asked + 9)} records at version ${String(asked)}`);
+  if (asked !== version) throw invalid(event, `records an explanation at version ${String(version)}, which a run configured at ${explanationConfiguredAt[asked]} records at version ${String(asked)}`);
   if (current.explanation !== null) throw invalid(event, 'records its explanation twice');
   requireRunning(review, event, 'explanation');
   const ranked = new Set((review.ranking ?? []).map((finding) => finding.id));
