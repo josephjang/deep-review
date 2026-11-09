@@ -44,4 +44,16 @@ This proposal follows principles 1 and 12 of the [2026-11-05 vision note](../202
 
 ## Verification
 
-No checks have run yet on the proposed fix.
+`npm ci` passed with the updated lockfile. `npm ls zod minimatch` resolved Zod 4.6.7 and minimatch 11.0.5 for all three lint-stack callers, with no vulnerable version left in the installed tree.
+
+`npm audit` passed with zero findings at every severity: informational, low, moderate, high and critical.
+
+`npm run check` passed lint and typecheck, with 3,774 tests passing, 13 skipped and none failing out of 3,787 tests. The existing checkpoint compatibility tests passed without an event schema or fixture change.
+
+`npm run test:contract` passed all 109 tests, with none skipped or failing, across the four groups of resumable-run scenarios.
+
+`npm run build` rebuilt both shipped engine bundles with Zod 4.6.7. `npm run verify` passed for both artifacts. A Node probe of `z.array(z.string()).max(4).safeParse(Array(100000).fill(0))` returned one `too_big` issue, confirming rejection at the collection bound before element validation.
+
+A real `npm run review -- review --runtime claude --pr 134` completed with all ten finder angles and no unverified groups. It selected three documentation fixes and no code fixes, left the validator's early rejection and the audit automation non-goal as intended, and left the existing uncapped schemas and answer-size limits as pre-existing concerns outside this change. The lint compatibility verifier checked all 331 tracked TypeScript and JavaScript module files: none were missing or extra, the test-specific rules still applied, and build output stayed ignored.
+
+The author keeps the full command logs, review ledger and probes outside the repository. [Pull request 134](https://github.com/josephjang/deep-review/pull/134) carries the CI outcomes; the final head must pass the checks and contract on Linux, macOS and Windows before merge.
