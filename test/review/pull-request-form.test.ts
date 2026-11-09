@@ -69,7 +69,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
 
   it('puts first what a person must know and do and what the review did not examine, then how the review worked, the findings and how far to trust it, the marker last (R9 of the core of the change on the pull request)', () => {
     inOrder(body, [
-      '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`, and changed no file.',
+      '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`, and changed no file.\n\n### What this change does',
       '### Summary',
       '### What needs a person',
       '### What this review did not examine',
@@ -83,7 +83,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     assert.equal(lastLine(body), `<!-- ${publicationMarker('run-1', 1)} -->`, 'the marker of the publication is the very last line');
   });
 
-  it('posts none of the sections the report form replaced: no core of the change, no table of every finding, no legend, no evidence', () => {
+  it('posts none of the sections the report form replaced: no account of the pull request, no table of every finding, no legend, no evidence', () => {
     for (const gone of ['What this pull request does', 'For a reader new to this change', '### Findings\n', 'Before the merge:', 'The words of this review', 'Evidence that', '- Summary:', '- Reason:', '- Evidence:', '/files#diff-']) excludes(body, gone);
   });
 
@@ -234,7 +234,7 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   });
 
   it('says how far to trust the review in counts, and what a model wrote', () => {
-    assert.equal(section(body, '### How far to trust this review'), '### How far to trust this review\n\n1 of the 2 findings is CONFIRMED and 1 PLAUSIBLE, 1 of them unverified; the major one is CONFIRMED. Across all 2, 1 was checked by tracing it, and 1 has no basis on record. The verifiers refuted 1 of 5 candidates, so the finders\' claims did not pass unchecked. A model wrote the explanations from the verifiers\' evidence, which the report of the run holds, and only that evidence was verified.\n');
+    assert.equal(section(body, '### How far to trust this review'), '### How far to trust this review\n\n1 of the 2 findings is CONFIRMED and 1 PLAUSIBLE, 1 of them unverified; the major one is CONFIRMED. Across all 2, 1 was checked by tracing it, and 1 has no basis on record. The verifiers refuted 1 of 5 candidates, so the finders\' claims did not pass unchecked. A model wrote the explanations from the verifiers\' evidence, which the report of the run holds, and only that evidence was verified.\n\nThis run\'s writer answered before deep-review\'s writer gave the core of the change, so the review opens with no account of the change.\n');
   });
 
   it('links every piece of code at the reviewed head, or at the merge base for removed lines, and never into the diff', () => {
@@ -765,9 +765,9 @@ describe('the fit of the review (TD5)', () => {
     assert.deepEqual(text, { kind: 'body' });
     assert.ok(size > maxPostedLength);
     assert.equal(limit, maxPostedLength);
-    assert.deepEqual(parts.map((part) => part.part), ['heading', 'summary', 'needs', 'not examined', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'trust', 'last line']);
+    assert.deepEqual(parts.map((part) => part.part), ['heading', 'core', 'summary', 'needs', 'not examined', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'trust', 'last line']);
     assert.equal(parts.reduce((sum, part) => sum + part.size, 0) + 2 * (parts.length - 1), size, 'the parts and the blank lines between them make the body');
-    assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, summary \d+, needs \d+/);
+    assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, core \d+, summary \d+, needs \d+/);
   });
 
   it('refuses a comment over the limit, with its size and parts', () => {

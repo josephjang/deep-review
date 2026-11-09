@@ -130,6 +130,15 @@ export interface PullRequestWords {
   /** A finding by its number, as a sentence names it. */
   readonly findingList: (numbers: readonly number[]) => string;
 
+  /** The core of the change (R1 to R4, R10 of the core of the change on the pull request): its heading; the writer's reason with the links to its sources; the triage's reason with its sources, each a link or a code span; that the change states no reason; whose reading the writer's core and the triage's account are; and why there is none. */
+  readonly coreHeading: string;
+  readonly coreWhy: (why: string, sources: readonly string[]) => string;
+  readonly coreWhyTriage: (why: string, sources: readonly string[]) => string;
+  readonly coreNoReason: string;
+  readonly coreWhoseWriter: string;
+  readonly coreWhoseTriage: string;
+  readonly coreNone: (state: 'none' | 'unrecorded') => string;
+
   /** The summary: the counts of the findings, then, after the writer's sentence on the areas, what deep-review decided and what happens next with the command that fixes. */
   readonly summaryHeading: string;
   readonly summaryCounts: (counts: ReviewCounts) => string;
@@ -246,6 +255,9 @@ export interface PullRequestWords {
   readonly refutedDropped: string;
   readonly findingsDropped: (findings: string, count: number) => string;
   readonly noExplanation: string;
+  /** Why the review does not open with the writer's core: the checks dropped it, or the run's writer answered before the core; the review then opens with the triage's account, or with none. */
+  readonly coreDropped: (triage: boolean) => string;
+  readonly coreBeforeWriter: (triage: boolean) => string;
   readonly predates: (findings: string) => string;
   readonly areaDiagramsCut: string;
 
@@ -366,6 +378,14 @@ const english: PullRequestWords = {
   heading: '## deep-review\'s review of this pull request',
   reviewed: (head, files, base) => `${reviewedEnglish(head, files, base)}, and changed no file.`,
   findingList: (numbers) => findingWords(numbers),
+
+  coreHeading: '### What this change does',
+  coreWhy: (why, sources) => `**Why.** ${why} The change says so in ${listed(sources)}.`,
+  coreWhyTriage: (why, sources) => `**Why, in the change's own words as deep-review's triage gave them.** ${why}${sources.length === 0 ? ' The triage named no source.' : ` From ${listed(sources)}.`}`,
+  coreNoReason: 'The change states no reason in its commit messages or its documents.',
+  coreWhoseWriter: 'This is deep-review\'s reading of the change, which a model wrote from its code and its commit messages; no verifier examined it.',
+  coreWhoseTriage: 'This is the account of deep-review\'s triage, the first worker to read the change, written before the review, in its own words; no verifier examined it.',
+  coreNone: (state) => (state === 'unrecorded' ? 'deep-review has no account of this change, because an engine before the account reviewed it.' : 'deep-review has no account of this change: its triage, the first worker to read the change, gave none.'),
 
   summaryHeading: '### Summary',
   summaryCounts: (counts) => {
@@ -524,6 +544,8 @@ const english: PullRequestWords = {
   refutedDropped: 'The writer gave no lines for the refuted candidates that passed deep-review\'s checks, so each is given by its finder\'s summary.',
   findingsDropped: (findings, count) => `The writer gave no explanation of ${findings} that passed deep-review's checks, so ${count === 1 ? 'it is' : 'each is'} given in deep-review's own words.`,
   noExplanation: 'deep-review recorded no explanation by its writer for this run, so the review is in deep-review\'s own words.',
+  coreDropped: (triage) => `The writer gave no account of the change that passed deep-review's checks, so the review opens with ${triage ? 'the account of deep-review\'s triage' : 'no account of the change'}.`,
+  coreBeforeWriter: (triage) => `This run's writer answered before deep-review's writer gave the core of the change, so the review opens with ${triage ? 'the account of deep-review\'s triage' : 'no account of the change'}.`,
   predates: (findings) => `The writer explained this review before the answers to ${findings} were recorded; deep-review's own words give each answer.`,
   areaDiagramsCut: 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.',
 
@@ -611,6 +633,14 @@ const korean: PullRequestWords = {
   heading: '## deep-review의 풀 리퀘스트 리뷰',
   reviewed: (head, files, base) => `deep-review가 이 풀 리퀘스트를 head ${head}에서 리뷰했습니다. merge base ${base}부터 바뀐 파일 ${String(files)}개를 보았으며, 파일은 하나도 바꾸지 않았습니다.`,
   findingList: (numbers) => `지적 사항 ${[...new Set(numbers)].sort((a, b) => a - b).map(String).join(', ')}`,
+
+  coreHeading: '### 이 변경이 하는 일',
+  coreWhy: (why, sources) => `**이유.** ${why} 출처: ${sources.join(', ')}.`,
+  coreWhyTriage: (why, sources) => `**deep-review의 분류 작업자(triage)가 옮긴, 변경이 밝힌 이유.** ${why}${sources.length === 0 ? ' 분류 작업자는 출처를 적지 않았습니다.' : ` 출처: ${sources.join(', ')}.`}`,
+  coreNoReason: '이 변경은 커밋 메시지나 문서에서 이유를 밝히지 않습니다.',
+  coreWhoseWriter: '이 내용은 모델이 변경의 코드와 커밋 메시지를 읽고 쓴 deep-review의 해석이며, 어떤 검증자도 검토하지 않았습니다.',
+  coreWhoseTriage: '이 내용은 변경을 가장 먼저 읽는 deep-review의 분류 작업자(triage)가 리뷰 전에 자기 말로 쓴 설명이며, 어떤 검증자도 검토하지 않았습니다.',
+  coreNone: (state) => (state === 'unrecorded' ? 'deep-review에는 이 변경에 대한 설명이 없습니다. 변경 설명을 쓰기 전의 엔진이 이 실행을 리뷰했기 때문입니다.' : 'deep-review에는 이 변경에 대한 설명이 없습니다. 변경을 가장 먼저 읽는 분류 작업자(triage)가 설명을 내지 않았습니다.'),
 
   summaryHeading: '### 요약',
   summaryCounts: (counts) => {
@@ -784,6 +814,8 @@ const korean: PullRequestWords = {
   refutedDropped: '설명 모델이 반박된 후보에 대해 deep-review의 검사를 통과한 문장을 내지 못해, 각 후보는 찾는 작업자의 요약으로 적었습니다.',
   findingsDropped: (findings) => `설명 모델이 ${findings}에 대해 deep-review의 검사를 통과한 설명을 내지 못해, deep-review가 직접 쓴 문장으로 적었습니다.`,
   noExplanation: '이 실행에는 설명 모델의 설명이 기록되지 않아, 리뷰 전체를 deep-review가 직접 쓴 문장으로 적었습니다.',
+  coreDropped: (triage) => `설명 모델이 deep-review의 검사를 통과한 변경 설명을 내지 못해, 리뷰는 ${triage ? 'deep-review 분류 작업자(triage)의 설명으로 시작합니다' : '변경 설명 없이 시작합니다'}.`,
+  coreBeforeWriter: (triage) => `이 실행의 설명 모델은 deep-review가 변경 설명을 쓰게 되기 전에 답했으므로, 리뷰는 ${triage ? 'deep-review 분류 작업자(triage)의 설명으로 시작합니다' : '변경 설명 없이 시작합니다'}.`,
   predates: (findings) => `설명 모델의 설명은 ${findings}에 대한 답이 기록되기 전에 쓰였습니다. 각 답은 deep-review가 직접 쓴 문장으로 적었습니다.`,
   areaDiagramsCut: 'GitHub가 받는 길이에 맞추느라 영역의 다이어그램은 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
 
