@@ -183,6 +183,13 @@ describe('the reasons to look in what needs a person', () => {
     excludes(needs, '/home/me');
   });
 
+  it('lists each condition the triage judged to hold, in the order of the conditions, and none that does not hold', () => {
+    const judged = (publicInterface: boolean, wideEffect: boolean): string => needsOf(bodyOf(withReading(run(decisions).fold(), reading({ publicInterface: { holds: publicInterface, what: null, files: [] }, wideEffect: { holds: wideEffect, what: null, files: [] } })), writerAnswer()));
+    includes(judged(true, true), '\n- **It changes a public interface.**\n- **It affects many files beyond the ones it changes.**');
+    excludes(judged(false, true), 'It changes a public interface.');
+    excludes(judged(true, false), 'It affects many files beyond the ones it changes.');
+  });
+
   it('names the fixes on a PLAUSIBLE verdict in one item, a fix against a written rule among them, each linked by its number', () => {
     const one = needsOf(bodyOf(withAccount(run(plausibleFix()).fold()), writerAnswer()));
     includes(one, '\n- **A fix rests on a PLAUSIBLE verdict:** finding [2](#finding-2). deep-review would change the code on a claim its verifier did not confirm; each finding says why.');
