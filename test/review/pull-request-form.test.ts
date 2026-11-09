@@ -67,16 +67,16 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
   const form = formOf(run().fold());
   const { body } = form;
 
-  it('puts first what a person must know and do, then how the review worked, the findings, what it did not examine and how far to trust it, the marker last', () => {
+  it('puts first what a person must know and do and what the review did not examine, then how the review worked, the findings and how far to trust it, the marker last (R9 of the core of the change on the pull request)', () => {
     inOrder(body, [
       '## deep-review\'s review of this pull request\n\ndeep-review reviewed this pull request at its head `22222222`, the 1 file changed from the merge base `11111111`, and changed no file.',
       '### Summary',
       '### What needs a person',
+      '### What this review did not examine',
       '### How the review worked',
       '### The major findings',
       '### Finding 2: extract the helper',
       '### The minor findings',
-      '### What this review did not examine',
       '### How far to trust this review',
       'Reviewed by deep-review 0.0.0+dev on claude 2.1.283 with opus and sonnet, run `run-1`, commits 11111111..22222222.',
     ]);
@@ -765,7 +765,7 @@ describe('the fit of the review (TD5)', () => {
     assert.deepEqual(text, { kind: 'body' });
     assert.ok(size > maxPostedLength);
     assert.equal(limit, maxPostedLength);
-    assert.deepEqual(parts.map((part) => part.part), ['heading', 'summary', 'needs', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'not examined', 'trust', 'last line']);
+    assert.deepEqual(parts.map((part) => part.part), ['heading', 'summary', 'needs', 'not examined', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'trust', 'last line']);
     assert.equal(parts.reduce((sum, part) => sum + part.size, 0) + 2 * (parts.length - 1), size, 'the parts and the blank lines between them make the body');
     assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, summary \d+, needs \d+/);
   });
