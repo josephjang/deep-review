@@ -59,7 +59,7 @@ The triage's answer carries `change` (`changeOutputSchema`), normalized by `norm
 | `conditions[].explanation` | text or null | 1,000 characters |
 | `conditions[].unexplained` | text or null | 1,000 characters |
 
-The bounds are those of the schema, which a model must not break or the whole answer is refused; they are not limits the writer is asked to fill. `writerOutputSchemaFor` and `answerVersionOf` give version 3 for a state with `coreForm`, 2 for one with `reportForm` alone, and 1 otherwise. `recordedAnswerSchemaV3` freezes it, and `RecordedAnswer` gains `core` and `conditions`, null for an answer of an earlier version or a part that was dropped.
+The bounds are those of the schema, which a model must not break or the whole answer is refused; they are not limits the writer is asked to fill. `explanationVersionOf` (`src/checkpoint/review-fold.ts`) gives version 3 for a state with `coreForm`, 2 for one with `reportForm` alone, and 1 otherwise; the fold, `writerOutputSchemaFor`, which picks the schema of that version from a table, and the explanation module all read it, so a later version is added in one place. `recordedAnswerSchemaV3` freezes it, and `RecordedAnswer` gains `core` and `conditions`, null for an answer of an earlier version or a part that was dropped.
 
 ### The checks of the two parts (R3, R5, R8, TD3, TD6)
 

@@ -20,7 +20,7 @@ import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
 import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type DroppedPartV3, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type ExplanationRecordedV3, type CandidateChoice, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { changeReadingOf, type CandidateState, type ReviewState, type UnitFailure, type UnitState } from '../checkpoint/review-fold.ts';
+import { changeReadingOf, explanationVersionOf, type CandidateState, type ExplanationVersion, type ReviewState, type UnitFailure, type UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { blobsRaw, commitIds, treeEntries, type TreeEntry } from '../scope/git.ts';
@@ -41,12 +41,6 @@ const writerOutputShapeV2 = writerOutputSchemaV2.shape;
 const writerOutputShapeV3 = writerOutputSchemaV3.shape;
 const explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
 const explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
-
-/** The version of the writer's answer, which is the version of `explanation.recorded` that records it: 3 in a run whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
-export type AnswerVersion = 1 | 2 | 3;
-
-/** The version of the writer's answer a run asks for, by its configuration, also when this engine resumes it. */
-export const answerVersionOf = (review: Pick<ReviewState, 'reportForm' | 'coreForm'>): AnswerVersion => (review.coreForm ? 3 : review.reportForm ? 2 : 1);
 
 /** The writer's answer as it gave it, of any version. */
 export type AnyWriterOutput = WriterOutput | WriterOutputV2 | WriterOutputV3;
@@ -145,7 +139,7 @@ export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 
 }
 
 /** The answer as the evidence store freezes it at `version`: the parts that version has, each finding in its shape. */
-function frozenAnswer(version: AnswerVersion, { conclusion, account, areas, refuted: lines, core, conditions, findings }: RecordedAnswer): object {
+function frozenAnswer(version: ExplanationVersion, { conclusion, account, areas, refuted: lines, core, conditions, findings }: RecordedAnswer): object {
   if (version === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
   if (version === 2) return { conclusion, areas, refuted: lines, findings };
   return { conclusion, account, findings: findings.map((finding) => (finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest }) => rest)(finding))) };
@@ -546,7 +540,7 @@ function linesFailures(what: string, lines: CitedLines, lineCount: AnswerCheckIn
  * version 2 is held to neither: a question in `asks` may have any
  * sentence, or none, and still names no stray finding.
  */
-function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: AnswerVersion, asks: readonly string[]): string[] {
+function checkConclusion(conclusion: Conclusion, ids: readonly string[], version: ExplanationVersion, asks: readonly string[]): string[] {
   const held = (id: string): boolean => version === 1 || !asks.includes(id);
   const posted = ids.filter(held);
   const named = conclusion.actions.map((action) => action.id);
@@ -848,7 +842,7 @@ export interface MergedAnswer {
  * answer's failures; with no areas kept, the conclusion is taken as any
  * other part, since the body then posts no summary.
  */
-export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
+export function mergeAnswers(version: ExplanationVersion, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
   const dropped: DroppedPart[] = [];
   const passes = <T>(part: CheckedPart<T> | null): part is CheckedPart<T> => part !== null && part.value !== null && part.failures.length === 0;
   const pick = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart): T | null => {
@@ -901,7 +895,7 @@ const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part === 'co
  * otherwise when it keeps any part; each part dropped with its failures;
  * and the findings marked unexplained.
  */
-export function explanationRecord(version: AnswerVersion, workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
+export function explanationRecord(version: ExplanationVersion, workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
   const answer: ArtifactReference | null = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version, merged.answer))}\n`) : null;
   const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
   if (version === 3) return { kind: 'explanation.recorded', version: 3, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV3), unexplained } };
@@ -949,7 +943,7 @@ function checkedAnswers(state: RunState, review: ReviewState, context: { readonl
   const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
   const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
   const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') });
-  const version = answerVersionOf(review);
+  const version = explanationVersionOf(review);
   const report = version === 1 ? {} : { report: reportCheckInputOf(review) };
   const core = version === 3 && answers.length > 0 ? { core: coreCheckInputOf(review, state.scope, context.worktree) } : {};
   return answers.map((answer) => checkAnswer(answer, { ids, lineCount, ...report, ...core }));
@@ -1001,7 +995,7 @@ export function writerContribution(state: RunState, receipt: { readonly workerId
   const answers = checkedAnswers(state, review, context, ids, receipt.output as AnyWriterOutput);
   const strays = answers.at(-1)!.strays;
   if (strays.length > 0) context.log(`the answer explains ${strays.join(', ')}, which ${strays.length === 1 ? 'is no finding' : 'are no findings'} of the run that asks a person to act; not kept`);
-  const version = answerVersionOf(review);
+  const version = explanationVersionOf(review);
   const merged = mergeAnswers(version, answers, ids);
   if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
   return explanationRecord(version, receipt.workerId, merged, context.evidence);
@@ -1018,8 +1012,8 @@ export function writerContribution(state: RunState, receipt: { readonly workerId
 export function droppedExplanation(state: RunState, context: ExplanationContext, reason: string): NewEvent {
   const review = requireReview(state);
   const ids = findingsToExplain(review);
-  const merged = mergeAnswers(answerVersionOf(review), checkedAnswers(state, review, context, ids, null), ids, [reason]);
-  return explanationRecord(answerVersionOf(review), null, merged, context.evidence);
+  const merged = mergeAnswers(explanationVersionOf(review), checkedAnswers(state, review, context, ids, null), ids, [reason]);
+  return explanationRecord(explanationVersionOf(review), null, merged, context.evidence);
 }
 
 /** The language the run recorded for its review (R20): `review.language` of its settings, or the default language for a run that recorded none. */
@@ -1111,7 +1105,7 @@ function candidateLines(candidate: CandidateState, primary: boolean, clean: (tex
 }
 
 /** What a finding to explain asks of the writer, as its heading gives it: in an answer of version 2, an area for a major one and a kind for a minor one. */
-function explainWords(entry: ReportFinding, version: AnswerVersion): string {
+function explainWords(entry: ReportFinding, version: ExplanationVersion): string {
   if (version === 1) return 'explain it';
   return isMajor(entry) ? 'explain it, in an area' : 'explain it, with a kind';
 }
@@ -1208,7 +1202,7 @@ function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: s
  */
 export function writerTask(state: RunState, input: WriterTaskInput): string {
   const review = requireReview(state);
-  const version = answerVersionOf(review);
+  const version = explanationVersionOf(review);
   const ids = findingsToExplain(review);
   const clean = (text: string): string => inlineText(publicWords(text, input.machine).text);
   // Cleaned as code, so its places and secrets give way to their marks and nothing in it is escaped, then fenced longer than any run of backticks the cleaning left.

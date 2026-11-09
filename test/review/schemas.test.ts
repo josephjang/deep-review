@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { changeReadingSchema, changeTextLengthV1, citedRunLimitsV1, verdictsRecordedV2, type CandidateChoice } from '../../src/checkpoint/events.ts';
+import { explanationVersionOf } from '../../src/checkpoint/review-fold.ts';
 import { StructuralCheckError, structuralCheckPrefix } from '../../src/review/errors.ts';
 import {
   changeSourceLimits,
@@ -24,6 +25,10 @@ import {
   triageOutputSchema,
   verifierOutputSchema,
   verifierOutputSchemaV2,
+  writerOutputSchema,
+  writerOutputSchemaFor,
+  writerOutputSchemaV2,
+  writerOutputSchemaV3,
   type DeciderOutput,
 } from '../../src/review/schemas.ts';
 import { finderAngles, maxRecordedTextLength, reviewRoles } from '../../src/review/vocabulary.ts';
@@ -48,6 +53,18 @@ describe('the output schemas', () => {
     void (() => outputSchemaOf('test-assessment'));
     assert.equal(outputSchemaOf('fixer'), fixerOutputSchema);
     assert.equal(outputSchemaOf('documentation'), fixerOutputSchema);
+  });
+
+  it('gives the writer the schema of the version of explanation.recorded its run asks for, as the fold reads that version', () => {
+    const forms = [
+      { review: { reportForm: false, coreForm: false }, schema: writerOutputSchema, version: 1 },
+      { review: { reportForm: true, coreForm: false }, schema: writerOutputSchemaV2, version: 2 },
+      { review: { reportForm: true, coreForm: true }, schema: writerOutputSchemaV3, version: 3 },
+    ] as const;
+    for (const { review, schema, version } of forms) {
+      assert.equal(explanationVersionOf(review), version, JSON.stringify(review));
+      assert.equal(writerOutputSchemaFor(review), schema, JSON.stringify(review));
+    }
   });
 
   it('gives every finder one schema, the triage its own, and the sweep one with an angle per candidate', () => {
