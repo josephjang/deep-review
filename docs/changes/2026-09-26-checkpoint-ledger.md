@@ -131,6 +131,7 @@ checkpoint exists on someone's disk.
   kind/version list and fails when either changes without a new fixture.
 - R11: zod is pinned at 4.6.5; `npm run check` and `npm run verify` pass on
   all three CI runners.
+  Superseded 2026-11-10: zod is pinned at 4.6.7 to fix GHSA-mrhx-c7xc-m3w5 (R1 of [the dependency vulnerability proposal](2026-11-10-dependency-vulnerabilities.md)); the check and verify requirements still apply.
 
 ## Decisions
 
