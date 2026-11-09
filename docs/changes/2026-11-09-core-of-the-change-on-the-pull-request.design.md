@@ -8,15 +8,15 @@ A run that explains its review is configured at a new version, `review.configure
 
 ## Non-Goals
 
-### No change to the triage, the brief or the report on the machine
+### NG1: No change to the triage, the brief or the report on the machine
 
 `triageTask`, `changeOutputSchema`, `normalizeTriageChange` and `candidates.recorded@2` stay as they are, and so do `Brief`, `briefOf`, `accountPart` and the report. The form reads the triage's account and its conditions from `view.brief.change`, as it reads the brief's gaps today.
 
-### No change to the placement of a finding, the cleaning or the cuts
+### NG2: No change to the placement of a finding, the cleaning or the cuts
 
 `placeFindings`, the Speaker and its cleaning, the markers and `bodyCuts` stay. The core and what needs a person are never cut, as what needs a person is not today, and no new cut is added (NG7 of the requirements).
 
-### No change to the other workers
+### NG3: No change to the other workers
 
 The finders, the verifiers, merge-rank and the decider, with their prompts, tasks and schemas, stay as they are.
 
@@ -174,15 +174,15 @@ The finding names in the review turn an id in a worker's text into "finding 3". 
 
 ## Open Questions
 
-### Does GitHub show a fork's head commit under the repository of the base?
+### OQ1: Does GitHub show a fork's head commit under the repository of the base?
 
 A pull request whose head is in a fork has commits that GitHub serves under the repository of the base, since a pull request's commits are reachable from its ref there. The gate's run of deep-review/click#1, whose head is in a fork, opens each commit link of its core and records whether it resolves.
 
-### Should the report on the machine show the writer's core?
+### OQ2: Should the report on the machine show the writer's core?
 
 The report shows the triage's account and the post the writer's core (RK5 of the requirements). Showing both in the report, or the writer's in place of the triage's when there is one, would give the person who ran the review what the readers of the pull request read. It is a change of the brief, which this change does not touch (NG1 of the requirements).
 
-### Should a condition's files be listed whole?
+### OQ3: Should a condition's files be listed whole?
 
 The triage names up to 30 files for a condition, and the item lists them all. The gate records how many each run lists (M5), and a later change can fold them past a count.
 
