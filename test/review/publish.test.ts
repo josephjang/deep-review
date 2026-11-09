@@ -203,6 +203,20 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.deepEqual(publications(box), []);
   });
 
+  it('posts the review all the same when git cannot read the commits of the change, and logs why (TD4 of the core of the change on the pull request)', async (t) => {
+    const box = await reviewed(t);
+    const { gh, script } = publishGh(t, publishSteps(box));
+    const runId = box.run().id;
+    // A worktree git cannot read: the run is named, so it is not chosen there, and git reads the commits there.
+    const unreadable = join(box.directory, 'not-a-repository');
+    mkdirSync(unreadable);
+    const { outcome, logs } = publishWith(box, gh, { runId, worktree: unreadable });
+    assert.deepEqual(outcome, { kind: 'posted', runId, url: reviewUrl, how: 'posted', comments: 2 });
+    assert.equal(writes(script), 1);
+    assert.equal(logs.length, 1, logs.join('\n'));
+    assert.ok(logs[0]!.startsWith(`run ${runId}: could not read the commits of the change, so the review names each commit of the core's reason as code with no link: git rev-list `), logs.join('\n'));
+  });
+
   it('leaves the publication open with exit 1 on a timeout; a dry run says the next publish records it as not found, and the next publish does, then posts once', async (t) => {
     const box = await reviewed(t);
     const runId = box.run().id;

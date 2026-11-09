@@ -378,8 +378,10 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
   const placements = placeFindings(reviewed.review!, files);
   const serial = run.publications.length + 1;
-  // The commits a source of the core's reason names, which the body links by their full ids (TD4 of the core of the change on the pull request); a history git cannot read names them as code, and posts all the same.
-  const commits = commitIdsOrNull(options.worktree, scope.base, scope.head);
+  // The commits a source of the core's reason names, which the body links by their full ids (TD4 of the core of the change on the pull request); a history git cannot read names them as code, and posts all the same, as the log says.
+  const commits = commitIdsOrNull(options.worktree, scope.base, scope.head, (reason) => {
+    log(`run ${run.id}: could not read the commits of the change, so the review names each commit of the core's reason as code with no link: ${reason}`);
+  });
   const form = pullRequestForm({
     state: reviewed,
     fixPass: run.review!.continuedFrom === null ? 'to-come' : 'continued',
