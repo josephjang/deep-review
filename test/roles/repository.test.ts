@@ -653,6 +653,26 @@ describe('the repository\'s roles/', () => {
     ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
   });
 
+  it('tells the writer to write the core of the change for the reader with the least context and to explain each condition the triage judged, and what the engine checks in both (R2, R3, R5, R8 of the core of the change on the pull request)', () => {
+    const prompt = roles.find((role) => role.key === 'writer')!.prompt.replace(/\s+/g, ' ');
+    for (const words of [
+      'the commit messages of the change, the conditions the triage judged to hold',
+      'the core of the change you write is a reading of its code and its commits, apart from what its description says',
+      'Write it for a reader who knows the craft and neither this repository nor the change',
+      'say nothing of the change that the code at the head does not show',
+      'Give no reason of your own. Give `why` null when the change states no reason',
+      'a commit by its id as your task lists it, a file by its path from the root of the repository',
+      'Explain each name of the code or of the change where you first use it, or leave it out',
+      'Introduce here the names of the change that the titles of the findings use',
+      'start from it, check it against the code, and never copy it',
+      'name no finding and no candidate, by id or otherwise, and say nothing of what the review found',
+      'which part of the change is the public interface and who reads or calls it',
+      'you neither add a condition nor remove one',
+      'each source is a commit of the change named by at least 7 characters of its id that begin no other of its commits, or a file the change adds, edits or removes',
+    ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
+    assert.ok(!prompt.includes('You give no account of the pull request'), 'the writer is no longer told to leave out what the change does');
+  });
+
   it('names no mechanism of one runtime in any prompt', () => {
     const offences = roles.flatMap((role) => runtimeWordingIn(role.prompt).map((offence) => `${role.key} ${offence}`));
     assert.deepEqual(offences, []);
