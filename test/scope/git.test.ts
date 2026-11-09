@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { blobsRaw, commitCount, commitMessages, emptyTree, isEmptyTree, treeEntries } from '../../src/scope/git.ts';
+import { blobsRaw, commitCount, commitIdsOrNull, commitMessages, emptyTree, isEmptyTree, treeEntries } from '../../src/scope/git.ts';
 import { commitAll, createRepository, git, write } from '../helpers/repository.ts';
 
 describe('commitMessages (R6 of the brief of a run)', () => {
@@ -138,6 +138,45 @@ describe('commitCount (R12 of the questions in the chat)', () => {
     const head = commit('a.txt', 'base');
     assert.equal(commitCount(repo, 'f'.repeat(40), head), null);
     assert.equal(commitCount(repo, head, 'no-such-branch'), null);
+  });
+});
+
+describe('commitIdsOrNull (TD3 of the core of the change on the pull request)', () => {
+  let sandbox: string;
+  let repo: string;
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'deep-review-commit-ids-'));
+    repo = createRepository(join(sandbox, 'repo'));
+  });
+  afterEach(() => {
+    rmSync(sandbox, { recursive: true, force: true });
+  });
+  const commit = (text: string): string => {
+    write(repo, 'a.txt', `${text}\n`);
+    return commitAll(repo, text);
+  };
+
+  it('gives the full ids of a range newest first, none for a range that ends at its start', () => {
+    const base = commit('base');
+    const one = commit('one');
+    const two = commit('two');
+    assert.deepEqual(commitIdsOrNull(repo, base, two), [two, one]);
+    assert.deepEqual(commitIdsOrNull(repo, two, two), []);
+  });
+
+  it('gives the head alone from the empty tree', () => {
+    commit('root');
+    const head = commit('second');
+    assert.deepEqual(commitIdsOrNull(repo, emptyTree(repo), head), [head]);
+  });
+
+  it('gives null for a history git cannot read, and tells why', () => {
+    const head = commit('base');
+    const reasons: string[] = [];
+    assert.equal(commitIdsOrNull(repo, 'f'.repeat(40), head, (reason) => reasons.push(reason)), null);
+    assert.equal(reasons.length, 1);
+    assert.match(reasons[0]!, /f{40}/);
+    assert.equal(commitIdsOrNull(repo, head, 'no-such-branch'), null, 'without a listener as well');
   });
 });
 
