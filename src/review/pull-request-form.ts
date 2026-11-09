@@ -857,19 +857,25 @@ function lastSection(view: FormView, say: Speaker): Section {
   };
 }
 
-/** The body with the cuts given, in the order of R1, and the secrets its cleaning replaced. */
+/**
+ * The body with the cuts given, and the secrets its cleaning replaced: the
+ * first part of principle 5 in its order, what needs a person and then
+ * what the review did not examine (R9, PD9 of the core of the change on
+ * the pull request), then how the review worked and the evidence, in the
+ * order of R1 of the review that reads as a report.
+ */
 function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
   const say = speakerOf(view.input.machine, view.words, view.names);
   const sections = [
     headingSection(view),
     summarySection(view, say),
     needsSection(view, say),
+    notExaminedSection(view, say, cuts),
     howSection(view),
     areasSection(view, say, cuts),
     inFullSection(view, say),
     minorSection(view, say, cuts),
     leftSection(view, say, cuts),
-    notExaminedSection(view, say, cuts),
     trustSection(view, cuts),
     lastSection(view, say),
   ].filter((section) => section.lines.length > 0);
