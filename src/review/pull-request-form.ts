@@ -372,6 +372,12 @@ function blobUrl(pullRequest: PullRequestFacts, commit: string, path: string, fr
   return `${fileUrl(pullRequest, commit, path)}#L${String(from)}${to === from ? '' : `-L${String(to)}`}`;
 }
 
+/** A file a worker named, as a permalink at the reviewed head, or at the merge base for one the change removed, which the head no longer holds. */
+function fileSideUrl(view: FormView, path: string): string {
+  const removed = view.scope.files.some((file) => file.path === path && file.status === 'deleted');
+  return fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path);
+}
+
 /** A commit by its full id in the repository of the pull request (TD4 of the core of the change on the pull request): a permalink, which no later push moves. */
 const commitUrl = (pullRequest: PullRequestFacts, commit: string): string => `${repositoryUrl(pullRequest)}/commit/${commit}`;
 
@@ -389,11 +395,9 @@ const commitPrefix = /^[0-9a-f]{7,40}$/;
  * the caller could not read the commits.
  */
 function sourceLink(view: FormView, source: string, say: Speaker): string {
-  const file = view.scope.files.find((entry) => entry.path === source);
-  if (file !== undefined) {
+  if (view.scope.files.some((entry) => entry.path === source)) {
     const shown = say.code(source);
-    if (shown !== codeSpan(inlineText(source))) return shown;
-    return `[${shown}](${fileUrl(view.pullRequest, file.status === 'deleted' ? view.scope.base : view.scope.head, source)})`;
+    return shown === codeSpan(inlineText(source)) ? `[${shown}](${fileSideUrl(view, source)})` : shown;
   }
   const commits = commitPrefix.test(source) ? (view.input.commits ?? []).filter((commit) => commit.startsWith(source)) : [];
   return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]!))}](${commitUrl(view.pullRequest, commits[0]!)})` : say.code(source);
@@ -701,8 +705,7 @@ const repositoryPathLike = (path: string): boolean => path !== '' && !path.inclu
 function fileLink(view: FormView, path: string, say: Speaker): string {
   const shown = say.code(path);
   if (!repositoryPathLike(path) || shown !== codeSpan(inlineText(path))) return shown;
-  const removed = view.scope.files.some((file) => file.path === path && file.status === 'deleted');
-  return `[${shown}](${fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path)})`;
+  return `[${shown}](${fileSideUrl(view, path)})`;
 }
 
 /** The writer's sentences on a condition, or null when its answer kept none for it. */
