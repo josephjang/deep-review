@@ -30,7 +30,7 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { diagramFailures, reviewLanguage, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { diagramFailures, reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
 import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
@@ -40,7 +40,7 @@ import { publicCode, publicProse, publicWords, withoutSecrets, type MachineConte
 import { pullRequestWords, type FollowingWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown, mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
-import { asksToAct, verdictBases, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
+import { asksToAct, verdictBases, type ChangeConditionName, type FindingKind, type FindingPlace, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
@@ -256,6 +256,8 @@ interface FormView {
   readonly brief: Brief;
   readonly words: PullRequestWords;
   readonly core: CoreView;
+  /** The writer's sentences on the conditions the triage judged to hold, from an answer of version 3 that kept them; null otherwise, and each condition is then given in the triage's words (R8, R10 of the core of the change on the pull request). */
+  readonly conditions: readonly ConditionSentence[] | null;
   /** The words of what follows the review, for the run's fix pass (`followingOf`). */
   readonly following: FollowingWords;
   readonly findings: readonly FindingView[];
@@ -687,7 +689,64 @@ function summarySection(view: FormView, say: Speaker): Section {
   return { part: 'summary', lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(' ')], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
 }
 
-/** What needs a person (R2, R8; R4 of the settled choice): each question and each fix against a written rule, with a link to where it is read, then the one command that answers; or that nothing does. */
+/** A path as the repository names a file: relative, with forward slashes and no empty, `.` or `..` name, and no drive. */
+const repositoryPathLike = (path: string): boolean => path !== '' && !path.includes('\\') && !/^[A-Za-z]:/.test(path) && path.split('/').every((name) => name !== '' && name !== '.' && name !== '..');
+
+/** A file a worker named, as code linked at the reviewed head, or at the merge base for one the change removed; as code alone when it is no path of the repository, or its cleaning changed it, so no link carries what the cleaning took out. */
+function fileLink(view: FormView, path: string, say: Speaker): string {
+  const shown = say.code(path);
+  if (!repositoryPathLike(path) || shown !== codeSpan(inlineText(path))) return shown;
+  const removed = view.scope.files.some((file) => file.path === path && file.status === 'deleted');
+  return `[${shown}](${fileUrl(view.pullRequest, removed ? view.scope.base : view.scope.head, path)})`;
+}
+
+/** The writer's sentences on a condition, or null when its answer kept none for it. */
+const writerConditionOf = (view: FormView, condition: ChangeConditionName): ConditionSentence | null => view.conditions?.find((entry) => entry.condition === condition) ?? null;
+
+/** The conditions the triage judged to hold, in the order public interface, wide effect, each with its label; none for a run with no account. */
+function heldConditionsOf(view: FormView): { readonly condition: ChangeConditionName; readonly label: string; readonly what: string | null; readonly files: readonly string[] }[] {
+  const { change } = view.brief;
+  if (change.state !== 'given') return [];
+  const judged = [{ condition: 'public-interface' as const, label: view.words.lookInterface, ...change.publicInterface }, { condition: 'wide-effect' as const, label: view.words.lookWide, ...change.wideEffect }];
+  return judged.filter((entry) => entry.holds);
+}
+
+/**
+ * The reasons to look (R6, R8 of the core of the change on the pull
+ * request), each a list item that nothing waits on: each condition the
+ * triage judged to hold, with the writer's sentence on it; or, when the
+ * writer could not explain it from the code, its sentence and the
+ * triage's, marked; or, with no sentence of the writer's, the triage's,
+ * marked, or the label alone when the triage gave none; then the files
+ * that show it, each linked. Then the fixes whose verdict is PLAUSIBLE,
+ * with a departure or without, as one item that links each by its number.
+ */
+function reasonsToLook(view: FormView, say: Speaker): string[] {
+  const { words } = view;
+  const conditions = heldConditionsOf(view).map(({ condition, label, what, files }) => {
+    const triage = what === null ? null : sentenceText(say.words(what));
+    const given = writerConditionOf(view, condition);
+    const text = given?.explanation !== null && given?.explanation !== undefined
+      ? `${label} ${sentenceText(say.prose(given.explanation))}`
+      : given?.unexplained !== null && given?.unexplained !== undefined
+        ? words.lookUnexplained(label, sentenceText(say.prose(given.unexplained)), triage)
+        : triage === null ? label : words.lookInTriageWords(label, triage);
+    return [text, ...(files.length === 0 ? [] : [words.lookFiles(files.map((file) => fileLink(view, file, say)))])].join(' ');
+  });
+  const plausible = view.findings.filter((finding) => (finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule') && finding.finding.verdict === 'PLAUSIBLE');
+  const fixes = plausible.length === 0 ? [] : [words.lookPlausible(plausible.map((finding) => `[${String(finding.finding.number)}](${hrefOf(view, finding)})`))];
+  return [...conditions, ...fixes].map((item) => `- ${item}`);
+}
+
+/**
+ * What needs a person (R2, R8; R4 of the settled choice; R6, R7 of the
+ * core of the change on the pull request): each question and each fix
+ * against a written rule, with a link to where it is read, then the one
+ * command that answers, then the reasons to look, which nothing waits on;
+ * or the reasons to look alone, with no command; or that nothing does,
+ * with deep-review's judgment of the two conditions or that the run has
+ * none.
+ */
 function needsSection(view: FormView, say: Speaker): Section {
   const { words } = view;
   const sentence = (text: string): string => sentenceText(say.words(text));
@@ -708,10 +767,12 @@ function needsSection(view: FormView, say: Speaker): Section {
     return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence(departure.rule), tail)}`];
   });
   const items = [...questions, ...departures];
-  if (items.length === 0) return { part: 'needs', lines: [words.needsHeading, '', words.needsNothing] };
+  const looks = reasonsToLook(view, say);
+  if (items.length === 0 && looks.length > 0) return { part: 'needs', lines: blocks([words.needsHeading], [words.needsLookOnly], looks) };
+  if (items.length === 0) return { part: 'needs', lines: [words.needsHeading, '', view.brief.change.state === 'given' ? words.needsNothing : words.needsNothingUnjudged] };
   const flags = [...(questions.length === 0 ? [] : ['--option <k>']), ...(departures.length === 0 ? [] : ['--accept', '--reject'])].map(codeSpan);
   const answer = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, '<n>', '').trimEnd()}`), flags)]];
-  return { part: 'needs', lines: blocks([words.needsHeading], items, ...answer) };
+  return { part: 'needs', lines: blocks([words.needsHeading], items, ...answer, ...(looks.length === 0 ? [] : [[words.needsLookAlso], looks])) };
 }
 
 /** How the review worked (R3): the roles and the counts of the run, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
@@ -864,8 +925,8 @@ function postsWriterFinding(finding: FindingView, cuts: ReadonlySet<BodyCut>): b
 
 /**
  * Whether the body with the cuts given, or a comment, posts any text of
- * the writer (R12): the writer's core of the change, the summary's
- * sentence on the areas, the writer's areas when a major finding acts, a
+ * the writer (R12): the writer's core of the change, its sentence on a
+ * condition the triage judged to hold, the summary's sentence on the areas, the writer's areas when a major finding acts, a
  * refuted line the cuts keep, or a finding's text (`postsWriterFinding`). A frozen answer can post none: a
  * writer that completed its unit has its answer frozen even when the
  * checks dropped every part, an answer of version 1 may keep only its
@@ -874,6 +935,7 @@ function postsWriterFinding(finding: FindingView, cuts: ReadonlySet<BodyCut>): b
  */
 function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
   return view.core.kind === 'writer'
+    || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null)
     || postedWhy(view) !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!cuts.has('refuted') && view.refuted.some((line) => line.claim !== null || line.why !== null))
@@ -1061,6 +1123,7 @@ function formViewOf(input: PullRequestFormInput): FormView {
     brief,
     words,
     core,
+    conditions: input.answer?.conditions ?? null,
     following: followingOf(words, input.fixPass, scope.pullRequest.number),
     findings,
     areas: input.answer?.areas ?? null,

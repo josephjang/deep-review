@@ -151,6 +151,16 @@ export interface PullRequestWords {
   readonly departureStands: string;
   readonly needsAnswer: (command: string, flags: readonly string[]) => string;
   readonly needsNothing: string;
+  /** The reasons to look (R6 to R8 of the core of the change on the pull request): the line before them after the questions and the departures, or in their place; that nothing needs a person when the run holds no judgment of the two conditions; the label of each condition; a condition the writer could not explain from the code, with its sentence and the triage's; one the writer gave no sentence for, in the triage's words, which is its label alone when the triage gave none; the files that show a condition, each a link; and the fixes on a PLAUSIBLE verdict, each number a link. */
+  readonly needsLookAlso: string;
+  readonly needsLookOnly: string;
+  readonly needsNothingUnjudged: string;
+  readonly lookInterface: string;
+  readonly lookWide: string;
+  readonly lookUnexplained: (label: string, writer: string, triage: string | null) => string;
+  readonly lookInTriageWords: (label: string, triage: string) => string;
+  readonly lookFiles: (files: readonly string[]) => string;
+  readonly lookPlausible: (findings: readonly string[]) => string;
 
   /** How the review worked (R3): the roles and the counts, the fixed diagram for the pull request's number, and what each verdict, the unverified mark, the severities and the three values a severity is read from mean. */
   readonly howHeading: string;
@@ -407,7 +417,16 @@ const english: PullRequestWords = {
   needsDeparture: (finding, href, rule, tail) => `**[Finding ${String(finding)}](${href}) is a fix against a written rule.** The rule: "${rule}" ${tail}`,
   departureStands: '`--fix` makes it as decided unless the person who ran the review rejects it first; a rejection after the fix sends that finding back to a fixer.',
   needsAnswer: (command, flags) => `The person who ran the review answers with ${command} and ${flags.length === 1 ? flags[0]! : `one of ${listed(flags, 'or')}`}. A reply on this pull request is not read yet.`,
-  needsNothing: 'Nothing here needs a person: deep-review asks no question, and no fix goes against a written rule.',
+  needsNothing: 'Nothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review\'s judgment the change alters no public interface and affects no file beyond its own.',
+  needsLookAlso: 'A person should also look at the change for these reasons. Nothing waits for them, and no command answers them:',
+  needsLookOnly: 'Nothing here waits for an answer: deep-review asks no question, and no fix goes against a written rule. A person should still look at the change for these reasons:',
+  needsNothingUnjudged: 'Nothing here needs a person that deep-review can name: it asks no question, and no fix goes against a written rule or rests on a PLAUSIBLE verdict. deep-review has no judgment for this run of whether the change alters a public interface or affects files beyond its own.',
+  lookInterface: '**It changes a public interface.**',
+  lookWide: '**It affects many files beyond the ones it changes.**',
+  lookUnexplained: (label, writer, triage) => `${label} deep-review's triage judged so, and its writer could not explain it from the code: ${writer}${triage === null ? '' : ` The triage's words: ${triage}`}`,
+  lookInTriageWords: (label, triage) => `${label} In the words of deep-review's triage, which its writer did not explain: ${triage}`,
+  lookFiles: (files) => `Files that show it: ${files.join(', ')}.`,
+  lookPlausible: (findings) => `**${findings.length === 1 ? 'A fix rests' : 'Fixes rest'} on a PLAUSIBLE verdict:** ${findings.length === 1 ? 'finding' : 'findings'} ${findings.join(', ')}. deep-review would change the code on a claim its verifier did not confirm; each finding says why.`,
 
   howHeading: '### How the review worked',
   howWorked: (counts) => `deep-review runs model sessions, called workers, each in one role. Finders propose candidate defects from several angles, a verifier checks each candidate by reading the code or running it, and a decider chooses to fix, to ask the author, or to leave as is. Here ${counted(counts.candidates, 'candidate', 'candidates')} became ${String(counts.groups)} after merging duplicates; the verifiers refuted ${String(counts.refuted)} and kept ${String(counts.kept)}, and ${counts.merged === 0 ? 'none' : String(counts.merged)} of those joined another finding, which leaves ${String(counts.findings)}.`,
@@ -661,7 +680,16 @@ const korean: PullRequestWords = {
   needsDeparture: (finding, href, rule, tail) => `**[지적 사항 ${String(finding)}](${href})의 수정은 명문화된 규칙과 다릅니다.** 규칙: "${rule}" ${tail}`,
   departureStands: '이 리뷰를 실행한 사람이 먼저 거부하지 않으면 `--fix`가 결정대로 고칩니다. 고친 뒤에 거부하면 그 지적 사항은 다시 수정 작업자에게 갑니다.',
   needsAnswer: (command, flags) => `이 리뷰를 실행한 사람이 ${command} 명령에 ${flags.length === 1 ? `${flags[0]!}를` : `${flags.join(', ')} 중 하나를`} 붙여 답합니다. 이 풀 리퀘스트에 단 답글은 아직 읽지 않습니다.`,
-  needsNothing: '사람이 할 일은 없습니다. deep-review가 묻는 질문도, 명문화된 규칙과 다른 수정도 없습니다.',
+  needsNothing: '사람이 할 일은 없습니다. deep-review가 묻는 질문도, 명문화된 규칙과 다른 수정도, PLAUSIBLE 판정에 기대는 수정도 없으며, deep-review가 판단하기에 이 변경은 공개 인터페이스를 바꾸지 않고 바꾼 파일 밖의 파일에 영향을 주지 않습니다.',
+  needsLookAlso: '다음 이유로도 사람이 변경을 살펴봐야 합니다. 이를 기다리는 것은 없으며, 답하는 명령도 없습니다.',
+  needsLookOnly: '답을 기다리는 것은 없습니다. deep-review가 묻는 질문도, 명문화된 규칙과 다른 수정도 없습니다. 그래도 다음 이유로 사람이 변경을 살펴봐야 합니다.',
+  needsNothingUnjudged: 'deep-review가 짚을 수 있는 사람의 할 일은 없습니다. 묻는 질문도, 명문화된 규칙과 다른 수정도, PLAUSIBLE 판정에 기대는 수정도 없습니다. 다만 이 실행에는 변경이 공개 인터페이스를 바꾸는지, 바꾼 파일 밖의 파일에 영향을 주는지에 대한 deep-review의 판단이 없습니다.',
+  lookInterface: '**공개 인터페이스를 바꿉니다.**',
+  lookWide: '**바꾼 파일 밖의 많은 파일에 영향을 줍니다.**',
+  lookUnexplained: (label, writer, triage) => `${label} deep-review의 분류 작업자(triage)는 그렇게 판단했지만, 설명 모델은 코드에서 이를 설명하지 못했습니다. 설명 모델의 말: ${writer}${triage === null ? '' : ` 분류 작업자의 말: ${triage}`}`,
+  lookInTriageWords: (label, triage) => `${label} 설명 모델이 설명하지 않아 deep-review 분류 작업자(triage)의 말로 적습니다. ${triage}`,
+  lookFiles: (files) => `이를 보여 주는 파일: ${files.join(', ')}.`,
+  lookPlausible: (findings) => `**PLAUSIBLE 판정에 기대는 수정:** 지적 사항 ${findings.join(', ')}. deep-review는 검증자가 확정하지 못한 주장을 근거로 코드를 고치려 합니다. 그 이유는 각 지적 사항에 있습니다.`,
 
   howHeading: '### 리뷰가 진행된 방식',
   howWorked: (counts) => `deep-review는 작업자라고 부르는 모델 세션을 역할마다 따로 실행합니다. 찾는 작업자는 여러 관점에서 결함 후보를 내고, 검증자는 코드를 읽거나 실행해 각 후보를 확인하며, 결정하는 작업자는 고칠지, 작성자에게 물을지, 그대로 둘지 정합니다. 이번에는 후보 ${String(counts.candidates)}개가 중복을 합친 뒤 ${String(counts.groups)}개가 되었고, 검증자가 그중 ${String(counts.refuted)}개를 반박하고 ${String(counts.kept)}개를 남겼으며, 남은 것 중 ${String(counts.merged)}개가 다른 지적 사항에 합쳐져 지적 사항 ${String(counts.findings)}건이 남았습니다.`,

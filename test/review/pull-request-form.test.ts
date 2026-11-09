@@ -129,9 +129,9 @@ describe('the body of the review (R1 to R4, R11 to R13)', () => {
     ].join('\n'));
   });
 
-  it('says in one sentence when nothing needs a person', () => {
+  it('says in one sentence when nothing needs a person, and that the run has no judgment of a public interface or a wide effect when its triage gave no account (R7 of the core of the change on the pull request)', () => {
     const quiet = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!] });
-    assert.equal(section(quiet.body, '### What needs a person'), '### What needs a person\n\nNothing here needs a person: deep-review asks no question, and no fix goes against a written rule.\n');
+    assert.equal(section(quiet.body, '### What needs a person'), '### What needs a person\n\nNothing here needs a person that deep-review can name: it asks no question, and no fix goes against a written rule or rests on a PLAUSIBLE verdict. deep-review has no judgment for this run of whether the change alters a public interface or affects files beyond its own.\n');
   });
 
   it('gives the answered question and departure as answered, and the recommended option that stands as one option', () => {

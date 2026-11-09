@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { Core, RecordedAnswer } from '../../src/review/explanation.ts';
 import { formOf, pullRequestRun as run, withAccount, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
-import { changeReading, explanation, reference, withCoreForm, withReportForm, worker } from '../helpers/review-history.ts';
+import { changeReading, decisions, departure, explanation, reference, withCoreForm, withReportForm, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
 const base = '1'.repeat(40);
@@ -124,3 +124,75 @@ describe('the core of the change in the body', () => {
     includes(triage, '설명 모델이 deep-review의 검사를 통과한 변경 설명을 내지 못해, 리뷰는 deep-review 분류 작업자(triage)의 설명으로 시작합니다.');
   });
 });
+
+/** The triage's account with `change` over it. */
+const reading = (change: Record<string, unknown> = {}): Record<string, unknown> => ({ ...changeReading, ...change });
+/** The state with the triage's account given as `given`. */
+const withReading = (state: RunState, given: Record<string, unknown>): RunState => ({ ...state, review: { ...state.review!, change: { kind: 'given', reading: given as never } } });
+const needsOf = (body: string): string => section(body, '### What needs a person');
+/** The decisions with SWEEP-1, a PLAUSIBLE finding no verifier examined, decided as a fix, against a written rule when `departs`. */
+const plausibleFix = (departs = false): unknown[] => [decisions[0], { ...decisions[1], decision: 'fix', fix: { approach: 'extract the helper', rejected: [] }, leave: null, departure: departs ? departure : null }];
+const fileAt = (commit: string, path: string): string => `[\`${path}\`](https://github.com/octo/parse/blob/${commit}/${path})`;
+const interfaceInTriageWords = `- **It changes a public interface.** In the words of deep-review's triage, which its writer did not explain: parse() can now return null. Files that show it: ${fileAt(head, 'src/a.ts')}.`;
+
+// R6, R7, R8, R12 of the core of the change on the pull request.
+describe('the reasons to look in what needs a person', () => {
+  it('lists the reasons to look after the questions, the departures and the answer command, which names no flag for them', () => {
+    const needs = needsOf(bodyOf(withAccount(run().fold()), writerAnswer()));
+    const command = needs.indexOf('The person who ran the review answers with ');
+    const also = needs.indexOf('A person should also look at the change for these reasons. Nothing waits for them, and no command answers them:');
+    assert.ok(needs.indexOf('**[Question on finding 2]') < command && command < also, needs);
+    includes(needs.slice(also), `\n\n${interfaceInTriageWords}`);
+    includes(needs, 'and one of `--option <k>`, `--accept` or `--reject`.');
+  });
+
+  it('lists the reasons to look alone, with no command, when nothing waits for an answer', () => {
+    const needs = needsOf(bodyOf(withAccount(run(decisions).fold()), writerAnswer()));
+    assert.equal(needs, `### What needs a person\n\nNothing here waits for an answer: deep-review asks no question, and no fix goes against a written rule. A person should still look at the change for these reasons:\n\n${interfaceInTriageWords}\n`);
+  });
+
+  it('gives the writer\'s sentence on a condition, and both sentences, marked, when the writer could not explain it from the code', () => {
+    const state = withAccount(withCoreForm(run(decisions)).fold());
+    const answered = (conditions: RecordedAnswer['conditions']): string => needsOf(bodyOf(state, { ...answerWith(writerCore()), conditions }));
+    includes(answered([{ condition: 'public-interface', explanation: 'parse() is exported, and every caller of the package reads its result', unexplained: null }]), `- **It changes a public interface.** parse() is exported, and every caller of the package reads its result. Files that show it: ${fileAt(head, 'src/a.ts')}.`);
+    includes(answered([{ condition: 'public-interface', explanation: null, unexplained: 'parse() is private to its module' }]), `- **It changes a public interface.** deep-review's triage judged so, and its writer could not explain it from the code: parse() is private to its module. The triage's words: parse() can now return null. Files that show it: ${fileAt(head, 'src/a.ts')}.`);
+    includes(answered(null), interfaceInTriageWords);
+  });
+
+  it('gives a wide effect in the triage\'s words or as its label alone, and links each file at the head but one the change removed, and none that is no path of the repository', () => {
+    const state = withRemoved(withReading(run(decisions).fold(), reading({ publicInterface: { holds: false, what: null, files: [] }, wideEffect: { holds: true, what: null, files: ['src/gone.ts', 'src/caller.ts', '/home/me/notes.txt'] } })));
+    const needs = needsOf(bodyOf(state, writerAnswer()));
+    includes(needs, `\n\n- **It affects many files beyond the ones it changes.** Files that show it: ${fileAt(base, 'src/gone.ts')}, ${fileAt(head, 'src/caller.ts')}, \``);
+    excludes(needs, '/home/me');
+  });
+
+  it('names the fixes on a PLAUSIBLE verdict in one item, a fix against a written rule among them, each linked by its number', () => {
+    const one = needsOf(bodyOf(withAccount(run(plausibleFix()).fold()), writerAnswer()));
+    includes(one, '\n- **A fix rests on a PLAUSIBLE verdict:** finding [2](#finding-2). deep-review would change the code on a claim its verifier did not confirm; each finding says why.');
+    const departing = needsOf(bodyOf(run(plausibleFix(true)).fold(), writerAnswer()));
+    includes(departing, '**[Finding 2](#finding-2) is a fix against a written rule.**');
+    includes(departing, '\n- **A fix rests on a PLAUSIBLE verdict:** finding [2](#finding-2).');
+  });
+
+  it('says nothing needs a person, with the triage\'s judgment that no condition holds and that no fix rests on a PLAUSIBLE verdict, only when none of the four holds', () => {
+    const none = withReading(run(decisions).fold(), reading({ publicInterface: { holds: false, what: null, files: [] } }));
+    assert.equal(needsOf(bodyOf(none, writerAnswer())), '### What needs a person\n\nNothing here needs a person: deep-review asks no question, no fix goes against a written rule or rests on a PLAUSIBLE verdict, and in deep-review\'s judgment the change alters no public interface and affects no file beyond its own.\n');
+  });
+
+  it('says a model wrote the review when it posts the writer\'s sentence on a condition alone', () => {
+    const state = withAccount(withCoreForm(run(decisions, explanation(worker(60), { dropped: [{ part: 'core', failures: ['x'] }, { part: 'conclusion', failures: ['x'] }, { part: 'areas', failures: ['x'] }, { part: 'refuted', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }] }))).fold());
+    const only: RecordedAnswer = { conclusion: null, account: null, areas: null, refuted: null, core: null, conditions: [{ condition: 'public-interface', explanation: 'parse() is exported', unexplained: null }], findings: [] };
+    includes(section(bodyOf(state, only), '### How far to trust this review'), 'A model wrote the explanations');
+    includes(section(bodyOf(state, { ...only, conditions: null }), '### How far to trust this review'), 'The writer gave no account of the change');
+    excludes(section(bodyOf(state, { ...only, conditions: null }), '### How far to trust this review'), 'A model wrote the explanations');
+  });
+
+  it('writes the reasons to look in Korean with no particle after a number', () => {
+    const state = withAccount(withSettings(run(plausibleFix()), { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold());
+    const needs = needsOf(bodyOf(state, writerAnswer()).replace('### 사람이 해야 할 일', '### What needs a person'));
+    includes(needs, '답을 기다리는 것은 없습니다. deep-review가 묻는 질문도, 명문화된 규칙과 다른 수정도 없습니다. 그래도 다음 이유로 사람이 변경을 살펴봐야 합니다.');
+    includes(needs, `- **공개 인터페이스를 바꿉니다.** 설명 모델이 설명하지 않아 deep-review 분류 작업자(triage)의 말로 적습니다. parse() can now return null. 이를 보여 주는 파일: ${fileAt(head, 'src/a.ts')}.`);
+    includes(needs, '- **PLAUSIBLE 판정에 기대는 수정:** 지적 사항 [2](#finding-2). deep-review는');
+  });
+});
+
