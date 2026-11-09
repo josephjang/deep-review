@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,7 +9,6 @@ import { commitAll, createRepository, temporaryDirectory, write } from '../helpe
 
 function repository(t: TestContext): string {
   const root = createRepository(temporaryDirectory(t, 'deep-review-contract-policy-'));
-  git(root, 'config', 'core.filemode', 'true');
   write(root, 'README.md', 'initial\n');
   write(root, 'docs/note.md', 'initial\n');
   write(root, 'src/engine.ts', 'initial\n');
@@ -122,15 +121,21 @@ describe('complete Git inventory', () => {
     assert.equal(plan(root).required, false);
   });
 
-  it('requires the contract for an executable Markdown file', (t) => {
+  it('requires the contract for executable Markdown when the worktree ignores executable bits', (t) => {
     const root = repository(t);
+    // Windows cannot mirror executable bits; classification reads committed modes.
+    git(root, 'config', 'core.filemode', 'false');
     write(root, 'docs/program.md', 'executable\n');
     // The index mode is portable even on filesystems without executable bits.
     git(root, 'add', 'docs/program.md');
     git(root, 'update-index', '--chmod=+x', 'docs/program.md');
-    if (process.platform !== 'win32') chmodSync(join(root, 'docs/program.md'), 0o755);
     git(root, 'commit', '-m', 'Executable Markdown');
-    assert.equal(plan(root).required, true);
+    assert.match(git(root, 'ls-tree', 'HEAD', '--', 'docs/program.md'), /^100755 blob /);
+    assert.equal(git(root, 'status', '--porcelain'), '');
+    const result = plan(root);
+    assert.equal(result.required, true);
+    assert.equal(result.reason, 'relevant-change');
+    assert.equal(result.files, 1);
   });
 
   it('falls back on empty differences, shallow history and an unexpected tested merge', (t) => {
