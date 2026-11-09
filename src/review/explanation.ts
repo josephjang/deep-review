@@ -690,8 +690,8 @@ function checkRefuted(lines: readonly RefutedLine[], refutedIds: readonly string
   ];
 }
 
-/** The shortest and the longest prefix of a commit's id that names it as a source of the core's reason (TD3 of the core of the change on the pull request): the 7 characters git shows by default, and the 40 of a whole id. */
-const commitPrefix = /^[0-9a-f]{7,40}$/;
+/** The shortest and the longest prefix of a commit's id that names it as a source of the core's reason (TD3 of the core of the change on the pull request): the 7 characters git shows by default, and the 64 of a whole id in a repository of SHA-256 ids, in either case, as git takes it. */
+const commitPrefix = /^[0-9a-f]{7,64}$/i;
 
 /** What a source of a reason names among the commits of the change: no commit, for a source no prefix of an id; none of them; the one it begins alone, by its full id; or how many it begins. */
 export type CommitSource =
@@ -704,11 +704,13 @@ export type CommitSource =
  * The commit of the change a source of a reason names (R3, TD3, TD4 of the
  * core of the change on the pull request), the one rule both the check of
  * the core and the form's link follow: a prefix of its id that begins no
- * other of `commits`, the full ids of the change's commits.
+ * other of `commits`, the full ids of the change's commits, which git
+ * writes in lower case, so the prefix is compared in lower case.
  */
 export function resolveCommitSource(source: string, commits: readonly string[]): CommitSource {
   if (!commitPrefix.test(source)) return { kind: 'not-a-commit' };
-  const begun = commits.filter((commit) => commit.startsWith(source));
+  const prefix = source.toLowerCase();
+  const begun = commits.filter((commit) => commit.startsWith(prefix));
   if (begun.length === 0) return { kind: 'none' };
   return begun.length === 1 ? { kind: 'one', commit: begun[0]! } : { kind: 'many', count: begun.length };
 }
@@ -718,7 +720,7 @@ function sourceFailure(source: string, input: CoreCheckInput): string | null {
   if (input.files.includes(source)) return null;
   const named = JSON.stringify(source);
   const resolved = resolveCommitSource(source, input.commits ?? []);
-  if (resolved.kind === 'not-a-commit') return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id`;
+  if (resolved.kind === 'not-a-commit') return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id`;
   if (input.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
   if (resolved.kind === 'none') return `the core's reason names ${named}, which begins no commit of the change`;
   if (resolved.kind === 'many') return `the core's reason names ${named}, which begins ${String(resolved.count)} commits of the change; name the commit by more characters of its id`;
