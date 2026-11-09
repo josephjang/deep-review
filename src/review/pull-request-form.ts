@@ -379,19 +379,24 @@ const commitUrl = (pullRequest: PullRequestFacts, commit: string): string => `${
 const commitPrefix = /^[0-9a-f]{7,40}$/;
 
 /**
- * A source of a reason as a link (R3, TD4 of the core of the change on the
- * pull request): a file of the change at the reviewed head, or at the
- * merge base for one the change removed; a commit of the change, named by
- * a prefix of its id that begins no other of its commits, at its
- * permalink by its full id; or null for a source that is neither, or a
- * commit when the caller could not read the commits.
+ * A source of a reason (R3, TD4 of the core of the change on the pull
+ * request), cleaned by the Speaker: a file of the change as code linked at
+ * the reviewed head, or at the merge base for one the change removed, or
+ * as code alone when its cleaning changed it, so no link carries what the
+ * cleaning took out; a commit of the change, named by a prefix of its id
+ * that begins no other of its commits, linked at its permalink by its
+ * full id; or code alone for a source that is neither, or a commit when
+ * the caller could not read the commits.
  */
-function sourceLink(view: FormView, source: string): string | null {
+function sourceLink(view: FormView, source: string, say: Speaker): string {
   const file = view.scope.files.find((entry) => entry.path === source);
-  if (file !== undefined) return `[${codeSpan(inlineText(source))}](${fileUrl(view.pullRequest, file.status === 'deleted' ? view.scope.base : view.scope.head, source)})`;
-  if (!commitPrefix.test(source)) return null;
-  const commits = (view.input.commits ?? []).filter((commit) => commit.startsWith(source));
-  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]!))}](${commitUrl(view.pullRequest, commits[0]!)})` : null;
+  if (file !== undefined) {
+    const shown = say.code(source);
+    if (shown !== codeSpan(inlineText(source))) return shown;
+    return `[${shown}](${fileUrl(view.pullRequest, file.status === 'deleted' ? view.scope.base : view.scope.head, source)})`;
+  }
+  const commits = commitPrefix.test(source) ? (view.input.commits ?? []).filter((commit) => commit.startsWith(source)) : [];
+  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]!))}](${commitUrl(view.pullRequest, commits[0]!)})` : say.code(source);
 }
 
 /** The line of a location at the reviewed head. */
@@ -661,7 +666,7 @@ function headingSection(view: FormView): Section {
 function coreSection(view: FormView, say: Speaker): Section {
   const { words, core } = view;
   if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone(core.state)] };
-  const links = (sources: readonly string[]): string[] => sources.map((source) => sourceLink(view, source) ?? say.code(source));
+  const links = (sources: readonly string[]): string[] => sources.map((source) => sourceLink(view, source, say));
   if (core.kind === 'writer') {
     const { title, what, why, whyFrom, diagram } = core.core;
     const reason = why === null ? words.coreNoReason : words.coreWhy(sentenceText(say.prose(why)), links(whyFrom));
