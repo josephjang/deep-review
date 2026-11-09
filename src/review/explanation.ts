@@ -891,7 +891,7 @@ const isPartV1 = (part: DroppedPart): part is DroppedPartV1 => part.part === 'co
 /** Whether a dropped part is one version 2 names. */
 const isPartV2 = (part: DroppedPart): part is DroppedPartV2 => part.part === 'conclusion' || part.part === 'areas' || part.part === 'refuted' || part.part === 'finding';
 /** Whether a dropped part is one version 3 names. */
-const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part !== 'account';
+const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part === 'conclusion' || part.part === 'areas' || part.part === 'refuted' || part.part === 'finding' || part.part === 'core' || part.part === 'conditions';
 
 /**
  * What `explanation.recorded` records of a merge, at `version`: the writer
