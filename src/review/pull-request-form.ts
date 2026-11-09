@@ -30,7 +30,7 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { diagramFailures, reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { diagramFailures, resolveCommitSource, reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
 import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
@@ -381,16 +381,13 @@ function fileSideUrl(view: FormView, path: string): string {
 /** A commit by its full id in the repository of the pull request (TD4 of the core of the change on the pull request): a permalink, which no later push moves. */
 const commitUrl = (pullRequest: PullRequestFacts, commit: string): string => `${repositoryUrl(pullRequest)}/commit/${commit}`;
 
-/** A prefix of a commit's id that a source of a reason may name it by: from the 7 characters git shows to the 40 of a whole id. */
-const commitPrefix = /^[0-9a-f]{7,40}$/;
-
 /**
  * A source of a reason (R3, TD4 of the core of the change on the pull
  * request), cleaned by the Speaker: a file of the change as code linked at
  * the reviewed head, or at the merge base for one the change removed, or
  * as code alone when its cleaning changed it, so no link carries what the
- * cleaning took out; a commit of the change, named by a prefix of its id
- * that begins no other of its commits, linked at its permalink by its
+ * cleaning took out; a commit of the change, named as the check of the
+ * core takes it (`resolveCommitSource`), linked at its permalink by its
  * full id; or code alone for a source that is neither, or a commit when
  * the caller could not read the commits.
  */
@@ -399,8 +396,8 @@ function sourceLink(view: FormView, source: string, say: Speaker): string {
     const shown = say.code(source);
     return shown === codeSpan(inlineText(source)) ? `[${shown}](${fileSideUrl(view, source)})` : shown;
   }
-  const commits = commitPrefix.test(source) ? (view.input.commits ?? []).filter((commit) => commit.startsWith(source)) : [];
-  return commits.length === 1 ? `[${codeSpan(shortCommit(commits[0]!))}](${commitUrl(view.pullRequest, commits[0]!)})` : say.code(source);
+  const resolved = resolveCommitSource(source, view.input.commits ?? []);
+  return resolved.kind === 'one' ? `[${codeSpan(shortCommit(resolved.commit))}](${commitUrl(view.pullRequest, resolved.commit)})` : say.code(source);
 }
 
 /** The line of a location at the reviewed head. */

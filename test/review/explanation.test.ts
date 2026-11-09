@@ -8,7 +8,7 @@ import { explanationRecordedV1, explanationRecordedV2, explanationRecordedV3, ty
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { checkAnswer, checkConditions, checkCore, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, writerTask, type AnswerCheckInput, type ConditionSentence, type Core, type CoreCheckInput, type HeldCondition, type WriterTaskInput } from '../../src/review/explanation.ts';
+import { checkAnswer, checkConditions, checkCore, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, resolveCommitSource, writerTask, type AnswerCheckInput, type ConditionSentence, type Core, type CoreCheckInput, type HeldCondition, type WriterTaskInput } from '../../src/review/explanation.ts';
 import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
@@ -972,6 +972,17 @@ describe('the checks of the core of the change and of the conditions', () => {
     assert.deepEqual(sources('fedcba9'), ['the core\'s reason names "fedcba9", which begins no commit of the change']);
     assert.deepEqual(sources('src/b.ts'), ['the core\'s reason names "src/b.ts", which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 40 characters of its id']);
     assert.match(checkCore(goodCore(), { ...coreInput, commits: null })[0] ?? '', /^the core's reason names "1234567", a commit, and the engine could not read the commits of the change/);
+  });
+
+  it('resolves a source to the commit of the change it names, the one rule the check and the form\'s link follow', () => {
+    assert.deepEqual(resolveCommitSource('1234567', commitsOfChange), { kind: 'one', commit: commitsOfChange[2]! });
+    assert.deepEqual(resolveCommitSource(commitsOfChange[0]!, commitsOfChange), { kind: 'one', commit: commitsOfChange[0]! });
+    assert.deepEqual(resolveCommitSource('abcdef1', commitsOfChange), { kind: 'one', commit: commitsOfChange[0]! });
+    assert.deepEqual(resolveCommitSource('abcdef1', [...commitsOfChange, 'abcdef1000000000000000000000000000000000']), { kind: 'many', count: 2 });
+    assert.deepEqual(resolveCommitSource('fedcba9', commitsOfChange), { kind: 'none' });
+    assert.deepEqual(resolveCommitSource('1234567', []), { kind: 'none' });
+    assert.deepEqual(resolveCommitSource('123456', commitsOfChange), { kind: 'not-a-commit' }, 'shorter than 7');
+    assert.deepEqual(resolveCommitSource('src/a.ts', commitsOfChange), { kind: 'not-a-commit' });
   });
 
   it('refuses a verdict of the review and an id of a candidate of the run in each text and in the diagram, and a diagram GitHub does not draw', () => {
