@@ -2,7 +2,7 @@
 
 ## Why
 
-deep-review uses Zod to validate worker answers and checkpoint events, and its development tools use minimatch to match file patterns. [Dependabot alert 1](https://github.com/josephjang/deep-review/security/dependabot/1) names a high-severity memory exhaustion vulnerability in Zod 4.6.5 ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)). [Alert 3](https://github.com/josephjang/deep-review/security/dependabot/3) names a denial of service vulnerability in minimatch 10.2.6 ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)). Both versions are in the lockfile. The installed Claude Code plugin and Codex skill bundle Zod, so changing the dependency alone leaves users with the vulnerable code until both artifacts are rebuilt.
+deep-review uses Zod to validate worker answers and checkpoint events, and its development tools use minimatch to match file patterns. [Dependabot alert 1](https://github.com/josephjang/deep-review/security/dependabot/1) names a high-severity memory exhaustion vulnerability in Zod 4.6.5 ([GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)). [Alert 3](https://github.com/josephjang/deep-review/security/dependabot/3) names a denial of service vulnerability in minimatch 10.2.6 ([GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249)). The alert pages require repository security access; the public advisories and the vulnerable versions in the committed lockfile before this change provide the evidence. The installed Claude Code plugin and Codex skill bundle Zod, so changing the dependency alone leaves users with the vulnerable code until both artifacts are rebuilt.
 
 ## Requirements
 
