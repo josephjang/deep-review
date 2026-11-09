@@ -922,6 +922,16 @@ export function withReportForm(history: History, notes: (verdict: Record<string,
   return result;
 }
 
+/** The history of a run whose review reads as a report (`withReportForm`), configured at version 12 instead, so its review opens with the core of the change and its explanation is recorded at version 3 (TD1, TD2 of the core of the change on the pull request). */
+export function withCoreForm(history: History, notes?: (verdict: Record<string, unknown>) => Record<string, unknown>): History {
+  const result = new History();
+  for (const event of withReportForm(history, notes).events) {
+    const version = event.kind === 'review.configured' ? 12 : event.kind === 'explanation.recorded' ? 3 : event.version;
+    result.add(event.kind, event.payload, version);
+  }
+  return result;
+}
+
 /** The writer's explanation as `explanation.recorded@1` records it, the worker's answer frozen, with `change` over it. */
 export const explanation = (workerId: string | null, change: Record<string, unknown> = {}): Record<string, unknown> => ({ workerId, answer: reference('8', 300), dropped: [], unexplained: [], ...change });
 

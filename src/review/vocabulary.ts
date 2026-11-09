@@ -448,15 +448,28 @@ export const verdictBasisWords: Readonly<Record<VerdictBasis, string>> = {
 /**
  * The parts of the writer's answer that the engine can drop when no
  * answer passes its checks (R18, R19 of the review on the pull request;
- * R4, R11 of the review that reads as a report): the conclusion, the
- * areas of the major findings, the lines of the refuted candidates, or
- * the explanation of one finding. A dropped part takes the ledger's own
- * words. A run configured before the review read as a report could drop
- * the account of the pull request instead of the areas and the refuted
- * lines, which `reviewVocabularyV11` keeps.
+ * R4, R11 of the review that reads as a report; TD2 of the core of the
+ * change on the pull request): the conclusion, the areas of the major
+ * findings, the lines of the refuted candidates, the explanation of one
+ * finding, the core of the change, or the sentences of the conditions. A
+ * dropped part takes the ledger's own words, and a dropped core the
+ * triage's account. A run configured before the review read as a report
+ * could drop the account of the pull request instead of the areas and the
+ * refuted lines, which `reviewVocabularyV11` keeps, and one configured
+ * before the core of the change could drop neither the core nor the
+ * conditions, which `reviewVocabularyV12` keeps.
  */
-export const explanationParts = ['conclusion', 'areas', 'refuted', 'finding'] as const;
+export const explanationParts = ['conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions'] as const;
 export type ExplanationPart = (typeof explanationParts)[number];
+
+/**
+ * The conditions of principle 8 that the triage judges from the code and
+ * the writer explains for a reader (R6, R8 of the core of the change on
+ * the pull request): a change to a public interface, and a change that
+ * affects many files beyond the ones it changes.
+ */
+export const changeConditions = ['public-interface', 'wide-effect'] as const;
+export type ChangeConditionName = (typeof changeConditions)[number];
 
 /**
  * What keeps a PLAUSIBLE verdict from CONFIRMED, as its verifier names it

@@ -14,7 +14,7 @@
  */
 import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type CandidateChoice, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
+import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type DroppedPartV3, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type ExplanationRecordedV3, type CandidateChoice, type RecordedDecision, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import type { CandidateState, ReviewState, UnitFailure, UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
@@ -25,7 +25,7 @@ import { StructuralCheckError } from './errors.ts';
 import { counted, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
-import { writerOutputSchema, writerOutputSchemaV2, type CitedSide, type WriterOutput, type WriterOutputV2 } from './schemas.ts';
+import { writerOutputSchema, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from './schemas.ts';
 import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { describeLocation } from './tasks.ts';
@@ -33,11 +33,12 @@ import { asksToAct, singleUnitKey, verdictBasisWords, verdicts, type FindingKind
 
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
+const writerOutputShapeV3 = writerOutputSchemaV3.shape;
 const explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
 const explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
 
-/** The version of the writer's answer, which is the version of `explanation.recorded` that records it: 2 in a run whose review reads as a report, 1 before. */
-export type AnswerVersion = 1 | 2;
+/** The version of the writer's answer, which is the version of `explanation.recorded` that records it: 3 in a run whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
+export type AnswerVersion = 1 | 2 | 3;
 
 /** The version of the writer's answer a run asks for, by its configuration, also when this engine resumes it. */
 export const answerVersionOf = (review: Pick<ReviewState, 'reportForm'>): AnswerVersion => (review.reportForm ? 2 : 1);
@@ -53,6 +54,10 @@ export type Account = WriterOutput['account'];
 export type Area = WriterOutputV2['areas'][number];
 /** The line of a refuted candidate (R11 of the review that reads as a report): its id, one sentence of its claim and one of why it was refuted. */
 export type RefutedLine = WriterOutputV2['refuted'][number];
+/** The core of the change as the writer gives it (R2, R3 of the core of the change on the pull request): a title, what the change does, why in its own words or null, the commits and files the reason comes from, and a diagram or none. */
+export type Core = WriterOutputV3['core'];
+/** The writer's sentences on a condition of principle 8 the triage judged to hold (R8 of the core of the change on the pull request): its explanation from the code, or what the writer found instead. */
+export type ConditionSentence = WriterOutputV3['conditions'][number];
 /** One case in which a finding breaks: a sentence and the lines that show it. */
 export type CitedCase = z.infer<typeof explanationShape.cases.element>;
 /** The lines a case cites: a range of a path at the head, or at the merge base for lines the change removed. */
@@ -98,19 +103,29 @@ export const recordedAnswerSchemaV2 = z.strictObject({
   findings: z.array(z.discriminatedUnion('unexplained', [explainedFindingSchemaV2, unexplainedFindingSchema])),
 });
 
+/** The writer's answer as the evidence store freezes it at version 3, the reference `explanation.recorded@3` holds: as version 2, with the core of the change and the sentences of the conditions, each null when dropped. */
+export const recordedAnswerSchemaV3 = z.strictObject({
+  ...recordedAnswerSchemaV2.shape,
+  core: writerOutputShapeV3.core.nullable(),
+  conditions: writerOutputShapeV3.conditions.nullable(),
+});
+
 /**
  * The writer's answer as the form reads it, whatever version froze it:
  * each part an answer passed, and null for a part dropped or one its
  * version does not have. The account is an answer of version 1's alone;
  * the areas, the refuted lines and each finding's `checked` and `kind`
- * are an answer of version 2's alone. `recordedAnswerOf` gives every
- * part for an answer of either version.
+ * are an answer of version 2's or 3's; the core and the conditions are an
+ * answer of version 3's alone. `recordedAnswerOf` gives every part for an
+ * answer of any version.
  */
 export interface RecordedAnswer {
   readonly conclusion: Conclusion | null;
   readonly account: Account | null;
   readonly areas: Area[] | null;
   readonly refuted: RefutedLine[] | null;
+  readonly core: Core | null;
+  readonly conditions: ConditionSentence[] | null;
   readonly findings: FindingExplanation[];
 }
 
@@ -118,13 +133,15 @@ export interface RecordedAnswer {
 export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>): RecordedAnswer | null {
   if (recorded.answer === null) return null;
   const frozen: unknown = JSON.parse(evidence.read(recorded.answer).toString('utf8'));
-  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null };
+  if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
+  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
   const answer = recordedAnswerSchema.parse(frozen);
-  return { ...answer, areas: null, refuted: null, findings: answer.findings.map((finding) => (finding.unexplained ? finding : { ...finding, checked: null, kind: null })) };
+  return { ...answer, areas: null, refuted: null, core: null, conditions: null, findings: answer.findings.map((finding) => (finding.unexplained ? finding : { ...finding, checked: null, kind: null })) };
 }
 
 /** The answer as the evidence store freezes it at `version`: the parts that version has, each finding in its shape. */
-function frozenAnswer(version: AnswerVersion, { conclusion, account, areas, refuted: lines, findings }: RecordedAnswer): object {
+function frozenAnswer(version: AnswerVersion, { conclusion, account, areas, refuted: lines, core, conditions, findings }: RecordedAnswer): object {
+  if (version === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
   if (version === 2) return { conclusion, areas, refuted: lines, findings };
   return { conclusion, account, findings: findings.map((finding) => (finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest }) => rest)(finding))) };
 }
@@ -168,8 +185,8 @@ export function reportCheckInputOf(review: ReviewState): ReportCheckInput {
   };
 }
 
-/** A part of the answer as `explanation.recorded` names a dropped one: the conclusion, the account, the areas, the refuted lines, or `finding <id>`. */
-export type PartName = 'conclusion' | 'account' | 'areas' | 'refuted' | `finding ${string}`;
+/** A part of the answer as `explanation.recorded` names a dropped one: the conclusion, the account, the areas, the refuted lines, the core, the conditions, or `finding <id>`. */
+export type PartName = 'conclusion' | 'account' | 'areas' | 'refuted' | 'core' | 'conditions' | `finding ${string}`;
 
 /** One part of an answer with the failures of its checks: kept when it has a value and no failure. */
 export interface CheckedPart<T> {
@@ -716,7 +733,7 @@ export function mergeAnswers(version: AnswerVersion, answers: readonly CheckedAn
     const kept = pick(answers.map((answer) => answer.findings.get(id)!), (failures) => ({ part: 'finding', finding: id, failures }));
     return kept === null ? [] : [kept];
   });
-  return { answer: { conclusion, account, areas, refuted: lines, findings }, dropped };
+  return { answer: { conclusion, account, areas, refuted: lines, core: null, conditions: null, findings }, dropped };
 }
 
 /** Whether the merge kept any part. */
@@ -728,12 +745,15 @@ const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `
 /** The event that records a writer's explanation, at the version of its answer, typed as a pair. */
 export type ExplanationEvent =
   | { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecordedV1 }
-  | { readonly kind: 'explanation.recorded'; readonly version: 2; readonly payload: ExplanationRecordedV2 };
+  | { readonly kind: 'explanation.recorded'; readonly version: 2; readonly payload: ExplanationRecordedV2 }
+  | { readonly kind: 'explanation.recorded'; readonly version: 3; readonly payload: ExplanationRecordedV3 };
 
 /** Whether a dropped part is one version 1 names. */
 const isPartV1 = (part: DroppedPart): part is DroppedPartV1 => part.part === 'conclusion' || part.part === 'account' || part.part === 'finding';
 /** Whether a dropped part is one version 2 names. */
-const isPartV2 = (part: DroppedPart): part is DroppedPartV2 => part.part !== 'account';
+const isPartV2 = (part: DroppedPart): part is DroppedPartV2 => part.part === 'conclusion' || part.part === 'areas' || part.part === 'refuted' || part.part === 'finding';
+/** Whether a dropped part is one version 3 names. */
+const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part !== 'account';
 
 /**
  * What `explanation.recorded` records of a merge, at `version`: the writer
@@ -746,6 +766,7 @@ const isPartV2 = (part: DroppedPart): part is DroppedPartV2 => part.part !== 'ac
 export function explanationRecord(version: AnswerVersion, workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
   const answer: ArtifactReference | null = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version, merged.answer))}\n`) : null;
   const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
+  if (version === 3) return { kind: 'explanation.recorded', version: 3, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV3), unexplained } };
   if (version === 2) return { kind: 'explanation.recorded', version: 2, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV2), unexplained } };
   return { kind: 'explanation.recorded', version: 1, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV1), unexplained } };
 }

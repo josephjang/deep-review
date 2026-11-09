@@ -80,6 +80,8 @@ export const writerAnswer = (): WholeAnswer => ({
   },
   areas: null,
   refuted: null,
+  core: null,
+  conditions: null,
   findings: [
     {
       id: 'RIPPLE-1',

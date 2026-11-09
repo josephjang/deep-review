@@ -12,7 +12,7 @@ import type { ReviewState } from '../checkpoint/review-fold.ts';
 import { isBlankCitedLine } from './cited-runs.ts';
 import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
 import { truncated } from './steps.ts';
-import { angleSchema, baseReadingSchema, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, maxRecordedTextLength, settleStepSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type DecisionKind, type ReviewRole } from './vocabulary.ts';
+import { angleSchema, baseReadingSchema, changeConditions, checkBaseSchema, checkKinds, checkKindSchema, conventionLevelSchema, decisionKinds, decisionKindSchema, finderAngles, finderAngleSchema, findingKinds, fixStatusSchema, isFinderRole, leaveReasonSchema, maxRecordedTextLength, settleStepSchema, severitySchema, suiteResultSchema, unconfirmedKinds, validationMethodSchema, verdictBasisSchema, verdictSchema, type DecisionKind, type ReviewRole } from './vocabulary.ts';
 
 /** Every field of a candidate is required, as the runtime contract demands; the fourth field is one name whatever the angle calls it. */
 const candidateFields = {
@@ -321,8 +321,52 @@ export const writerOutputSchemaV2 = z.strictObject({
 });
 export type WriterOutputV2 = z.infer<typeof writerOutputSchemaV2>;
 
-/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: version 2 in a run whose review reads as a report, version 1 before. */
-export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm'>): typeof writerOutputSchema | typeof writerOutputSchemaV2 {
+/**
+ * The core of the change as the writer gives it (R2, R3 of the core of
+ * the change on the pull request): a title; what the change does; why, in
+ * the change's own words, or null when it states no reason; the commits
+ * and the files that state the reason, each a commit id or a path; and a
+ * diagram or none.
+ */
+const writerCoreSchema = z.strictObject({
+  title: writerText(200),
+  what: writerText(4000),
+  why: writerText(2000).nullable(),
+  whyFrom: z.array(writerText(200)).max(20),
+  diagram: writerDiagram,
+});
+
+/**
+ * The writer's sentences on one condition of principle 8 that the triage
+ * judged to hold (R8 of the core of the change on the pull request): the
+ * condition, and either its explanation from the code or, when the code
+ * does not show what the triage judged, what the writer found instead,
+ * the other null.
+ */
+const writerConditionSchema = z.strictObject({
+  condition: z.enum(changeConditions),
+  explanation: writerText(1000).nullable(),
+  unexplained: writerText(1000).nullable(),
+});
+
+/**
+ * What the writer returns in a run whose review opens with the core of
+ * the change (R2, R3, R5, R8, TD2 of the core of the change on the pull
+ * request): the answer of version 2 with `core`, the core of the change
+ * and the sources of its reason, and `conditions`, one entry for each
+ * condition the triage judged to hold. `checkAnswer` holds each new part
+ * to the run, as it holds every other.
+ */
+export const writerOutputSchemaV3 = z.strictObject({
+  ...writerOutputSchemaV2.shape,
+  core: writerCoreSchema,
+  conditions: z.array(writerConditionSchema).max(changeConditions.length),
+});
+export type WriterOutputV3 = z.infer<typeof writerOutputSchemaV3>;
+
+/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: version 3 in a run whose review opens with the core of the change, version 2 in one whose review reads as a report, version 1 before. */
+export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm'>): typeof writerOutputSchema | typeof writerOutputSchemaV2 | typeof writerOutputSchemaV3 {
+  if (review.coreForm) return writerOutputSchemaV3;
   return review.reportForm ? writerOutputSchemaV2 : writerOutputSchema;
 }
 
