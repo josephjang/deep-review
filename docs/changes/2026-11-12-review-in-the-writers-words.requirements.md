@@ -206,7 +206,7 @@ Each count or number in the writer's text that the data beside it contradicts, b
 
 ### M3: Restated options that keep the meaning of their record
 
-For each question, whether the writer's text of each option, of its cost and of the recommendation says what the decider recorded, as the author reads them side by side. The target is every option of every question. The same reading is made of each rule a fix departs from.
+For each question, whether the writer's text of each option, of its cost and of the recommendation says what the decider recorded, as the author reads them side by side. The target is every option of every question. The same reading is made of each rule a fix departs from. A restated option, cost or rule that says something else than its record fails the gate: R14 puts the reader's understanding first in the wording, and what is said stays the record's.
 
 ### M4: A reader with little context decides from the review alone
 
