@@ -124,7 +124,7 @@ A writer on Codex that meets #98 or #99 still fails, and its review is then the 
 
 ### NG7: A shorter review
 
-#109 and #115 ask for a shorter review and a lighter first screen. This change holds the review to its length except where the writer's text needs more words to be understood (R11, R14) and measures that length (M5), but it adds no cut and sets no target for the length.
+#109 and #115 ask for a shorter review and a lighter first screen. This change holds the review to its length except in the two ways R11 names and measures that length (M5), but it adds no cut and sets no target for the length.
 
 ## Requirements
 
@@ -176,7 +176,7 @@ A run whose writer answered before this change is posted in the form of this cha
 
 ### R11: The review does not grow without need
 
-The writer's text of a decision takes the place of the templated sentences and of the recorded words it restates in the part of the review that is not folded. It is not added beside them. The recorded words of R4 are folded. Where the writer needs more words than the text it replaces for the reader to understand, R14 allows them, and nothing else makes the review longer. The gate measures the body and each comment against the same pull request in today's form, and records each part that grew and what the added words explain (M5).
+The writer's text of a decision takes the place of the templated sentences and of the recorded words it restates in the part of the review that is not folded. It is not added beside them. The recorded words of R4 are folded, and so is the writer's text of a fix in full, as the decided fix is folded today; the sentence of what the fix does and the text of a departure stay in view. The review still grows in two ways, which the proposal accepts and nothing else adds to: where the writer needs more words than the text it replaces for the reader to understand (R14), and in the folded record, which gains the rule of each option and stands beside the writer's text (R4). The gate measures the body and each comment against the same pull request in today's form, records each part that grew and what the added words explain, and records each body against GitHub's limit (M5).
 
 ### R12: The README and the writer's prompts
 
@@ -214,7 +214,7 @@ For each run, whether the answers that a reader with no part in the change gives
 
 ### M5: The size of the review and the cost of the writer
 
-The characters of each body and of each comment, beside those of the same pull request in today's form where a run of it exists; and the size of the writer's answer, its time and its cost, against the writer's budget of 8 USD and its timeout of 30 minutes. The body has no target of its own: R11 holds it to no growth except where R14 needs the words, and the gate records each part that grew and why. The writer's numbers have no target and decide PD9.
+The characters of each body and of each comment, beside those of the same pull request in today's form where a run of it exists; and the size of the writer's answer, its time and its cost, against the writer's budget of 8 USD and its timeout of 30 minutes; and each body against the limit of 60,000 characters at which the form cuts and then refuses, with each cut made and each refusal. The body has no target of its own: R11 holds it to no growth except where R14 needs the words, and the gate records each part that grew and why. The writer's numbers have no target and decide PD9.
 
 ### M6: Text in another language than the review's
 
@@ -316,7 +316,7 @@ R13 makes real runs the gate, in two languages, and PD9 has the size of the writ
 
 ### How to use this document
 
-A proposal is against the vision if it increases what the person must read, and the note's non-goals judge a report by how little of it a person must read. R14 can lengthen a text of the writer, so the two can conflict, and where they do the proposal follows principle 6 and does not follow the rule of length. The reason is principle 6's own: a text that the reader does not understand sends the reader to the code, and that is more to read than the words that would have explained it. The departure is bounded: R11 lets nothing but R14 lengthen the review, the record is folded, and M5 records each part that grew and why, so the next note can say how the two rank. The proposal presents each question and each departure in a form that needs less context than today's, hides none of them, and makes none block a run.
+A proposal is against the vision if it increases what the person must read, and the note's non-goals judge a report by how little of it a person must read. R14 can lengthen a text of the writer, so the two can conflict, and where they do the proposal follows principle 6 and does not follow the rule of length. The reason is principle 6's own: a text that the reader does not understand sends the reader to the code, and that is more to read than the words that would have explained it. The folded record of R4 lengthens the review too, as evidence that a reader opens to check one statement. The departure is bounded: R11 names these two ways in which the review grows and lets nothing else lengthen it, and M5 records each part that grew and why, so the next note can say how the two rank. The proposal presents each question and each departure in a form that needs less context than today's, hides none of them, and makes none block a run.
 
 ## Risks
 
@@ -355,3 +355,7 @@ The change under review can hold text aimed at a model, and the writer reads the
 ### RK9: A review that is understood, and longer
 
 R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, each new text has a bound in the writer's schema, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
+
+### RK10: A body that no cut can fit
+
+A finding that has no line in the diff is given in full in the body, and no cut removes it; the form refuses a body that is still over GitHub's limit after every cut, and nothing is then posted. Each such finding now carries the writer's text and its folded record, so a review with many findings off the diff comes closer to that refusal than today's. The bounds of the writer's schema hold each text, M5 records each body against the limit with each cut and refusal, and a cut that takes the folded records first is a later change for the first run that meets the limit.
