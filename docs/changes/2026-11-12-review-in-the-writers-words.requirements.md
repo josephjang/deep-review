@@ -354,8 +354,8 @@ The change under review can hold text aimed at a model, and the writer reads the
 
 ### RK9: A review that is understood, and longer
 
-R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, each new text has a bound in the writer's schema, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
+R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, each new text has a bound, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
 
 ### RK10: A body that no cut can fit
 
-A finding that has no line in the diff is given in full in the body, and no cut removes it; the form refuses a body that is still over GitHub's limit after every cut, and nothing is then posted. Each such finding now carries the writer's text and its folded record, so a review with many findings off the diff comes closer to that refusal than today's. The bounds of the writer's schema hold each text, M5 records each body against the limit with each cut and refusal, and a cut that takes the folded records first is a later change for the first run that meets the limit.
+A finding that has no line in the diff is given in full in the body, and no cut removes it; the form refuses a body that is still over GitHub's limit after every cut, and nothing is then posted. Each such finding now carries the writer's text and its folded record, so a review with many findings off the diff comes closer to that refusal than today's. Each text of the writer has a bound, M5 records each body against the limit with each cut and refusal, and a cut that takes the folded records first is a later change for the first run that meets the limit.
