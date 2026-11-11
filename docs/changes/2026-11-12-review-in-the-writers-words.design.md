@@ -169,7 +169,7 @@ The design rejects a renderer for each version of the answer. Each would keep th
 
 ### TD6: The task is built from the state of the run as the explanation runs
 
-The writer must not see a late fact (R6). The design needs no filter for that: the explanation runs before the report, an answer is taken only after the report, and a continuation starts after it too, so the state the task is built from holds none of them, and the task has never been given the places of the diff. A test holds the task to a state with an answer and a continuation added, to show that neither changes it.
+The writer must not see a late fact (R6). The design needs no filter for that: the explanation runs before the report, an answer is taken only after the report, and a continuation starts after it too, so the state the task is built from holds none of them, and the task has never been given the places of the diff. The task quotes the brief of the run, and the brief does change once an answer is recorded, so the guarantee is the order of the run and not the content of the task. A test holds that order: a run that has written its report plans no unit of the explanation, whether it was answered or continued, and `answer` refuses a run that has not written its report.
 
 ### TD7: The bound of a text is a check of its part
 
@@ -213,7 +213,7 @@ Tests of the folded record hold each option with its cost and rule, the rule and
 
 ### R6 and R7: Late facts and numbers
 
-A test of `writerTask` holds the task of a run unchanged when an answer and a continuation are added to its state. Tests of the form hold a question's status waiting and answered, a departure's status, the summary's counts by decision unchanged by an answer, what became of an answered finding as a value of its own, the heading and the summary's notice for a continued run, and the note on a finding's line for each state of the diff, all as data. A test holds the fixed notice of R7 present exactly when the review posts a text of the writer.
+A test holds that a run with its report written, answered or continued, plans no unit of the explanation, and that `answer` refuses a run that has not written its report (TD6). Tests of the form hold a question's status waiting and answered, a departure's status, the summary's counts by decision unchanged by an answer, what became of an answered finding as a value of its own, the heading and the summary's notice for a continued run, and the note on a finding's line for each state of the diff, all as data. A test holds the fixed notice of R7 present exactly when the review posts a text of the writer.
 
 ### R8 and R10: A missing part and an older run
 
