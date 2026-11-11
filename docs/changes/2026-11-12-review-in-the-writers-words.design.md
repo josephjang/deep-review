@@ -56,7 +56,7 @@ The form posts these texts of other workers through the Speaker: the decider's q
 
 ### The writer's answer, version 4 (R2, R3, TD2, TD7)
 
-`writerOutputSchemaV4` is a strict object. The table gives its parts; the lengths of the new texts are first values, which the measure of OQ1 can change before the schema is committed.
+`writerOutputSchemaV4` is a strict object. The table gives its parts; the lengths of the new texts are first values, which the measure of OQ1 can change before the checks are committed.
 
 | Part | Shape | Against version 3 |
 |---|---|---|
@@ -73,7 +73,7 @@ A finding's `explanation` keeps `title`, `problem`, `cases`, `diagram`, `checked
 
 ### The checks (R2, R3, PD11, TD7)
 
-`checkAnswer` gains a branch for version 4 that keeps every check of version 3 for the parts that did not change. For a finding it adds: `fix` is given for a finding decided `fix` and `ask` for one decided `ask`, and the other is null; `fix.departure` is given exactly when the decision departs from a rule; `ask.options` holds one entry for each option the decision recorded, numbered from 1, each number once; `unconfirmed` is given exactly when the verdict is `PLAUSIBLE`, a verifier examined it and its verdict records why it is not confirmed; and `action` is given for a question as for a fix. The check of version 3 that the sentence of what deep-review would do is exactly one sentence is not kept (TD8). `checkLeft` holds `left` to one entry for each ranked finding that does not act, by its id, and none other. `summary` and `notExamined` are not blank. Every new text is held to the rules every text of the writer is held to today: no verdict of the review, no id that names no finding of the run. The lengths stay in the schema, where a text that is too long fails the answer before any check, as today (TD7).
+`checkAnswer` gains a branch for version 4 that keeps every check of version 3 for the parts that did not change. For a finding it adds: `fix` is given for a finding decided `fix` and `ask` for one decided `ask`, and the other is null; `fix.departure` is given exactly when the decision departs from a rule; `ask.options` holds one entry for each option the decision recorded, numbered from 1, each number once; `unconfirmed` is given exactly when the verdict is `PLAUSIBLE`, a verifier examined it and its verdict records why it is not confirmed; and `action` is given for a question as for a fix. The check of version 3 that the sentence of what deep-review would do is exactly one sentence is not kept (TD8). `checkLeft` holds `left` to one entry for each ranked finding that does not act, by its id, and none other. `summary` and `notExamined` are not blank. Every new text is held to the rules every text of the writer is held to today: no verdict of the review, no id that names no finding of the run. The bound of each text of version 4 is a check of its part, so a text over its bound fails that part alone and the retry is told which (TD7).
 
 ### The merge and the record (TD2)
 
@@ -171,13 +171,13 @@ The design rejects a renderer for each version of the answer. Each would keep th
 
 The writer must not see a late fact (R6). The design needs no filter for that: the explanation runs before the report, an answer is taken only after the report, and a continuation starts after it too, so the state the task is built from holds none of them, and the task has never been given the places of the diff. A test holds the task to a state with an answer and a continuation added, to show that neither changes it.
 
-### TD7: The lengths stay in the schema
+### TD7: The bound of a text is a check of its part
 
-A text that is too long fails the whole answer at the schema today, before any part is checked. The design keeps that, since the retry is given the failure and a writer that passes its lengths on the second answer loses nothing. Moving the lengths into the checks of each part would let one long text drop alone, at the cost of a second place where the shape of the answer is defined. The measure of OQ1 sets the lengths so that the largest run on record fits.
+In versions 1 to 3 the bounds are in the schema (`writerText(n)`), so a text that is too long fails the whole answer before any part is checked. The worker then ends with no output, `earlierAnswers` in `src/review/explanation.ts` skips a worker with none, and the retry's list of what failed is built only from answers that parsed, so the second writer is not told which text was too long. R14 asks the writer for the words a reader needs, across more texts than before; one text over its bound would cost every part, and a second such answer the whole explanation, which leaves the reader the review that R14 ranks last. For version 4 the schema keeps one outer bound for every text, large enough that only a runaway answer meets it, and the bound of each text is a check of its part: the part fails alone, the retry is told which text and by how much, and a part that fails again drops alone. The cost is a second place that says how long a text may be. The measure of OQ1 sets the bounds so that the largest run on record fits.
 
 ### TD8: The checks hold the writer's text to the ledger, not to a style
 
-R14 makes being understood the first aim of the writer's text, and a check that drops a text for its form works against it: a writer that needs a second sentence to say what a fix does would lose the part and the reader would get the decider's words. The checks of version 4 therefore hold a text to what code knows exactly, that it names the findings, the options and the conditions the ledger holds and states no verdict of its own, and to what would break the page, a blank text, a diagram GitHub cannot draw, a cited line that does not exist. The lengths in the schema are bounds that keep one text from filling the page, not targets, and the prompt says so. Whether a text is understood is read by the gate (M4 of the requirements), since code cannot check it.
+R14 makes being understood the first aim of the writer's text, and a check that drops a text for its form works against it: a writer that needs a second sentence to say what a fix does would lose the part and the reader would get the decider's words. The checks of version 4 therefore hold a text to what code knows exactly, that it names the findings, the options and the conditions the ledger holds and states no verdict of its own, and to what would break the page, a blank text, a diagram GitHub cannot draw, a cited line that does not exist. The bounds of TD7 keep one text from filling the page; they are not targets, and the prompt says so. Whether a text is understood is read by the gate (M4 of the requirements), since code cannot check it.
 
 ## Open Questions
 
@@ -205,7 +205,7 @@ A test of the two tables holds each entry to a string or a record of strings, an
 
 ### R2 and R3: The answer of version 4 and its checks
 
-Tests of `checkAnswer` at version 4 hold each new failure: `fix` on a question and `ask` on a fix, both and neither; a departure text on a fix that departs from nothing, and none on one that does; an option missing, repeated, numbered 0 or past the last; `unconfirmed` on a `CONFIRMED` verdict and missing on a `PLAUSIBLE` one with a verifier's reason; a blank summary and a blank `notExamined`; an entry of `left` for a finding that acts, and a finding left as is with none; and a verdict word and an unknown id in each new text. A test holds that an `action` of two sentences passes (TD8). Tests of `mergeAnswers` hold a finding's part kept from the first answer and `left` from the second, and the summary taken only with its areas.
+Tests of `checkAnswer` at version 4 hold each new failure: `fix` on a question and `ask` on a fix, both and neither; a departure text on a fix that departs from nothing, and none on one that does; an option missing, repeated, numbered 0 or past the last; `unconfirmed` on a `CONFIRMED` verdict and missing on a `PLAUSIBLE` one with a verifier's reason; a blank summary and a blank `notExamined`; an entry of `left` for a finding that acts, and a finding left as is with none; a text over its bound, which fails its part alone and is named to the retry; and a verdict word and an unknown id in each new text. A test holds that an `action` of two sentences passes (TD8). Tests of `mergeAnswers` hold a finding's part kept from the first answer and `left` from the second, and the summary taken only with its areas.
 
 ### R4: The record
 
