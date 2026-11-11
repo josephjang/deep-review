@@ -73,7 +73,7 @@ A finding's `explanation` keeps `title`, `problem`, `cases`, `diagram`, `checked
 
 ### The checks (R2, R3, PD11, TD7)
 
-`checkAnswer` gains a branch for version 4 that keeps every check of version 3 for the parts that did not change. For a finding it adds: `fix` is given for a finding decided `fix` and `ask` for one decided `ask`, and the other is null; `fix.departure` is given exactly when the decision departs from a rule; `ask.options` holds one entry for each option the decision recorded, numbered from 1, each number once; `unconfirmed` is given exactly when the verdict is `PLAUSIBLE`, a verifier examined it and its verdict records why it is not confirmed; and `action` is one sentence, for a question as for a fix. `checkLeft` holds `left` to one entry for each ranked finding that does not act, by its id, and none other. `summary` and `notExamined` are not blank. Every new text is held to the rules every text of the writer is held to today: no verdict of the review, no id that names no finding of the run. The lengths stay in the schema, where a text that is too long fails the answer before any check, as today (TD7).
+`checkAnswer` gains a branch for version 4 that keeps every check of version 3 for the parts that did not change. For a finding it adds: `fix` is given for a finding decided `fix` and `ask` for one decided `ask`, and the other is null; `fix.departure` is given exactly when the decision departs from a rule; `ask.options` holds one entry for each option the decision recorded, numbered from 1, each number once; `unconfirmed` is given exactly when the verdict is `PLAUSIBLE`, a verifier examined it and its verdict records why it is not confirmed; and `action` is given for a question as for a fix. The check of version 3 that the sentence of what deep-review would do is exactly one sentence is not kept (TD8). `checkLeft` holds `left` to one entry for each ranked finding that does not act, by its id, and none other. `summary` and `notExamined` are not blank. Every new text is held to the rules every text of the writer is held to today: no verdict of the review, no id that names no finding of the run. The lengths stay in the schema, where a text that is too long fails the answer before any check, as today (TD7).
 
 ### The merge and the record (TD2)
 
@@ -83,7 +83,7 @@ The parts of an answer of version 4 are `core`, `conditions`, `conclusion`, `are
 
 `writerTask` gains, for version 4: the counts of the run as lines of data (the `ReviewCounts` the form computes, and the counts of the fixes, the questions and the findings left as is); the findings left as is, listed as the ones to give a title and a reason; the gaps of the brief, listed as what `notExamined` restates; and, for each question, the options numbered as the answer numbers them. Each finding's decision, its settled choices and its verifiers' notes are already in the task (`decisionLines`, `noteLines`). The task is built from the run's state while the explanation runs, which holds no answer and no continuation (TD6), and it gives no place of a finding in the diff.
 
-`roles/fragments/writer-explanation.md` is rewritten for the parts above, and `roles/fragments/writer-brief.md` says that the writer writes every sentence of the review and code shows the facts. The prompt tells the writer to write for the reader with the least context, to explain each name where it first appears, to name each option by its number, to say nothing of what happens after the review (an answer, the fix pass, where a finding is shown), to write a count only as its task gives it, and to write no verdict, severity, link or command. "Name a finding by its id" stays (NG3). Both fragments change, so the digest of the roles changes.
+`roles/fragments/writer-explanation.md` is rewritten for the parts above, and `roles/fragments/writer-brief.md` says that the writer writes every sentence of the review and code shows the facts. The prompt puts being understood first (R14): it tells the writer that a reader with the least context must follow each text at the first read, and that this comes before being short, before the wording of the worker it restates and before a uniform form, while what the text says stays what the evidence and the decision hold. It tells the writer to explain each name where it first appears, to name each option by its number, to say nothing of what happens after the review (an answer, the fix pass, where a finding is shown), to write a count only as its task gives it, and to write no verdict, severity, link or command. "Name a finding by its id" stays (NG3). Both fragments change, so the digest of the roles changes.
 
 ### One shape for every version (R10, TD5)
 
@@ -171,6 +171,10 @@ The writer must not see a late fact (R6). The design needs no filter for that: t
 
 A text that is too long fails the whole answer at the schema today, before any part is checked. The design keeps that, since the retry is given the failure and a writer that passes its lengths on the second answer loses nothing. Moving the lengths into the checks of each part would let one long text drop alone, at the cost of a second place where the shape of the answer is defined. The measure of OQ1 sets the lengths so that the largest run on record fits.
 
+### TD8: The checks hold the writer's text to the ledger, not to a style
+
+R14 makes being understood the first aim of the writer's text, and a check that drops a text for its form works against it: a writer that needs a second sentence to say what a fix does would lose the part and the reader would get the decider's words. The checks of version 4 therefore hold a text to what code knows exactly, that it names the findings, the options and the conditions the ledger holds and states no verdict of its own, and to what would break the page, a blank text, a diagram GitHub cannot draw, a cited line that does not exist. The lengths in the schema are bounds that keep one text from filling the page, not targets, and the prompt says so. Whether a text is understood is read by the gate (M4 of the requirements), since code cannot check it.
+
 ## Open Questions
 
 ### OQ1: Does the answer of version 4 fit one call, on the largest run on record?
@@ -179,7 +183,7 @@ The first unit of the work runs a writer with the schema and the prompt of this 
 
 ### OQ2: Should a review in English restate the decider's options?
 
-In English the decider's words are already in the language of the review, so the restatement adds a reader's wording and the risk of drift, and no translation. The design restates in every language, since the decider writes for a fixer and not for a reader with little context. The gate reads the English pairs (M3 of the requirements), and a later change can post the record alone in English if the restatement adds nothing there.
+In English the decider's words are already in the language of the review, so the restatement adds a reader's wording and the risk of drift, and no translation. The design restates in every language, since the decider writes for a fixer and not for a reader with little context. R14 of the requirements points the same way: the restatement is for the reader's understanding, not for the language alone. The gate reads the English pairs (M3 of the requirements), and a later change can post the record alone in English if the restatement adds nothing there.
 
 ### OQ3: Should the report on the machine carry the writer's text?
 
@@ -197,7 +201,7 @@ A test of the two tables holds each entry to a string or a record of strings, an
 
 ### R2 and R3: The answer of version 4 and its checks
 
-Tests of `checkAnswer` at version 4 hold each new failure: `fix` on a question and `ask` on a fix, both and neither; a departure text on a fix that departs from nothing, and none on one that does; an option missing, repeated, numbered 0 or past the last; `unconfirmed` on a `CONFIRMED` verdict and missing on a `PLAUSIBLE` one with a verifier's reason; a blank summary and a blank `notExamined`; an entry of `left` for a finding that acts, and a finding left as is with none; a verdict word and an unknown id in each new text; and an `action` of two sentences, for a question as for a fix. Tests of `mergeAnswers` hold a finding's part kept from the first answer and `left` from the second, and the summary taken only with its areas.
+Tests of `checkAnswer` at version 4 hold each new failure: `fix` on a question and `ask` on a fix, both and neither; a departure text on a fix that departs from nothing, and none on one that does; an option missing, repeated, numbered 0 or past the last; `unconfirmed` on a `CONFIRMED` verdict and missing on a `PLAUSIBLE` one with a verifier's reason; a blank summary and a blank `notExamined`; an entry of `left` for a finding that acts, and a finding left as is with none; and a verdict word and an unknown id in each new text. A test holds that an `action` of two sentences passes (TD8). Tests of `mergeAnswers` hold a finding's part kept from the first answer and `left` from the second, and the summary taken only with its areas.
 
 ### R4: The record
 

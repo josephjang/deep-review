@@ -94,7 +94,7 @@ The writer gives, for each finding, the decision in plain words, and code keeps 
 
 ## Goals
 
-A reader of the review on a pull request reads every sentence in one language and in one voice, written for the reader with the least context, with no sentence that a template built and no text that switches language in its middle. Every fact the reader acts on stands beside that text as data from the ledger, exact, and labeled so that it reads without a sentence around it. What an answer applies is on the page as the decider recorded it. A new language of the review costs a table of fixed strings and no grammar. A run whose writer fails still posts a review that is correct, in data and in the recorded words of the other workers.
+A reader of the review on a pull request reads every sentence in one language and in one voice, written for the reader with the least context, with no sentence that a template built and no text that switches language in its middle. Every fact the reader acts on stands beside that text as data from the ledger, exact, and labeled so that it reads without a sentence around it. What an answer applies is on the page as the decider recorded it. A new language of the review costs a table of fixed strings and no grammar. A run whose writer fails still posts a review that is correct, in data and in the recorded words of the other workers. Being understood by that reader is the first aim of the writer's text, ahead of being short and ahead of staying close to the words it restates.
 
 ## Non-Goals
 
@@ -124,7 +124,7 @@ A writer on Codex that meets #98 or #99 still fails, and its review is then the 
 
 ### NG7: A shorter review
 
-#109 and #115 ask for a shorter review and a lighter first screen. This change must not make the review longer (R11) and measures its length (M5), but it adds no cut and sets no target for the length.
+#109 and #115 ask for a shorter review and a lighter first screen. This change holds the review to its length except where the writer's text needs more words to be understood (R11, R14) and measures that length (M5), but it adds no cut and sets no target for the length.
 
 ## Requirements
 
@@ -172,9 +172,9 @@ The writer writes every text in the language that `review.language` names. The l
 
 A run whose writer answered before this change is posted in the form of this change. Each part its answer holds is posted as the writer wrote it, and each part it lacks is posted as R8 says. The sentences that code built for such a run before this change are not kept.
 
-### R11: The review does not grow
+### R11: The review does not grow without need
 
-The writer's text of a decision takes the place of the templated sentences and of the recorded words it restates in the part of the review that is not folded. It is not added beside them. The recorded words of R4 are folded. The gate measures the body and each comment against the same pull request in today's form (M5).
+The writer's text of a decision takes the place of the templated sentences and of the recorded words it restates in the part of the review that is not folded. It is not added beside them. The recorded words of R4 are folded. Where the writer needs more words than the text it replaces for the reader to understand, R14 allows them, and nothing else makes the review longer. The gate measures the body and each comment against the same pull request in today's form, and records each part that grew and what the added words explain (M5).
 
 ### R12: The README and the writer's prompts
 
@@ -185,6 +185,12 @@ The README's account of the body and of each comment, and of what the writer dec
 The gate is real runs (principle 12), each printed with `publish --dry-run` and one of them posted. deep-review reviews the pull request of this change in English on Claude Code, and it reviews deep-review/click#1 with `review.language = "ko"` from the repository's file. Across the runs the gate needs at least one question, one fix against a written rule, one finding left as is whose verifier named a choice, and one fix on a `PLAUSIBLE` verdict; where the two runs lack one of them, a further run reviews a pull request that holds it, in a copy of this repository under an account the author controls, as [R8 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r8-the-gate) did. One more dry run prints a run recorded by the engine before this change, or, where the author holds none whose pull request has not moved, a run on Codex whose writer meets #99, to read R8 and R10.
 
 For each run the author classifies each line of the body and of each comment as one of the four kinds of R1, reads each restated option, cost and rule against its record, compares each number in the writer's text with the data, and records the metrics below. A reader who did not take part in the change, or an agent given only the body, answers from the review alone what the change does, what each question asks and what each option costs, and what the pull request needs before a merge; the author compares the answers with the run. The design's Verification section records each run and each reading.
+
+### R14: Being understood comes first in the writer's text
+
+The writer writes each text so that the reader with the least context understands it at the first read, without the code and without another part of the review. Where that aim conflicts with another aim of the text, being understood wins: over being short, over staying close to the words of the worker it restates, over giving every finding the same form, and over saying each thing once. So the writer explains a name where the reader meets it even when that lengthens the text, gives an example where the plain statement is abstract, says an option in the reader's words and not in the decider's, and repeats a fact that the reader needs at that place.
+
+The aim governs the wording and not what is said. The writer still states nothing that the evidence and the recorded decision do not hold (R2), the data beside its text stays the record (R7), and what an answer applies stays as the decider recorded it (R4). Code's checks of the writer's text hold it to the ledger and to what would break the page, and drop no text for its style. The gate judges the writer's text first by M4.
 
 ## Metrics
 
@@ -202,11 +208,11 @@ For each question, whether the writer's text of each option, of its cost and of 
 
 ### M4: A reader with little context decides from the review alone
 
-For each run, whether the answers that a reader with no part in the change gives from the review alone match the run, as the author judges; and each name or term the reader could not follow. The target is a match in each run, in Korean as in English, and no name left unexplained.
+For each run, whether the answers that a reader with no part in the change gives from the review alone match the run, as the author judges; and each name or term the reader could not follow. The target is a match in each run, in Korean as in English, and no name left unexplained. This metric comes first (R14): a run whose reader does not understand the review fails the gate whatever its other metrics say.
 
 ### M5: The size of the review and the cost of the writer
 
-The characters of each body and of each comment, beside those of the same pull request in today's form where a run of it exists; and the size of the writer's answer, its time and its cost, against the writer's budget of 8 USD and its timeout of 30 minutes. The target for the body is no growth (R11). The writer's numbers have no target and decide PD9.
+The characters of each body and of each comment, beside those of the same pull request in today's form where a run of it exists; and the size of the writer's answer, its time and its cost, against the writer's budget of 8 USD and its timeout of 30 minutes. The body has no target of its own: R11 holds it to no growth except where R14 needs the words, and the gate records each part that grew and why. The writer's numbers have no target and decide PD9.
 
 ### M6: Text in another language than the review's
 
@@ -266,6 +272,12 @@ When the writer's text of a finding is missing, the review could show data alone
 
 The form could keep, for a run whose writer answered before this change, the sentences code built for it. The proposal rejects that: it would keep all 54 functions in both languages for as long as any such run can be posted, which has no end that code can see, and the cost of a new language would not fall. An older run is posted after the upgrade with data and recorded words where it has no text of the writer, as [R16 of the review that reads as a report](2026-11-04-review-that-reads-as-a-report.requirements.md#r16-an-older-run) and [R7 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r7-an-older-run-is-posted-as-any-other) posted older runs in their new forms.
 
+### PD14: Being understood comes before being short and before staying close to the record
+
+The aims of the writer's text can pull apart. The shortest text leaves a name unexplained. The text closest to the decider's words keeps the wording of a worker that wrote for a fixer. A uniform form gives a simple finding the same parts as a hard one. The author set the order: a reader who does not understand the review must read the code, which is the slow step that deep-review exists to remove, so no other quality of the text makes up for it. The proposal therefore makes being understood the first aim of the writer's text (R14) and judges the gate by it first (M4).
+
+The proposal rejects two other orders. A target on the length would have the writer cut the explanation of a name or the example that a reader with little context needs, and the reader would pay for the saved lines by opening the code. A restatement held close to the recorded words would be a translation, which carries over the wording that was not written for this reader. The facts are not part of this order: they are code's, and exact in either case.
+
 ## Against the vision note
 
 ### Principle 1, evidence, not trust
@@ -302,7 +314,7 @@ R13 makes real runs the gate, in two languages, and PD9 has the size of the writ
 
 ### How to use this document
 
-A proposal is against the vision if it increases what the person must read. R11 holds the review to its length, and M5 measures it. The proposal presents each question and each departure in a form that needs less context than today's, hides none of them, and makes none block a run.
+A proposal is against the vision if it increases what the person must read, and the note's non-goals judge a report by how little of it a person must read. R14 can lengthen a text of the writer, so the two can conflict, and where they do the proposal follows principle 6 and does not follow the rule of length. The reason is principle 6's own: a text that the reader does not understand sends the reader to the code, and that is more to read than the words that would have explained it. The departure is bounded: R11 lets nothing but R14 lengthen the review, the record is folded, and M5 records each part that grew and why, so the next note can say how the two rank. The proposal presents each question and each departure in a form that needs less context than today's, hides none of them, and makes none block a run.
 
 ## Risks
 
@@ -337,3 +349,7 @@ A line of labeled values asks more of a reader than a sentence does when the lab
 ### RK8: Text in the change that aims at the writer reaches more of the page
 
 The change under review can hold text aimed at a model, and the writer reads the change. It now writes more of the review, so such text can shape more of it. The writer still decides nothing, every fact beside its text is the ledger's, its answer passes the same checks and the same cleaning, and the record that an answer applies is not the writer's (R4).
+
+### RK9: A review that is understood, and longer
+
+R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, each new text has a bound in the writer's schema, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
