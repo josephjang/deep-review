@@ -150,7 +150,7 @@ The same folded record keeps each choice that a verifier left to the author besi
 
 ### R5: Each fact is shown as data beside the text it belongs to
 
-What the templated sentences state today, code shows as data. The line on what the run reviewed gives the head, the merge base and the count of files as labeled values. The summary, how the review worked and how far to trust the review give their counts as tables. A finding's severity, verdict, how the verdict was reached, its status and the note on its line are labeled values on one line under its title. The sources of the core's reason, the files of a condition, the fixes that rest on a `PLAUSIBLE` verdict, the paths that the settings left out and the last line of the body are lists or labeled values. The design's table "The parts of the form" gives the form of each.
+What the templated sentences state today, code shows as data. The line on what the run reviewed gives the head, the merge base and the count of files as labeled values. The summary, how the review worked and how far to trust the review give their counts as tables. A finding's severity, verdict, how the verdict was reached, its status and the note on its line are labeled values on one line under its title. The sources of the core's reason, the files of a condition, the fixes that rest on a `PLAUSIBLE` verdict, the paths that the settings left out and the last line of the body are lists or labeled values. Each thing the review did not examine is a labeled value of its kind, whether or not the writer's text stands: a review pass that did not run, the findings no verifier examined, the paths left out, the files too large to read, and the workers that a stop ended. The design's table "The parts of the form" gives the form of each.
 
 ### R6: The writer writes only what is settled when it runs
 
@@ -302,7 +302,7 @@ The writer runs with no person present, and a writer that fails holds nothing ba
 
 ### Principle 8, say what was not examined, and when a person must look
 
-What the review did not examine is in the writer's words for the reader, with the paths and the counts as data. The conditions under which a person should look are unchanged.
+Each thing the review did not examine is shown as data by its kind, whether or not the writer's text stands, so the review is never silent on a gap that the writer left out. The writer says what the gaps mean for a reader. The conditions under which a person should look are unchanged.
 
 ### Principle 11, recovery without a person
 
