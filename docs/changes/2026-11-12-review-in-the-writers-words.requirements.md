@@ -30,9 +30,9 @@ After this change, the writer's text, then the data that code shows:
   them a second attempt, and deep-review recommends it, because a duplicate
   is harder to find later than a failed upload is to repeat.
 
-  | Option | What it means                   | What it costs                         |
-  | 1      | Try the upload once more        | The same file can be stored twice     |
-  | 2      | Tell the user that it failed    | The user starts the upload again      |
+  | Option | What it means                | What it costs                     | The rule it would become            |
+  | 1      | Try the upload once more     | The same file can be stored twice | A failed upload is retried once     |
+  | 2      | Tell the user that it failed | The user starts the upload again  | A failed upload is reported at once |
 
   Recommended: option 2. Stands until answered: option 1, no edit.
   Status: waiting for an answer.
@@ -76,9 +76,9 @@ A **late fact** is a fact that can change after the writer has run: an answer re
 
 ### Code builds sentences from templates, and the faults of form begin there
 
-The words that code writes in the review are a table, `PullRequestWords`, in English and in Korean. Of its 119 entries, 54 are functions that build a sentence from counts, numbers and other text, and 6 of the 8 entries that word what follows a run continued into its fix pass are functions too. Each function is written twice, once per language, with its grammar coded by hand. The English one for the fixes that rest on a `PLAUSIBLE` verdict chooses between "A fix rests" and "Fixes rest" and between "finding" and "findings". The Korean table must attach a particle after a number, and Korean chooses the particle by how the number is read; the report found a function of that table that writes "지적 사항 15은". The test of the tables holds the two languages to the same keys and types, which cannot find a sentence that reads wrongly.
+The words that code writes in the review are a table, `PullRequestWords`, in English and in Korean. Of its 119 entries, 54 are functions that build a sentence from counts, numbers and other text, and 6 of the 8 entries that word what follows a run continued into its fix pass are functions too. Each function is written twice, once per language, with its grammar coded by hand. The English one for the fixes that rest on a `PLAUSIBLE` verdict chooses between "A fix rests" and "Fixes rest" and between "finding" and "findings". The Korean table must attach a particle after a number, and Korean chooses the particle by how the number is read; the report found a function of that table that wrote "지적 사항 15은", and today `minorNeeds` still puts a fixed "는" after a list of numbers, whichever number ends it. The test of the tables holds the two languages to the same keys and types, which cannot find a sentence that reads wrongly.
 
-The report traced the faults of form of #101 to #115 and found most of them here or in the layout around these sentences: the count of #102, the wording of a question's options in #104, who makes a fix in #108, the repetition of #109, and the sentences of #115 that read wrongly. Each later change added more of the same kind. [RK8 of the core of the change on the pull request](2026-11-09-core-of-the-change-on-the-pull-request.requirements.md#rk8-more-sentences-in-the-engines-words) records that its eighteen new entries are "new words of the engine in each language, which W2 of the report names as where most faults of form began", and that it kept them to labels where it could.
+The report traced the faults of form of #101 to #115 and found most of them here or in the layout around these sentences: the count of #102, the wording of a question's options in #104, who makes a fix in #108, the repetition of #109, and the sentences of #115 that read wrongly. Each later change added more of the same kind. [RK8 of the core of the change on the pull request](2026-11-09-core-of-the-change-on-the-pull-request.requirements.md#rk8-more-sentences-in-the-engines-words) records that the entries it added are "new words of the engine in each language, which W2 of the report names as where most faults of form began", and that it kept them to labels where it could.
 
 ### A sentence changes its author, and its language, in the middle
 
@@ -94,7 +94,7 @@ The writer gives, for each finding, the decision in plain words, and code keeps 
 
 ## Goals
 
-A reader of the review on a pull request reads every sentence in one language and in one voice, written for the reader with the least context, with no sentence that a template built and no text that switches language in its middle. Every fact the reader acts on stands beside that text as data from the ledger, exact, and labeled so that it reads without a sentence around it. What an answer applies is on the page as the decider recorded it. A new language of the review costs a table of fixed strings and no grammar. A run whose writer fails still posts a review that is correct, in data and in the recorded words of the other workers. Being understood by that reader is the first aim of the writer's text, ahead of being short and ahead of staying close to the words it restates.
+A reader of the review on a pull request reads every sentence in one language and in one voice, written for the reader with the least context, with no sentence that a template built and no text that switches language in its middle. Every fact the reader acts on stands beside that text as data from the ledger, exact, and labeled so that it reads without a sentence around it. What an answer applies is on the page as the decider recorded it. A new language of the review costs a table of fixed strings and, apart from how a finding is named inside a sentence (NG3), no grammar. A run whose writer fails still posts a review that is correct, in data and in the recorded words of the other workers. Being understood by that reader is the first aim of the writer's text, ahead of being short and ahead of staying close to the words it restates.
 
 ## Non-Goals
 
@@ -130,17 +130,17 @@ A writer on Codex that meets #98 or #99 still fails, and its review is then the 
 
 ### R1: Code writes no sentence of the run
 
-Every text of the posted review, in the body and in each comment, is one of four kinds: the writer's text; a fact shown as data, which is a label with its value, a row of a table, an item of a list, a link, or code; a fixed notice; or recorded words under a label that says whose they are. Code joins no fact into a sentence, and it puts no worker's text inside a sentence of its own. A number that code shows never has a word after it that depends on how the number is read or on whether it is one or many.
+Every text of the posted review, in the body and in each comment, is one of four kinds: the writer's text; a fact shown as data, which is a label with its value, a row of a table, an item of a list, a link, or code; a fixed notice; or recorded words under a label that says whose they are. Code joins no fact into a sentence, and it puts no worker's text inside a sentence of its own. A number that code shows never has a word after it that depends on how the number is read or on whether it is one or many. The one exception is the name that the form writes in place of a finding's id inside a worker's own sentence (NG3).
 
 ### R2: The writer writes every sentence of the run and of the change
 
 The writer keeps what it writes today: the core of the change, a sentence for each condition under which a person should look, the areas of the major findings, and for each finding that deep-review would fix or asks about, its title, what goes wrong and for whom, the cases with their lines, a diagram where the flow is long, and one line of how its verifier checked it; and one line for each refuted candidate.
 
-It also writes what the templated sentences and the other workers' words say today. The summary says what the review found and what deep-review decided. For each finding that deep-review would fix, the writer gives one sentence of what the fix does, and the decision in full: what the fix changes, each choice the decision settles and what settled it, and, for a fix against a written rule, the rule in plain words, the fact against it and what the fix does instead. What needs a person gives that text for each such fix, so a departure names its rule where a reader meets it first. For a finding whose verdict is `PLAUSIBLE`, it says why the verifier could not confirm it. For each finding left as is, it gives a title that names the problem and why deep-review leaves it, with the choice its verifier named when there is one. And it says what the review did not examine and what that means for a reader. Each of these is written from the facts and the recorded words that the writer's task gives, for a reader who knows the craft and not this repository, as principle 6 of the vision note asks.
+It also writes what the templated sentences and the other workers' words say today. The summary says what the review found and what deep-review decided. For each finding that deep-review would fix, the writer gives one sentence of what the fix does, and the decision in full: what the fix changes, each choice the decision settles and what settled it, and, for a fix against a written rule, the rule in plain words, the fact against it and what the fix does instead. What needs a person gives that text for each such fix, so a departure names its rule where a reader meets it first. For a finding that deep-review would fix or asks about and whose verdict is `PLAUSIBLE`, it says why the verifier could not confirm it. For each finding left as is, it gives a title that names the problem and why deep-review leaves it, with the choice its verifier named when there is one. And it says what the review did not examine and what that means for a reader. Each of these is written from the facts and the recorded words that the writer's task gives, for a reader who knows the craft and not this repository, as principle 6 of the vision note asks.
 
 ### R3: A question is restated option by option
 
-For each question, the writer gives what is asked and why the repository does not answer it; for each option, by its number, what the option means and what it costs; and why deep-review recommends the option it does. Code holds this part to the ledger: one entry for each option the decider recorded, by its number, and none other. Code shows the options as a table under the writer's text, and beside it, as data, the number of the option recommended, the number of the one that stands until someone answers, and whether that one edits the code.
+For each question, the writer gives what is asked and why the repository does not answer it; for each option, by its number, what the option means, what it costs, and the rule the repository would hold to from then on if the author chose it; and why deep-review recommends the option it does. Code holds this part to the ledger: one entry for each option the decider recorded, by its number, and none other. Code shows the options as a table under the writer's text, and beside it, as data, the number of the option recommended, the number of the one that stands until someone answers, and whether that one edits the code.
 
 ### R4: What an answer applies, and each choice a verifier named, is shown as recorded
 
@@ -168,7 +168,7 @@ Code checks each part of the writer's answer on its own, asks once more for an a
 
 ### R9: One language, and a table of strings for a new one
 
-The writer writes every text in the language that `review.language` names. The labels and the fixed notices come from the table of that language, which this change writes for English and Korean; for another language they stay in English, as today. Recorded words stay in the language their worker wrote them in, under their label. No entry of the table takes a number or a text, so a new language needs a translation of fixed strings and no grammar.
+The writer writes every text in the language that `review.language` names. The labels and the fixed notices come from the table of that language, which this change writes for English and Korean; for another language they stay in English, as today. Recorded words stay in the language their worker wrote them in, under their label. No entry of the table takes a number or a text, apart from the naming of a finding (NG3), which stays as it is and is in English for a language that has no table. So a new language needs a translation of fixed strings and no other grammar.
 
 ### R10: An older run is posted in the same form
 
@@ -244,7 +244,7 @@ A model could turn the rendered review into the language at `publish`, when ever
 
 ### PD6: The writer may write a number
 
-A sentence that says what the review found reads best with its count in it, and the writer has the counts. The proposal lets it write them and makes the data the record (R7). It rejects two stricter ways. A token in place of each number is PD2's grammar. A check that the text holds no number the data gives, or only numbers the data gives, fails good text that says "line 3" or "HTTP 404" and passes a number spelled as a word. No run has yet shown a writer that states a wrong count, and principle 11 builds no recovery for a failure that no run has shown; M2 counts them.
+A sentence that says what the review found reads best with its count in it, and the writer has the counts. The proposal lets it write them and makes the data the record (R7). It rejects two stricter ways. A token in place of each number is PD2's grammar. A check that the text holds no number the data gives, or only numbers the data gives, fails good text that says "line 3" or "HTTP 404" and passes a number spelled as a word. The writer has never been given the counts to write, so no run shows how often it would state one wrongly. The proposal builds no check before that is measured, and M2 counts them.
 
 ### PD7: What an answer applies stays in the decider's words, folded
 
@@ -284,7 +284,7 @@ The proposal rejects two other orders. A target on the length would have the wri
 
 ### Principle 1, evidence, not trust
 
-Every verdict, severity, count and status in the review is the ledger's, shown as data, and a part of the writer's that fails its checks gives way to the record. The writer's restatement of a decision is a model's claim that no verifier examined, as each case of an explanation already is ([PD11 of the review on the pull request](2026-11-01-review-on-the-pull-request.requirements.md#pd11-the-explanation-cites-the-code-that-it-rests-on)). The proposal widens that departure from the principle to the decisions, and bounds it in three ways: code holds a restated question to the recorded options by number, the record that an answer applies is on the page (R4), and the fixed notice of R7 says which part a model wrote. The gate reads each restatement against its record (M3).
+Every verdict, severity, count and status that the review shows as data is the ledger's, and a part of the writer's that fails its checks gives way to the record. The writer's restatement of a decision is a model's claim that no verifier examined, as each case of an explanation already is ([PD11 of the review on the pull request](2026-11-01-review-on-the-pull-request.requirements.md#pd11-the-explanation-cites-the-code-that-it-rests-on)). The proposal widens that departure from the principle to the decisions, and bounds it in three ways: code holds a restated question to the recorded options by number, the record that an answer applies is on the page (R4), and the fixed notice of R7 says which part a model wrote. The gate reads each restatement against its record (M3). A count in the writer's text is a model's too, which PD6 allows: the data beside the text is the record, the notice of R7 says so, and M2 counts each one that differs.
 
 ### Principle 2, record before action
 
@@ -292,7 +292,7 @@ Nothing is decided while the review is rendered. The writer's answer is on the l
 
 ### Principle 4, deep-review decides; the person answers and writes rules
 
-An ask has four parts: the options, the cost of each, the rule a convention source would state for each, and the option deep-review applied. The review today posts no rule of an option. R4 adds it, as recorded, since the answer becomes that rule.
+An ask has four parts: the options, the cost of each, the rule a convention source would state for each, and the option deep-review applied. The review today posts no rule of an option. R3 has the writer say it in the reader's words, and R4 adds it as recorded, since the answer becomes that rule.
 
 ### Principles 5 and 6, the core first, easy to understand with little context
 
@@ -307,10 +307,6 @@ The writer runs with no person present, and a writer that fails holds nothing ba
 ### Principle 8, say what was not examined, and when a person must look
 
 Each thing the review did not examine is shown as data by its kind, whether or not the writer's text stands, so the review is never silent on a gap that the writer left out. The writer says what the gaps mean for a reader. The conditions under which a person should look are unchanged.
-
-### Principle 11, recovery without a person
-
-The proposal builds no check of the writer's numbers and no second model that reads the writer's restatements, since no run has shown either failure. M2 and M3 are where a run would show it.
 
 ### Principle 12, a real run is the gate
 
