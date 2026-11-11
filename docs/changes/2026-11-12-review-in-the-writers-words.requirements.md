@@ -70,7 +70,7 @@ A **fixed notice** is a text of the form that is the same in every review of its
 
 **Recorded words** are the text that a worker other than the writer wrote and the ledger holds, such as an option of the decider or a reason of a verifier.
 
-A **late fact** is a fact that can change after the writer has run: an answer recorded later, whether the run went on into its fix pass, whether a finding is shown on its line or in the body, and what a cut to size left out.
+A **late fact** is a fact that can change after the writer has run: an answer recorded later and what became of the finding it answers, whether the run went on into its fix pass, whether a finding is shown on its line or in the body, and what a cut to size left out.
 
 ## Problem
 
@@ -150,11 +150,13 @@ The same folded record keeps each choice that a verifier left to the author besi
 
 ### R5: Each fact is shown as data beside the text it belongs to
 
-What the templated sentences state today, code shows as data. The line on what the run reviewed gives the head, the merge base and the count of files as labeled values. The summary, how the review worked and how far to trust the review give their counts as tables. A finding's severity, verdict, how the verdict was reached, its status and the note on its line are labeled values on one line under its title. The sources of the core's reason, the files of a condition, the fixes that rest on a `PLAUSIBLE` verdict, the paths that the settings left out and the last line of the body are lists or labeled values. Each thing the review did not examine is a labeled value of its kind, whether or not the writer's text stands: a review pass that did not run, the findings no verifier examined, the paths left out, the files too large to read, and the workers that a stop ended. The design's table "The parts of the form" gives the form of each.
+What the templated sentences state today, code shows as data. The line on what the run reviewed gives the head, the merge base and the count of files as labeled values. The summary, how the review worked and how far to trust the review give their counts as tables. A finding's severity, verdict, how the verdict was reached, its decision, what became of it since and the note on its line are labeled values on one line under its title. The sources of the core's reason, the files of a condition, the fixes that rest on a `PLAUSIBLE` verdict, the paths that the settings left out and the last line of the body are lists or labeled values. Each thing the review did not examine is a labeled value of its kind, whether or not the writer's text stands: a review pass that did not run, the findings no verifier examined, the paths left out, the files too large to read, and the workers that a stop ended. The design's table "The parts of the form" gives the form of each.
 
 ### R6: The writer writes only what is settled when it runs
 
 Four facts can change after the writer has run: an answer recorded later, with its time; whether the run went on into its fix pass; whether a finding is shown on its line or in the body, and the note on what the pull request does to that line; and what a cut to size left out. Code shows each as data, with a fixed notice where the reader needs an instruction, such as the command that answers. The writer's task holds none of them and tells the writer to say nothing of them, so no sentence of the writer can be made false by what happens after it.
+
+An answer changes more than its own line. A question that is answered is no longer open, a fix whose departure is rejected follows the rule again, and every count taken from what became of a finding moves with it. So the counts that the writer is given, and the tables beside its text, count the findings by what deep-review decided, which no answer changes. What became of a finding since is a separate value that code shows as late data. And the writer states each decision as it was decided, not as what will happen.
 
 ### R7: The writer may write a number, and the data beside it is the record
 
@@ -200,7 +202,7 @@ The lines of each body and comment that are none of the four kinds of R1: a sent
 
 ### M2: Numbers in the writer's text that differ from the data
 
-Each count or number in the writer's text that the data beside it contradicts. The target is none. A count above none in the gate is the case for a later change that checks the writer's numbers or takes them out of its text (PD6).
+Each count or number in the writer's text that the data beside it contradicts, both counted by decision (R6), so an answer given before the post is no difference. The target is none. A count above none in the gate is the case for a later change that checks the writer's numbers or takes them out of its text (PD6).
 
 ### M3: Restated options that keep the meaning of their record
 
