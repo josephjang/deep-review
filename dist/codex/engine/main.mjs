@@ -34603,6 +34603,806 @@ var init_conventions = __esm({
   }
 });
 
+// src/review/finding-names.ts
+function outsideKept(text3, pattern) {
+  const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
+  const outsideUrls = (index2) => !urls.some((url2) => url2.start <= index2 && index2 < url2.end);
+  const paths = [...text3.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
+  return [...text3.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
+}
+function slotsOf(text3, names2) {
+  const slots = [];
+  let offset = 0;
+  for (const part of codeParts(text3)) {
+    if (part.code) {
+      const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
+      if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
+    } else {
+      for (const match of outsideKept(part.text, idPattern)) {
+        const named = names2.get(match[0]);
+        if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
+      }
+    }
+    offset += part.text.length;
+  }
+  return slots;
+}
+function namedFindings2(text3, names2, naming) {
+  if (names2.size === 0) return text3;
+  let out = "";
+  let at = 0;
+  for (const slot of slotsOf(text3, names2)) {
+    if (slot.start < at) continue;
+    out += text3.slice(at, slot.start);
+    const after = text3.slice(slot.end);
+    const given = slot.named.kind === "finding" ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
+    out = out.slice(0, out.length - given.before);
+    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
+    out += name;
+    at = slot.end + given.after;
+    const particle = particleAfter.exec(text3.slice(at));
+    if (particle !== null) {
+      out += naming.particle(name, particle[1]);
+      at += particle[1].length;
+    }
+  }
+  return out + text3.slice(at);
+}
+function holdsId(diagram, names2) {
+  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g");
+  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
+}
+function idsIn(text3, ids2) {
+  if (ids2.length === 0) return [];
+  const found = new Set([...text3.matchAll(new RegExp(String.raw`(?<![\w#]|\w\.)(?:${ids2.map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g"))].map((match) => match[0]));
+  return ids2.filter((id) => found.has(id));
+}
+function shownNamed(shown, named) {
+  const inner = shown.slice(1, -1);
+  if (shown.startsWith("|")) {
+    const quoted2 = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
+    return `|${quoted2 === null ? named(inner) : `${quoted2[1]}${shownNamed(quoted2[2], named)}${quoted2[3]}`}|`;
+  }
+  const markdown = /^`([^`]+)`$/.exec(inner);
+  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]) ? named(inner) : `\`${named(markdown[1])}\``}"`;
+}
+function partsNamed(text3, named, bars) {
+  return text3.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => part.startsWith('"') || bars && part.startsWith("|") ? shownNamed(part, named) : named(part));
+}
+function edgeTextAt(line, at) {
+  edgeTextOpening.lastIndex = at;
+  const opening = edgeTextOpening.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing.lastIndex = end;
+    const closing = edgeTextClosing.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+function flowchartLineNamed(line, named) {
+  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
+  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
+  if (subgraph !== null) {
+    const rest2 = subgraph[2];
+    const bracketed = subgraphBracketed.exec(rest2);
+    if (bracketed !== null) return `${subgraph[1]}${bracketed[1]}${named(bracketed[2])}${bracketed[3]}`;
+    return `${subgraph[1]}${rest2.includes("[") ? rest2.replace(/"[^"]*"/g, (quoted2) => shownNamed(quoted2, named)) : partsNamed(rest2, named, false)}`;
+  }
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const edge = edgeTextAt(line, at);
+    if (edge !== null) {
+      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
+      at = edge.closed;
+      continue;
+    }
+    const char = line.charAt(at);
+    if (char === '"' || char === "|") {
+      const close2 = line.indexOf(char, at + 1);
+      if (close2 === -1) return `${out}${line.slice(at)}`;
+      out += shownNamed(line.slice(at, close2 + 1), named);
+      at = close2 + 1;
+      continue;
+    }
+    const id = nodeId.exec(line.slice(at));
+    if (id === null) {
+      out += char;
+      at += 1;
+      continue;
+    }
+    out += id[0];
+    at += id[0].length;
+    if (!line.startsWith("@{", at)) continue;
+    let close = at + 2;
+    while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+    if (close === line.length) return `${out}${line.slice(at)}`;
+    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel, (_whole, open2, value) => `${open2}${named(value)}`));
+    out += `@{${body}}`;
+    at = close + 1;
+  }
+  return out;
+}
+function colonOf(line) {
+  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ":") return match.index;
+  return -1;
+}
+function namedInDiagram(diagram, names2, naming) {
+  if (names2.size === 0) return diagram;
+  const lines = diagram.split("\n");
+  const headerAt = lines.findIndex((line) => line.trim() !== "");
+  const kind = diagramKind(lines[headerAt]?.trim() ?? "");
+  const named = (text3) => {
+    const lead = /^\s*/.exec(text3)[0];
+    return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
+  };
+  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
+  let inNote = false;
+  const result = lines.map((line, index2) => {
+    if (index2 <= headerAt) return line;
+    if (inNote) {
+      if (/^\s*end\s+note\s*$/i.test(line)) inNote = false;
+      else return named(line);
+      return line;
+    }
+    if (kind === "state" && /^\s*note\s/i.test(line) && !line.includes(":")) {
+      inNote = true;
+      return line;
+    }
+    if (kind === "flowchart") return flowchartLineNamed(line, named);
+    const label = kind === "sequence" ? sequenceLabel.exec(line) : null;
+    if (label !== null) return `${label[1]}${partsNamed(label[2], named, false)}`;
+    const colon = colonOf(line);
+    if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
+    return labelled(line);
+  }).join("\n");
+  return holdsId(result, names2) ? null : result;
+}
+function numberFinal(digits) {
+  const last = digits.at(-1);
+  if (last === "0") return "other";
+  return "2459".includes(last) ? "none" : "178".includes(last) ? "rieul" : "other";
+}
+function koreanFinal(name) {
+  const digits = /[0-9]+$/.exec(name);
+  if (digits !== null) return numberFinal(digits[0]);
+  const code = name.charCodeAt(name.length - 1) - 44032;
+  if (code < 0 || code > 11171) return "other";
+  const final = code % 28;
+  return final === 0 ? "none" : final === 8 ? "rieul" : "other";
+}
+function koreanParticle(name, particle) {
+  const forms = koreanForms[particle];
+  if (forms === void 0) return particle;
+  const final = koreanFinal(name);
+  if (final === "none") return forms[1];
+  if (final === "rieul" && forms[0].startsWith("\uC73C\uB85C")) return forms[1];
+  return forms[0];
+}
+var idPattern, urlPattern, slashJoined, idPart, idList, sentenceOpening, sentenceStart, abbreviationBefore, koreanForms, particleAfter, diagramKind, flowchartUnread, nodeId, edgeTextOpening, edgeTextClosing, shapeLabel, subgraphBracketed, sequenceLabel;
+var init_finding_names = __esm({
+  "src/review/finding-names.ts"() {
+    "use strict";
+    init_markdown();
+    idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
+    urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
+    slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
+    idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
+    idList = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
+    sentenceOpening = String.raw`[*_(\["'“‘]*`;
+    sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
+    abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
+    koreanForms = {
+      \uC740: ["\uC740", "\uB294"],
+      \uB294: ["\uC740", "\uB294"],
+      \uC774: ["\uC774", "\uAC00"],
+      \uAC00: ["\uC774", "\uAC00"],
+      \uC744: ["\uC744", "\uB97C"],
+      \uB97C: ["\uC744", "\uB97C"],
+      \uACFC: ["\uACFC", "\uC640"],
+      \uC640: ["\uACFC", "\uC640"],
+      \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uB85C: ["\uC73C\uB85C", "\uB85C"],
+      \uC73C\uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
+      \uC73C\uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
+      \uC73C\uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"],
+      \uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"]
+    };
+    particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join("|")})(?!\\p{Script=Hangul})`, "u");
+    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
+    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
+    nodeId = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel = /((?:^|[\s,])label\s*:)([^,]*)/;
+    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
+    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
+  }
+});
+
+// src/review/explanation-checks.ts
+function heldConditions(review2) {
+  const reading = changeReadingOf(review2.change);
+  if (reading === null) return [];
+  const judged2 = { "public-interface": reading.publicInterface, "wide-effect": reading.wideEffect };
+  return changeConditions.flatMap((condition2) => judged2[condition2].holds ? [{ condition: condition2, what: judged2[condition2].what, files: judged2[condition2].files }] : []);
+}
+function lineCountOf(bytes) {
+  let count3 = 0;
+  for (const byte of bytes) if (byte === 10) count3 += 1;
+  return bytes.length > 0 && bytes[bytes.length - 1] !== 10 ? count3 + 1 : count3;
+}
+function gitLineCounts(worktree, scope, paths = {}) {
+  const counts = /* @__PURE__ */ new Map();
+  const read = (commit2, wanted) => {
+    const entries = /* @__PURE__ */ new Map();
+    for (let from = 0; from < wanted.length; ) {
+      let to = from + 1;
+      for (let length = wanted[from].length; to < wanted.length && length + wanted[to].length <= maxPathCharacters; to += 1) length += wanted[to].length;
+      for (const [path, entry] of treeEntries(worktree, commit2, wanted.slice(from, to))) entries.set(path, entry);
+      from = to;
+    }
+    const file2 = (path) => {
+      const entry = entries.get(path);
+      return entry?.mode.startsWith("100") ? entry : void 0;
+    };
+    const blobs = blobsRaw(worktree, wanted.flatMap((path) => file2(path)?.objectId ?? []));
+    for (const path of wanted) {
+      const entry = file2(path);
+      counts.set(`${commit2}:${path}`, entry === void 0 ? null : lineCountOf(blobs.get(entry.objectId)));
+    }
+  };
+  const prefilled = /* @__PURE__ */ new Set();
+  return (side, path) => {
+    const commit2 = side === "head" ? scope.head : scope.base;
+    if (!prefilled.has(side)) {
+      prefilled.add(side);
+      read(commit2, [...new Set(paths[side] ?? [])].filter((given) => repositoryPath2(given) && !counts.has(`${commit2}:${given}`)));
+    }
+    const key = `${commit2}:${path}`;
+    if (!counts.has(key)) read(commit2, [path]);
+    return counts.get(key);
+  };
+}
+function verdictFailures(what, texts) {
+  const found = new Set(texts.flatMap((text3) => [...text3.matchAll(verdictWord)].map((match) => match[1])));
+  return [...found].map((verdict) => `${what} holds the verdict ${verdict}, which the engine writes beside the finding`);
+}
+function labelFailures(what, text3) {
+  const entities = [...text3.matchAll(htmlEntity)].map((match) => match[0]);
+  return [
+    ...entities.map((entity) => `${what} holds the HTML entity ${entity}`),
+    ...text3.replaceAll(htmlEntity, "").includes(";") ? [`${what} holds a semicolon`] : []
+  ];
+}
+function edgeTextAt2(line, at) {
+  edgeTextOpening2.lastIndex = at;
+  const opening = edgeTextOpening2.exec(line);
+  if (opening === null) return null;
+  const start = at + opening[0].length;
+  let end = start;
+  while (end < line.length) {
+    const char = line.charAt(end);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, end + 1);
+      if (close === -1) return null;
+      end = close + 1;
+      continue;
+    }
+    edgeTextClosing2.lastIndex = end;
+    const closing = edgeTextClosing2.exec(line);
+    if (closing !== null) return { start, end, closed: end + closing[0].length };
+    end += 1;
+  }
+  return null;
+}
+function subgraphFailures(rest2, number5) {
+  const quoted2 = /"([^"]*)"/g;
+  const bare = rest2.replaceAll(quoted2, "");
+  return [
+    ...[...rest2.matchAll(quoted2)].flatMap((label) => labelFailures(`the label on line ${String(number5)}`, label[1])),
+    ...bare.includes('"') ? [`line ${String(number5)} opens a label it does not close`] : [],
+    ...labelFailures(`the title of the subgraph on line ${String(number5)}`, bare)
+  ];
+}
+function flowchartLineFailures(line, number5) {
+  if (flowchartStyling.test(line)) return [];
+  const subgraph = /^subgraph\b(.*)$/.exec(line);
+  if (subgraph !== null) return subgraphFailures(subgraph[1], number5);
+  const failures = [];
+  let edge = null;
+  let at = 0;
+  while (at < line.length) {
+    if (edge !== null && at >= edge.end) {
+      at = edge.closed;
+      edge = null;
+      continue;
+    }
+    if (edge === null) {
+      edge = edgeTextAt2(line, at);
+      if (edge !== null) {
+        failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, line.slice(edge.start, edge.end).replaceAll(/"[^"]*"|\|[^|]*\|/g, '""')));
+        at = edge.start;
+        continue;
+      }
+    }
+    const char = line.charAt(at);
+    if (char === '"' || char === "|") {
+      const close = line.indexOf(char, at + 1);
+      if (close === -1) {
+        failures.push(`line ${String(number5)} opens a label it does not close`);
+        break;
+      }
+      failures.push(...labelFailures(`the label on line ${String(number5)}`, line.slice(at + 1, close)));
+      at = close + 1;
+      continue;
+    }
+    const id = nodeId2.exec(line.slice(at));
+    if (id === null) {
+      at += 1;
+      continue;
+    }
+    at += id[0].length;
+    if (edge !== null) continue;
+    if (line.startsWith("@{", at)) {
+      let close = at + 2;
+      while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
+      if (close === line.length) {
+        failures.push(`line ${String(number5)} opens the shape of node ${id[0]} it does not close`);
+        break;
+      }
+      const body = line.slice(at + 2, close);
+      for (const quoted2 of body.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on line ${String(number5)}`, quoted2[1]));
+      const label = shapeLabel2.exec(body.replaceAll(/"[^"]*"/g, '""'));
+      if (label !== null) failures.push(...labelFailures(`the label of node ${id[0]} on line ${String(number5)}`, label[1]));
+      at = close + 1;
+      continue;
+    }
+    const opening = shapeOpening.exec(line.slice(at));
+    if (opening === null) continue;
+    at += opening[0].length;
+    if (line.charAt(at) !== '"') failures.push(`the label of node ${id[0]} on line ${String(number5)} is not quoted`);
+  }
+  return failures;
+}
+function diagramFailures(diagram) {
+  const lines = diagram.split(/\r\n|\r|\n/);
+  const start = lines.findIndex((line) => !blank(line));
+  const header = start === -1 ? "" : lines[start].trim();
+  const kind = diagramHeaders.find(([, pattern]) => pattern.test(header))?.[0];
+  if (kind === void 0) return [`it starts with ${header === "" ? "nothing" : `"${truncated(header, 80)}"`}, not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws`];
+  const failures = [];
+  let inNote = false;
+  lines.slice(start + 1).forEach((raw, index2) => {
+    const line = raw.trim();
+    const number5 = start + index2 + 2;
+    if (line.includes("%%{")) failures.push(`line ${String(number5)} holds a directive, %%{, which changes how Mermaid draws the diagram`);
+    if (line === "" || line.startsWith("%%")) return;
+    if (kind === "flowchart") {
+      failures.push(...flowchartLineFailures(line, number5));
+      return;
+    }
+    const where = `line ${String(number5)}`;
+    if (inNote) {
+      if (/^end\s+note$/i.test(line)) inNote = false;
+      else failures.push(...labelFailures(`the note on ${where}`, line));
+      return;
+    }
+    if (kind === "stateDiagram-v2" && /^note\s/i.test(line) && !line.includes(":")) {
+      inNote = true;
+      return;
+    }
+    for (const quoted2 of line.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on ${where}`, quoted2[1]));
+    const colon = line.indexOf(":");
+    if (colon !== -1) failures.push(...labelFailures(`the text after the colon on ${where}`, line.slice(colon + 1)));
+    const labelled = kind === "sequenceDiagram" && colon === -1 ? sequenceLabelled.exec(line) : null;
+    if (labelled !== null) failures.push(...labelFailures(`the label on ${where}`, labelled[1] ?? labelled[2] ?? ""));
+    const title = kind === "sequenceDiagram" && colon === -1 ? sequenceTitle.exec(line) : null;
+    if (title !== null) failures.push(...labelFailures(`the title on ${where}`, title[1]));
+  });
+  return [...new Set(failures)];
+}
+function linesFailures(what, lines, lineCount) {
+  const { side, path, from, to } = lines;
+  if (!repositoryPath2(path)) return [`${what} cites ${JSON.stringify(path)}, which is not a path from the root of the repository`];
+  if (from < 1 || to < from) return [`${what} cites lines ${String(from)} to ${String(to)} of ${path}, which is no range of lines`];
+  const count3 = lineCount(side, path);
+  if (count3 === null) return [`${what} cites ${path} at ${sideWords[side]}, which holds no such file`];
+  if (to > count3) return [`${what} cites ${path}:${from === to ? String(from) : `${String(from)}-${String(to)}`}, which has ${counted(count3, "line", "lines")} at ${sideWords[side]}`];
+  return [];
+}
+function checkConclusion(conclusion, ids2, version2, asks) {
+  const held = (id) => version2 === 1 || !asks.includes(id);
+  const posted = ids2.filter(held);
+  const named = conclusion.actions.map((action) => action.id);
+  const sentenceFor = (id) => named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : "";
+  const diagram = version2 === 1 ? conclusion.diagram : null;
+  const postedActions = conclusion.actions.filter((action) => held(action.id));
+  return [
+    ...blank(conclusion.why) ? ["the conclusion says no why"] : [],
+    ...[...new Set(named)].filter((id) => !ids2.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
+    ...posted.map(sentenceFor).filter((failure2) => failure2 !== ""),
+    ...posted.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
+    ...conclusion.actions.filter((action) => posted.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
+    ...verdictFailures("the conclusion", [conclusion.why, ...postedActions.map((action) => action.sentence), diagram ?? ""]),
+    ...diagramFailuresOf("the conclusion's diagram", diagram)
+  ];
+}
+function checkAccount(account) {
+  return [
+    ...blank(account.problem.text) ? ["the account says no problem before the change"] : [],
+    ...blank(account.change.text) ? ["the account says nothing of the change"] : [],
+    ...account.terms.filter((term) => blank(term.term) || blank(term.meaning)).map((term) => `the account's term ${JSON.stringify(term.term)} has no ${blank(term.term) ? "name" : "meaning"}`),
+    ...verdictFailures("the account", [account.problem.text, account.problem.diagram ?? "", account.change.text, account.change.diagram ?? "", ...account.terms.flatMap((term) => [term.term, term.meaning])]),
+    ...diagramFailuresOf("the diagram of the problem before the change", account.problem.diagram),
+    ...diagramFailuresOf("the diagram of the change", account.change.diagram)
+  ];
+}
+function checkFinding(id, entries, lineCount, major) {
+  const refused = (failure2) => ({ value: null, failures: [failure2] });
+  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
+  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
+  const { explanation, unexplained } = entries[0];
+  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
+  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
+  if (unexplained !== null) {
+    const failures2 = [...blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : [], ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
+    return { value: { id, unexplained: true, reason: unexplained }, failures: failures2 };
+  }
+  const { title, problem, cases, diagram, decision } = explanation;
+  const checked = "checked" in explanation ? explanation.checked : null;
+  const kind = "kind" in explanation ? explanation.kind : null;
+  const checkedDecision = major === null ? decision : "";
+  const posted = major !== false;
+  const postedCases = posted ? cases : [];
+  const postedChecked = posted ? checked : null;
+  const postedDiagram = posted ? diagram : null;
+  const failures = [
+    ...blank(title) ? [`${id} has no title`] : [],
+    ...blank(problem) ? [`${id} says no problem`] : [],
+    ...major === null && blank(decision) ? [`${id} says nothing of its decision`] : [],
+    ...posted && cases.length === 0 ? [`${id} has no case`] : [],
+    ...postedCases.flatMap((cited, index2) => {
+      const what = `case ${String(index2 + 1)} of ${id}`;
+      return [...blank(cited.sentence) ? [`${what} has no sentence`] : [], ...linesFailures(what, cited.lines, lineCount)];
+    }),
+    ...postedChecked !== null && blank(postedChecked) ? [`${id} says nothing of how its verifier checked it`] : [],
+    ...major === false && kind === null ? [`${id} is a minor finding and has no kind`] : [],
+    ...major === true && kind !== null ? [`${id} is a major finding and has the kind ${kind}, which only a minor finding has`] : [],
+    ...verdictFailures(`the explanation of ${id}`, [title, problem, checkedDecision, postedDiagram ?? "", postedChecked ?? "", ...postedCases.map((cited) => cited.sentence)]),
+    ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram)
+  ];
+  return { value: { id, unexplained: false, title, problem, cases, diagram, decision, checked, kind }, failures };
+}
+function idCoverage(named, expected) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const id of named) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return {
+    missing: expected.filter((id) => !counts.has(id)),
+    repeated: expected.flatMap((id) => {
+      const count3 = counts.get(id) ?? 0;
+      return count3 > 1 ? [[id, count3]] : [];
+    }),
+    stray: [...counts.keys()].filter((id) => !expected.includes(id))
+  };
+}
+function checkAreas(areas, ids2, major) {
+  const { missing, repeated, stray } = idCoverage(areas.flatMap((area) => area.findings), major);
+  return [
+    ...missing.map((id) => `the areas leave out ${id}, a major finding that asks a person to act`),
+    ...repeated.map(([id, count3]) => `${id} is in ${String(count3)} areas, and a finding is in one`),
+    ...stray.map((id) => ids2.includes(id) ? `the areas name ${id}, a minor finding, which no area holds` : `the areas name ${JSON.stringify(id)}, which is no major finding of the run that asks a person to act`),
+    ...areas.flatMap((area, index2) => {
+      const what = `area ${String(index2 + 1)}`;
+      return [
+        ...blank(area.title) ? [`${what} has no title`] : [],
+        ...blank(area.intro) ? [`${what} has no intro`] : [],
+        ...area.findings.length === 0 ? [`${what} names no finding`] : [],
+        ...verdictFailures(what, [area.title, area.intro, area.diagram ?? ""]),
+        ...diagramFailuresOf(`the diagram of ${what}`, area.diagram)
+      ];
+    })
+  ];
+}
+function checkRefuted(lines, refutedIds) {
+  const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), refutedIds);
+  return [
+    ...missing.map((id) => `the refuted lines have no line for ${id}`),
+    ...repeated.map(([id, count3]) => `the refuted lines have ${String(count3)} lines for ${id}, and a candidate has one`),
+    ...stray.map((id) => `the refuted lines name ${JSON.stringify(id)}, which is no refuted candidate of the run`),
+    ...lines.filter((line) => refutedIds.includes(line.id)).flatMap((line) => [
+      ...blank(line.claim) ? [`the refuted line for ${line.id} says no claim`] : [],
+      ...blank(line.why) ? [`the refuted line for ${line.id} says not why it was refuted`] : [],
+      ...verdictFailures(`the refuted line for ${line.id}`, [line.claim, line.why])
+    ])
+  ];
+}
+function resolveCommitSource(source, commits) {
+  if (!commitPrefix.test(source)) return { kind: "not-a-commit" };
+  const prefix = source.toLowerCase();
+  const begun = commits.filter((commit2) => commit2.startsWith(prefix));
+  if (begun.length === 0) return { kind: "none" };
+  return begun.length === 1 ? { kind: "one", commit: begun[0] } : { kind: "many", count: begun.length };
+}
+function sourceFailure(source, input2) {
+  if (input2.files.includes(source)) return null;
+  const named = JSON.stringify(source);
+  const resolved = resolveCommitSource(source, input2.commits ?? []);
+  if (resolved.kind === "not-a-commit") return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id`;
+  if (input2.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
+  if (resolved.kind === "none") return `the core's reason names ${named}, which begins no commit of the change`;
+  if (resolved.kind === "many") return `the core's reason names ${named}, which begins ${String(resolved.count)} commits of the change; name the commit by more characters of its id`;
+  return null;
+}
+function checkCore(core, input2) {
+  const texts = [core.title, core.what, core.why ?? "", core.diagram ?? ""];
+  return [
+    ...blank(core.title) ? ["the core has no title"] : [],
+    ...blank(core.what) ? ["the core says nothing of what the change does"] : [],
+    ...core.why !== null && blank(core.why) ? ["the core's reason is empty; give null when the change states no reason"] : [],
+    ...core.why === null && core.whyFrom.length > 0 ? ["the core gives no reason and names where the reason comes from"] : [],
+    ...core.why !== null && !blank(core.why) && core.whyFrom.length === 0 ? ["the core gives a reason and names no commit or file it comes from"] : [],
+    ...core.whyFrom.flatMap((source) => sourceFailure(source, input2) ?? []),
+    ...verdictFailures("the core", texts),
+    ...idsIn(texts.join("\n"), input2.candidates).map((id) => `the core names ${id}, an id of this review; the core is about the change as submitted, and names no finding or candidate`),
+    ...diagramFailuresOf("the core's diagram", core.diagram)
+  ];
+}
+function checkConditions(conditions, held) {
+  const { missing, repeated, stray } = idCoverage(conditions.map((entry) => entry.condition), held.map((entry) => entry.condition));
+  return [
+    ...stray.map((condition2) => `the conditions give ${condition2}, which the triage did not judge to hold`),
+    ...repeated.map(([condition2, count3]) => `the conditions give ${condition2} ${String(count3)} times, and a condition has one entry`),
+    ...missing.map((condition2) => `the conditions give no entry for ${condition2}, which the triage judged to hold`),
+    ...conditions.flatMap((entry) => {
+      const { condition: condition2, explanation, unexplained } = entry;
+      if (explanation === null && unexplained === null) return [`the entry for ${condition2} has neither an explanation nor what the code shows instead`];
+      if (explanation !== null && unexplained !== null) return [`the entry for ${condition2} has both an explanation and what the code shows instead`];
+      const text3 = explanation ?? unexplained ?? "";
+      return [...blank(text3) ? [`the entry for ${condition2} is empty`] : [], ...verdictFailures(`the entry for ${condition2}`, [text3])];
+    })
+  ];
+}
+function checkAnswer(output2, input2) {
+  const entries = new Map(input2.ids.map((id) => [id, []]));
+  const strays = [];
+  for (const entry of output2.findings) {
+    const of = entries.get(entry.id);
+    if (of === void 0) strays.push(entry.id);
+    else of.push(entry);
+  }
+  const conclusion = { value: output2.conclusion, failures: checkConclusion(output2.conclusion, input2.ids, "account" in output2 ? 1 : 2, input2.report?.asks ?? []) };
+  if ("account" in output2) {
+    return { conclusion, account: { value: output2.account, failures: checkAccount(output2.account) }, areas: null, refuted: null, core: null, conditions: null, findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, null)])), strays };
+  }
+  if (input2.report === void 0) throw new Error("An answer in the form of the review that reads as a report is checked against the major findings and the refuted candidates of its run");
+  const { major, refuted: refutedIds } = input2.report;
+  const cored = "core" in output2 ? output2 : null;
+  if (cored !== null && input2.core === void 0) throw new Error("An answer with the core of the change is checked against the commits, the files and the candidates of its run and the conditions its triage judged");
+  return {
+    conclusion,
+    account: null,
+    areas: { value: output2.areas, failures: checkAreas(output2.areas, input2.ids, major) },
+    refuted: { value: output2.refuted, failures: checkRefuted(output2.refuted, refutedIds) },
+    core: cored === null ? null : { value: cored.core, failures: checkCore(cored.core, input2.core) },
+    conditions: cored === null ? null : { value: cored.conditions, failures: checkConditions(cored.conditions, input2.core.held) },
+    findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, major.includes(id))])),
+    strays
+  };
+}
+var repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix;
+var init_explanation_checks = __esm({
+  "src/review/explanation-checks.ts"() {
+    "use strict";
+    init_review_fold();
+    init_git();
+    init_finding_names();
+    init_markdown();
+    init_steps();
+    init_vocabulary();
+    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
+    maxPathCharacters = 8e3;
+    verdictWord = new RegExp(`\\b(${verdicts.join("|")})\\b`, "g");
+    blank = (text3) => text3.trim() === "";
+    htmlEntity = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g;
+    diagramHeaders = [
+      ["flowchart", /^flowchart(?:\s+(?:TB|TD|BT|RL|LR))?\s*$/],
+      ["sequenceDiagram", /^sequenceDiagram\s*$/],
+      ["stateDiagram-v2", /^stateDiagram-v2\s*$/]
+    ];
+    flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
+    shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
+    nodeId2 = /^[\p{L}\p{N}_]+/u;
+    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
+    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
+    shapeLabel2 = /(?:^|[\s,])label\s*:\s*([^,]*)/;
+    sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
+    sequenceTitle = /^title\s+(.+)$/;
+    diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
+    sideWords = { head: "the head", base: "the merge base" };
+    commitPrefix = /^[0-9a-f]{7,64}$/i;
+  }
+});
+
+// src/review/explanation.ts
+function recordedAnswerOf(recorded, evidence) {
+  if (recorded.answer === null) return null;
+  const frozen = JSON.parse(evidence.read(recorded.answer).toString("utf8"));
+  if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
+  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
+  const answer3 = recordedAnswerSchema.parse(frozen);
+  return { ...answer3, areas: null, refuted: null, core: null, conditions: null, findings: answer3.findings.map((finding) => finding.unexplained ? finding : { ...finding, checked: null, kind: null }) };
+}
+function frozenAnswer(version2, { conclusion, account, areas, refuted: lines, core, conditions, findings }) {
+  if (version2 === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
+  if (version2 === 2) return { conclusion, areas, refuted: lines, findings };
+  return { conclusion, account, findings: findings.map((finding) => finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest2 }) => rest2)(finding)) };
+}
+function findingsToExplain(review2) {
+  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision.decision]));
+  return rankedFindings(review2).flatMap((entry) => asksToAct(decided.get(entry.finding.id)) ? [entry.finding.id] : []);
+}
+function reportCheckInputOf(review2) {
+  const ids2 = new Set(findingsToExplain(review2));
+  return {
+    major: rankedFindings(review2).filter((entry) => ids2.has(entry.finding.id) && isMajor(entry)).map((entry) => entry.finding.id),
+    asks: (review2.decisions ?? []).filter((decision) => ids2.has(decision.id) && decision.decision === "ask").map((decision) => decision.id),
+    refuted: refuted(review2).map(({ candidate }) => candidate.id)
+  };
+}
+function recordedFailures(failures, extra) {
+  const all = [...failures, ...extra];
+  return (all.length === 0 ? ["no answer of the writer gave it"] : all).slice(0, maxPartFailures).map((failure2) => truncated(failure2, recordedTextLengthV1));
+}
+function mergeAnswers(version2, answers, ids2, extra = []) {
+  const dropped = [];
+  const passes = (part) => part !== null && part.value !== null && part.failures.length === 0;
+  const pick2 = (parts, drop) => {
+    const given = parts.filter((part) => part !== null);
+    const passed = given.find(passes);
+    if (passed !== void 0) return passed.value;
+    dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
+    return null;
+  };
+  const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
+  const areasFrom = version2 === 1 ? void 0 : paired ?? answers.find((answer3) => passes(answer3.areas));
+  const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
+  const conclusion = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
+  const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
+  const areas = version2 === 1 ? null : pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures }));
+  const lines = version2 === 1 ? null : pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures }));
+  const core = version2 === 3 ? pick2(answers.map((answer3) => answer3.core), (failures) => ({ part: "core", failures })) : null;
+  const conditions = version2 === 3 ? pick2(answers.map((answer3) => answer3.conditions), (failures) => ({ part: "conditions", failures })) : null;
+  const findings = ids2.flatMap((id) => {
+    const kept = pick2(answers.map((answer3) => answer3.findings.get(id)), (failures) => ({ part: "finding", finding: id, failures }));
+    return kept === null ? [] : [kept];
+  });
+  return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
+}
+function explanationRecord(version2, workerId, merged, evidence) {
+  const answer3 = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version2, merged.answer))}
+`) : null;
+  const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
+  if (version2 === 3) return { kind: "explanation.recorded", version: 3, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV3), unexplained } };
+  if (version2 === 2) return { kind: "explanation.recorded", version: 2, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV2), unexplained } };
+  return { kind: "explanation.recorded", version: 1, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV1), unexplained } };
+}
+function requireReview2(state) {
+  if (state.review === null || !state.review.explanationStep) throw new Error(`Run ${state.id} does not explain its review`);
+  return state.review;
+}
+function earlierAnswers(state, review2, evidence) {
+  const schema = writerOutputSchemaFor(review2);
+  return writerFailures(review2).flatMap((failure2) => {
+    const worker = Object.hasOwn(state.workers, failure2.workerId) ? state.workers[failure2.workerId] : void 0;
+    if (worker?.status !== "finished" || worker.finish.output === null) return [];
+    const parsed2 = schema.safeParse(JSON.parse(evidence.read(worker.finish.output).toString("utf8")));
+    return parsed2.success ? [parsed2.data] : [];
+  });
+}
+function checkedAnswers(state, review2, context, ids2, latest) {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const answers = [...earlierAnswers(state, review2, context.evidence), ...latest === null ? [] : [latest]];
+  const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
+  const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
+  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
+  const version2 = explanationVersionOf(review2);
+  const report2 = version2 === 1 ? {} : { report: reportCheckInputOf(review2) };
+  const core = version2 === 3 && answers.length > 0 ? { core: coreCheckInputOf(review2, state.scope, context.worktree) } : {};
+  return answers.map((answer3) => checkAnswer(answer3, { ids: ids2, lineCount, ...report2, ...core }));
+}
+function coreCheckInputOf(review2, scope, worktree) {
+  const commits = commitIdsOrNull(worktree, scope.base, scope.head);
+  return { commits, files: scope.files.map((file2) => file2.path), candidates: Object.keys(review2.candidates), held: heldConditions(review2) };
+}
+function droppedWords(dropped) {
+  return dropped.map((part) => `${partNameOf(part)}: ${part.failures.join("; ")}`).join(". ");
+}
+function writerContribution(state, receipt, context) {
+  const review2 = requireReview2(state);
+  const ids2 = findingsToExplain(review2);
+  const answers = checkedAnswers(state, review2, context, ids2, receipt.output);
+  const strays = answers.at(-1).strays;
+  if (strays.length > 0) context.log(`the answer explains ${strays.join(", ")}, which ${strays.length === 1 ? "is no finding" : "are no findings"} of the run that asks a person to act; not kept`);
+  const version2 = explanationVersionOf(review2);
+  const merged = mergeAnswers(version2, answers, ids2);
+  if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review2))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
+  return explanationRecord(version2, receipt.workerId, merged, context.evidence);
+}
+function droppedExplanation(state, context, reason) {
+  const review2 = requireReview2(state);
+  const ids2 = findingsToExplain(review2);
+  const merged = mergeAnswers(explanationVersionOf(review2), checkedAnswers(state, review2, context, ids2, null), ids2, [reason]);
+  return explanationRecord(explanationVersionOf(review2), null, merged, context.evidence);
+}
+function reviewLanguage(review2) {
+  const values = review2.configuration.settings?.values;
+  return values !== void 0 && "review.language" in values ? values["review.language"] : defaultLanguage;
+}
+var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, explanationShape, explanationShapeV2, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, isMajor, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, writerUnit, writerFailures;
+var init_explanation = __esm({
+  "src/review/explanation.ts"() {
+    "use strict";
+    init_zod();
+    init_events();
+    init_review_fold();
+    init_settings();
+    init_git();
+    init_errors7();
+    init_explanation_checks();
+    init_schemas3();
+    init_state();
+    init_steps();
+    init_vocabulary();
+    writerOutputShape = writerOutputSchema.shape;
+    writerOutputShapeV2 = writerOutputSchemaV2.shape;
+    writerOutputShapeV3 = writerOutputSchemaV3.shape;
+    explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
+    explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
+    explainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShape });
+    explainedFindingSchemaV2 = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShapeV2 });
+    unexplainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(true), reason: external_exports.string() });
+    recordedAnswerSchema = external_exports.strictObject({
+      conclusion: writerOutputShape.conclusion.nullable(),
+      account: writerOutputShape.account.nullable(),
+      findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchema, unexplainedFindingSchema]))
+    });
+    recordedAnswerSchemaV2 = external_exports.strictObject({
+      conclusion: writerOutputShapeV2.conclusion.nullable(),
+      areas: writerOutputShapeV2.areas.nullable(),
+      refuted: writerOutputShapeV2.refuted.nullable(),
+      findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchemaV2, unexplainedFindingSchema]))
+    });
+    recordedAnswerSchemaV3 = external_exports.strictObject({
+      ...recordedAnswerSchemaV2.shape,
+      core: writerOutputShapeV3.core.nullable(),
+      conditions: writerOutputShapeV3.conditions.nullable()
+    });
+    isMajor = (entry) => entry.finding.severity !== "minor";
+    maxPartFailures = 100;
+    keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.core !== null || answer3.conditions !== null || answer3.findings.length > 0;
+    partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
+    isPartV1 = (part) => part.part === "conclusion" || part.part === "account" || part.part === "finding";
+    isPartV2 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding";
+    isPartV3 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding" || part.part === "core" || part.part === "conditions";
+    writerUnit = (review2) => review2.units.explanation[singleUnitKey("explanation")];
+    writerFailures = (review2) => writerUnit(review2)?.failures ?? [];
+  }
+});
+
 // src/review/shell.ts
 var shellQuoted, terminalQuoted;
 var init_shell = __esm({
@@ -34610,6 +35410,950 @@ var init_shell = __esm({
     "use strict";
     shellQuoted = (path) => path.includes("'") ? `"${path}"` : `'${path}'`;
     terminalQuoted = (path) => /[$`"]/.test(path) ? shellQuoted(path) : `"${path}"`;
+  }
+});
+
+// src/review/continue-command.ts
+function scopeFlags(scope) {
+  const { request } = scope;
+  const paths = request.paths.flatMap((path) => flagWords("--path", path));
+  if (scope.pullRequest !== null) return [...flagWords("--pr", scope.pullRequest.url), ...paths];
+  switch (scope.mode) {
+    case "last-commit":
+      return ["--last-commit", ...paths];
+    case "worktree":
+      return ["--worktree", ...paths];
+    case "ref":
+      return [...flagWords("--ref", request.ref), ...paths];
+    case "range":
+      return [...flagWords("--from", request.range.from), ...flagWords("--to", request.range.to), ...request.range.mergeBase ? ["--merge-base"] : [], ...paths];
+  }
+}
+function continueCommand(run2, engineEntry, rolesRoot, spendUsd) {
+  if (run2.scope === null || run2.review === null) throw new Error("A run continues only with its scope and its configuration");
+  const args = ["review", "--repo", terminalQuoted(run2.worktree), "--runtime", run2.review.configuration.runtime, ...scopeFlags(run2.scope), "--fix", "--budget-usd", String(budgetAbove(spendUsd)), ...rolesRoot === null ? [] : ["--roles", terminalQuoted(rolesRoot)]];
+  return `node ${terminalQuoted(engineEntry)} ${args.join(" ")}`;
+}
+var word, flagWords, rolesPlaceholder, namedRoles, budgetAbove;
+var init_continue_command = __esm({
+  "src/review/continue-command.ts"() {
+    "use strict";
+    init_engine();
+    init_paths();
+    init_shell();
+    word = (text3) => /^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text3) && !/[=:]~/.test(text3) ? text3 : terminalQuoted(text3);
+    flagWords = (flag, value) => value.startsWith("-") ? [word(`${flag}=${value}`)] : [flag, word(value)];
+    rolesPlaceholder = "<roles>";
+    namedRoles = (rolesRoot) => sameDirectory(rolesRoot, engineRolesRoot()) ? null : rolesRoot;
+    budgetAbove = (spendUsd) => Math.floor(spendUsd) + 1;
+  }
+});
+
+// src/review/documents.ts
+function planPathOf(worktree) {
+  const lookup = worktreeLookup(worktree);
+  return (file2) => {
+    let path;
+    try {
+      path = resolveReportedPath(worktree, lookup, file2);
+    } catch (error62) {
+      if (error62 instanceof StructuralCheckError) return null;
+      throw error62;
+    }
+    return isClaimablePath(path) ? path : null;
+  };
+}
+function lineKeyOf(plan, file2) {
+  const spelled = normalizeFileName(file2.trim());
+  return documentKey({ path: (plan?.items ?? []).some((item) => item.path === spelled) ? spelled : null, file: file2 });
+}
+function stepNotRunCause(review2) {
+  const fix = review2.fix;
+  if (fix === null) return null;
+  if (!review2.documentationStep) return "old-engine";
+  if (fix.documentation === null) {
+    switch (documentationReadiness(fix).kind) {
+      case "budget":
+        return "budget";
+      case "no-fixes-revision":
+        return "no-edits";
+      case "ready":
+        return "not-run";
+    }
+  }
+  if (fix.answers.documentation[documentationUnitKey] !== void 0) return null;
+  const settled4 = fix.notAttempted.documentation[documentationUnitKey];
+  if (settled4 === void 0) return "not-answered";
+  return settled4.cause === "budget" ? "budget" : "failed";
+}
+function fixPassTimesOf(fix) {
+  const after = (gaveBack) => fix.reopenings.findLast(gaveBack)?.answerPassesBefore ?? 0;
+  const gave = (reopening, phases2) => reopening.units.some((unit) => phases2.includes(unit.phase));
+  return {
+    fixes: after((reopening) => gave(reopening, ["fixes"])),
+    documentation: after((reopening) => gave(reopening, ["fixes", "documentation"])),
+    repair: after((reopening) => !reopening.repairAnswered)
+  };
+}
+function unheldDriftLines(review2) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  const times = fixPassTimesOf(fix);
+  const held = /* @__PURE__ */ new Map();
+  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
+  const lines = [];
+  const unheld = (phase, key, time3) => {
+    for (const line of fix.answers[phase][key]?.drift ?? []) {
+      const count3 = phase === "fixes" ? held.get(driftLineKey(key, line)) ?? 0 : 0;
+      if (count3 > 0) held.set(driftLineKey(key, line), count3 - 1);
+      else lines.push({ phase, key, file: line.file, what: line.what, time: time3 });
+    }
+  };
+  for (const batch of allBatches(fix)) unheld("fixes", batch.key, times.fixes);
+  unheld("repair", repairUnitKey, times.repair);
+  review2.answerPasses.forEach((_, index2) => unheld("answer", passKey(index2 + 1), index2 + 1));
+  return lines;
+}
+function leftByStep(fix) {
+  const answer3 = fix.answers.documentation[documentationUnitKey];
+  if (fix.documentation === null || answer3 === void 0) return [];
+  const items = fix.documentation.items.flatMap((item) => {
+    const answered2 = answer3.findings.find((finding) => finding.id === item.id);
+    if (!isDocumentItem(item) || answered2 === void 0 || answered2.status !== "deferred" && answered2.status !== "blocked") return [];
+    return [{ key: documentKey({ path: item.path, file: item.file }), file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: "left", text: `The documentation step left it: ${sentence(answered2.note)}` } }];
+  });
+  const plan = fix.documentation;
+  const found = answer3.drift.map((line) => ({ key: lineKeyOf(plan, line.file), file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: "found", text: "The documentation step found it out of date at its end." } }));
+  return [...items, ...found];
+}
+function leftDocumentsOf(review2) {
+  const fix = review2.fix;
+  if (fix === null) return [];
+  const times = fixPassTimesOf(fix);
+  const entries = /* @__PURE__ */ new Map();
+  const add = (key, file2, facts, reason, time3) => {
+    const entry = entries.get(key) ?? { file: file2, facts: [], reasons: [], time: 0 };
+    for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
+    if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
+    entry.time = Math.max(entry.time, time3);
+    entries.set(key, entry);
+  };
+  const cause = stepNotRunCause(review2);
+  const notRun = cause === null ? null : { kind: "not-run", text: stepNotRunSentence(cause) };
+  const plan = fix.documentation;
+  if (plan !== null) {
+    if (notRun !== null) {
+      for (const item of plan.items.filter(isDocumentItem)) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
+    } else {
+      for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
+    }
+  }
+  for (const line of unheldDriftLines(review2)) {
+    const by = reporterOf[line.phase];
+    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: "after", text: `${capitalized(by)} reported it after the documentation step.` }, line.time);
+  }
+  const endedBy = (key, time3) => review2.answerPasses.some((_, index2) => {
+    const n = index2 + 1;
+    const answer3 = fix.answers.answer[passKey(n)];
+    if (n <= time3 || answer3 === void 0) return false;
+    const revised = unitRevisions(fix, "answer", passKey(n)).some((revision) => revision.files.some((file2) => names(key, file2.path)));
+    return revised && !answer3.drift.some((line) => names(key, line.file));
+  });
+  return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file: file2, facts, reasons }]) => ({ file: file2, facts, reasons }));
+}
+var leftReasonKinds, reporterOf, names, stepNotRunWords, stepNotRunSentence, sentence;
+var init_documents = __esm({
+  "src/review/documents.ts"() {
+    "use strict";
+    init_answer_state();
+    init_events();
+    init_fix_state();
+    init_errors7();
+    init_fix_answer();
+    init_locations();
+    init_markdown();
+    init_vocabulary();
+    leftReasonKinds = ["left", "found", "not-run", "after"];
+    reporterOf = {
+      fixes: "a fixer",
+      documentation: "the documentation step",
+      repair: "the repair",
+      answer: "the fixer of an answer pass"
+    };
+    names = (key, file2) => key === documentKey({ path: normalizeFileName(file2.trim()), file: file2 }) || key === documentKey({ path: null, file: file2 });
+    stepNotRunWords = {
+      "old-engine": "an engine before the documentation step configured this run",
+      budget: "the run budget was reached first",
+      "no-edits": "the fixes changed no file",
+      "not-run": "it has not run yet",
+      "not-answered": "it has not answered yet",
+      failed: "its worker failed twice"
+    };
+    stepNotRunSentence = (cause) => `The documentation step did not run: ${stepNotRunWords[cause]}.`;
+    sentence = (note) => `${note.trim().replace(/[.]+$/, "")}.`;
+  }
+});
+
+// src/review/prompts.ts
+function conditionWords(condition2) {
+  if (!condition2.holds) return "no";
+  const what = condition2.what === null ? "" : `, ${inlineText(condition2.what)}`;
+  const files = condition2.files.length === 0 ? "" : ` (in ${condition2.files.map(inlineText).join(", ")})`;
+  return `yes${what}${files}`;
+}
+function changeSection(change) {
+  const why = change.why === null ? "Why: the change states no reason." : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? "no source named" : `from ${change.whyFrom.map(inlineText).join(", ")}`})`;
+  return [
+    "### The change, as the triage read it",
+    "",
+    "This is the triage's account of the change, which no verifier examined. It is context, not a finding: the patch below is what you review, and the patch wins where the two differ. A stated intent never removes or refutes a candidate: a change can mean to do what it does and still be wrong. Where you need the intent to decide, quote the change's own words that the account names, not the account.",
+    "",
+    `Title: ${inlineText(change.title)}`,
+    `What it does: ${inlineText(change.what)}`,
+    why,
+    `Public interface: ${conditionWords(change.publicInterface)}`,
+    `Wide effect: ${conditionWords(change.wideEffect)}`
+  ].join("\n");
+}
+function sourceLine(source) {
+  const level = source.level === "user" ? `user level, the reviewer's own rules, applied because: ${inlineText(source.grounds ?? "no grounds recorded")}` : "repository";
+  const narrower = source.appliesTo === null ? "" : ` (applies to ${source.appliesTo.map(inlineText).join(", ")})`;
+  return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
+}
+function conventionsSection(known) {
+  const section = (heading, body) => `### ${heading}
+
+${body}`;
+  const sources = (body) => section("Convention sources", body);
+  switch (known.status) {
+    case "surveyed":
+      return sources(known.sources.length === 0 ? "The repository survey found no file that states conventions a change here must follow." : ["The repository survey named these files as stating the conventions a change here must follow:", "", ...known.sources.map(sourceLine)].join("\n"));
+    case "failed":
+      return sources(known.sources.length === 0 ? "The repository survey failed, so no convention source is known." : ["The repository survey failed; the review policy applies these user-level rules files:", "", ...known.sources.map(sourceLine)].join("\n"));
+    case "pending":
+      return sources("The repository survey has not answered yet, so no convention source is known.");
+    case "predates-survey":
+      return section("Rules files that govern the change", known.rulesFiles.length === 0 ? "None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file." : known.rulesFiles.map((file2) => `- ${inlineText(file2.path)} (${file2.level === "user" ? "user level" : "repository"})`).join("\n"));
+  }
+}
+function describeFrozen(frozen, evidence) {
+  if (frozen === null) return "none";
+  if ("blob" in frozen) return evidence.pathOf(frozen.blob);
+  return `oversized ${frozen.oversized.sha256} ${String(frozen.oversized.size)} bytes`;
+}
+function fenceFor(text3) {
+  let longest = 0;
+  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
+  return "`".repeat(Math.max(3, longest + 1));
+}
+function describePatch(scope, evidence) {
+  if (scope.patch.bytes > inlinePatchLimitBytes) {
+    return `The patch is ${String(scope.patch.bytes)} bytes, too large to carry here. Read it at: ${evidence.pathOf(scope.patch)}`;
+  }
+  const text3 = evidence.read(scope.patch).toString("utf8");
+  if (text3.trim() === "") return "The patch is empty.";
+  const fence = fenceFor(text3);
+  return `${fence}diff
+${text3.endsWith("\n") ? text3 : `${text3}
+`}${fence}`;
+}
+function scopeHeader(input2) {
+  const { scope, evidence } = input2;
+  const rows = scope.files.map((file2) => {
+    const after = file2.after === null ? "deleted" : "read the file in the worktree";
+    return `| ${tableCell(file2.path)} | ${file2.status}${file2.symlink ? " (symlink)" : ""} | ${tableCell(describeFrozen(file2.before, evidence))} | ${after} |`;
+  });
+  return [
+    "## Scope",
+    "",
+    `Repository: ${input2.worktree}`,
+    `Base: ${scope.base}`,
+    `Head: ${scope.head}`,
+    `Mode: ${scope.mode}`,
+    "",
+    "Your working directory is the repository above, at head, which is the after state of every file; read files there. The before state of each file is frozen at the path given, and may be read but never written.",
+    "",
+    "### Changed files",
+    "",
+    "| Path | Status | Before | After |",
+    "|---|---|---|---|",
+    ...rows
+  ];
+}
+function surveyScopeBlock(input2) {
+  return scopeHeader(input2).join("\n");
+}
+function scopeBlock(input2) {
+  const change = input2.change ?? null;
+  return [
+    ...scopeHeader(input2),
+    "",
+    conventionsSection(input2.conventions),
+    ...change === null ? [] : ["", changeSection(change)],
+    "",
+    "### Patch",
+    "",
+    describePatch(input2.scope, input2.evidence)
+  ].join("\n");
+}
+function composeWorkerPrompt(rolePrompt, task, scope) {
+  const body = [
+    "## Task",
+    "",
+    `Role: ${task.role}`,
+    `Unit: ${task.unitKey}`,
+    `Phase: ${task.phase}`,
+    "",
+    task.task,
+    "",
+    scope,
+    "",
+    closingSentence
+  ].join("\n");
+  return `${rolePrompt.endsWith("\n") ? rolePrompt : `${rolePrompt}
+`}
+${body}
+`;
+}
+var inlinePatchLimitBytes, closingSentence;
+var init_prompts = __esm({
+  "src/review/prompts.ts"() {
+    "use strict";
+    init_markdown();
+    inlinePatchLimitBytes = 256 * 1024;
+    closingSentence = "Return only the JSON your schema describes.";
+  }
+});
+
+// src/review/tasks.ts
+function standingLines(standing) {
+  return [
+    "This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.",
+    "",
+    "Convention sources recorded:",
+    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`),
+    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`)]
+  ];
+}
+function authorshipLine(authorship) {
+  const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
+  if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
+  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
+}
+function shellOf(platform, elevatedSandbox) {
+  if (platform !== "win32") return { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
+  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : "`where.exe <tool>`" };
+}
+function surveyTask(input2) {
+  if (input2.standing !== null) {
+    if (!input2.fix) throw new Error("A survey asked for the checks alone is a continued run's, which fixes");
+    return [...standingLines(input2.standing), "", ...fixChecks(input2)].join("\n");
+  }
+  const userRules = input2.offered.length > 0 ? [
+    "User-level rules files offered:",
+    ...input2.offered.map((path) => `- ${path}`),
+    "",
+    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.",
+    "",
+    authorshipLine(input2.authorship)
+  ] : [
+    "User-level rules files offered: none",
+    "",
+    input2.policySettlesUserRules ? "The review policy settles whether the reviewer's own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`." : "No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`."
+  ];
+  const checks = input2.fix ? fixChecks(input2) : [kindsToChooseLine(input2)];
+  return [
+    "Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source's `appliesTo` is judged against.",
+    "",
+    ...userRules,
+    "",
+    ...checks
+  ].join("\n");
+}
+function fixChecks(input2) {
+  const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
+  const byFlags = input2.settled.every((entry) => entry.layer === "flag");
+  const settledLine = (entry) => {
+    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
+    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
+  };
+  const settled4 = input2.settled.length === 0 ? [] : [
+    byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
+    ...input2.settled.map(settledLine),
+    ""
+  ];
+  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled4, "Every kind is settled, so return `checks` empty."];
+  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
+  return [
+    kindsToChooseLine(input2),
+    "",
+    ...settled4,
+    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
+    "",
+    "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
+    ...hints
+  ];
+}
+function describeLocation(candidate) {
+  const location = repositoryLocation(candidate);
+  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
+  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
+}
+function candidateItem(index2, candidate, extra = []) {
+  return [
+    `[${String(index2)}] ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}`,
+    `    summary: ${candidate.summary}`,
+    `    detail: ${candidate.detail}`,
+    ...extra.map((line) => `    ${line}`)
+  ].join("\n");
+}
+function withinBytes(items, limit) {
+  const kept = [];
+  let used = 0;
+  for (const item of items) {
+    const bytes = utf8Bytes(item) + 1;
+    if (used + bytes > limit) continue;
+    kept.push(item);
+    used += bytes;
+  }
+  return kept;
+}
+function commitMessagesSection(words) {
+  if (words.kind === "unreadable") {
+    return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
+  }
+  if (words.kind === "working-tree") return ["The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits."];
+  const { messages } = words;
+  const tree = words.withTree ? ["", "The change may also hold uncommitted changes of the working tree, which no commit message covers."] : [];
+  if (messages.length === 0) return ["The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.", ...tree];
+  const shown = (commit2) => commit2.slice(0, shownCommitLength);
+  const subjects = withinBytes(messages.map(({ commit: commit2, message }) => `${shown(commit2)} ${message.split(/\r?\n/, 1)[0] ?? ""}`), commitSubjectsLimitBytes);
+  const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
+  const wholes = withinBytes(messages.map(({ commit: commit2, message }) => `commit ${shown(commit2)}
+${message}
+`), commitMessagesLimitBytes - used);
+  const fenced3 = (text3) => {
+    const fence = fenceFor(text3);
+    return [`${fence}text`, text3, fence];
+  };
+  const leftSubjects = messages.length - subjects.length;
+  const leftWholes = messages.length - wholes.length;
+  return [
+    `The subjects of the ${String(messages.length)} commit${messages.length === 1 ? "" : "s"} of the change, oldest first:`,
+    "",
+    ...fenced3(subjects.join("\n")),
+    "",
+    "The whole messages, oldest first:",
+    "",
+    ...wholes.length === 0 ? ["(none fit within the limit)"] : fenced3(wholes.join("\n").trimEnd()),
+    ...leftSubjects === 0 && leftWholes === 0 ? [] : ["", `${String(leftSubjects)} subject${leftSubjects === 1 ? "" : "s"} and ${String(leftWholes)} whole message${leftWholes === 1 ? "" : "s"} are left out at the limits.`],
+    ...tree
+  ];
+}
+function triageTask(messages) {
+  return [
+    "Run the `SCAN` angle over every hunk of the patch below and the enclosing function of each. Return your candidates, up to 12.",
+    "",
+    `Then, for EACH of the nine other angles, in this order (${finderAngles.join(", ")}), return one lead: a concrete file, symbol or mechanism the finder of that angle should inspect first, grounded in what you read, or null when the diff supports none. A lead is never a skip; every angle runs whatever you return, so name what you saw and nothing more.`,
+    "",
+    "Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:",
+    "",
+    `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
+    `- \`what\`: what the change does, in at most five sentences of plain words. Start with one sentence of at most ${String(accountLimits.firstSentence)} characters that says alone what the change does. Name no file, line or internal name that a reader must look up; put those in \`restsOn\`.`,
+    "- `why`: why the change does it, in the change's own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.",
+    "- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.",
+    "- `restsOn`: the files and commits that `what` rests on, at least one.",
+    "- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.",
+    "- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.",
+    "",
+    `Keep \`why\` within ${String(accountLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
+    "",
+    "### The change's own words",
+    "",
+    ...commitMessagesSection(messages),
+    "",
+    fieldNote
+  ].join("\n");
+}
+function finderTask(angle, lead) {
+  const leadLine = lead === null || lead.lead === null ? "Lead: none" : `SCAN lead: ${lead.lead}`;
+  return [
+    `Angle: ${angle}`,
+    leadLine,
+    "",
+    `Run the ${angle} angle as your role prompt defines it, over the whole change below. Check the lead first when there is one, then complete the full search of your angle; a lead is neither a finding nor a boundary. Return your candidates, up to 12; an empty list is a valid answer.`,
+    "",
+    fieldNote
+  ].join("\n");
+}
+function deduplicationTask(candidates) {
+  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
+  return [
+    `Below are ${String(candidates.length)} candidates, numbered [0] to [${String(candidates.length - 1)}]. Group the ones that describe the same defect at the same location for the same reason; a group has two or more members, named by their indexes, and one \`keep\`, the member whose fourth field is the most concrete, which stays on the working list. A candidate in no group stands alone; leave it out of \`groups\`. Two candidates at one line for different reasons are not duplicates. Return \`groups\` empty when nothing repeats.`,
+    "",
+    list
+  ].join("\n");
+}
+function probeSentence(scratch) {
+  return scratch ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else. Write each probe you cite as a file of its own, with a name no other probe of your answer uses, and do not change that file after the run you cite: the engine keeps the file as it is when you finish.` : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
+}
+function citingParagraph({ scratch }) {
+  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probeSentence(scratch)}`;
+}
+function verifierTask(groupId, candidates, citing = null) {
+  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
+  return [
+    `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? "" : "s"}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
+    ...citing === null ? [] : ["", citingParagraph(citing)],
+    ...citing?.notes === true ? ["", notesParagraph] : [],
+    "",
+    list
+  ].join("\n");
+}
+function sweepTask(inputs) {
+  const verified = inputs.verified.length === 0 ? "(none)" : inputs.verified.map(({ candidate, verdict, unverified }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary} [${verdict}${unverified ? ", unverified" : ""}]`).join("\n");
+  const refuted2 = inputs.refuted.length === 0 ? "(none)" : inputs.refuted.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary}; refuted because: ${evidence}`).join("\n");
+  const notRun = Object.entries(inputs.anglesNotRun);
+  const angles2 = notRun.length === 0 ? "Every angle ran." : `These angles did not run, so their territory is yours to cover: ${notRun.map(([angle, reason]) => `${angle} (${reason})`).join("; ")}.`;
+  return [
+    "Re-read the diff and the enclosing functions looking ONLY for gaps: candidates no angle below already lists. Do not re-derive or re-confirm anything already there.",
+    "",
+    angles2,
+    "",
+    "Verified candidates (already on the working list):",
+    verified,
+    "",
+    "Refuted candidates (already judged; do not resurface them):",
+    refuted2,
+    "",
+    "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
+  ].join("\n");
+}
+function checksBlock(checks, failing = []) {
+  if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
+  return [
+    "The engine runs these checks, in this order, before any fixer edits and again once every fixer has returned:",
+    ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
+    "Run what covers your change before you return: the tests of what you changed, not the whole suite, which the engine runs. Report what you ran in `suite`.",
+    ...failing.length === 0 ? [] : [
+      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:",
+      ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
+    ]
+  ].join("\n");
+}
+function claimBlock(command) {
+  return [
+    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it, unless the file is a document the finding's edit made stale: make no edit of that one, report the stale fact in `drift`, and go on with the finding. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
+    `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
+    "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
+    "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
+  ].join("\n");
+}
+function snapshotBlock(command, unit) {
+  return [
+    `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
+    "",
+    `    ${command}`,
+    "",
+    `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
+  ].join("\n");
+}
+function answerFields(unit) {
+  const blocks2 = unit === "finding";
+  const statuses = blocks2 ? "`applied`, `already-applied`, `deferred` or `blocked`" : "`applied`, `already-applied` or `deferred`";
+  const partial2 = blocks2 ? `a blocked or deferred ${unit}'s` : `a deferred ${unit}'s`;
+  const required2 = blocks2 ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : "`requiredFiles`, which stays empty";
+  return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial2} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required2}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
+}
+function earlierWork(unit, unfinished2) {
+  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
+  if (unfinished2.length === 0) return warning;
+  return `${warning} An earlier attempt left edits for ${unfinished2.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
+}
+function editingTail(input2, unit, answerSuffix = "", citingTail = []) {
+  return [
+    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
+    snapshotBlock(input2.snapshotCommand, unit),
+    "",
+    ...input2.mayHoldWork ? [earlierWork(unit, input2.unfinished), ""] : [],
+    `${answerFields(unit)}${answerSuffix}`,
+    "",
+    ...input2.citing ? [citingValidationRule, "", ...citingTail.flatMap((line) => [line, ""])] : [],
+    scratchRule
+  ];
+}
+function taskRunLine(run2) {
+  const printed = run2.printed.map((line) => `"${inlineText(line)}"`).join(" / ");
+  const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
+  const probe = run2.probe === null ? "" : `; its probe, ${inlineText(run2.probe.name)}, is frozen at ${run2.probe.path}`;
+  return `        run: ${inlineText(run2.command)} printed ${printed}, ${exit}${probe}`;
+}
+function candidateLines(head2, candidate) {
+  const basis = candidate.cited?.basis ?? null;
+  return [
+    head2,
+    `        summary: ${candidate.summary}`,
+    `        detail: ${candidate.detail}`,
+    `        evidence: ${evidenceWords(candidate.evidence)}`,
+    ...basis === null ? [] : [`        how its verifier established it: ${verdictBasisWords[basis]}`],
+    ...(candidate.cited?.runs ?? []).map(taskRunLine)
+  ];
+}
+function decidedLines(decision, choices, answered2) {
+  if (decision.decision === "fix") {
+    const { fix, departure } = decision;
+    return [
+      `    decided: fix. ${decision.grounds}`,
+      `        approach: ${fix.approach}`,
+      ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
+      ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`],
+      ...settledLines(choices, decision.settled),
+      ...answered2 === null ? [] : answeredLines(answered2)
+    ];
+  }
+  const { ask } = decision;
+  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
+  return [
+    `    decided: ask the author, applying a default now. ${decision.grounds}`,
+    `        apply: ${appliedOptionOf(ask).option}`,
+    `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`,
+    ...answered2 === null ? [] : answeredLines(answered2)
+  ];
+}
+function answeredLines(answered2) {
+  const note = answered2.note === null ? "" : ` Note: ${inlineText(answered2.note)}`;
+  const line = `${answerLine(answered2)}${note}`;
+  const before = answered2.before;
+  const did = before === null ? "no fixer saw it before" : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? "" : `, in ${before.files.join(", ")}`}`;
+  const applied = answered2.appliedByPass === null ? [] : [`        the answer pass ${answered2.appliedByPass} already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again`];
+  return [`        ${line}`, `        before the answer: ${did}`, ...applied];
+}
+function answerLine(answered2) {
+  switch (answered2.kind) {
+    case "option":
+      return `answered by the author: option ${String(answered2.option + 1)}, "${answered2.chosen.option}", for which the decider wrote the rule "${answered2.chosen.rule}".`;
+    case "reject":
+      return `the author rejected the departure: follow the rule "${answered2.departure.rule}" as ${answered2.departure.source} states it, and restore what the fix changed in that statement.`;
+    case "accept":
+      return "the author accepted the departure.";
+  }
+}
+function documentationDecidedLine({ decision, answer: answer3, owed }) {
+  const unapplied = ", which no fix of the run has applied yet, so the tree does not hold it yet";
+  switch (decision.decision) {
+    case "fix": {
+      const { departure } = decision;
+      const departs2 = departure === null ? "" : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
+      const rejected = owed ? unapplied : ", so the rule stands as its source states it";
+      const word2 = answer3?.kind === "accept" ? "; the author accepted the departure" : answer3?.kind === "reject" ? `; the author rejected the departure${rejected}` : "";
+      return `decided: fix: ${decision.fix.approach}${departs2}${word2}`;
+    }
+    case "ask": {
+      const { ask } = decision;
+      if (answer3?.kind === "option") return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer3.option + 1)}, "${ask.options[answer3.option]?.option ?? "an option the decision does not offer"}"${owed ? unapplied : ""}`;
+      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
+    }
+    case "leave":
+      return "decided: leave";
+  }
+}
+function unitLines(input2) {
+  switch (input2.kind) {
+    case "answer-pass":
+      return {
+        head: `Answer pass ${input2.batch}`,
+        round: [],
+        ownership: [
+          "Files you own: every file the run revised, and the files these findings are located in.",
+          fileList(input2.owned),
+          "",
+          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.",
+          ...input2.leftDocuments.length === 0 ? [] : [
+            "",
+            "Documents this run left out of date, which an answer you apply may settle:",
+            input2.leftDocuments.map((document) => `- ${inlineText(document.file)}${document.facts.length === 0 ? "" : `: ${document.facts.map(inlineText).join("; ")}`}`).join("\n"),
+            "",
+            "Bring such a document in line when an answer you apply settles what it must say, and name it under that answer's finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`."
+          ]
+        ]
+      };
+    case "batch": {
+      const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
+      const held = [...input2.owned, ...input2.claimed.filter((path) => !input2.owned.includes(path)).map((path) => `${path} (claimed)`)];
+      return {
+        head: `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}`,
+        round: [
+          ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
+          ...input2.earlier.length === 0 ? [] : [
+            input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
+            input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
+            ""
+          ]
+        ],
+        ownership: [
+          "Files you own while this batch runs, which no other worker edits:",
+          fileList(held),
+          "",
+          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`, unless it is a document the fix made stale, which goes in `drift`:",
+          others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
+          "",
+          claimBlock(input2.claimCommand)
+        ]
+      };
+    }
+  }
+}
+function fixerTask(input2) {
+  const count3 = input2.findings.length;
+  const findings = input2.findings.map((finding, index2) => [
+    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
+    `    summary: ${finding.summary}`,
+    `    reason: ${finding.reason}`,
+    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
+    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
+    ...finding.decision === null ? [] : decidedLines(finding.decision, finding.choices, finding.answered),
+    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.choices, left.settled)]),
+    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
+  ].join("\n"));
+  const decided = input2.findings.some((finding) => finding.decision !== null);
+  const answered2 = input2.findings.some((finding) => finding.answered !== null);
+  const probed = input2.findings.some((finding) => [finding.primary, ...finding.members].some((candidate) => candidate.cited?.runs.some((run2) => run2.probe !== null) ?? false));
+  const { head: head2, round, ownership } = unitLines(input2);
+  return [
+    `${head2}: ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], in the order to apply them.`,
+    "",
+    ...findings,
+    "",
+    ...decided ? [decidedRule, ""] : [],
+    ...answered2 ? [answeredRule, ""] : [],
+    ...round,
+    ...ownership,
+    "",
+    checksBlock(input2.checks, input2.baselineFailures),
+    "",
+    ...editingTail(input2, "finding", "", probed ? [probeRule] : [])
+  ].join("\n");
+}
+function outputTail(name, tail, path) {
+  const text3 = tail.toString("utf8");
+  if (text3.trim() === "") return `    ${name}: empty (frozen at ${path})`;
+  const fence = fenceFor(text3);
+  return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text3.endsWith("\n") ? text3.slice(0, -1) : text3, fence].join("\n");
+}
+function repairCheckEnd(check2) {
+  if (check2.outcome === "timeout") return "ran past its timeout and was killed";
+  const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
+  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
+}
+function baseLines(base) {
+  const where = "on the base of the change, the Base the scope names";
+  switch (base.outcome) {
+    case "passed":
+      return [`    It passes ${where}, so the change as submitted brings the failures its output before any fixer edited the tree shows: like every failure there, they are not yours to fix.`];
+    case "failed":
+    case "timeout":
+      return [
+        `    It ${repairCheckEnd(base)} ${where}. Compare the failures its output before any fixer edited the tree shows, on the change as submitted, with its failures on the base, and give one entry for this check in \`comparisons\`: its \`reading\` is \`same\` when the change has no failure the base does not have, \`adds\` when it has one, and \`unknown\` when the two outputs cannot be compared, as when the check failed on the base for a missing tool or dependency and not for the code; its \`words\` say why in at most ${String(comparisonWordsLengthV1)} characters and name no path. Its output on the base:`,
+        outputTail("stdout", base.stdout.tail, base.stdout.path),
+        outputTail("stderr", base.stderr.tail, base.stderr.path)
+      ];
+    case "skipped":
+      return [`    It did not run ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+    case "not-started":
+      return [`    It did not start ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
+  }
+}
+function comparisonsRule(checks) {
+  const compared = checks.some((check2) => failedOrTimedOut(check2.base?.outcome));
+  return compared ? " Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other." : " Return `comparisons` empty: no check above failed or timed out on the base of the change.";
+}
+function repairTask(input2) {
+  const count3 = input2.checks.length;
+  const step = input2.documentation.length > 0;
+  const edits = step ? "the edits of the fixers and the documentation step" : "the fixers' edits";
+  const checks = input2.checks.map((check2, index2) => [
+    `[${String(index2)}] ${check2.kind}: ${check2.command}`,
+    `    ${repairCheckEnd(check2)}`,
+    outputTail("stdout", check2.stdout.tail, check2.stdout.path),
+    outputTail("stderr", check2.stderr.tail, check2.stderr.path),
+    ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
+      "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
+      outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
+      outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
+    ],
+    ...check2.base === null ? [] : baseLines(check2.base)
+  ].join("\n"));
+  return [
+    `Repair: ${String(count3)} check${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], fail${count3 === 1 ? "s" : ""} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
+    "",
+    ...checks,
+    "",
+    `Files you own: every file the fixers${step ? " and the documentation step" : ""} changed.`,
+    fileList(input2.owned),
+    "",
+    "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
+    "",
+    "What each fixer did:",
+    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer3) => `- ${answer3.batch} ${answer3.id} ${answer3.status}: ${answer3.note}`).join("\n"),
+    "",
+    ...step ? ["What the documentation step did:", input2.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join("\n"), ""] : [],
+    checksBlock(input2.allChecks),
+    "",
+    ...editingTail(input2, "check", ` The message in an applied check's \`edits\` describes what the repair changed.${input2.baseChecks ? comparisonsRule(input2.checks) : ""}`)
+  ].join("\n");
+}
+function documentLines(index2, document) {
+  const file2 = inlineText(document.file);
+  const where = document.path === null ? `${file2}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit` : document.path === document.file ? inlineText(document.path) : `${file2}, the repository path ${inlineText(document.path)}`;
+  return [
+    `[${String(index2)}] ${document.id}: ${where}`,
+    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? "" : ` (as ${inlineText(line.file)})`}: ${inlineText(line.what)}`)
+  ].join("\n");
+}
+function fixLines(fix) {
+  const edits = fix.files.length === 0 ? "" : `; edited ${fix.files.join(", ")}${fix.subject === null ? "" : `, committed as "${fix.subject}"`}`;
+  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...fix.decided === null ? [] : [`    ${documentationDecidedLine(fix.decided)}`]].join("\n");
+}
+function documentationTask(input2) {
+  const count3 = input2.documents.length + 1;
+  const search = input2.documents.length;
+  return [
+    `Documentation: ${String(count3)} item${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}]. Bring the documentation of the repository in line with the edits of the fix pass, which the fixers below made, and edit documentation only: text for a person, such as a document, a changelog, or a comment in the code that describes the changed behavior.`,
+    "",
+    ...input2.documents.map((document, index2) => documentLines(index2, document)),
+    `[${String(search)}] search: other documentation that the edits of the fix pass made out of date, which no item above names. Search the repository for it, also where no fixer reported anything.`,
+    "",
+    "What the fixers did, finding by finding:",
+    input2.fixes.length === 0 ? "(nothing recorded)" : input2.fixes.map(fixLines).join("\n"),
+    "",
+    "The patch of each edit of the fixes, in the order of its commit, which holds the edits of this run apart from the change under review:",
+    input2.patches.length === 0 ? "(none)" : input2.patches.map((patch) => `- ${patch.path} (${patch.subject})`).join("\n"),
+    "",
+    "Files you own: every file the fixes changed, and the repository path of each document above.",
+    fileList(input2.owned),
+    "",
+    "You may edit any other file of the repository when an item needs it; report every file you edit or create under the item it served.",
+    "",
+    "Write only what the code of the tree, a decision above or an answer of the author settles, and no behavior that an open question still leaves to the author. Leave each convention source the scope lists as it is, with the amendment of a rule that a fix departing from it made. Leave a fact that was out of date before this run, and a historical or append-only record as the rules of the repository ask. Change no code, test or configuration to make a document true.",
+    input2.exclude.length === 0 ? "The review left no path out by `scope.exclude`." : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:
+${input2.exclude.map((pattern) => `- ${pattern}`).join("\n")}`,
+    "",
+    "An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift.",
+    "",
+    checksBlock(input2.checks),
+    "",
+    ...editingTail(input2, "item")
+  ].join("\n");
+}
+function settlementLine(rule, name) {
+  if (rule.named === "refused") return `- ${name}: settles no choice; give \`settled\` empty, since ${rule.why ?? ""}.`;
+  const others = rule.unnamed === "required" ? "and settles one in an entry whose `for` is empty when no candidate has one" : "and may settle others";
+  const when = rule.named === "required" ? `settles the choice left to the author of each candidate that has one, naming the candidate in the \`for\` of one entry, ${others}` : "may settle choices";
+  const alternatives = (steps) => steps.map((step) => `\`${step}\``).join(" or ");
+  const by = rule.steps.length === settleSteps.length ? "by any step" : `by ${alternatives(rule.steps)}`;
+  const restsOn = rule.restsOn === null ? "" : `, at least one entry by ${alternatives(rule.restsOn)} when it settles any`;
+  return `- ${name}: ${when}, ${by}${restsOn}.`;
+}
+function deciderTask(findings, refused = []) {
+  const count3 = findings.length;
+  const list = findings.map((finding, position) => [
+    `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
+    `    merge and rank: ${finding.reason}`,
+    ...finding.candidates.flatMap((candidate, at) => [
+      ...candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate),
+      ...candidate.authorChoice === null ? [] : [`        choice left to the author by ${candidate.id}'s verifier: ${candidate.authorChoice}`]
+    ])
+  ].join("\n"));
+  return [
+    `The review's ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence, and the choice its verifier leaves to the author when it names one, which is the verifier's view and not an answer. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
+    "",
+    ...list,
+    "",
+    "The step that settles a choice, `by` in an entry of `settled`: the first of the order that answers it, or one of the two outside it.",
+    ...settleSteps.map((step) => `- \`${step}\`: ${settleStepMeanings[step]}.`),
+    "",
+    "Which decision settles a choice, and by which step; the engine refuses an answer that breaks one of these:",
+    ...Object.keys(settlementCaseWords).map((name) => settlementLine(settlementRulesV1[name], settlementCaseWords[name])),
+    "",
+    ...refused.length === 0 ? [] : [
+      "### What failed in the earlier answer",
+      "",
+      "The engine refused an earlier answer to this task for these faults. Give your whole answer again, every finding of it, and keep none of them:",
+      "",
+      ...refused.map((reason) => `- ${inlineText(reason)}`),
+      ""
+    ],
+    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` lists the choices the decision settles, as above, one entry each: in `for` the ids of the candidates whose choice left to the author it settles, as `RIPPLE-2`, each candidate in one entry at most and none whose verifier named no choice, or empty for a choice no candidate has; the `choice`, one declarative sentence that states the side the decision settles, not the question it answers, as in "Ids in the writer\'s text are replaced by the numbers the body shows."; the step `by` that settles it; and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite. It is empty when the decision settles no choice. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.'
+  ].join("\n");
+}
+function mergeRankTask(inputs) {
+  const list = inputs.map(
+    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
+  ).join("\n");
+  return [
+    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor) as your role prompt defines it, a \`summary\` that names the other sites when there are any, and a \`reason\` as your role prompt defines it. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
+    "",
+    list
+  ].join("\n");
+}
+var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, notesParagraph, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, citingValidationWords, citingValidationRule, probeRule, fileList, verdictWords, evidenceWords, settledLines, answeredRule, decidedRule, repairTailBytes, settleStepMeanings, settlementCaseWords;
+var init_tasks = __esm({
+  "src/review/tasks.ts"() {
+    "use strict";
+    init_fix_state();
+    init_review_fold();
+    init_events();
+    init_markdown();
+    init_prompts();
+    init_kill_marks();
+    init_survey();
+    init_state();
+    init_vocabulary();
+    kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
+    elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
+    fieldNote = "In your JSON, each candidate has `file`, `line`, `summary` and `detail`; `detail` is the fourth field of the finder output contract, the `failure_scenario` or the `value_statement` your angle asks for. Do not invent an id: the engine assigns one to each candidate you return.";
+    commitSubjectsLimitBytes = 16 * 1024;
+    commitMessagesLimitBytes = 32 * 1024;
+    shownCommitLength = 12;
+    utf8Bytes = (text3) => Buffer.byteLength(text3, "utf8");
+    accountLimits = { title: 80, why: 400, firstSentence: 160 };
+    notesParagraph = "Give each verdict `unconfirmed` and `authorChoice`. A PLAUSIBLE verdict gives in `unconfirmed` what keeps it from CONFIRMED: `kind` `fact` for a condition you could not settle here, or `choice` for a defect that is there with a choice that remains, and in `text` that fact or choice in one sentence; a CONFIRMED or REFUTED verdict gives `unconfirmed` as null. `authorChoice` names in one sentence the choice between two behaviors that the code and its tests leave to the author, or is null when they leave none. An answer that gives a PLAUSIBLE verdict no `unconfirmed`, or another verdict one, is discarded whole and the group is run again.";
+    snapshotIndexPlaceholder = "<index>";
+    claimPathPlaceholder = "<path>";
+    scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
+    unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
+    citingValidationWords = "In each validation entry, cite in `runs`";
+    citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not. Name a probe's file in the command that runs it, not through a loop or a variable that builds the name, and copy the cited lines in the order the run printed them, since a run is found only by its probe's name and its lines in that order.`;
+    probeRule = "A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into a directory of its own inside your scratch directory, one for each candidate and named for the candidate's id, keeping the probe's name, so that two candidates' probes of the same name never overwrite each other; run it on the code before your fix and again after it, when it can run here, and cite both runs, with the copy's path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.";
+    fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
+    verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
+    evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
+    settledLines = (choices, settled4) => shownChoiceLines(choices, settled4, (text3) => text3, "settled");
+    answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
+    decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
+    repairTailBytes = 16 * 1024;
+    settleStepMeanings = {
+      intent: "the change's stated intent settles it",
+      contract: "the repository's stated contract settles it",
+      before: "for a behavior the change altered, the behavior before the change, which a fix restores",
+      kept: "for a behavior that was there before the change, keeping it",
+      shape: "for two shapes only a maintainer reading the code would see, with nothing stated, the one the surrounding code already uses, else the one that adds less",
+      scope: "outside the order: the fix keeps to the part of the result inside the change",
+      none: "outside the order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one"
+    };
+    settlementCaseWords = {
+      fix: "`fix` with no `departure`",
+      "fix-departing": "`fix` with a `departure`",
+      intended: "`leave` as `intended`",
+      settled: "`leave` as `settled`",
+      superseded: "`leave` as `superseded`",
+      "outside-change-not-regression": "`leave` as `outside-change-not-regression`",
+      ask: "`ask`"
+    };
   }
 });
 
@@ -34982,151 +36726,6 @@ var init_decision_report = __esm({
     init_vocabulary();
     leaveWords = (leave, numbers) => leave.supersededBy === null ? leaveReasonWords[leave.reason] : `${leaveReasonWords[leave.reason]} by ${findingNamed(numbers, leave.supersededBy)}`;
     answerAtTerminal = (engineEntry, run2) => `At a terminal, type a command of this report from the repository with the engine that wrote the report in place of \`deep-review\`: ${codeSpan(`node ${terminalQuoted(engineEntry)} ${answerArguments(run2, "<number>", "--option <n>")}`)}, with \`--accept\` or \`--reject\` in place of \`--option <n>\` for a departure. Through the deep-review skill, ask the agent to answer the finding with the option you choose.`;
-  }
-});
-
-// src/review/documents.ts
-function planPathOf(worktree) {
-  const lookup = worktreeLookup(worktree);
-  return (file2) => {
-    let path;
-    try {
-      path = resolveReportedPath(worktree, lookup, file2);
-    } catch (error62) {
-      if (error62 instanceof StructuralCheckError) return null;
-      throw error62;
-    }
-    return isClaimablePath(path) ? path : null;
-  };
-}
-function lineKeyOf(plan, file2) {
-  const spelled = normalizeFileName(file2.trim());
-  return documentKey({ path: (plan?.items ?? []).some((item) => item.path === spelled) ? spelled : null, file: file2 });
-}
-function stepNotRunCause(review2) {
-  const fix = review2.fix;
-  if (fix === null) return null;
-  if (!review2.documentationStep) return "old-engine";
-  if (fix.documentation === null) {
-    switch (documentationReadiness(fix).kind) {
-      case "budget":
-        return "budget";
-      case "no-fixes-revision":
-        return "no-edits";
-      case "ready":
-        return "not-run";
-    }
-  }
-  if (fix.answers.documentation[documentationUnitKey] !== void 0) return null;
-  const settled4 = fix.notAttempted.documentation[documentationUnitKey];
-  if (settled4 === void 0) return "not-answered";
-  return settled4.cause === "budget" ? "budget" : "failed";
-}
-function fixPassTimesOf(fix) {
-  const after = (gaveBack) => fix.reopenings.findLast(gaveBack)?.answerPassesBefore ?? 0;
-  const gave = (reopening, phases2) => reopening.units.some((unit) => phases2.includes(unit.phase));
-  return {
-    fixes: after((reopening) => gave(reopening, ["fixes"])),
-    documentation: after((reopening) => gave(reopening, ["fixes", "documentation"])),
-    repair: after((reopening) => !reopening.repairAnswered)
-  };
-}
-function unheldDriftLines(review2) {
-  const fix = review2.fix;
-  if (fix === null) return [];
-  const times = fixPassTimesOf(fix);
-  const held = /* @__PURE__ */ new Map();
-  for (const item of fix.documentation?.items ?? []) for (const line of item.drift) held.set(driftLineKey(line.key, line), (held.get(driftLineKey(line.key, line)) ?? 0) + 1);
-  const lines = [];
-  const unheld = (phase, key, time3) => {
-    for (const line of fix.answers[phase][key]?.drift ?? []) {
-      const count3 = phase === "fixes" ? held.get(driftLineKey(key, line)) ?? 0 : 0;
-      if (count3 > 0) held.set(driftLineKey(key, line), count3 - 1);
-      else lines.push({ phase, key, file: line.file, what: line.what, time: time3 });
-    }
-  };
-  for (const batch of allBatches(fix)) unheld("fixes", batch.key, times.fixes);
-  unheld("repair", repairUnitKey, times.repair);
-  review2.answerPasses.forEach((_, index2) => unheld("answer", passKey(index2 + 1), index2 + 1));
-  return lines;
-}
-function leftByStep(fix) {
-  const answer3 = fix.answers.documentation[documentationUnitKey];
-  if (fix.documentation === null || answer3 === void 0) return [];
-  const items = fix.documentation.items.flatMap((item) => {
-    const answered2 = answer3.findings.find((finding) => finding.id === item.id);
-    if (!isDocumentItem(item) || answered2 === void 0 || answered2.status !== "deferred" && answered2.status !== "blocked") return [];
-    return [{ key: documentKey({ path: item.path, file: item.file }), file: item.path ?? item.file, facts: item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), reason: { kind: "left", text: `The documentation step left it: ${sentence(answered2.note)}` } }];
-  });
-  const plan = fix.documentation;
-  const found = answer3.drift.map((line) => ({ key: lineKeyOf(plan, line.file), file: line.file, facts: [{ what: line.what, by: reporterOf.documentation }], reason: { kind: "found", text: "The documentation step found it out of date at its end." } }));
-  return [...items, ...found];
-}
-function leftDocumentsOf(review2) {
-  const fix = review2.fix;
-  if (fix === null) return [];
-  const times = fixPassTimesOf(fix);
-  const entries = /* @__PURE__ */ new Map();
-  const add = (key, file2, facts, reason, time3) => {
-    const entry = entries.get(key) ?? { file: file2, facts: [], reasons: [], time: 0 };
-    for (const fact of facts) if (!entry.facts.some((known) => known.what === fact.what && known.by === fact.by)) entry.facts.push(fact);
-    if (!entry.reasons.some((known) => known.kind === reason.kind && known.text === reason.text)) entry.reasons.push(reason);
-    entry.time = Math.max(entry.time, time3);
-    entries.set(key, entry);
-  };
-  const cause = stepNotRunCause(review2);
-  const notRun = cause === null ? null : { kind: "not-run", text: stepNotRunSentence(cause) };
-  const plan = fix.documentation;
-  if (plan !== null) {
-    if (notRun !== null) {
-      for (const item of plan.items.filter(isDocumentItem)) add(documentKey({ path: item.path, file: item.file }), item.path ?? item.file, item.drift.map((line) => ({ what: line.what, by: reporterOf.fixes })), notRun, times.fixes);
-    } else {
-      for (const left of leftByStep(fix)) add(left.key, left.file, left.facts, left.reason, times.documentation);
-    }
-  }
-  for (const line of unheldDriftLines(review2)) {
-    const by = reporterOf[line.phase];
-    add(lineKeyOf(plan, line.file), line.file, [{ what: line.what, by }], plan === null && notRun !== null ? notRun : { kind: "after", text: `${capitalized(by)} reported it after the documentation step.` }, line.time);
-  }
-  const endedBy = (key, time3) => review2.answerPasses.some((_, index2) => {
-    const n = index2 + 1;
-    const answer3 = fix.answers.answer[passKey(n)];
-    if (n <= time3 || answer3 === void 0) return false;
-    const revised = unitRevisions(fix, "answer", passKey(n)).some((revision) => revision.files.some((file2) => names(key, file2.path)));
-    return revised && !answer3.drift.some((line) => names(key, line.file));
-  });
-  return [...entries].filter(([key, entry]) => !endedBy(key, entry.time)).map(([, { file: file2, facts, reasons }]) => ({ file: file2, facts, reasons }));
-}
-var leftReasonKinds, reporterOf, names, stepNotRunWords, stepNotRunSentence, sentence;
-var init_documents = __esm({
-  "src/review/documents.ts"() {
-    "use strict";
-    init_answer_state();
-    init_events();
-    init_fix_state();
-    init_errors7();
-    init_fix_answer();
-    init_locations();
-    init_markdown();
-    init_vocabulary();
-    leftReasonKinds = ["left", "found", "not-run", "after"];
-    reporterOf = {
-      fixes: "a fixer",
-      documentation: "the documentation step",
-      repair: "the repair",
-      answer: "the fixer of an answer pass"
-    };
-    names = (key, file2) => key === documentKey({ path: normalizeFileName(file2.trim()), file: file2 }) || key === documentKey({ path: null, file: file2 });
-    stepNotRunWords = {
-      "old-engine": "an engine before the documentation step configured this run",
-      budget: "the run budget was reached first",
-      "no-edits": "the fixes changed no file",
-      "not-run": "it has not run yet",
-      "not-answered": "it has not answered yet",
-      failed: "its worker failed twice"
-    };
-    stepNotRunSentence = (cause) => `The documentation step did not run: ${stepNotRunWords[cause]}.`;
-    sentence = (note) => `${note.trim().replace(/[.]+$/, "")}.`;
   }
 });
 
@@ -36202,367 +37801,6 @@ var init_brief = __esm({
   }
 });
 
-// src/review/finding-names.ts
-function outsideKept(text3, pattern) {
-  const urls = [...text3.matchAll(urlPattern)].map((url2) => ({ start: url2.index, end: url2.index + url2[0].length }));
-  const outsideUrls = (index2) => !urls.some((url2) => url2.start <= index2 && index2 < url2.end);
-  const paths = [...text3.matchAll(slashJoined)].filter((path) => outsideUrls(path.index) && !idList(path[0])).map((path) => ({ start: path.index, end: path.index + path[0].length }));
-  return [...text3.matchAll(pattern)].filter((match) => outsideUrls(match.index) && !paths.some((path) => path.start <= match.index && match.index < path.end));
-}
-function slotsOf(text3, names2) {
-  const slots = [];
-  let offset = 0;
-  for (const part of codeParts(text3)) {
-    if (part.code) {
-      const named = names2.get(part.text.replace(/^`+ ?| ?`+$/g, ""));
-      if (named !== void 0) slots.push({ start: offset, end: offset + part.text.length, named });
-    } else {
-      for (const match of outsideKept(part.text, idPattern)) {
-        const named = names2.get(match[0]);
-        if (named !== void 0) slots.push({ start: offset + match.index, end: offset + match.index + match[0].length, named });
-      }
-    }
-    offset += part.text.length;
-  }
-  return slots;
-}
-function namedFindings2(text3, names2, naming) {
-  if (names2.size === 0) return text3;
-  let out = "";
-  let at = 0;
-  for (const slot of slotsOf(text3, names2)) {
-    if (slot.start < at) continue;
-    out += text3.slice(at, slot.start);
-    const after = text3.slice(slot.end);
-    const given = slot.named.kind === "finding" ? naming.finding(slot.named.number, out, after) : naming.refuted(out, after);
-    out = out.slice(0, out.length - given.before);
-    const name = sentenceStart.test(out) && !abbreviationBefore.test(out) ? naming.starting(given.name) : given.name;
-    out += name;
-    at = slot.end + given.after;
-    const particle = particleAfter.exec(text3.slice(at));
-    if (particle !== null) {
-      out += naming.particle(name, particle[1]);
-      at += particle[1].length;
-    }
-  }
-  return out + text3.slice(at);
-}
-function holdsId(diagram, names2) {
-  const leftover = new RegExp(String.raw`(?<![\w#]|\w\.)(?:${[...names2.keys()].map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g");
-  return diagram.split("\n").some((line) => !line.trim().startsWith("%%") && codeParts(line).some((part) => !part.code && outsideKept(part.text, leftover).length > 0));
-}
-function idsIn(text3, ids2) {
-  if (ids2.length === 0) return [];
-  const found = new Set([...text3.matchAll(new RegExp(String.raw`(?<![\w#]|\w\.)(?:${ids2.map((id) => RegExp.escape(id)).join("|")})(?!\w|\.\w)`, "g"))].map((match) => match[0]));
-  return ids2.filter((id) => found.has(id));
-}
-function shownNamed(shown, named) {
-  const inner = shown.slice(1, -1);
-  if (shown.startsWith("|")) {
-    const quoted2 = /^(\s*)("[^"]*")(\s*)$/.exec(inner);
-    return `|${quoted2 === null ? named(inner) : `${quoted2[1]}${shownNamed(quoted2[2], named)}${quoted2[3]}`}|`;
-  }
-  const markdown = /^`([^`]+)`$/.exec(inner);
-  return `"${markdown === null || /^ ?[A-Z]+-[1-9][0-9]* ?$/.test(markdown[1]) ? named(inner) : `\`${named(markdown[1])}\``}"`;
-}
-function partsNamed(text3, named, bars) {
-  return text3.replace(bars ? /"[^"]*"|\|[^|]*\||[^"|]+/g : /"[^"]*"|[^"]+/g, (part) => part.startsWith('"') || bars && part.startsWith("|") ? shownNamed(part, named) : named(part));
-}
-function edgeTextAt(line, at) {
-  edgeTextOpening.lastIndex = at;
-  const opening = edgeTextOpening.exec(line);
-  if (opening === null) return null;
-  const start = at + opening[0].length;
-  let end = start;
-  while (end < line.length) {
-    const char = line.charAt(end);
-    if (char === '"' || char === "|") {
-      const close = line.indexOf(char, end + 1);
-      if (close === -1) return null;
-      end = close + 1;
-      continue;
-    }
-    edgeTextClosing.lastIndex = end;
-    const closing = edgeTextClosing.exec(line);
-    if (closing !== null) return { start, end, closed: end + closing[0].length };
-    end += 1;
-  }
-  return null;
-}
-function flowchartLineNamed(line, named) {
-  if (flowchartUnread.test(line)) return line.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
-  const subgraph = /^([ \t]*subgraph\b)(.*)$/.exec(line);
-  if (subgraph !== null) {
-    const rest2 = subgraph[2];
-    const bracketed = subgraphBracketed.exec(rest2);
-    if (bracketed !== null) return `${subgraph[1]}${bracketed[1]}${named(bracketed[2])}${bracketed[3]}`;
-    return `${subgraph[1]}${rest2.includes("[") ? rest2.replace(/"[^"]*"/g, (quoted2) => shownNamed(quoted2, named)) : partsNamed(rest2, named, false)}`;
-  }
-  let out = "";
-  let at = 0;
-  while (at < line.length) {
-    const edge = edgeTextAt(line, at);
-    if (edge !== null) {
-      out += `${line.slice(at, edge.start)}${partsNamed(line.slice(edge.start, edge.end), named, true)}${line.slice(edge.end, edge.closed)}`;
-      at = edge.closed;
-      continue;
-    }
-    const char = line.charAt(at);
-    if (char === '"' || char === "|") {
-      const close2 = line.indexOf(char, at + 1);
-      if (close2 === -1) return `${out}${line.slice(at)}`;
-      out += shownNamed(line.slice(at, close2 + 1), named);
-      at = close2 + 1;
-      continue;
-    }
-    const id = nodeId.exec(line.slice(at));
-    if (id === null) {
-      out += char;
-      at += 1;
-      continue;
-    }
-    out += id[0];
-    at += id[0].length;
-    if (!line.startsWith("@{", at)) continue;
-    let close = at + 2;
-    while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
-    if (close === line.length) return `${out}${line.slice(at)}`;
-    const body = line.slice(at + 2, close).replace(/"[^"]*"|[^"]+/g, (part) => part.startsWith('"') ? shownNamed(part, named) : part.replace(shapeLabel, (_whole, open2, value) => `${open2}${named(value)}`));
-    out += `@{${body}}`;
-    at = close + 1;
-  }
-  return out;
-}
-function colonOf(line) {
-  for (const match of line.matchAll(/"[^"]*"|:/g)) if (match[0] === ":") return match.index;
-  return -1;
-}
-function namedInDiagram(diagram, names2, naming) {
-  if (names2.size === 0) return diagram;
-  const lines = diagram.split("\n");
-  const headerAt = lines.findIndex((line) => line.trim() !== "");
-  const kind = diagramKind(lines[headerAt]?.trim() ?? "");
-  const named = (text3) => {
-    const lead = /^\s*/.exec(text3)[0];
-    return `${lead}${namedFindings2(text3.slice(lead.length), names2, naming)}`;
-  };
-  const labelled = (text3) => text3.replace(/"[^"]*"|\|[^|]*\|/g, (shown) => shownNamed(shown, named));
-  let inNote = false;
-  const result = lines.map((line, index2) => {
-    if (index2 <= headerAt) return line;
-    if (inNote) {
-      if (/^\s*end\s+note\s*$/i.test(line)) inNote = false;
-      else return named(line);
-      return line;
-    }
-    if (kind === "state" && /^\s*note\s/i.test(line) && !line.includes(":")) {
-      inNote = true;
-      return line;
-    }
-    if (kind === "flowchart") return flowchartLineNamed(line, named);
-    const label = kind === "sequence" ? sequenceLabel.exec(line) : null;
-    if (label !== null) return `${label[1]}${partsNamed(label[2], named, false)}`;
-    const colon = colonOf(line);
-    if (colon !== -1) return `${labelled(line.slice(0, colon))}:${named(line.slice(colon + 1))}`;
-    return labelled(line);
-  }).join("\n");
-  return holdsId(result, names2) ? null : result;
-}
-function numberFinal(digits) {
-  const last = digits.at(-1);
-  if (last === "0") return "other";
-  return "2459".includes(last) ? "none" : "178".includes(last) ? "rieul" : "other";
-}
-function koreanFinal(name) {
-  const digits = /[0-9]+$/.exec(name);
-  if (digits !== null) return numberFinal(digits[0]);
-  const code = name.charCodeAt(name.length - 1) - 44032;
-  if (code < 0 || code > 11171) return "other";
-  const final = code % 28;
-  return final === 0 ? "none" : final === 8 ? "rieul" : "other";
-}
-function koreanParticle(name, particle) {
-  const forms = koreanForms[particle];
-  if (forms === void 0) return particle;
-  const final = koreanFinal(name);
-  if (final === "none") return forms[1];
-  if (final === "rieul" && forms[0].startsWith("\uC73C\uB85C")) return forms[1];
-  return forms[0];
-}
-var idPattern, urlPattern, slashJoined, idPart, idList, sentenceOpening, sentenceStart, abbreviationBefore, koreanForms, particleAfter, diagramKind, flowchartUnread, nodeId, edgeTextOpening, edgeTextClosing, shapeLabel, subgraphBracketed, sequenceLabel;
-var init_finding_names = __esm({
-  "src/review/finding-names.ts"() {
-    "use strict";
-    init_markdown();
-    idPattern = new RegExp("(?<![\\w#]|\\w\\.|(?<!\\p{L})-)[A-Z]+-[1-9][0-9]*(?![\\w]|\\.\\w|-(?!\\p{L}))", "gu");
-    urlPattern = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>()]*(?:\([^\s<>()]*\)[^\s<>()]*)*/gi;
-    slashJoined = /(?<![\w.~-])[\w.~-]*(?:[/\\][\w.~-]*)+/g;
-    idPart = new RegExp("^[A-Z]+-[1-9][0-9]*(?:-\\p{L}[\\p{L}\\p{N}_]*)*$", "u");
-    idList = (joined) => !joined.includes("\\") && joined.replace(/^\.+|\.+$/g, "").split("/").every((part) => idPart.test(part));
-    sentenceOpening = String.raw`[*_(\["'“‘]*`;
-    sentenceStart = new RegExp(String.raw`(?:^[ \t]*|\n[ \t\r]*\n[ \t]*|(?:^|\n)[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]+|[.!?]["')\]]*\s+)${sentenceOpening}$`);
-    abbreviationBefore = new RegExp(String.raw`(?<![\p{L}\p{N}.])(?:i\.e|e\.g|vs|cf|etc|viz)\.\s+${sentenceOpening}$`, "iu");
-    koreanForms = {
-      \uC740: ["\uC740", "\uB294"],
-      \uB294: ["\uC740", "\uB294"],
-      \uC774: ["\uC774", "\uAC00"],
-      \uAC00: ["\uC774", "\uAC00"],
-      \uC744: ["\uC744", "\uB97C"],
-      \uB97C: ["\uC744", "\uB97C"],
-      \uACFC: ["\uACFC", "\uC640"],
-      \uC640: ["\uACFC", "\uC640"],
-      \uC73C\uB85C: ["\uC73C\uB85C", "\uB85C"],
-      \uB85C: ["\uC73C\uB85C", "\uB85C"],
-      \uC73C\uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
-      \uB85C\uC11C: ["\uC73C\uB85C\uC11C", "\uB85C\uC11C"],
-      \uC73C\uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
-      \uB85C\uC368: ["\uC73C\uB85C\uC368", "\uB85C\uC368"],
-      \uC73C\uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"],
-      \uB85C\uBD80\uD130: ["\uC73C\uB85C\uBD80\uD130", "\uB85C\uBD80\uD130"]
-    };
-    particleAfter = new RegExp(`^(${Object.keys(koreanForms).sort((a, b) => b.length - a.length).join("|")})(?!\\p{Script=Hangul})`, "u");
-    diagramKind = (header) => /^(?:flowchart|graph)\b/.test(header) ? "flowchart" : /^sequenceDiagram\b/.test(header) ? "sequence" : /^stateDiagram/.test(header) ? "state" : "other";
-    flowchartUnread = /^\s*(?:(?:style|classDef|class|linkStyle|click)\b|%%)/;
-    nodeId = /^[\p{L}\p{N}_]+/u;
-    edgeTextOpening = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
-    edgeTextClosing = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
-    shapeLabel = /((?:^|[\s,])label\s*:)([^,]*)/;
-    subgraphBracketed = /^([ \t]+[^\s"[]+[ \t]*\[)([^\]"]*)(\].*)$/;
-    sequenceLabel = /^([ \t]*(?:(?:loop|alt|else|opt|par|and|critical|option|break|box|title)[ \t]+|(?:participant|actor)[ \t]+\S+[ \t]+as[ \t]+))(.+)$/;
-  }
-});
-
-// src/review/prompts.ts
-function conditionWords(condition2) {
-  if (!condition2.holds) return "no";
-  const what = condition2.what === null ? "" : `, ${inlineText(condition2.what)}`;
-  const files = condition2.files.length === 0 ? "" : ` (in ${condition2.files.map(inlineText).join(", ")})`;
-  return `yes${what}${files}`;
-}
-function changeSection(change) {
-  const why = change.why === null ? "Why: the change states no reason." : `Why, in the change's own words: ${inlineText(change.why)} (${change.whyFrom.length === 0 ? "no source named" : `from ${change.whyFrom.map(inlineText).join(", ")}`})`;
-  return [
-    "### The change, as the triage read it",
-    "",
-    "This is the triage's account of the change, which no verifier examined. It is context, not a finding: the patch below is what you review, and the patch wins where the two differ. A stated intent never removes or refutes a candidate: a change can mean to do what it does and still be wrong. Where you need the intent to decide, quote the change's own words that the account names, not the account.",
-    "",
-    `Title: ${inlineText(change.title)}`,
-    `What it does: ${inlineText(change.what)}`,
-    why,
-    `Public interface: ${conditionWords(change.publicInterface)}`,
-    `Wide effect: ${conditionWords(change.wideEffect)}`
-  ].join("\n");
-}
-function sourceLine(source) {
-  const level = source.level === "user" ? `user level, the reviewer's own rules, applied because: ${inlineText(source.grounds ?? "no grounds recorded")}` : "repository";
-  const narrower = source.appliesTo === null ? "" : ` (applies to ${source.appliesTo.map(inlineText).join(", ")})`;
-  return `- ${inlineText(source.path)} (${level}): ${inlineText(source.governs)}${narrower}`;
-}
-function conventionsSection(known) {
-  const section = (heading, body) => `### ${heading}
-
-${body}`;
-  const sources = (body) => section("Convention sources", body);
-  switch (known.status) {
-    case "surveyed":
-      return sources(known.sources.length === 0 ? "The repository survey found no file that states conventions a change here must follow." : ["The repository survey named these files as stating the conventions a change here must follow:", "", ...known.sources.map(sourceLine)].join("\n"));
-    case "failed":
-      return sources(known.sources.length === 0 ? "The repository survey failed, so no convention source is known." : ["The repository survey failed; the review policy applies these user-level rules files:", "", ...known.sources.map(sourceLine)].join("\n"));
-    case "pending":
-      return sources("The repository survey has not answered yet, so no convention source is known.");
-    case "predates-survey":
-      return section("Rules files that govern the change", known.rulesFiles.length === 0 ? "None of CLAUDE.md, CLAUDE.local.md or AGENTS.md was found at the user level, the repository root or an ancestor directory of a changed file." : known.rulesFiles.map((file2) => `- ${inlineText(file2.path)} (${file2.level === "user" ? "user level" : "repository"})`).join("\n"));
-  }
-}
-function describeFrozen(frozen, evidence) {
-  if (frozen === null) return "none";
-  if ("blob" in frozen) return evidence.pathOf(frozen.blob);
-  return `oversized ${frozen.oversized.sha256} ${String(frozen.oversized.size)} bytes`;
-}
-function fenceFor(text3) {
-  let longest = 0;
-  for (const run2 of text3.matchAll(/`+/g)) longest = Math.max(longest, run2[0].length);
-  return "`".repeat(Math.max(3, longest + 1));
-}
-function describePatch(scope, evidence) {
-  if (scope.patch.bytes > inlinePatchLimitBytes) {
-    return `The patch is ${String(scope.patch.bytes)} bytes, too large to carry here. Read it at: ${evidence.pathOf(scope.patch)}`;
-  }
-  const text3 = evidence.read(scope.patch).toString("utf8");
-  if (text3.trim() === "") return "The patch is empty.";
-  const fence = fenceFor(text3);
-  return `${fence}diff
-${text3.endsWith("\n") ? text3 : `${text3}
-`}${fence}`;
-}
-function scopeHeader(input2) {
-  const { scope, evidence } = input2;
-  const rows = scope.files.map((file2) => {
-    const after = file2.after === null ? "deleted" : "read the file in the worktree";
-    return `| ${tableCell(file2.path)} | ${file2.status}${file2.symlink ? " (symlink)" : ""} | ${tableCell(describeFrozen(file2.before, evidence))} | ${after} |`;
-  });
-  return [
-    "## Scope",
-    "",
-    `Repository: ${input2.worktree}`,
-    `Base: ${scope.base}`,
-    `Head: ${scope.head}`,
-    `Mode: ${scope.mode}`,
-    "",
-    "Your working directory is the repository above, at head, which is the after state of every file; read files there. The before state of each file is frozen at the path given, and may be read but never written.",
-    "",
-    "### Changed files",
-    "",
-    "| Path | Status | Before | After |",
-    "|---|---|---|---|",
-    ...rows
-  ];
-}
-function surveyScopeBlock(input2) {
-  return scopeHeader(input2).join("\n");
-}
-function scopeBlock(input2) {
-  const change = input2.change ?? null;
-  return [
-    ...scopeHeader(input2),
-    "",
-    conventionsSection(input2.conventions),
-    ...change === null ? [] : ["", changeSection(change)],
-    "",
-    "### Patch",
-    "",
-    describePatch(input2.scope, input2.evidence)
-  ].join("\n");
-}
-function composeWorkerPrompt(rolePrompt, task, scope) {
-  const body = [
-    "## Task",
-    "",
-    `Role: ${task.role}`,
-    `Unit: ${task.unitKey}`,
-    `Phase: ${task.phase}`,
-    "",
-    task.task,
-    "",
-    scope,
-    "",
-    closingSentence
-  ].join("\n");
-  return `${rolePrompt.endsWith("\n") ? rolePrompt : `${rolePrompt}
-`}
-${body}
-`;
-}
-var inlinePatchLimitBytes, closingSentence;
-var init_prompts = __esm({
-  "src/review/prompts.ts"() {
-    "use strict";
-    init_markdown();
-    inlinePatchLimitBytes = 256 * 1024;
-    closingSentence = "Return only the JSON your schema describes.";
-  }
-});
-
 // src/review/public-text.ts
 import { readdirSync as readdirSync7 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
@@ -36779,1122 +38017,7 @@ var init_public_text = __esm({
   }
 });
 
-// src/review/tasks.ts
-function standingLines(standing) {
-  return [
-    "This run was reviewed read-only and is now continued into the fix pass. Its survey already recorded the conventions the review held the change to, and they stand, so answer only the second question your role prompt defines: which commands are its checks. Return `conventions` and `userRules` empty.",
-    "",
-    "Convention sources recorded:",
-    ...standing.conventions.length === 0 ? ["- none"] : standing.conventions.map((source) => `- ${inlineText(source.path)} (${source.level}): ${inlineText(source.governs)}`),
-    ...standing.userRules.length === 0 ? [] : ["", "User-level rules files decided:", ...standing.userRules.map((rule) => `- ${inlineText(rule.path)}: ${rule.applied ? "applied" : "not applied"}, ${inlineText(rule.reason)}`)]
-  ];
-}
-function authorshipLine(authorship) {
-  const preamble = "What the reviewer's git configuration, which your own shell does not see, says of this repository's history:";
-  if (authorship.identity === "unset") return `${preamble} no \`user.email\` is configured for it, so no commit here can be attributed to the reviewer.`;
-  return `${preamble} ${String(authorship.byReviewer)} of the last ${String(authorship.commits)} commits on HEAD were authored with the reviewer's email or with an address the repository's \`.mailmap\` gives as the reviewer's.`;
-}
-function shellOf(platform, elevatedSandbox) {
-  if (platform !== "win32") return { shell: '/bin/sh -c "<command>"', lookup: "`command -v <tool>`" };
-  return { shell: 'cmd.exe /d /s /c "<command>"', lookup: elevatedSandbox ? elevatedLookup : "`where.exe <tool>`" };
-}
-function surveyTask(input2) {
-  if (input2.standing !== null) {
-    if (!input2.fix) throw new Error("A survey asked for the checks alone is a continued run's, which fixes");
-    return [...standingLines(input2.standing), "", ...fixChecks(input2)].join("\n");
-  }
-  const userRules = input2.offered.length > 0 ? [
-    "User-level rules files offered:",
-    ...input2.offered.map((path) => `- ${path}`),
-    "",
-    "These exist on this machine and are the reviewer's own rules, not the repository's. List one under `conventions`, with `level` `user`, its path as given here and its `grounds`, only when you have grounds that this repository is the reviewer's own work or adopts those rules, and state them. Decide every one of them in `userRules`, `applied` or not, with the reason.",
-    "",
-    authorshipLine(input2.authorship)
-  ] : [
-    "User-level rules files offered: none",
-    "",
-    input2.policySettlesUserRules ? "The review policy settles whether the reviewer's own rules apply, so none is offered to you: return `userRules` empty and list no source with `level` `user`." : "No user-level rules file exists on this machine: return `userRules` empty and list no source with `level` `user`."
-  ];
-  const checks = input2.fix ? fixChecks(input2) : [kindsToChooseLine(input2)];
-  return [
-    "Survey this repository as a new contributor would, and answer the two questions your role prompt defines: which files state the conventions a change here must follow, and, in a run that fixes, which commands are its checks. The changed paths in the scope block below are what a source's `appliesTo` is judged against.",
-    "",
-    ...userRules,
-    "",
-    ...checks
-  ].join("\n");
-}
-function fixChecks(input2) {
-  const { shell, lookup } = shellOf(input2.platform, input2.elevatedSandbox);
-  const byFlags = input2.settled.every((entry) => entry.layer === "flag");
-  const settledLine = (entry) => {
-    if (entry.layer === "flag") return entry.command === null ? `- ${entry.kind}: dropped by --no-check` : `- ${entry.kind}: ${codeSpan(entry.command)} (--check)`;
-    return entry.command === null ? `- ${entry.kind}: ${droppedReasonOf(entry.kind, entry.layer)}` : `- ${entry.kind}: ${codeSpan(entry.command)} (${checkSettingWords(entry.kind, entry.layer, false)})`;
-  };
-  const settled4 = input2.settled.length === 0 ? [] : [
-    byFlags ? "Settled by the operator's flags, which you leave out of `checks`:" : "Settled by the operator's flags and the configuration, which you leave out of `checks`:",
-    ...input2.settled.map(settledLine),
-    ""
-  ];
-  if (input2.unsettled.length === 0) return [kindsToChooseLine(input2), "", ...settled4, "Every kind is settled, so return `checks` empty."];
-  const hints = input2.hints.map((hint) => hint.command === null ? `- ${hint.kind}: none (${hint.reading})` : `- ${hint.kind}: ${codeSpan(hint.command)} (${hint.reading})`);
-  return [
-    kindsToChooseLine(input2),
-    "",
-    ...settled4,
-    `Return one entry in \`checks\` for each kind to choose, and none for any other. A check runs from the repository root on this machine (${input2.platform}) as \`${shell}\`, which is not always the shell your own commands run in. So look up what each command starts as that shell resolves it, with ${lookup}, and judge the lookup by whether it succeeded, its exit code, not by the wording of an error. A tool the command runs through something that provides it, such as \`uv run\` with a dependency group or \`npx\` with a project dependency, needs only that to resolve. Name the first tool that does not resolve in \`missingTool\`; do not run the checks themselves.`,
-    "",
-    "Mechanical guesses, read off the root manifests by fixed rules that know nothing of this repository's CI or documentation. Use one only for a kind the repository states nothing about, and only after reading that its command fits this repository and this platform; a command taken from one is the guess exactly as written here, with `basis` `hint` and the manifest as its `source`:",
-    ...hints
-  ];
-}
-function describeLocation(candidate) {
-  const location = repositoryLocation(candidate);
-  if (location === null) return `${rawLocation(candidate)} (unlocated: no file of the repository has this path and line)`;
-  return candidate.inScope ? location : `${location} (outside the change: an unchanged file of the repository)`;
-}
-function candidateItem(index2, candidate, extra = []) {
-  return [
-    `[${String(index2)}] ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}`,
-    `    summary: ${candidate.summary}`,
-    `    detail: ${candidate.detail}`,
-    ...extra.map((line) => `    ${line}`)
-  ].join("\n");
-}
-function withinBytes(items, limit) {
-  const kept = [];
-  let used = 0;
-  for (const item of items) {
-    const bytes = utf8Bytes(item) + 1;
-    if (used + bytes > limit) continue;
-    kept.push(item);
-    used += bytes;
-  }
-  return kept;
-}
-function commitMessagesSection(words) {
-  if (words.kind === "unreadable") {
-    return [`The engine could not read the commit messages of the change (${inlineText(words.reason)}). Take the reason only from the documents the change adds or edits.`];
-  }
-  if (words.kind === "working-tree") return ["The change has no commits: it is a change of the working tree. It states a reason only in the documents it adds or edits."];
-  const { messages } = words;
-  const tree = words.withTree ? ["", "The change may also hold uncommitted changes of the working tree, which no commit message covers."] : [];
-  if (messages.length === 0) return ["The change has no commits from its base to its head. It states a reason only in the documents it adds or edits.", ...tree];
-  const shown = (commit2) => commit2.slice(0, shownCommitLength);
-  const subjects = withinBytes(messages.map(({ commit: commit2, message }) => `${shown(commit2)} ${message.split(/\r?\n/, 1)[0] ?? ""}`), commitSubjectsLimitBytes);
-  const used = subjects.reduce((total, line) => total + utf8Bytes(line) + 1, 0);
-  const wholes = withinBytes(messages.map(({ commit: commit2, message }) => `commit ${shown(commit2)}
-${message}
-`), commitMessagesLimitBytes - used);
-  const fenced3 = (text3) => {
-    const fence = fenceFor(text3);
-    return [`${fence}text`, text3, fence];
-  };
-  const leftSubjects = messages.length - subjects.length;
-  const leftWholes = messages.length - wholes.length;
-  return [
-    `The subjects of the ${String(messages.length)} commit${messages.length === 1 ? "" : "s"} of the change, oldest first:`,
-    "",
-    ...fenced3(subjects.join("\n")),
-    "",
-    "The whole messages, oldest first:",
-    "",
-    ...wholes.length === 0 ? ["(none fit within the limit)"] : fenced3(wholes.join("\n").trimEnd()),
-    ...leftSubjects === 0 && leftWholes === 0 ? [] : ["", `${String(leftSubjects)} subject${leftSubjects === 1 ? "" : "s"} and ${String(leftWholes)} whole message${leftWholes === 1 ? "" : "s"} are left out at the limits.`],
-    ...tree
-  ];
-}
-function triageTask(messages) {
-  return [
-    "Run the `SCAN` angle over every hunk of the patch below and the enclosing function of each. Return your candidates, up to 12.",
-    "",
-    `Then, for EACH of the nine other angles, in this order (${finderAngles.join(", ")}), return one lead: a concrete file, symbol or mechanism the finder of that angle should inspect first, grounded in what you read, or null when the diff supports none. A lead is never a skip; every angle runs whatever you return, so name what you saw and nothing more.`,
-    "",
-    "Then describe the change in `change`, for a person who did not read it and for the workers that review it after you:",
-    "",
-    `- \`title\`: what the change is, in at most ${String(accountLimits.title)} characters.`,
-    `- \`what\`: what the change does, in at most five sentences of plain words. Start with one sentence of at most ${String(accountLimits.firstSentence)} characters that says alone what the change does. Name no file, line or internal name that a reader must look up; put those in \`restsOn\`.`,
-    "- `why`: why the change does it, in the change's own words: quote or restate the commit messages below, or a document that the change adds or edits. Write null when they state no reason. Never give a reason of your own.",
-    "- `whyFrom`: the commits or paths that `why` comes from; empty when `why` is null.",
-    "- `restsOn`: the files and commits that `what` rests on, at least one.",
-    "- `publicInterface`: whether the change alters a command, a flag, an exported function or type, a format of a file, or an output that a person or a program reads; when it does, one sentence in `what` that says what, and the files that show it in `files`. When it does not, `what` is null and `files` is empty.",
-    "- `wideEffect`: whether the change affects many files beyond the files it changes; when it does, one sentence that says what, and the files that show it, as for `publicInterface`.",
-    "",
-    `Keep \`why\` within ${String(accountLimits.why)} characters. Return \`change\` as null only when you cannot describe the change at all.`,
-    "",
-    "### The change's own words",
-    "",
-    ...commitMessagesSection(messages),
-    "",
-    fieldNote
-  ].join("\n");
-}
-function finderTask(angle, lead) {
-  const leadLine = lead === null || lead.lead === null ? "Lead: none" : `SCAN lead: ${lead.lead}`;
-  return [
-    `Angle: ${angle}`,
-    leadLine,
-    "",
-    `Run the ${angle} angle as your role prompt defines it, over the whole change below. Check the lead first when there is one, then complete the full search of your angle; a lead is neither a finding nor a boundary. Return your candidates, up to 12; an empty list is a valid answer.`,
-    "",
-    fieldNote
-  ].join("\n");
-}
-function deduplicationTask(candidates) {
-  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
-  return [
-    `Below are ${String(candidates.length)} candidates, numbered [0] to [${String(candidates.length - 1)}]. Group the ones that describe the same defect at the same location for the same reason; a group has two or more members, named by their indexes, and one \`keep\`, the member whose fourth field is the most concrete, which stays on the working list. A candidate in no group stands alone; leave it out of \`groups\`. Two candidates at one line for different reasons are not duplicates. Return \`groups\` empty when nothing repeats.`,
-    "",
-    list
-  ].join("\n");
-}
-function probeSentence(scratch) {
-  return scratch ? `When your rubric has you run a probe, write it as a file in your scratch directory, of at most 64 KiB, run that file, and give its path in \`probe\`; give \`probe\` as null for a run of anything else. Write each probe you cite as a file of its own, with a name no other probe of your answer uses, and do not change that file after the run you cite: the engine keeps the file as it is when you finish.` : `When your rubric has you run a probe, run it as a command: you have no scratch directory to write a file in, so give \`probe\` as null.`;
-}
-function citingParagraph({ scratch }) {
-  return `Give each verdict a \`basis\`: \`ran\` when a run of code showed the result, \`traced\` when you followed the code line by line to it, \`read\` when the lines alone settle the claim. A verdict whose basis is \`ran\` cites in \`runs\` each run it rests on, at most three, each with the \`command\` as you ran it and, in \`printed\`, one to five lines of what it printed that show the result, each copied exactly from its output; a verdict of another basis cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and an answer that cites a run not there is discarded whole and the group is run again. ${probeSentence(scratch)}`;
-}
-function verifierTask(groupId, candidates, citing = null) {
-  const list = candidates.map((candidate, index2) => candidateItem(index2, candidate)).join("\n");
-  return [
-    `Group ${groupId}: ${String(candidates.length)} candidate${candidates.length === 1 ? "" : "s"}, numbered [0] to [${String(candidates.length - 1)}], each with the angle it came from. Read the code each points at, then return exactly one verdict per index, CONFIRMED, PLAUSIBLE or REFUTED by the rubric of that candidate's angle, with one \`evidence\` line quoting or citing the lines that justify it. An answer that misses an index is discarded whole and the group is run again. Judge each candidate on its own claim; a candidate marked unlocated still gets a verdict, from whatever code you can find for it.`,
-    ...citing === null ? [] : ["", citingParagraph(citing)],
-    ...citing?.notes === true ? ["", notesParagraph] : [],
-    "",
-    list
-  ].join("\n");
-}
-function sweepTask(inputs) {
-  const verified = inputs.verified.length === 0 ? "(none)" : inputs.verified.map(({ candidate, verdict, unverified }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary} [${verdict}${unverified ? ", unverified" : ""}]`).join("\n");
-  const refuted2 = inputs.refuted.length === 0 ? "(none)" : inputs.refuted.map(({ candidate, evidence }) => `- ${candidate.id} (${candidate.angle}) at ${describeLocation(candidate)}: ${candidate.summary}; refuted because: ${evidence}`).join("\n");
-  const notRun = Object.entries(inputs.anglesNotRun);
-  const angles2 = notRun.length === 0 ? "Every angle ran." : `These angles did not run, so their territory is yours to cover: ${notRun.map(([angle, reason]) => `${angle} (${reason})`).join("; ")}.`;
-  return [
-    "Re-read the diff and the enclosing functions looking ONLY for gaps: candidates no angle below already lists. Do not re-derive or re-confirm anything already there.",
-    "",
-    angles2,
-    "",
-    "Verified candidates (already on the working list):",
-    verified,
-    "",
-    "Refuted candidates (already judged; do not resurface them):",
-    refuted2,
-    "",
-    "Return your gap candidates, up to 12, each naming in `angle` the angle whose territory it sits in; its `detail` is that angle's fourth field. An empty list is the correct answer when there is nothing new."
-  ].join("\n");
-}
-function checksBlock(checks, failing = []) {
-  if (checks.every((check2) => check2.command === null)) return "No check is available: the repository names no build, typecheck, lint or test command the engine can run, so validate your fixes with what you can run yourself.";
-  return [
-    "The engine runs these checks, in this order, before any fixer edits and again once every fixer has returned:",
-    ...checks.map((check2) => check2.command === null ? `- ${check2.kind}: not available (${check2.reason ?? "no command"})` : `- ${check2.kind}: ${check2.command}`),
-    "Run what covers your change before you return: the tests of what you changed, not the whole suite, which the engine runs. Report what you ran in `suite`.",
-    ...failing.length === 0 ? [] : [
-      "These failed before any fixer edited the tree; their output then is at the paths given. A failure that output does not show is yours, even when an earlier batch's tree already had it, unless it lies in a file you do not hold, which is a sibling's work in flight:",
-      ...failing.map((check2) => `- ${check2.kind}: ${check2.stdout}, ${check2.stderr}`)
-    ]
-  ].join("\n");
-}
-function claimBlock(command) {
-  return [
-    `Before your first edit for a finding, run this from the repository root once for each file outside your own that the finding and its tests will touch, existing or new, with the file's path in place of ${claimPathPlaceholder}:`,
-    "",
-    `    ${command}`,
-    "",
-    "It claims the file for your cluster until your cluster's last batch has finished. Exit 0 means it is yours; exit 2 names the cluster that holds it, and the finding that needs it is `blocked` with the file in `requiredFiles`, as for a file another cluster owns, with no edit made for it, unless the file is a document the finding's edit made stale: make no edit of that one, report the stale fact in `drift`, and go on with the finding. A refusal that comes after you edited leaves the edits in place, listed under the finding's `edits`, with a message that says the change is partial. Report every file you edit or create under the finding it served.",
-    `A path that begins with \`-\` goes in one argument, \`--path=${claimPathPlaceholder}\`, since the claim reads it as an option otherwise and refuses it with exit 1, as it does any command it cannot parse.`,
-    "A path that holds a `'` must have that quote escaped as your shell requires inside single quotes, `'\\''` in bash and `''` in PowerShell, so the path stays one argument and the command runs as written.",
-    "Exit 1 means the command could not run, and it prints why, such as a path outside the worktree: correct the command as the message says and run it again, and make no edit for the finding until the claim exits 0."
-  ].join("\n");
-}
-function snapshotBlock(command, unit) {
-  return [
-    `After finishing each ${unit}, and before starting the next, run this from the repository root with that ${unit}'s index in place of ${snapshotIndexPlaceholder}:`,
-    "",
-    `    ${command}`,
-    "",
-    `It copies what you changed into your scratch directory, so the engine can tell each ${unit}'s edits apart and commit them one by one; a ${unit} you do not snapshot is folded into the next one's commit.`
-  ].join("\n");
-}
-function answerFields(unit) {
-  const blocks2 = unit === "finding";
-  const statuses = blocks2 ? "`applied`, `already-applied`, `deferred` or `blocked`" : "`applied`, `already-applied` or `deferred`";
-  const partial2 = blocks2 ? `a blocked or deferred ${unit}'s` : `a deferred ${unit}'s`;
-  const required2 = blocks2 ? `\`requiredFiles\`, the files you were not allowed to edit that a blocked ${unit} needs, empty otherwise` : "`requiredFiles`, which stays empty";
-  return `For each ${unit}, by index, return: \`status\` (${statuses}); the \`file\` and \`line\` of the fix, \`line\` null when there is none; a one-sentence \`note\`; the \`edits\` for it, null when you made no edit for it and no earlier attempt left any, otherwise the \`files\` you edited or created for it, or that hold an earlier attempt's edits for it, and their \`message\`, a \`subject\` of at most 72 characters with no trailing period and a \`body\` that says why, in the style \`git log\` shows for this repository, ${partial2} saying the change is partial and what it waits for; any \`corrections\` to the brief; your \`validation\` lines; and ${required2}. Return \`drift\`, \`tests\` and \`suite\` once for the whole answer. Every index appears exactly once. Every file you own whose bytes you changed must appear in some ${unit}'s \`edits\`; an answer that leaves one out is discarded and the work given to a fresh worker.`;
-}
-function earlierWork(unit, unfinished2) {
-  const warning = `The tree may already hold part of this work: an earlier worker on it did not finish. Verify each ${unit} against the code before applying it, report one already resolved as \`already-applied\`, with \`edits\` naming the files that hold its fix and the \`message\` its commit will carry when an earlier attempt made it, and null otherwise, and never apply a change on top of itself.`;
-  if (unfinished2.length === 0) return warning;
-  return `${warning} An earlier attempt left edits for ${unfinished2.join(", ")}, recorded as that attempt's work; for each of these you report \`already-applied\` with \`edits\` naming the files that hold its edits and the \`message\` its commit will carry, as for an applied ${unit}.`;
-}
-function editingTail(input2, unit, answerSuffix = "", citingTail = []) {
-  return [
-    ...input2.unelevatedSandbox ? [unelevatedSandboxRule, ""] : [],
-    snapshotBlock(input2.snapshotCommand, unit),
-    "",
-    ...input2.mayHoldWork ? [earlierWork(unit, input2.unfinished), ""] : [],
-    `${answerFields(unit)}${answerSuffix}`,
-    "",
-    ...input2.citing ? [citingValidationRule, "", ...citingTail.flatMap((line) => [line, ""])] : [],
-    scratchRule
-  ];
-}
-function taskRunLine(run2) {
-  const printed = run2.printed.map((line) => `"${inlineText(line)}"`).join(" / ");
-  const exit = run2.exitCode === null ? "no exit code on record" : `exit ${String(run2.exitCode)}`;
-  const probe = run2.probe === null ? "" : `; its probe, ${inlineText(run2.probe.name)}, is frozen at ${run2.probe.path}`;
-  return `        run: ${inlineText(run2.command)} printed ${printed}, ${exit}${probe}`;
-}
-function candidateLines(head2, candidate) {
-  const basis = candidate.cited?.basis ?? null;
-  return [
-    head2,
-    `        summary: ${candidate.summary}`,
-    `        detail: ${candidate.detail}`,
-    `        evidence: ${evidenceWords(candidate.evidence)}`,
-    ...basis === null ? [] : [`        how its verifier established it: ${verdictBasisWords[basis]}`],
-    ...(candidate.cited?.runs ?? []).map(taskRunLine)
-  ];
-}
-function decidedLines(decision, choices, answered2) {
-  if (decision.decision === "fix") {
-    const { fix, departure } = decision;
-    return [
-      `    decided: fix. ${decision.grounds}`,
-      `        approach: ${fix.approach}`,
-      ...fix.rejected.length === 0 ? [] : [`        rejected: ${fix.rejected.map((option) => `${option.option} (${option.reason})`).join("; ")}`],
-      ...departure === null ? [] : [`        departs from: ${departure.rule} (${departure.source}): ${departure.reason}`],
-      ...settledLines(choices, decision.settled),
-      ...answered2 === null ? [] : answeredLines(answered2)
-    ];
-  }
-  const { ask } = decision;
-  const others = ask.options.filter((_, position) => position !== ask.applied).map((option) => option.option);
-  return [
-    `    decided: ask the author, applying a default now. ${decision.grounds}`,
-    `        apply: ${appliedOptionOf(ask).option}`,
-    `        the question the author answers later: ${ask.question} The other options: ${others.join("; ")}`,
-    ...answered2 === null ? [] : answeredLines(answered2)
-  ];
-}
-function answeredLines(answered2) {
-  const note = answered2.note === null ? "" : ` Note: ${inlineText(answered2.note)}`;
-  const line = `${answerLine(answered2)}${note}`;
-  const before = answered2.before;
-  const did = before === null ? "no fixer saw it before" : `the run's last fixer of it answered ${before.status}: ${before.note}${before.files.length === 0 ? "" : `, in ${before.files.join(", ")}`}`;
-  const applied = answered2.appliedByPass === null ? [] : [`        the answer pass ${answered2.appliedByPass} already applied this answer, and the tree holds it: answer already-applied and keep that edit, and do not apply the default again`];
-  return [`        ${line}`, `        before the answer: ${did}`, ...applied];
-}
-function answerLine(answered2) {
-  switch (answered2.kind) {
-    case "option":
-      return `answered by the author: option ${String(answered2.option + 1)}, "${answered2.chosen.option}", for which the decider wrote the rule "${answered2.chosen.rule}".`;
-    case "reject":
-      return `the author rejected the departure: follow the rule "${answered2.departure.rule}" as ${answered2.departure.source} states it, and restore what the fix changed in that statement.`;
-    case "accept":
-      return "the author accepted the departure.";
-  }
-}
-function documentationDecidedLine({ decision, answer: answer3, owed }) {
-  const unapplied = ", which no fix of the run has applied yet, so the tree does not hold it yet";
-  switch (decision.decision) {
-    case "fix": {
-      const { departure } = decision;
-      const departs2 = departure === null ? "" : `, departing from the rule "${departure.rule}" (${departure.source}), which the fix amends`;
-      const rejected = owed ? unapplied : ", so the rule stands as its source states it";
-      const word2 = answer3?.kind === "accept" ? "; the author accepted the departure" : answer3?.kind === "reject" ? `; the author rejected the departure${rejected}` : "";
-      return `decided: fix: ${decision.fix.approach}${departs2}${word2}`;
-    }
-    case "ask": {
-      const { ask } = decision;
-      if (answer3?.kind === "option") return `decided: ask the author "${ask.question}"; answered by the author: option ${String(answer3.option + 1)}, "${ask.options[answer3.option]?.option ?? "an option the decision does not offer"}"${owed ? unapplied : ""}`;
-      return `decided: ask the author "${ask.question}", still open; the option in place: "${appliedOptionOf(ask).option}"`;
-    }
-    case "leave":
-      return "decided: leave";
-  }
-}
-function unitLines(input2) {
-  switch (input2.kind) {
-    case "answer-pass":
-      return {
-        head: `Answer pass ${input2.batch}`,
-        round: [],
-        ownership: [
-          "Files you own: every file the run revised, and the files these findings are located in.",
-          fileList(input2.owned),
-          "",
-          "You may edit any other file of the repository when the answer needs it; report every file you edit or create under the finding it served.",
-          ...input2.leftDocuments.length === 0 ? [] : [
-            "",
-            "Documents this run left out of date, which an answer you apply may settle:",
-            input2.leftDocuments.map((document) => `- ${inlineText(document.file)}${document.facts.length === 0 ? "" : `: ${document.facts.map(inlineText).join("; ")}`}`).join("\n"),
-            "",
-            "Bring such a document in line when an answer you apply settles what it must say, and name it under that answer's finding; leave the others as they are. When you change such a file and leave a fact of it stale, report that fact in `drift`."
-          ]
-        ]
-      };
-    case "batch": {
-      const others = input2.othersHeld.filter((cluster) => cluster.files.length > 0);
-      const held = [...input2.owned, ...input2.claimed.filter((path) => !input2.owned.includes(path)).map((path) => `${path} (claimed)`)];
-      return {
-        head: `Cluster ${input2.cluster}, batch ${input2.batch}${input2.secondRound ? ", in the second round" : ""}`,
-        round: [
-          ...input2.secondRound ? ["Each of these was blocked in the first round on files another cluster owned or had claimed. Every first-round fixer has finished, and those files are now yours: apply the fix the finding needs there, its tests included.", ""] : [],
-          ...input2.earlier.length === 0 ? [] : [
-            input2.secondRound ? "Findings the first round worked in your files, and this cluster's earlier batches; their edits are already in the tree, so build on them and neither redo nor undo them:" : "Findings of this cluster that earlier batches worked, one after another before yours; their edits are already in the tree, so build on them and neither redo nor undo them:",
-            input2.earlier.map((entry) => `- ${entry.batch} ${entry.id} ${entry.outcome}${entry.note === null ? "" : `: ${entry.note}`}`).join("\n"),
-            ""
-          ]
-        ],
-        ownership: [
-          "Files you own while this batch runs, which no other worker edits:",
-          fileList(held),
-          "",
-          "Files other clusters own or have claimed, which you must not edit; a fix that needs one is `blocked`, naming it in `requiredFiles`, unless it is a document the fix made stale, which goes in `drift`:",
-          others.length === 0 ? "(none)" : others.flatMap((cluster) => cluster.files.map((file2) => `- ${file2.path} (${cluster.cluster}${file2.by === "claim" ? ", claimed" : ""})`)).join("\n"),
-          "",
-          claimBlock(input2.claimCommand)
-        ]
-      };
-    }
-  }
-}
-function fixerTask(input2) {
-  const count3 = input2.findings.length;
-  const findings = input2.findings.map((finding, index2) => [
-    `[${String(index2)}] ${finding.id} [${finding.severity}] ${verdictWords(finding)} (${finding.primary.angle}) at ${finding.primary.location}`,
-    `    summary: ${finding.summary}`,
-    `    reason: ${finding.reason}`,
-    ...candidateLines(`    primary: ${finding.primary.id} (${finding.primary.angle}) at ${finding.primary.location}: ${verdictWords(finding.primary)}`, finding.primary),
-    ...finding.members.flatMap((member) => candidateLines(`    merged: ${member.id} (${member.angle}) at ${member.location}: ${verdictWords(member)}`, member)),
-    ...finding.decision === null ? [] : decidedLines(finding.decision, finding.choices, finding.answered),
-    ...finding.supersedes.flatMap((left) => [`    removes also: ${left.id} at ${left.location}: ${left.summary} (left because this fix removes it, and given to no fixer: check it is gone)`, ...settledLines(left.choices, left.settled)]),
-    ...finding.firstRound === null ? [] : [`    first round: blocked, needing ${finding.firstRound.requiredFiles.map((file2) => file2.claimedBy === null ? file2.path : `${file2.path} (which ${file2.claimedBy} had claimed)`).join(", ")}: ${finding.firstRound.note}`]
-  ].join("\n"));
-  const decided = input2.findings.some((finding) => finding.decision !== null);
-  const answered2 = input2.findings.some((finding) => finding.answered !== null);
-  const probed = input2.findings.some((finding) => [finding.primary, ...finding.members].some((candidate) => candidate.cited?.runs.some((run2) => run2.probe !== null) ?? false));
-  const { head: head2, round, ownership } = unitLines(input2);
-  return [
-    `${head2}: ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], in the order to apply them.`,
-    "",
-    ...findings,
-    "",
-    ...decided ? [decidedRule, ""] : [],
-    ...answered2 ? [answeredRule, ""] : [],
-    ...round,
-    ...ownership,
-    "",
-    checksBlock(input2.checks, input2.baselineFailures),
-    "",
-    ...editingTail(input2, "finding", "", probed ? [probeRule] : [])
-  ].join("\n");
-}
-function outputTail(name, tail, path) {
-  const text3 = tail.toString("utf8");
-  if (text3.trim() === "") return `    ${name}: empty (frozen at ${path})`;
-  const fence = fenceFor(text3);
-  return [`    ${name}, its last ${String(tail.length)} bytes (the whole is at ${path}):`, `${fence}text`, text3.endsWith("\n") ? text3.slice(0, -1) : text3, fence].join("\n");
-}
-function repairCheckEnd(check2) {
-  if (check2.outcome === "timeout") return "ran past its timeout and was killed";
-  const end = { termination: "exited", exitCode: check2.exitCode, signal: check2.signal };
-  return endedByKill(end) ? `ended with ${killMarkWords(end)}` : `exited with code ${String(check2.exitCode)}`;
-}
-function baseLines(base) {
-  const where = "on the base of the change, the Base the scope names";
-  switch (base.outcome) {
-    case "passed":
-      return [`    It passes ${where}, so the change as submitted brings the failures its output before any fixer edited the tree shows: like every failure there, they are not yours to fix.`];
-    case "failed":
-    case "timeout":
-      return [
-        `    It ${repairCheckEnd(base)} ${where}. Compare the failures its output before any fixer edited the tree shows, on the change as submitted, with its failures on the base, and give one entry for this check in \`comparisons\`: its \`reading\` is \`same\` when the change has no failure the base does not have, \`adds\` when it has one, and \`unknown\` when the two outputs cannot be compared, as when the check failed on the base for a missing tool or dependency and not for the code; its \`words\` say why in at most ${String(comparisonWordsLengthV1)} characters and name no path. Its output on the base:`,
-        outputTail("stdout", base.stdout.tail, base.stdout.path),
-        outputTail("stderr", base.stderr.tail, base.stderr.path)
-      ];
-    case "skipped":
-      return [`    It did not run ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
-    case "not-started":
-      return [`    It did not start ${where}, so give no entry for it in \`comparisons\`: ${base.reason}`];
-  }
-}
-function comparisonsRule(checks) {
-  const compared = checks.some((check2) => failedOrTimedOut(check2.base?.outcome));
-  return compared ? " Return `comparisons` once for the whole answer: one entry for each check above that asks for one, and no other." : " Return `comparisons` empty: no check above failed or timed out on the base of the change.";
-}
-function repairTask(input2) {
-  const count3 = input2.checks.length;
-  const step = input2.documentation.length > 0;
-  const edits = step ? "the edits of the fixers and the documentation step" : "the fixers' edits";
-  const checks = input2.checks.map((check2, index2) => [
-    `[${String(index2)}] ${check2.kind}: ${check2.command}`,
-    `    ${repairCheckEnd(check2)}`,
-    outputTail("stdout", check2.stdout.tail, check2.stdout.path),
-    outputTail("stderr", check2.stderr.tail, check2.stderr.path),
-    ...check2.baseline === null ? ["    It passed before any fixer edited the tree."] : [
-      "    It failed before any fixer edited the tree too: fix only the failures its output then does not show, and answer `deferred` naming them when every failure was there before. Its output then:",
-      outputTail("stdout", check2.baseline.stdout.tail, check2.baseline.stdout.path),
-      outputTail("stderr", check2.baseline.stderr.tail, check2.baseline.stderr.path)
-    ],
-    ...check2.base === null ? [] : baseLines(check2.base)
-  ].join("\n"));
-  return [
-    `Repair: ${String(count3)} check${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], fail${count3 === 1 ? "s" : ""} after ${edits}. Make each pass again without undoing an applied fix: read its output, find what ${edits} broke, and fix that. A check is \`applied\` when it passes after your change, and \`deferred\` with the reason when it cannot be made to pass here, as when it needs a file outside the repository, which no worker of the run can edit. No check is \`blocked\`: nothing holds a file from you.`,
-    "",
-    ...checks,
-    "",
-    `Files you own: every file the fixers${step ? " and the documentation step" : ""} changed.`,
-    fileList(input2.owned),
-    "",
-    "You may edit any other file of the repository when a repair needs it; report every file you edit or create under the check it served.",
-    "",
-    "What each fixer did:",
-    input2.answers.length === 0 ? "(nothing recorded)" : input2.answers.map((answer3) => `- ${answer3.batch} ${answer3.id} ${answer3.status}: ${answer3.note}`).join("\n"),
-    "",
-    ...step ? ["What the documentation step did:", input2.documentation.map((item) => `- ${item.id} ${item.status}: ${item.note}`).join("\n"), ""] : [],
-    checksBlock(input2.allChecks),
-    "",
-    ...editingTail(input2, "check", ` The message in an applied check's \`edits\` describes what the repair changed.${input2.baseChecks ? comparisonsRule(input2.checks) : ""}`)
-  ].join("\n");
-}
-function documentLines(index2, document) {
-  const file2 = inlineText(document.file);
-  const where = document.path === null ? `${file2}, which the engine refused as a path of the repository: answer it \`deferred\`, a path you cannot edit` : document.path === document.file ? inlineText(document.path) : `${file2}, the repository path ${inlineText(document.path)}`;
-  return [
-    `[${String(index2)}] ${document.id}: ${where}`,
-    ...document.drift.map((line) => `    ${line.batch}${line.file === document.file ? "" : ` (as ${inlineText(line.file)})`}: ${inlineText(line.what)}`)
-  ].join("\n");
-}
-function fixLines(fix) {
-  const edits = fix.files.length === 0 ? "" : `; edited ${fix.files.join(", ")}${fix.subject === null ? "" : `, committed as "${fix.subject}"`}`;
-  return [`- ${fix.batch} ${fix.id} ${fix.status}: ${fix.note}${edits}`, ...fix.decided === null ? [] : [`    ${documentationDecidedLine(fix.decided)}`]].join("\n");
-}
-function documentationTask(input2) {
-  const count3 = input2.documents.length + 1;
-  const search = input2.documents.length;
-  return [
-    `Documentation: ${String(count3)} item${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}]. Bring the documentation of the repository in line with the edits of the fix pass, which the fixers below made, and edit documentation only: text for a person, such as a document, a changelog, or a comment in the code that describes the changed behavior.`,
-    "",
-    ...input2.documents.map((document, index2) => documentLines(index2, document)),
-    `[${String(search)}] search: other documentation that the edits of the fix pass made out of date, which no item above names. Search the repository for it, also where no fixer reported anything.`,
-    "",
-    "What the fixers did, finding by finding:",
-    input2.fixes.length === 0 ? "(nothing recorded)" : input2.fixes.map(fixLines).join("\n"),
-    "",
-    "The patch of each edit of the fixes, in the order of its commit, which holds the edits of this run apart from the change under review:",
-    input2.patches.length === 0 ? "(none)" : input2.patches.map((patch) => `- ${patch.path} (${patch.subject})`).join("\n"),
-    "",
-    "Files you own: every file the fixes changed, and the repository path of each document above.",
-    fileList(input2.owned),
-    "",
-    "You may edit any other file of the repository when an item needs it; report every file you edit or create under the item it served.",
-    "",
-    "Write only what the code of the tree, a decision above or an answer of the author settles, and no behavior that an open question still leaves to the author. Leave each convention source the scope lists as it is, with the amendment of a rule that a fix departing from it made. Leave a fact that was out of date before this run, and a historical or append-only record as the rules of the repository ask. Change no code, test or configuration to make a document true.",
-    input2.exclude.length === 0 ? "The review left no path out by `scope.exclude`." : `Leave each path that these \`scope.exclude\` patterns match, which the review leaves out, such as built output; for a stale fact in one, answer \`deferred\` and name the setting \`scope.exclude\` as the reason:
-${input2.exclude.map((pattern) => `- ${pattern}`).join("\n")}`,
-    "",
-    "An item is `applied` when you brought its document in line, `already-applied` when it was correct and you made no edit, and `deferred` when you leave it, with the reason in `note`: a choice that nothing settled, a rule, or a path you cannot edit. No item is `blocked`: nothing holds a file from you. For the search, `file` is the first document you brought in line, or `.` when you changed none. In `drift`, list each document that the edits of this run made out of date, which you found so at your end and did not bring in line; a fact that was out of date before this run is not drift.",
-    "",
-    checksBlock(input2.checks),
-    "",
-    ...editingTail(input2, "item")
-  ].join("\n");
-}
-function settlementLine(rule, name) {
-  if (rule.named === "refused") return `- ${name}: settles no choice; give \`settled\` empty, since ${rule.why ?? ""}.`;
-  const others = rule.unnamed === "required" ? "and settles one in an entry whose `for` is empty when no candidate has one" : "and may settle others";
-  const when = rule.named === "required" ? `settles the choice left to the author of each candidate that has one, naming the candidate in the \`for\` of one entry, ${others}` : "may settle choices";
-  const alternatives = (steps) => steps.map((step) => `\`${step}\``).join(" or ");
-  const by = rule.steps.length === settleSteps.length ? "by any step" : `by ${alternatives(rule.steps)}`;
-  const restsOn = rule.restsOn === null ? "" : `, at least one entry by ${alternatives(rule.restsOn)} when it settles any`;
-  return `- ${name}: ${when}, ${by}${restsOn}.`;
-}
-function deciderTask(findings, refused = []) {
-  const count3 = findings.length;
-  const list = findings.map((finding, position) => [
-    `[${String(position)}] ${finding.id} [${finding.severity}] ${finding.verdict}: ${finding.summary}`,
-    `    merge and rank: ${finding.reason}`,
-    ...finding.candidates.flatMap((candidate, at) => [
-      ...candidateLines(`    - ${candidate.id} (${candidate.angle})${at === 0 ? " primary" : ""} at ${candidate.location}: ${verdictWords(candidate)}`, candidate),
-      ...candidate.authorChoice === null ? [] : [`        choice left to the author by ${candidate.id}'s verifier: ${candidate.authorChoice}`]
-    ])
-  ].join("\n"));
-  return [
-    `The review's ${String(count3)} finding${count3 === 1 ? "" : "s"}, numbered [0] to [${String(count3 - 1)}], each with every candidate merged into it, its verdict and its verifier's evidence, and the choice its verifier leaves to the author when it names one, which is the verifier's view and not an answer. Decide each one as your role prompt defines it: \`fix\`, \`leave\` or \`ask\`.`,
-    "",
-    ...list,
-    "",
-    "The step that settles a choice, `by` in an entry of `settled`: the first of the order that answers it, or one of the two outside it.",
-    ...settleSteps.map((step) => `- \`${step}\`: ${settleStepMeanings[step]}.`),
-    "",
-    "Which decision settles a choice, and by which step; the engine refuses an answer that breaks one of these:",
-    ...Object.keys(settlementCaseWords).map((name) => settlementLine(settlementRulesV1[name], settlementCaseWords[name])),
-    "",
-    ...refused.length === 0 ? [] : [
-      "### What failed in the earlier answer",
-      "",
-      "The engine refused an earlier answer to this task for these faults. Give your whole answer again, every finding of it, and keep none of them:",
-      "",
-      ...refused.map((reason) => `- ${inlineText(reason)}`),
-      ""
-    ],
-    'For each finding, by index, return: `decision`; one `grounds` sentence that says what settled it, citing it; and the one object its decision names, the other two null. `fix` gives the `approach` a fix worker applies and the options you `rejected`, each with why. `leave` gives its `reason`, and for `superseded` the index of the finding decided `fix` whose fix removes this one in `supersededBy`, null otherwise. `ask` gives one `question`; two to four `options`, each with its `cost`, the `rule` a convention source would state if the author chose it, and whether it `edits` the code; the index of the option you `recommended` and of the one `applied`, the default a fix worker applies now; and where you `searched` for an answer. `departure` is the `rule` a `fix` departs from, its `source` and the `reason`, and null for every other decision and for a fix that departs from nothing. `settled` lists the choices the decision settles, as above, one entry each: in `for` the ids of the candidates whose choice left to the author it settles, as `RIPPLE-2`, each candidate in one entry at most and none whose verifier named no choice, or empty for a choice no candidate has; the `choice`, one declarative sentence that states the side the decision settles, not the question it answers, as in "Ids in the writer\'s text are replaced by the numbers the body shows."; the step `by` that settles it; and the `source`, one sentence that says what the step rests on and what it says, both in plain words for a person who did not read the change, with no file, line or internal name, which your grounds cite. It is empty when the decision settles no choice. Every index appears exactly once. In any text you write, name another finding by its id, as `RIPPLE-2`, never by its index or its number here: the text is read where those mean nothing.'
-  ].join("\n");
-}
-function mergeRankTask(inputs) {
-  const list = inputs.map(
-    ({ candidate, verdict, unverified, evidence }, index2) => candidateItem(index2, candidate, [`verdict: ${verdictWords({ verdict, unverified })}`, `evidence: ${evidenceWords(evidence)}`])
-  ).join("\n");
-  return [
-    `The working list holds ${String(inputs.length)} finding${inputs.length === 1 ? "" : "s"}, numbered [0] to [${String(inputs.length - 1)}], every one CONFIRMED or PLAUSIBLE. Fold findings that share one root cause across locations into one: name the best-described as \`primary\` and the others as its \`members\`, by index. Merge only on a genuinely shared root cause; two defects that merely look alike stay separate, each a finding with no members. Every index appears exactly once, as a primary or as a member. Give each finding a \`severity\` (critical, major or minor) as your role prompt defines it, a \`summary\` that names the other sites when there are any, and a \`reason\` as your role prompt defines it. The engine orders the findings itself: by severity, then CONFIRMED before PLAUSIBLE, then the correctness angles and \`CONVENTIONS\` before \`DESIGN\`, \`DUPLICATION\` and \`ALTITUDE\`, then by primary id. The order you return them in is not kept.`,
-    "",
-    list
-  ].join("\n");
-}
-var kindsToChooseLine, elevatedLookup, fieldNote, commitSubjectsLimitBytes, commitMessagesLimitBytes, shownCommitLength, utf8Bytes, accountLimits, notesParagraph, snapshotIndexPlaceholder, claimPathPlaceholder, scratchRule, unelevatedSandboxRule, citingValidationWords, citingValidationRule, probeRule, fileList, verdictWords, evidenceWords, settledLines, answeredRule, decidedRule, repairTailBytes, settleStepMeanings, settlementCaseWords;
-var init_tasks = __esm({
-  "src/review/tasks.ts"() {
-    "use strict";
-    init_fix_state();
-    init_review_fold();
-    init_events();
-    init_markdown();
-    init_prompts();
-    init_kill_marks();
-    init_survey();
-    init_state();
-    init_vocabulary();
-    kindsToChooseLine = (input2) => input2.fix ? `Kinds to choose: ${input2.unsettled.length === 0 ? "none" : input2.unsettled.join(", ")}` : "Kinds to choose: none; this run does not fix, so it runs no check, and `checks` is null";
-    elevatedLookup = '`powershell.exe -NoProfile -Command "Get-Command -CommandType Application <tool>"` and, when that fails, the same with `.\\<tool>`, since `cmd.exe` also runs a script in the repository root such as `gradlew.bat`, where `Get-Command` does not look (not `where.exe`, which finds nothing as this sandbox\'s user under a directory whose ancestors it cannot list)';
-    fieldNote = "In your JSON, each candidate has `file`, `line`, `summary` and `detail`; `detail` is the fourth field of the finder output contract, the `failure_scenario` or the `value_statement` your angle asks for. Do not invent an id: the engine assigns one to each candidate you return.";
-    commitSubjectsLimitBytes = 16 * 1024;
-    commitMessagesLimitBytes = 32 * 1024;
-    shownCommitLength = 12;
-    utf8Bytes = (text3) => Buffer.byteLength(text3, "utf8");
-    accountLimits = { title: 80, why: 400, firstSentence: 160 };
-    notesParagraph = "Give each verdict `unconfirmed` and `authorChoice`. A PLAUSIBLE verdict gives in `unconfirmed` what keeps it from CONFIRMED: `kind` `fact` for a condition you could not settle here, or `choice` for a defect that is there with a choice that remains, and in `text` that fact or choice in one sentence; a CONFIRMED or REFUTED verdict gives `unconfirmed` as null. `authorChoice` names in one sentence the choice between two behaviors that the code and its tests leave to the author, or is null when they leave none. An answer that gives a PLAUSIBLE verdict no `unconfirmed`, or another verdict one, is discarded whole and the group is run again.";
-    snapshotIndexPlaceholder = "<index>";
-    claimPathPlaceholder = "<path>";
-    scratchRule = "Write logs and every other temporary file under your scratch directory, never in the repository.";
-    unelevatedSandboxRule = "Your shell runs in Codex's unelevated Windows sandbox, where a Node process cannot start a child whose output it captures: the build, the tests and package scripts (`npm`, `pnpm`, `npx` and what they start) fail there with `EPERM`, so do not spend turns on them. Validate a fix by what does run, such as a direct `node` probe or one test file run in a single process, with the option that keeps the test runner from starting a child for it, as `node --test --test-isolation=none <file>` does; when nothing that runs can show it, record the validation as `limited` with that reason. The engine runs the checks itself after you return.";
-    citingValidationWords = "In each validation entry, cite in `runs`";
-    citingValidationRule = `${citingValidationWords} each shell run the entry rests on, at most four, each with the \`command\` as you ran it, in \`printed\` one to five lines of what it printed that show the result, each copied exactly from its output, and in \`probe\` the path of the file it ran in your scratch directory, or null for a run of anything else; an entry that rests on no run, such as a reading of the source, cites none. Each cited run is looked up in the record of the shell commands you ran, by the lines it printed, and the report says beside the entry which of its runs the record shows and names each it does not. Name a probe's file in the command that runs it, not through a loop or a variable that builds the name, and copy the cited lines in the order the run printed them, since a run is found only by its probe's name and its lines in that order.`;
-    probeRule = "A candidate above whose verifier ran a probe names the probe and where it is frozen. Copy that probe into a directory of its own inside your scratch directory, one for each candidate and named for the candidate's id, keeping the probe's name, so that two candidates' probes of the same name never overwrite each other; run it on the code before your fix and again after it, when it can run here, and cite both runs, with the copy's path in `probe`, in the validation entry whose method they fit, such as `old-code` for a probe that fails before the fix and passes after it.";
-    fileList = (files) => files.length === 0 ? "(none)" : files.map((file2) => `- ${file2}`).join("\n");
-    verdictWords = (candidate) => `${candidate.verdict}${candidate.unverified ? " (unverified)" : ""}`;
-    evidenceWords = (evidence) => evidence ?? "none; the group's verifier failed twice";
-    settledLines = (choices, settled4) => shownChoiceLines(choices, settled4, (text3) => text3, "settled");
-    answeredRule = "A finding marked \"answered by the author\", or whose departure the author rejected or accepted, carries the author's answer, given after the run's report: it takes the place of the default the decision named. Make the tree hold what the author decided: undo the edit the default made where it made one, and make the edit the answer calls for, within the finding's files and whatever else it needs; an accepted departure needs no edit beyond the fix as decided. In the message's `body`, say which question was answered and how.";
-    decidedRule = "Each finding carries what was decided for it before any fixer ran, with the grounds: apply it the way the decision says, and for an ask, apply the default it names; the author answers the question later. Never defer a finding over a choice its decision made: defer only by the criteria of your role prompt, and when the reason is a fact the decision did not see, name that fact in `note`. When applying the decision changes a behavior a test pins, change that test with the fix and say which test and why in `note` and in the message's `body`.";
-    repairTailBytes = 16 * 1024;
-    settleStepMeanings = {
-      intent: "the change's stated intent settles it",
-      contract: "the repository's stated contract settles it",
-      before: "for a behavior the change altered, the behavior before the change, which a fix restores",
-      kept: "for a behavior that was there before the change, keeping it",
-      shape: "for two shapes only a maintainer reading the code would see, with nothing stated, the one the surrounding code already uses, else the one that adds less",
-      scope: "outside the order: the fix keeps to the part of the result inside the change",
-      none: "outside the order: no choice remains, since acting on the finding has one sound way and the verifier's choice is not a real one"
-    };
-    settlementCaseWords = {
-      fix: "`fix` with no `departure`",
-      "fix-departing": "`fix` with a `departure`",
-      intended: "`leave` as `intended`",
-      settled: "`leave` as `settled`",
-      superseded: "`leave` as `superseded`",
-      "outside-change-not-regression": "`leave` as `outside-change-not-regression`",
-      ask: "`ask`"
-    };
-  }
-});
-
-// src/review/explanation.ts
-function recordedAnswerOf(recorded, evidence) {
-  if (recorded.answer === null) return null;
-  const frozen = JSON.parse(evidence.read(recorded.answer).toString("utf8"));
-  if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
-  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
-  const answer3 = recordedAnswerSchema.parse(frozen);
-  return { ...answer3, areas: null, refuted: null, core: null, conditions: null, findings: answer3.findings.map((finding) => finding.unexplained ? finding : { ...finding, checked: null, kind: null }) };
-}
-function frozenAnswer(version2, { conclusion, account, areas, refuted: lines, core, conditions, findings }) {
-  if (version2 === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
-  if (version2 === 2) return { conclusion, areas, refuted: lines, findings };
-  return { conclusion, account, findings: findings.map((finding) => finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest2 }) => rest2)(finding)) };
-}
-function findingsToExplain(review2) {
-  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision.decision]));
-  return rankedFindings(review2).flatMap((entry) => asksToAct(decided.get(entry.finding.id)) ? [entry.finding.id] : []);
-}
-function reportCheckInputOf(review2) {
-  const ids2 = new Set(findingsToExplain(review2));
-  return {
-    major: rankedFindings(review2).filter((entry) => ids2.has(entry.finding.id) && isMajor(entry)).map((entry) => entry.finding.id),
-    asks: (review2.decisions ?? []).filter((decision) => ids2.has(decision.id) && decision.decision === "ask").map((decision) => decision.id),
-    refuted: refuted(review2).map(({ candidate }) => candidate.id)
-  };
-}
-function heldConditions(review2) {
-  const reading = changeReadingOf(review2.change);
-  if (reading === null) return [];
-  const judged2 = { "public-interface": reading.publicInterface, "wide-effect": reading.wideEffect };
-  return changeConditions.flatMap((condition2) => judged2[condition2].holds ? [{ condition: condition2, what: judged2[condition2].what, files: judged2[condition2].files }] : []);
-}
-function lineCountOf(bytes) {
-  let count3 = 0;
-  for (const byte of bytes) if (byte === 10) count3 += 1;
-  return bytes.length > 0 && bytes[bytes.length - 1] !== 10 ? count3 + 1 : count3;
-}
-function gitLineCounts(worktree, scope, paths = {}) {
-  const counts = /* @__PURE__ */ new Map();
-  const read = (commit2, wanted) => {
-    const entries = /* @__PURE__ */ new Map();
-    for (let from = 0; from < wanted.length; ) {
-      let to = from + 1;
-      for (let length = wanted[from].length; to < wanted.length && length + wanted[to].length <= maxPathCharacters; to += 1) length += wanted[to].length;
-      for (const [path, entry] of treeEntries(worktree, commit2, wanted.slice(from, to))) entries.set(path, entry);
-      from = to;
-    }
-    const file2 = (path) => {
-      const entry = entries.get(path);
-      return entry?.mode.startsWith("100") ? entry : void 0;
-    };
-    const blobs = blobsRaw(worktree, wanted.flatMap((path) => file2(path)?.objectId ?? []));
-    for (const path of wanted) {
-      const entry = file2(path);
-      counts.set(`${commit2}:${path}`, entry === void 0 ? null : lineCountOf(blobs.get(entry.objectId)));
-    }
-  };
-  const prefilled = /* @__PURE__ */ new Set();
-  return (side, path) => {
-    const commit2 = side === "head" ? scope.head : scope.base;
-    if (!prefilled.has(side)) {
-      prefilled.add(side);
-      read(commit2, [...new Set(paths[side] ?? [])].filter((given) => repositoryPath2(given) && !counts.has(`${commit2}:${given}`)));
-    }
-    const key = `${commit2}:${path}`;
-    if (!counts.has(key)) read(commit2, [path]);
-    return counts.get(key);
-  };
-}
-function verdictFailures(what, texts) {
-  const found = new Set(texts.flatMap((text3) => [...text3.matchAll(verdictWord)].map((match) => match[1])));
-  return [...found].map((verdict) => `${what} holds the verdict ${verdict}, which the engine writes beside the finding`);
-}
-function labelFailures(what, text3) {
-  const entities = [...text3.matchAll(htmlEntity)].map((match) => match[0]);
-  return [
-    ...entities.map((entity) => `${what} holds the HTML entity ${entity}`),
-    ...text3.replaceAll(htmlEntity, "").includes(";") ? [`${what} holds a semicolon`] : []
-  ];
-}
-function edgeTextAt2(line, at) {
-  edgeTextOpening2.lastIndex = at;
-  const opening = edgeTextOpening2.exec(line);
-  if (opening === null) return null;
-  const start = at + opening[0].length;
-  let end = start;
-  while (end < line.length) {
-    const char = line.charAt(end);
-    if (char === '"' || char === "|") {
-      const close = line.indexOf(char, end + 1);
-      if (close === -1) return null;
-      end = close + 1;
-      continue;
-    }
-    edgeTextClosing2.lastIndex = end;
-    const closing = edgeTextClosing2.exec(line);
-    if (closing !== null) return { start, end, closed: end + closing[0].length };
-    end += 1;
-  }
-  return null;
-}
-function subgraphFailures(rest2, number5) {
-  const quoted2 = /"([^"]*)"/g;
-  const bare = rest2.replaceAll(quoted2, "");
-  return [
-    ...[...rest2.matchAll(quoted2)].flatMap((label) => labelFailures(`the label on line ${String(number5)}`, label[1])),
-    ...bare.includes('"') ? [`line ${String(number5)} opens a label it does not close`] : [],
-    ...labelFailures(`the title of the subgraph on line ${String(number5)}`, bare)
-  ];
-}
-function flowchartLineFailures(line, number5) {
-  if (flowchartStyling.test(line)) return [];
-  const subgraph = /^subgraph\b(.*)$/.exec(line);
-  if (subgraph !== null) return subgraphFailures(subgraph[1], number5);
-  const failures = [];
-  let edge = null;
-  let at = 0;
-  while (at < line.length) {
-    if (edge !== null && at >= edge.end) {
-      at = edge.closed;
-      edge = null;
-      continue;
-    }
-    if (edge === null) {
-      edge = edgeTextAt2(line, at);
-      if (edge !== null) {
-        failures.push(...labelFailures(`the text of an edge on line ${String(number5)}`, line.slice(edge.start, edge.end).replaceAll(/"[^"]*"|\|[^|]*\|/g, '""')));
-        at = edge.start;
-        continue;
-      }
-    }
-    const char = line.charAt(at);
-    if (char === '"' || char === "|") {
-      const close = line.indexOf(char, at + 1);
-      if (close === -1) {
-        failures.push(`line ${String(number5)} opens a label it does not close`);
-        break;
-      }
-      failures.push(...labelFailures(`the label on line ${String(number5)}`, line.slice(at + 1, close)));
-      at = close + 1;
-      continue;
-    }
-    const id = nodeId2.exec(line.slice(at));
-    if (id === null) {
-      at += 1;
-      continue;
-    }
-    at += id[0].length;
-    if (edge !== null) continue;
-    if (line.startsWith("@{", at)) {
-      let close = at + 2;
-      while (close < line.length && line.charAt(close) !== "}") close = line.charAt(close) === '"' ? line.indexOf('"', close + 1) + 1 || line.length : close + 1;
-      if (close === line.length) {
-        failures.push(`line ${String(number5)} opens the shape of node ${id[0]} it does not close`);
-        break;
-      }
-      const body = line.slice(at + 2, close);
-      for (const quoted2 of body.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on line ${String(number5)}`, quoted2[1]));
-      const label = shapeLabel2.exec(body.replaceAll(/"[^"]*"/g, '""'));
-      if (label !== null) failures.push(...labelFailures(`the label of node ${id[0]} on line ${String(number5)}`, label[1]));
-      at = close + 1;
-      continue;
-    }
-    const opening = shapeOpening.exec(line.slice(at));
-    if (opening === null) continue;
-    at += opening[0].length;
-    if (line.charAt(at) !== '"') failures.push(`the label of node ${id[0]} on line ${String(number5)} is not quoted`);
-  }
-  return failures;
-}
-function diagramFailures(diagram) {
-  const lines = diagram.split(/\r\n|\r|\n/);
-  const start = lines.findIndex((line) => !blank(line));
-  const header = start === -1 ? "" : lines[start].trim();
-  const kind = diagramHeaders.find(([, pattern]) => pattern.test(header))?.[0];
-  if (kind === void 0) return [`it starts with ${header === "" ? "nothing" : `"${truncated(header, 80)}"`}, not with flowchart, sequenceDiagram or stateDiagram-v2, the kinds GitHub draws`];
-  const failures = [];
-  let inNote = false;
-  lines.slice(start + 1).forEach((raw, index2) => {
-    const line = raw.trim();
-    const number5 = start + index2 + 2;
-    if (line.includes("%%{")) failures.push(`line ${String(number5)} holds a directive, %%{, which changes how Mermaid draws the diagram`);
-    if (line === "" || line.startsWith("%%")) return;
-    if (kind === "flowchart") {
-      failures.push(...flowchartLineFailures(line, number5));
-      return;
-    }
-    const where = `line ${String(number5)}`;
-    if (inNote) {
-      if (/^end\s+note$/i.test(line)) inNote = false;
-      else failures.push(...labelFailures(`the note on ${where}`, line));
-      return;
-    }
-    if (kind === "stateDiagram-v2" && /^note\s/i.test(line) && !line.includes(":")) {
-      inNote = true;
-      return;
-    }
-    for (const quoted2 of line.matchAll(/"([^"]*)"/g)) failures.push(...labelFailures(`the label on ${where}`, quoted2[1]));
-    const colon = line.indexOf(":");
-    if (colon !== -1) failures.push(...labelFailures(`the text after the colon on ${where}`, line.slice(colon + 1)));
-    const labelled = kind === "sequenceDiagram" && colon === -1 ? sequenceLabelled.exec(line) : null;
-    if (labelled !== null) failures.push(...labelFailures(`the label on ${where}`, labelled[1] ?? labelled[2] ?? ""));
-    const title = kind === "sequenceDiagram" && colon === -1 ? sequenceTitle.exec(line) : null;
-    if (title !== null) failures.push(...labelFailures(`the title on ${where}`, title[1]));
-  });
-  return [...new Set(failures)];
-}
-function linesFailures(what, lines, lineCount) {
-  const { side, path, from, to } = lines;
-  if (!repositoryPath2(path)) return [`${what} cites ${JSON.stringify(path)}, which is not a path from the root of the repository`];
-  if (from < 1 || to < from) return [`${what} cites lines ${String(from)} to ${String(to)} of ${path}, which is no range of lines`];
-  const count3 = lineCount(side, path);
-  if (count3 === null) return [`${what} cites ${path} at ${sideWords[side]}, which holds no such file`];
-  if (to > count3) return [`${what} cites ${path}:${from === to ? String(from) : `${String(from)}-${String(to)}`}, which has ${counted(count3, "line", "lines")} at ${sideWords[side]}`];
-  return [];
-}
-function checkConclusion(conclusion, ids2, version2, asks) {
-  const held = (id) => version2 === 1 || !asks.includes(id);
-  const posted = ids2.filter(held);
-  const named = conclusion.actions.map((action) => action.id);
-  const sentenceFor = (id) => named.filter((name) => name === id).length > 1 ? `the conclusion has more than one sentence for ${id}` : "";
-  const diagram = version2 === 1 ? conclusion.diagram : null;
-  const postedActions = conclusion.actions.filter((action) => held(action.id));
-  return [
-    ...blank(conclusion.why) ? ["the conclusion says no why"] : [],
-    ...[...new Set(named)].filter((id) => !ids2.includes(id)).map((id) => `the conclusion names ${JSON.stringify(id)}, which is no finding of the run that asks a person to act`),
-    ...posted.map(sentenceFor).filter((failure2) => failure2 !== ""),
-    ...posted.filter((id) => !named.includes(id)).map((id) => `the conclusion has no sentence for ${id}`),
-    ...conclusion.actions.filter((action) => posted.includes(action.id) && blank(action.sentence)).map((action) => `the conclusion's sentence for ${action.id} is empty`),
-    ...verdictFailures("the conclusion", [conclusion.why, ...postedActions.map((action) => action.sentence), diagram ?? ""]),
-    ...diagramFailuresOf("the conclusion's diagram", diagram)
-  ];
-}
-function checkAccount(account) {
-  return [
-    ...blank(account.problem.text) ? ["the account says no problem before the change"] : [],
-    ...blank(account.change.text) ? ["the account says nothing of the change"] : [],
-    ...account.terms.filter((term) => blank(term.term) || blank(term.meaning)).map((term) => `the account's term ${JSON.stringify(term.term)} has no ${blank(term.term) ? "name" : "meaning"}`),
-    ...verdictFailures("the account", [account.problem.text, account.problem.diagram ?? "", account.change.text, account.change.diagram ?? "", ...account.terms.flatMap((term) => [term.term, term.meaning])]),
-    ...diagramFailuresOf("the diagram of the problem before the change", account.problem.diagram),
-    ...diagramFailuresOf("the diagram of the change", account.change.diagram)
-  ];
-}
-function checkFinding(id, entries, lineCount, major) {
-  const refused = (failure2) => ({ value: null, failures: [failure2] });
-  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
-  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
-  const { explanation, unexplained } = entries[0];
-  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
-  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
-  if (unexplained !== null) {
-    const failures2 = [...blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : [], ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
-    return { value: { id, unexplained: true, reason: unexplained }, failures: failures2 };
-  }
-  const { title, problem, cases, diagram, decision } = explanation;
-  const checked = "checked" in explanation ? explanation.checked : null;
-  const kind = "kind" in explanation ? explanation.kind : null;
-  const checkedDecision = major === null ? decision : "";
-  const posted = major !== false;
-  const postedCases = posted ? cases : [];
-  const postedChecked = posted ? checked : null;
-  const postedDiagram = posted ? diagram : null;
-  const failures = [
-    ...blank(title) ? [`${id} has no title`] : [],
-    ...blank(problem) ? [`${id} says no problem`] : [],
-    ...major === null && blank(decision) ? [`${id} says nothing of its decision`] : [],
-    ...posted && cases.length === 0 ? [`${id} has no case`] : [],
-    ...postedCases.flatMap((cited, index2) => {
-      const what = `case ${String(index2 + 1)} of ${id}`;
-      return [...blank(cited.sentence) ? [`${what} has no sentence`] : [], ...linesFailures(what, cited.lines, lineCount)];
-    }),
-    ...postedChecked !== null && blank(postedChecked) ? [`${id} says nothing of how its verifier checked it`] : [],
-    ...major === false && kind === null ? [`${id} is a minor finding and has no kind`] : [],
-    ...major === true && kind !== null ? [`${id} is a major finding and has the kind ${kind}, which only a minor finding has`] : [],
-    ...verdictFailures(`the explanation of ${id}`, [title, problem, checkedDecision, postedDiagram ?? "", postedChecked ?? "", ...postedCases.map((cited) => cited.sentence)]),
-    ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram)
-  ];
-  return { value: { id, unexplained: false, title, problem, cases, diagram, decision, checked, kind }, failures };
-}
-function idCoverage(named, expected) {
-  const counts = /* @__PURE__ */ new Map();
-  for (const id of named) counts.set(id, (counts.get(id) ?? 0) + 1);
-  return {
-    missing: expected.filter((id) => !counts.has(id)),
-    repeated: expected.flatMap((id) => {
-      const count3 = counts.get(id) ?? 0;
-      return count3 > 1 ? [[id, count3]] : [];
-    }),
-    stray: [...counts.keys()].filter((id) => !expected.includes(id))
-  };
-}
-function checkAreas(areas, ids2, major) {
-  const { missing, repeated, stray } = idCoverage(areas.flatMap((area) => area.findings), major);
-  return [
-    ...missing.map((id) => `the areas leave out ${id}, a major finding that asks a person to act`),
-    ...repeated.map(([id, count3]) => `${id} is in ${String(count3)} areas, and a finding is in one`),
-    ...stray.map((id) => ids2.includes(id) ? `the areas name ${id}, a minor finding, which no area holds` : `the areas name ${JSON.stringify(id)}, which is no major finding of the run that asks a person to act`),
-    ...areas.flatMap((area, index2) => {
-      const what = `area ${String(index2 + 1)}`;
-      return [
-        ...blank(area.title) ? [`${what} has no title`] : [],
-        ...blank(area.intro) ? [`${what} has no intro`] : [],
-        ...area.findings.length === 0 ? [`${what} names no finding`] : [],
-        ...verdictFailures(what, [area.title, area.intro, area.diagram ?? ""]),
-        ...diagramFailuresOf(`the diagram of ${what}`, area.diagram)
-      ];
-    })
-  ];
-}
-function checkRefuted(lines, refutedIds) {
-  const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), refutedIds);
-  return [
-    ...missing.map((id) => `the refuted lines have no line for ${id}`),
-    ...repeated.map(([id, count3]) => `the refuted lines have ${String(count3)} lines for ${id}, and a candidate has one`),
-    ...stray.map((id) => `the refuted lines name ${JSON.stringify(id)}, which is no refuted candidate of the run`),
-    ...lines.filter((line) => refutedIds.includes(line.id)).flatMap((line) => [
-      ...blank(line.claim) ? [`the refuted line for ${line.id} says no claim`] : [],
-      ...blank(line.why) ? [`the refuted line for ${line.id} says not why it was refuted`] : [],
-      ...verdictFailures(`the refuted line for ${line.id}`, [line.claim, line.why])
-    ])
-  ];
-}
-function resolveCommitSource(source, commits) {
-  if (!commitPrefix.test(source)) return { kind: "not-a-commit" };
-  const prefix = source.toLowerCase();
-  const begun = commits.filter((commit2) => commit2.startsWith(prefix));
-  if (begun.length === 0) return { kind: "none" };
-  return begun.length === 1 ? { kind: "one", commit: begun[0] } : { kind: "many", count: begun.length };
-}
-function sourceFailure(source, input2) {
-  if (input2.files.includes(source)) return null;
-  const named = JSON.stringify(source);
-  const resolved = resolveCommitSource(source, input2.commits ?? []);
-  if (resolved.kind === "not-a-commit") return `the core's reason names ${named}, which is neither a file the change adds, edits or removes nor a commit of the change named by 7 to 64 characters of its id`;
-  if (input2.commits === null) return `the core's reason names ${named}, a commit, and the engine could not read the commits of the change to check it; name the files of the change that state the reason instead`;
-  if (resolved.kind === "none") return `the core's reason names ${named}, which begins no commit of the change`;
-  if (resolved.kind === "many") return `the core's reason names ${named}, which begins ${String(resolved.count)} commits of the change; name the commit by more characters of its id`;
-  return null;
-}
-function checkCore(core, input2) {
-  const texts = [core.title, core.what, core.why ?? "", core.diagram ?? ""];
-  return [
-    ...blank(core.title) ? ["the core has no title"] : [],
-    ...blank(core.what) ? ["the core says nothing of what the change does"] : [],
-    ...core.why !== null && blank(core.why) ? ["the core's reason is empty; give null when the change states no reason"] : [],
-    ...core.why === null && core.whyFrom.length > 0 ? ["the core gives no reason and names where the reason comes from"] : [],
-    ...core.why !== null && !blank(core.why) && core.whyFrom.length === 0 ? ["the core gives a reason and names no commit or file it comes from"] : [],
-    ...core.whyFrom.flatMap((source) => sourceFailure(source, input2) ?? []),
-    ...verdictFailures("the core", texts),
-    ...idsIn(texts.join("\n"), input2.candidates).map((id) => `the core names ${id}, an id of this review; the core is about the change as submitted, and names no finding or candidate`),
-    ...diagramFailuresOf("the core's diagram", core.diagram)
-  ];
-}
-function checkConditions(conditions, held) {
-  const { missing, repeated, stray } = idCoverage(conditions.map((entry) => entry.condition), held.map((entry) => entry.condition));
-  return [
-    ...stray.map((condition2) => `the conditions give ${condition2}, which the triage did not judge to hold`),
-    ...repeated.map(([condition2, count3]) => `the conditions give ${condition2} ${String(count3)} times, and a condition has one entry`),
-    ...missing.map((condition2) => `the conditions give no entry for ${condition2}, which the triage judged to hold`),
-    ...conditions.flatMap((entry) => {
-      const { condition: condition2, explanation, unexplained } = entry;
-      if (explanation === null && unexplained === null) return [`the entry for ${condition2} has neither an explanation nor what the code shows instead`];
-      if (explanation !== null && unexplained !== null) return [`the entry for ${condition2} has both an explanation and what the code shows instead`];
-      const text3 = explanation ?? unexplained ?? "";
-      return [...blank(text3) ? [`the entry for ${condition2} is empty`] : [], ...verdictFailures(`the entry for ${condition2}`, [text3])];
-    })
-  ];
-}
-function checkAnswer(output2, input2) {
-  const entries = new Map(input2.ids.map((id) => [id, []]));
-  const strays = [];
-  for (const entry of output2.findings) {
-    const of = entries.get(entry.id);
-    if (of === void 0) strays.push(entry.id);
-    else of.push(entry);
-  }
-  const conclusion = { value: output2.conclusion, failures: checkConclusion(output2.conclusion, input2.ids, "account" in output2 ? 1 : 2, input2.report?.asks ?? []) };
-  if ("account" in output2) {
-    return { conclusion, account: { value: output2.account, failures: checkAccount(output2.account) }, areas: null, refuted: null, core: null, conditions: null, findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, null)])), strays };
-  }
-  if (input2.report === void 0) throw new Error("An answer in the form of the review that reads as a report is checked against the major findings and the refuted candidates of its run");
-  const { major, refuted: refutedIds } = input2.report;
-  const cored = "core" in output2 ? output2 : null;
-  if (cored !== null && input2.core === void 0) throw new Error("An answer with the core of the change is checked against the commits, the files and the candidates of its run and the conditions its triage judged");
-  return {
-    conclusion,
-    account: null,
-    areas: { value: output2.areas, failures: checkAreas(output2.areas, input2.ids, major) },
-    refuted: { value: output2.refuted, failures: checkRefuted(output2.refuted, refutedIds) },
-    core: cored === null ? null : { value: cored.core, failures: checkCore(cored.core, input2.core) },
-    conditions: cored === null ? null : { value: cored.conditions, failures: checkConditions(cored.conditions, input2.core.held) },
-    findings: new Map(input2.ids.map((id) => [id, checkFinding(id, entries.get(id), input2.lineCount, major.includes(id))])),
-    strays
-  };
-}
-function recordedFailures(failures, extra) {
-  const all = [...failures, ...extra];
-  return (all.length === 0 ? ["no answer of the writer gave it"] : all).slice(0, maxPartFailures).map((failure2) => truncated(failure2, recordedTextLengthV1));
-}
-function mergeAnswers(version2, answers, ids2, extra = []) {
-  const dropped = [];
-  const passes = (part) => part !== null && part.value !== null && part.failures.length === 0;
-  const pick2 = (parts, drop) => {
-    const given = parts.filter((part) => part !== null);
-    const passed = given.find(passes);
-    if (passed !== void 0) return passed.value;
-    dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
-    return null;
-  };
-  const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
-  const areasFrom = version2 === 1 ? void 0 : paired ?? answers.find((answer3) => passes(answer3.areas));
-  const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
-  const conclusion = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
-  const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
-  const areas = version2 === 1 ? null : pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures }));
-  const lines = version2 === 1 ? null : pick2(answers.map((answer3) => answer3.refuted), (failures) => ({ part: "refuted", failures }));
-  const core = version2 === 3 ? pick2(answers.map((answer3) => answer3.core), (failures) => ({ part: "core", failures })) : null;
-  const conditions = version2 === 3 ? pick2(answers.map((answer3) => answer3.conditions), (failures) => ({ part: "conditions", failures })) : null;
-  const findings = ids2.flatMap((id) => {
-    const kept = pick2(answers.map((answer3) => answer3.findings.get(id)), (failures) => ({ part: "finding", finding: id, failures }));
-    return kept === null ? [] : [kept];
-  });
-  return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
-}
-function explanationRecord(version2, workerId, merged, evidence) {
-  const answer3 = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version2, merged.answer))}
-`) : null;
-  const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
-  if (version2 === 3) return { kind: "explanation.recorded", version: 3, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV3), unexplained } };
-  if (version2 === 2) return { kind: "explanation.recorded", version: 2, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV2), unexplained } };
-  return { kind: "explanation.recorded", version: 1, payload: { workerId, answer: answer3, dropped: merged.dropped.filter(isPartV1), unexplained } };
-}
-function requireReview2(state) {
-  if (state.review === null || !state.review.explanationStep) throw new Error(`Run ${state.id} does not explain its review`);
-  return state.review;
-}
-function earlierAnswers(state, review2, evidence) {
-  const schema = writerOutputSchemaFor(review2);
-  return writerFailures(review2).flatMap((failure2) => {
-    const worker = Object.hasOwn(state.workers, failure2.workerId) ? state.workers[failure2.workerId] : void 0;
-    if (worker?.status !== "finished" || worker.finish.output === null) return [];
-    const parsed2 = schema.safeParse(JSON.parse(evidence.read(worker.finish.output).toString("utf8")));
-    return parsed2.success ? [parsed2.data] : [];
-  });
-}
-function checkedAnswers(state, review2, context, ids2, latest) {
-  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const answers = [...earlierAnswers(state, review2, context.evidence), ...latest === null ? [] : [latest]];
-  const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
-  const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
-  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
-  const version2 = explanationVersionOf(review2);
-  const report2 = version2 === 1 ? {} : { report: reportCheckInputOf(review2) };
-  const core = version2 === 3 && answers.length > 0 ? { core: coreCheckInputOf(review2, state.scope, context.worktree) } : {};
-  return answers.map((answer3) => checkAnswer(answer3, { ids: ids2, lineCount, ...report2, ...core }));
-}
-function coreCheckInputOf(review2, scope, worktree) {
-  const commits = commitIdsOrNull(worktree, scope.base, scope.head);
-  return { commits, files: scope.files.map((file2) => file2.path), candidates: Object.keys(review2.candidates), held: heldConditions(review2) };
-}
-function droppedWords(dropped) {
-  return dropped.map((part) => `${partNameOf(part)}: ${part.failures.join("; ")}`).join(". ");
-}
-function writerContribution(state, receipt, context) {
-  const review2 = requireReview2(state);
-  const ids2 = findingsToExplain(review2);
-  const answers = checkedAnswers(state, review2, context, ids2, receipt.output);
-  const strays = answers.at(-1).strays;
-  if (strays.length > 0) context.log(`the answer explains ${strays.join(", ")}, which ${strays.length === 1 ? "is no finding" : "are no findings"} of the run that asks a person to act; not kept`);
-  const version2 = explanationVersionOf(review2);
-  const merged = mergeAnswers(version2, answers, ids2);
-  if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review2))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
-  return explanationRecord(version2, receipt.workerId, merged, context.evidence);
-}
-function droppedExplanation(state, context, reason) {
-  const review2 = requireReview2(state);
-  const ids2 = findingsToExplain(review2);
-  const merged = mergeAnswers(explanationVersionOf(review2), checkedAnswers(state, review2, context, ids2, null), ids2, [reason]);
-  return explanationRecord(explanationVersionOf(review2), null, merged, context.evidence);
-}
-function reviewLanguage(review2) {
-  const values = review2.configuration.settings?.values;
-  return values !== void 0 && "review.language" in values ? values["review.language"] : defaultLanguage;
-}
+// src/review/writer-task.ts
 function languageWords(tag) {
   try {
     const name = new Intl.DisplayNames(["en"], { type: "language" }).of(tag);
@@ -38054,118 +38177,22 @@ function writerTask(state, input2) {
     version2 === 1 ? "Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null." : version2 === 2 ? "Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them." : "Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them."
   ].join("\n");
 }
-var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, explanationShape, explanationShapeV2, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, isMajor, repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, writerUnit, writerFailures, idList2, conditionWords2;
-var init_explanation = __esm({
-  "src/review/explanation.ts"() {
+var idList2, conditionWords2;
+var init_writer_task = __esm({
+  "src/review/writer-task.ts"() {
     "use strict";
-    init_zod();
-    init_events();
     init_review_fold();
-    init_settings();
-    init_git();
     init_brief();
-    init_errors7();
-    init_finding_names();
+    init_explanation_checks();
+    init_explanation();
     init_markdown();
     init_prompts();
     init_public_text();
-    init_schemas3();
     init_state();
-    init_steps();
     init_tasks();
     init_vocabulary();
-    writerOutputShape = writerOutputSchema.shape;
-    writerOutputShapeV2 = writerOutputSchemaV2.shape;
-    writerOutputShapeV3 = writerOutputSchemaV3.shape;
-    explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
-    explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
-    explainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShape });
-    explainedFindingSchemaV2 = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(false), ...explanationShapeV2 });
-    unexplainedFindingSchema = external_exports.strictObject({ id: external_exports.string(), unexplained: external_exports.literal(true), reason: external_exports.string() });
-    recordedAnswerSchema = external_exports.strictObject({
-      conclusion: writerOutputShape.conclusion.nullable(),
-      account: writerOutputShape.account.nullable(),
-      findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchema, unexplainedFindingSchema]))
-    });
-    recordedAnswerSchemaV2 = external_exports.strictObject({
-      conclusion: writerOutputShapeV2.conclusion.nullable(),
-      areas: writerOutputShapeV2.areas.nullable(),
-      refuted: writerOutputShapeV2.refuted.nullable(),
-      findings: external_exports.array(external_exports.discriminatedUnion("unexplained", [explainedFindingSchemaV2, unexplainedFindingSchema]))
-    });
-    recordedAnswerSchemaV3 = external_exports.strictObject({
-      ...recordedAnswerSchemaV2.shape,
-      core: writerOutputShapeV3.core.nullable(),
-      conditions: writerOutputShapeV3.conditions.nullable()
-    });
-    isMajor = (entry) => entry.finding.severity !== "minor";
-    repositoryPath2 = (path) => path !== "" && !path.includes("\\") && !path.includes("\0") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
-    maxPathCharacters = 8e3;
-    verdictWord = new RegExp(`\\b(${verdicts.join("|")})\\b`, "g");
-    blank = (text3) => text3.trim() === "";
-    htmlEntity = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g;
-    diagramHeaders = [
-      ["flowchart", /^flowchart(?:\s+(?:TB|TD|BT|RL|LR))?\s*$/],
-      ["sequenceDiagram", /^sequenceDiagram\s*$/],
-      ["stateDiagram-v2", /^stateDiagram-v2\s*$/]
-    ];
-    flowchartStyling = /^(?:style|classDef|class|linkStyle|click)\b/;
-    shapeOpening = /^(?:\(\(\(|\[\[|\[\(|\(\[|\(\(|\{\{|\[\/|\[\\|[[({>])/;
-    nodeId2 = /^[\p{L}\p{N}_]+/u;
-    edgeTextOpening2 = /(?<![-=.<])<?(?:(?:--|==)(?![-=.>xo])|-\.(?![-=.>]))/y;
-    edgeTextClosing2 = /(?:-{2,}|={2,}|\.-+)[>ox]?/y;
-    shapeLabel2 = /(?:^|[\s,])label\s*:\s*([^,]*)/;
-    sequenceLabelled = /^(?:loop|alt|else|opt|par|and|critical|option|break|box)\s+(.+)$|^(?:participant|actor)\s+\S+\s+as\s+(.+)$/;
-    sequenceTitle = /^title\s+(.+)$/;
-    diagramFailuresOf = (what, diagram) => diagram === null ? [] : diagramFailures(diagram).map((failure2) => `${what} is no diagram GitHub draws: ${failure2}`);
-    sideWords = { head: "the head", base: "the merge base" };
-    commitPrefix = /^[0-9a-f]{7,64}$/i;
-    maxPartFailures = 100;
-    keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.core !== null || answer3.conditions !== null || answer3.findings.length > 0;
-    partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
-    isPartV1 = (part) => part.part === "conclusion" || part.part === "account" || part.part === "finding";
-    isPartV2 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding";
-    isPartV3 = (part) => part.part === "conclusion" || part.part === "areas" || part.part === "refuted" || part.part === "finding" || part.part === "core" || part.part === "conditions";
-    writerUnit = (review2) => review2.units.explanation[singleUnitKey("explanation")];
-    writerFailures = (review2) => writerUnit(review2)?.failures ?? [];
     idList2 = (ids2) => ids2.join(", ");
     conditionWords2 = { "public-interface": "a change to a public interface", "wide-effect": "an effect on many files beyond the ones the change changes" };
-  }
-});
-
-// src/review/continue-command.ts
-function scopeFlags(scope) {
-  const { request } = scope;
-  const paths = request.paths.flatMap((path) => flagWords("--path", path));
-  if (scope.pullRequest !== null) return [...flagWords("--pr", scope.pullRequest.url), ...paths];
-  switch (scope.mode) {
-    case "last-commit":
-      return ["--last-commit", ...paths];
-    case "worktree":
-      return ["--worktree", ...paths];
-    case "ref":
-      return [...flagWords("--ref", request.ref), ...paths];
-    case "range":
-      return [...flagWords("--from", request.range.from), ...flagWords("--to", request.range.to), ...request.range.mergeBase ? ["--merge-base"] : [], ...paths];
-  }
-}
-function continueCommand(run2, engineEntry, rolesRoot, spendUsd) {
-  if (run2.scope === null || run2.review === null) throw new Error("A run continues only with its scope and its configuration");
-  const args = ["review", "--repo", terminalQuoted(run2.worktree), "--runtime", run2.review.configuration.runtime, ...scopeFlags(run2.scope), "--fix", "--budget-usd", String(budgetAbove(spendUsd)), ...rolesRoot === null ? [] : ["--roles", terminalQuoted(rolesRoot)]];
-  return `node ${terminalQuoted(engineEntry)} ${args.join(" ")}`;
-}
-var word, flagWords, rolesPlaceholder, namedRoles, budgetAbove;
-var init_continue_command = __esm({
-  "src/review/continue-command.ts"() {
-    "use strict";
-    init_engine();
-    init_paths();
-    init_shell();
-    word = (text3) => /^[A-Za-z0-9._/][A-Za-z0-9._/:@~=+-]*$/.test(text3) && !/[=:]~/.test(text3) ? text3 : terminalQuoted(text3);
-    flagWords = (flag, value) => value.startsWith("-") ? [word(`${flag}=${value}`)] : [flag, word(value)];
-    rolesPlaceholder = "<roles>";
-    namedRoles = (rolesRoot) => sameDirectory(rolesRoot, engineRolesRoot()) ? null : rolesRoot;
-    budgetAbove = (spendUsd) => Math.floor(spendUsd) + 1;
   }
 });
 
@@ -38750,6 +38777,7 @@ var init_phases = __esm({
     init_steps();
     init_tasks();
     init_vocabulary();
+    init_writer_task();
   }
 });
 
@@ -41042,7 +41070,7 @@ var init_executable = __esm({
   }
 });
 
-// src/review/pull-request-form.ts
+// src/review/pull-request-view.ts
 function diffStateOf(file2, line) {
   if (file2 === void 0) return "not-in-the-pull-request";
   const lines = newLinesOf(file2.patch);
@@ -41062,6 +41090,127 @@ function placeFindings(review2, files) {
     return { finding: finding.id, place: "body", reason: diff === "no-patch" ? "no-patch" : "outside-the-diff", location, diff };
   });
 }
+function followingOf(words, fixPass, pullRequest) {
+  if (fixPass === "continued") return words.continued;
+  const fix = codeSpan(`deep-review review --pr ${String(pullRequest)} --fix`);
+  return {
+    reviewed: words.reviewed,
+    summaryNext: (counts) => words.summaryNext(counts, fix),
+    departureStands: words.departureStands,
+    departure: (rule, source, fact, accept, reject) => words.departure(rule, source, fact, accept, reject, fix),
+    standing: words.standing,
+    answerQuestion: (command) => words.answerQuestion(command, fix),
+    howDiagram: words.howDiagram,
+    noCheck: words.noCheck
+  };
+}
+function explainedOf(recorded, answer3, id) {
+  if (recorded === null) return { kind: "none" };
+  if (recorded.dropped.some((part) => part.part === "finding" && part.finding === id)) return { kind: "unexplained", reason: null };
+  const given = answer3?.findings.find((finding) => finding.id === id);
+  if (given === void 0) return { kind: "unexplained", reason: null };
+  return given.unexplained ? { kind: "unexplained", reason: given.reason } : { kind: "explained", value: given };
+}
+function reviewCountsOf(review2) {
+  const candidates = Object.values(review2.candidates);
+  const ranked2 = rankedFindings(review2);
+  const major = ranked2.filter((entry) => entry.finding.severity !== "minor");
+  const majorConfirmed = major.filter((entry) => entry.resolution.verdict === "CONFIRMED");
+  const bases = Object.fromEntries(verdictBases.map((basis) => [basis, ranked2.filter((entry) => entry.resolution.basis === basis).length]));
+  return {
+    candidates: candidates.length,
+    groups: candidates.filter((candidate) => candidate.duplicateOf === null).length,
+    refuted: refuted(review2).length,
+    kept: mergeRankInput(review2).length,
+    merged: ranked2.reduce((sum, entry) => sum + entry.members.length, 0),
+    findings: ranked2.length,
+    major: major.length,
+    critical: ranked2.filter((entry) => entry.finding.severity === "critical").length,
+    minor: ranked2.length - major.length,
+    confirmed: ranked2.filter((entry) => entry.resolution.verdict === "CONFIRMED").length,
+    plausible: ranked2.filter((entry) => entry.resolution.verdict === "PLAUSIBLE").length,
+    unverified: ranked2.filter((entry) => entry.resolution.unverified).length,
+    majorConfirmed: majorConfirmed.length,
+    majorConfirmedRan: majorConfirmed.filter((entry) => entry.resolution.basis === "ran").length,
+    bases,
+    noBasis: ranked2.filter((entry) => entry.resolution.basis === null).length
+  };
+}
+function formViewOf(input2) {
+  const { state } = input2;
+  const review2 = state.review;
+  const scope = state.scope;
+  if (review2 === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
+  const brief = briefOf(state);
+  const words = pullRequestWords(reviewLanguage(review2));
+  const writerCore = input2.answer?.core ?? null;
+  const core = writerCore !== null ? { kind: "writer", core: writerCore } : brief.change.state === "given" ? { kind: "triage", title: brief.title, change: brief.change } : { kind: "none", state: brief.change.state };
+  const placements = new Map(input2.places.map((placement) => [placement.finding, placement]));
+  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
+  const entries = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
+  const recorded = state.explanation;
+  const conclusion = input2.answer?.conclusion ?? null;
+  const findings = brief.findings.map((finding) => {
+    const placement = placements.get(finding.id);
+    if (placement === void 0) throw new Error(`Finding ${finding.id} of run ${state.id} has no place`);
+    const entry = entries.get(finding.id);
+    const explained = explainedOf(recorded, input2.answer, finding.id);
+    return {
+      finding,
+      entry,
+      decision: decided.get(finding.id) ?? null,
+      placement,
+      explained,
+      question: brief.questions.find((question) => question.id === finding.id) ?? null,
+      departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
+      action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
+      checked: explained.kind === "explained" ? explained.value.checked : null,
+      kind: explained.kind === "explained" ? explained.value.kind : null,
+      unconfirmed: entry.resolution.unconfirmed,
+      choices: entry.choices
+    };
+  });
+  return {
+    state,
+    review: review2,
+    scope,
+    pullRequest: scope.pullRequest,
+    brief,
+    words,
+    core,
+    conditions: input2.answer?.conditions ?? null,
+    following: followingOf(words, input2.fixPass, scope.pullRequest.number),
+    findings,
+    areas: input2.answer?.areas ?? null,
+    refuted: refuted(review2).map(({ candidate }) => {
+      const line = input2.answer?.refuted?.find((given) => given.id === candidate.id);
+      return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
+    }),
+    counts: reviewCountsOf(review2),
+    conclusion: conclusion === null ? null : { why: conclusion.why },
+    recorded,
+    names: new Map([
+      ...refuted(review2).map(({ candidate }) => [candidate.id, { kind: "refuted" }]),
+      ...[...brief.numbers].map(([id, number5]) => [id, { kind: "finding", number: number5 }])
+    ]),
+    input: input2
+  };
+}
+var init_pull_request_view = __esm({
+  "src/review/pull-request-view.ts"() {
+    "use strict";
+    init_review_fold();
+    init_pull_request();
+    init_brief();
+    init_explanation();
+    init_markdown();
+    init_pull_request_words();
+    init_state();
+    init_vocabulary();
+  }
+});
+
+// src/review/pull-request-form.ts
 function formRefusalWords(refusal) {
   const what = refusal.text.kind === "body" ? "the body of the review, after every cut," : `the comment of ${refusal.text.finding} on ${refusal.text.path}:${String(refusal.text.line)}`;
   const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(", ");
@@ -41116,20 +41265,6 @@ function sourceLink(view, source, say) {
   }
   const resolved = resolveCommitSource(source, view.input.commits ?? []);
   return resolved.kind === "one" ? `[${codeSpan(shortCommit(resolved.commit))}](${commitUrl(view.pullRequest, resolved.commit)})` : say.code(source);
-}
-function followingOf(words, fixPass, pullRequest) {
-  if (fixPass === "continued") return words.continued;
-  const fix = codeSpan(`deep-review review --pr ${String(pullRequest)} --fix`);
-  return {
-    reviewed: words.reviewed,
-    summaryNext: (counts) => words.summaryNext(counts, fix),
-    departureStands: words.departureStands,
-    departure: (rule, source, fact, accept, reject) => words.departure(rule, source, fact, accept, reject, fix),
-    standing: words.standing,
-    answerQuestion: (command) => words.answerQuestion(command, fix),
-    howDiagram: words.howDiagram,
-    noCheck: words.noCheck
-  };
 }
 function diffNote(view, placement) {
   const { words } = view;
@@ -41524,98 +41659,6 @@ function cutApplies(view, cut) {
       return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
   }
 }
-function explainedOf(recorded, answer3, id) {
-  if (recorded === null) return { kind: "none" };
-  if (recorded.dropped.some((part) => part.part === "finding" && part.finding === id)) return { kind: "unexplained", reason: null };
-  const given = answer3?.findings.find((finding) => finding.id === id);
-  if (given === void 0) return { kind: "unexplained", reason: null };
-  return given.unexplained ? { kind: "unexplained", reason: given.reason } : { kind: "explained", value: given };
-}
-function reviewCountsOf(review2) {
-  const candidates = Object.values(review2.candidates);
-  const ranked2 = rankedFindings(review2);
-  const major = ranked2.filter((entry) => entry.finding.severity !== "minor");
-  const majorConfirmed = major.filter((entry) => entry.resolution.verdict === "CONFIRMED");
-  const bases = Object.fromEntries(verdictBases.map((basis) => [basis, ranked2.filter((entry) => entry.resolution.basis === basis).length]));
-  return {
-    candidates: candidates.length,
-    groups: candidates.filter((candidate) => candidate.duplicateOf === null).length,
-    refuted: refuted(review2).length,
-    kept: mergeRankInput(review2).length,
-    merged: ranked2.reduce((sum, entry) => sum + entry.members.length, 0),
-    findings: ranked2.length,
-    major: major.length,
-    critical: ranked2.filter((entry) => entry.finding.severity === "critical").length,
-    minor: ranked2.length - major.length,
-    confirmed: ranked2.filter((entry) => entry.resolution.verdict === "CONFIRMED").length,
-    plausible: ranked2.filter((entry) => entry.resolution.verdict === "PLAUSIBLE").length,
-    unverified: ranked2.filter((entry) => entry.resolution.unverified).length,
-    majorConfirmed: majorConfirmed.length,
-    majorConfirmedRan: majorConfirmed.filter((entry) => entry.resolution.basis === "ran").length,
-    bases,
-    noBasis: ranked2.filter((entry) => entry.resolution.basis === null).length
-  };
-}
-function formViewOf(input2) {
-  const { state } = input2;
-  const review2 = state.review;
-  const scope = state.scope;
-  if (review2 === null || scope === null || scope.pullRequest === null) throw new Error(`Run ${state.id} reviewed no pull request`);
-  const brief = briefOf(state);
-  const words = pullRequestWords(reviewLanguage(review2));
-  const writerCore = input2.answer?.core ?? null;
-  const core = writerCore !== null ? { kind: "writer", core: writerCore } : brief.change.state === "given" ? { kind: "triage", title: brief.title, change: brief.change } : { kind: "none", state: brief.change.state };
-  const placements = new Map(input2.places.map((placement) => [placement.finding, placement]));
-  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
-  const entries = new Map(rankedFindings(review2).map((entry) => [entry.finding.id, entry]));
-  const recorded = state.explanation;
-  const conclusion = input2.answer?.conclusion ?? null;
-  const findings = brief.findings.map((finding) => {
-    const placement = placements.get(finding.id);
-    if (placement === void 0) throw new Error(`Finding ${finding.id} of run ${state.id} has no place`);
-    const entry = entries.get(finding.id);
-    const explained = explainedOf(recorded, input2.answer, finding.id);
-    return {
-      finding,
-      entry,
-      decision: decided.get(finding.id) ?? null,
-      placement,
-      explained,
-      question: brief.questions.find((question) => question.id === finding.id) ?? null,
-      departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
-      action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
-      checked: explained.kind === "explained" ? explained.value.checked : null,
-      kind: explained.kind === "explained" ? explained.value.kind : null,
-      unconfirmed: entry.resolution.unconfirmed,
-      choices: entry.choices
-    };
-  });
-  return {
-    state,
-    review: review2,
-    scope,
-    pullRequest: scope.pullRequest,
-    brief,
-    words,
-    core,
-    conditions: input2.answer?.conditions ?? null,
-    following: followingOf(words, input2.fixPass, scope.pullRequest.number),
-    findings,
-    areas: input2.answer?.areas ?? null,
-    refuted: refuted(review2).map(({ candidate }) => {
-      const line = input2.answer?.refuted?.find((given) => given.id === candidate.id);
-      return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
-    }),
-    counts: reviewCountsOf(review2),
-    conclusion: conclusion === null ? null : { why: conclusion.why },
-    recorded,
-    names: new Map([
-      ...refuted(review2).map(({ candidate }) => [candidate.id, { kind: "refuted" }]),
-      ...[...brief.numbers].map(([id, number5]) => [id, { kind: "finding", number: number5 }])
-    ]),
-    input: input2
-  };
-}
 function pullRequestForm(input2) {
   const view = formViewOf(input2);
   const comments = [];
@@ -41652,16 +41695,15 @@ var init_pull_request_form = __esm({
     "use strict";
     init_answer_state();
     init_review_fold();
-    init_pull_request();
     init_brief();
-    init_explanation();
+    init_explanation_checks();
     init_finding_names();
     init_markdown();
     init_markers();
     init_needs();
     init_prompts();
     init_public_text();
-    init_pull_request_words();
+    init_pull_request_view();
     init_runs();
     init_state();
     init_vocabulary();
@@ -42016,6 +42058,7 @@ var init_publish = __esm({
     init_markers();
     init_public_text();
     init_pull_request_form();
+    init_pull_request_view();
     init_report_choice();
     init_runs();
     init_state();
