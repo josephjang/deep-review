@@ -364,8 +364,143 @@ export const writerOutputSchemaV3 = z.strictObject({
 });
 export type WriterOutputV3 = z.infer<typeof writerOutputSchemaV3>;
 
-/** The schema of each version of the writer's answer, by the version of `explanation.recorded` that records it. */
-const writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3 } as const satisfies Record<ExplanationVersion, z.ZodType>;
+/**
+ * The versions of the writer's answer the engine checks, merges and asks
+ * for: those of `explanation.recorded`, and version 4, which no run is
+ * configured for yet and the replay of the writer asks for (PD9, OQ1 of
+ * the review in the writer's words).
+ */
+export type WriterVersion = ExplanationVersion | 4;
+
+/**
+ * The most characters of any text of an answer of version 4, a bound that
+ * only a runaway answer meets (TD7 of the review in the writer's words).
+ * The bound of each text is a check of its part (`writerBoundsV4`), so a
+ * text over it fails that part alone, and the retry is told which.
+ */
+export const writerOuterBoundV4 = 20_000;
+
+/**
+ * The bound of each text of an answer of version 4, in characters, which
+ * `checkAnswer` holds each text to as a check of its part (TD7 of the
+ * review in the writer's words). The bounds are a limit that keeps one
+ * text from filling the page, not a target (TD8).
+ */
+export const writerBoundsV4 = {
+  coreTitle: 200,
+  coreWhat: 4000,
+  coreWhy: 2000,
+  source: 200,
+  diagram: 8000,
+  condition: 1000,
+  summary: 1500,
+  areaTitle: 200,
+  areaIntro: 600,
+  id: 200,
+  title: 400,
+  problem: 2000,
+  caseSentence: 800,
+  path: 1000,
+  checked: 400,
+  action: 400,
+  unconfirmed: 600,
+  fixText: 2000,
+  departure: 800,
+  question: 800,
+  means: 400,
+  cost: 400,
+  rule: 400,
+  recommendation: 600,
+  unexplained: 1000,
+  leftTitle: 200,
+  leftWhy: 600,
+  refutedClaim: 300,
+  refutedWhy: 300,
+  notExamined: 1500,
+} as const;
+
+/** A text of an answer of version 4: the schema holds it to the outer bound alone, and `checkAnswer` holds it to its own bound and an empty one to its part. */
+const writerTextV4 = z.string().max(writerOuterBoundV4);
+/** A diagram of an answer of version 4, its Mermaid text without a fence, or null where the flow is short to say. */
+const writerDiagramV4 = writerTextV4.nullable();
+
+/**
+ * The fix of a finding decided `fix`, in the writer's words (R2 of the
+ * review in the writer's words): what the fix changes, each choice the
+ * decision settles and what settled it; and, for a fix against a written
+ * rule, the rule in plain words, the fact against it and what the fix does
+ * instead, null for any other fix.
+ */
+const writerFixSchemaV4 = z.strictObject({ text: writerTextV4, departure: writerTextV4.nullable() });
+
+/**
+ * The question of a finding decided `ask`, in the writer's words (R3 of
+ * the review in the writer's words): what is asked and why the repository
+ * does not answer it; each option by its number from 1, as the answer
+ * numbers it, with what it means, what it costs and the rule a convention
+ * source would state if the author chose it; and why deep-review
+ * recommends its option.
+ */
+const writerAskSchemaV4 = z.strictObject({
+  question: writerTextV4,
+  options: z.array(z.strictObject({ number: z.number().int(), means: writerTextV4, cost: writerTextV4, rule: writerTextV4 })).max(4),
+  recommendation: writerTextV4,
+});
+
+/**
+ * What the writer returns in a run whose review the writer writes (R2,
+ * R3, TD2, TD7 of the review in the writer's words): the core of the
+ * change and the conditions, as in version 3; `summary`, which says what
+ * the review found and what deep-review decided, in place of the
+ * conclusion; the areas, as before; for each finding that acts, its
+ * explanation, which keeps the title, the problem, the cases, the
+ * diagram, how its verifier checked it and its kind, drops the decision
+ * of version 1, and gains `action`, one sentence of what deep-review
+ * would do or, for a question, what it asks and recommends; `unconfirmed`,
+ * why a PLAUSIBLE verdict is not confirmed, or null; and exactly one of
+ * `fix` and `ask`, the other null; `left`, a title and a reason for each
+ * finding left as is; the refuted lines, as before; and `notExamined`,
+ * what the review did not examine and what that means for a reader. Every
+ * text is held to `writerOuterBoundV4` here and to its own bound by
+ * `checkAnswer`, part by part.
+ */
+export const writerOutputSchemaV4 = z.strictObject({
+  core: z.strictObject({ title: writerTextV4, what: writerTextV4, why: writerTextV4.nullable(), whyFrom: z.array(writerTextV4).max(20), diagram: writerDiagramV4 }),
+  conditions: z.array(z.strictObject({ condition: z.enum(changeConditions), explanation: writerTextV4.nullable(), unexplained: writerTextV4.nullable() })).max(changeConditions.length),
+  summary: writerTextV4,
+  areas: z.array(z.strictObject({ title: writerTextV4, intro: writerTextV4, diagram: writerDiagramV4, findings: z.array(writerTextV4).max(200) })).max(12),
+  findings: z.array(z.strictObject({
+    id: writerTextV4,
+    explanation: z.strictObject({
+      title: writerTextV4,
+      problem: writerTextV4,
+      cases: z.array(z.strictObject({
+        sentence: writerTextV4,
+        lines: z.strictObject({ side: z.enum(citedSides), path: writerTextV4, from: z.number().int(), to: z.number().int() }),
+      })).max(12),
+      diagram: writerDiagramV4,
+      checked: writerTextV4,
+      kind: z.enum(findingKinds).nullable(),
+      action: writerTextV4,
+      unconfirmed: writerTextV4.nullable(),
+      fix: writerFixSchemaV4.nullable(),
+      ask: writerAskSchemaV4.nullable(),
+    }).nullable(),
+    unexplained: writerTextV4.nullable(),
+  })).max(200),
+  left: z.array(z.strictObject({ id: writerTextV4, title: writerTextV4, why: writerTextV4 })).max(200),
+  refuted: z.array(z.strictObject({ id: writerTextV4, claim: writerTextV4, why: writerTextV4 })).max(200),
+  notExamined: writerTextV4,
+});
+export type WriterOutputV4 = z.infer<typeof writerOutputSchemaV4>;
+
+/** The schema of each version of the writer's answer, by the version of `explanation.recorded` that records it, and version 4, which no run asks for yet. */
+const writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3, 4: writerOutputSchemaV4 } as const satisfies Record<WriterVersion, z.ZodType>;
+
+/** The schema of the writer's answer at `version`, as the replay of the writer asks for one (PD9, OQ1 of the review in the writer's words). */
+export function writerOutputSchemaOf<V extends WriterVersion>(version: V): (typeof writerOutputSchemas)[V] {
+  return writerOutputSchemas[version];
+}
 
 /** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: the schema of the version `explanationVersionOf` gives, 3 in a run whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
 export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm'>): (typeof writerOutputSchemas)[ExplanationVersion] {
