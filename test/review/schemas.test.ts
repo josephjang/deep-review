@@ -29,6 +29,9 @@ import {
   writerOutputSchemaFor,
   writerOutputSchemaV2,
   writerOutputSchemaV3,
+  writerOutputSchemaOf,
+  writerOuterBoundV4,
+  writerOutputSchemaV4,
   type DeciderOutput,
 } from '../../src/review/schemas.ts';
 import { finderAngles, maxRecordedTextLength, reviewRoles } from '../../src/review/vocabulary.ts';
@@ -65,6 +68,19 @@ describe('the output schemas', () => {
       assert.equal(explanationVersionOf(review), version, JSON.stringify(review));
       assert.equal(writerOutputSchemaFor(review), schema, JSON.stringify(review));
     }
+  });
+
+  it('gives the answer of version 4 by its version alone, compiles it for both runtimes, and bounds its texts only against a runaway answer (TD7 of the review in the writer\'s words)', () => {
+    assert.equal(writerOutputSchemaOf(4), writerOutputSchemaV4);
+    assert.equal(writerOutputSchemaOf(3), writerOutputSchemaV3);
+    const compiled = compileOutputSchema(writerOutputSchemaV4);
+    assert.equal(compiled.json.type, 'object');
+    assert.equal(compiled.json.additionalProperties, false);
+    const finding = { id: 'RIPPLE-1', explanation: { title: 't', problem: 'p', cases: [], diagram: null, checked: 'c', kind: null, action: 'a', unconfirmed: null, fix: { text: 'x'.repeat(5000), departure: null }, ask: null }, unexplained: null };
+    const answer = { core: { title: 't', what: 'w', why: null, whyFrom: [], diagram: null }, conditions: [], summary: 's', areas: [], findings: [finding], left: [], refuted: [], notExamined: 'n' };
+    assert.ok(writerOutputSchemaV4.safeParse(answer).success, 'a text over its own bound still parses, so its part alone fails');
+    assert.ok(!writerOutputSchemaV4.safeParse({ ...answer, summary: 'x'.repeat(writerOuterBoundV4 + 1) }).success, 'a runaway text fails the schema');
+    assert.ok(!writerOutputSchemaV4.safeParse({ ...answer, conclusion: { why: 's', actions: [], diagram: null } }).success, 'version 4 has no conclusion');
   });
 
   it('gives every finder one schema, the triage its own, and the sweep one with an angle per candidate', () => {
