@@ -4,7 +4,7 @@
  * R3, R5, R8, TD3, TD6 of the core of the change on the pull request):
  * what the engine can count in an answer, part by part, against what the
  * run holds it to. `explanation.ts` merges the checked answers and
- * records them, and the writer's task tells the next writer what failed.
+ * records them, and `writer-task.ts` tells the next writer what failed.
  */
 import type { ScopeState } from '../checkpoint/events.ts';
 import { changeReadingOf, type ExplanationVersion, type ReviewState } from '../checkpoint/review-fold.ts';

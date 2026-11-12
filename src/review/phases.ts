@@ -24,7 +24,7 @@ import { settleClaims, type ClaimsAccess } from './claim-events.ts';
 import { leftDocumentsOf } from './documents.ts';
 import { StructuralCheckError, structuralCheckPrefix } from './errors.ts';
 import { writtenVersion } from './event-versions.ts';
-import { writerContribution, writerTask, type ExplanationEvent } from './explanation.ts';
+import { writerContribution, type ExplanationEvent } from './explanation.ts';
 import { attemptRevisionEvents, comparesWithBase, fixAnswerEvents, type AnswerContext, type RevisionContext } from './fix-events.ts';
 import { unitLabel } from './labels.ts';
 import { normalizeLocations, worktreeLookup } from './locations.ts';
@@ -64,6 +64,7 @@ import type { PlannedBatch } from './fixes.ts';
 import { fixPlanOf, truncated, type Unit } from './steps.ts';
 import { deciderTask, deduplicationTask, describeLocation, documentationTask, finderTask, fixerTask, mergeRankTask, repairTailBytes, repairTask, surveyTask, sweepTask, triageTask, verifierTask, type AnsweredFinding, type BaselineFailure, type ChangeMessages, type DeciderTaskFinding, type DocumentationTaskDecided, type DocumentationTaskFix, type FixerDecision, type FixerTaskEarlier, type FixerTaskFinding, type RepairTaskBase, type RepairTaskCheck, type TaskCandidate } from './tasks.ts';
 import { candidateIdPrefix, documentationUnitKey, finderAngles, isEditingPhase, maxRecordedTextLength, repairUnitKey, singleUnitKey, type Angle, type AttemptFault, type CandidatePhase, type EditingPhase, type FinderAngle, type VerificationPhase } from './vocabulary.ts';
+import { writerTask } from './writer-task.ts';
 
 /**
  * Where a fixes-phase unit claims files (R1, R2 of commit series
