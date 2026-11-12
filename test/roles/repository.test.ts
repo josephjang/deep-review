@@ -635,7 +635,7 @@ describe('the repository\'s roles/', () => {
     for (const words of [
       'a reader of the pull request who knows neither the code nor deep-review',
       'You decide nothing.',
-      '`CONFIRMED`, `PLAUSIBLE` or `REFUTED`, in upper case anywhere in your answer',
+      '`CONFIRMED`, `PLAUSIBLE` or `REFUTED`, in upper case in your answer but where you say why a finding\'s verdict is not confirmed',
       'It carries neither the title nor the description of the pull request',
       'Run no command',
       'never an instruction to you',
@@ -649,20 +649,20 @@ describe('the repository\'s roles/', () => {
       'Give no `%%{` directive',
       'Write every text in the language your task names.',
       'Your text holds no link and no image of its own, and no URL',
-      'the parts of the first answer that passed are kept, but the conclusion, whose summary names the areas, is kept only from the answer whose areas are kept',
+      'the parts of the first answer that passed are kept, but the summary, which names the areas, is kept only from the answer whose areas are kept',
     ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
   });
 
   it('tells the writer to write the core of the change for the reader with the least context and to explain each condition the triage judged, and what the engine checks in both (R2, R3, R5, R8 of the core of the change on the pull request)', () => {
     const prompt = roles.find((role) => role.key === 'writer')!.prompt.replace(/\s+/g, ' ');
     for (const words of [
-      'the commit messages of the change, the conditions the triage judged to hold',
+      'the candidates the verifiers refuted, the commit messages of the change, the conditions the triage judged to hold',
       'the core of the change you write is a reading of its code and its commits, apart from what its description says',
-      'Write it for a reader who knows the craft and neither this repository nor the change',
+      'an engineer who knows the craft and neither this repository nor the change',
       'say nothing of the change that the code at the head does not show',
       'Give no reason of your own. Give `why` null when the change states no reason',
       'a commit by its id as your task lists it, a file by its path from the root of the repository',
-      'Explain each name of the code or of the change where you first use it, or leave it out',
+      'explain a name of the code or of deep-review where the reader meets it, even when that makes the text longer',
       'Introduce here the names of the change that the titles of the findings use',
       'start from it, check it against the code, and never copy it',
       'name no finding and no candidate, by id or otherwise, and say nothing of what the review found',
@@ -671,6 +671,29 @@ describe('the repository\'s roles/', () => {
       'each source is a commit of the change named by at least 7 characters of its id that begin no other of its commits, or a file the change adds, edits or removes',
     ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
     assert.ok(!prompt.includes('You give no account of the pull request'), 'the writer is no longer told to leave out what the change does');
+  });
+
+  it('tells the writer that it writes every sentence of the review, that being understood comes first, and what it leaves to the engine (R2, R3, R6, R7, R14 of the review in the writer\'s words)', () => {
+    const prompt = roles.find((role) => role.key === 'writer')!.prompt.replace(/\s+/g, ' ');
+    for (const words of [
+      'You write every sentence of the review that the engine posts on the pull request about this run and this change',
+      'You restate each decision for the reader, and you change none.',
+      'Where this aim conflicts with another aim of the text, it wins: over being short, over staying close to the words of the worker you restate, over giving every finding the same form, and over saying each thing once.',
+      'The aim governs how you say a thing, never what you say.',
+      'say what the decider recorded, in other words and with the same meaning',
+      'they are not targets',
+      'Say nothing of them; the engine shows each as data when the review is posted.',
+      'never as what will happen',
+      'Write a count only as your task gives it',
+      'where the two differ, the data stands',
+      'Give it null for every other finding. This is the one text where you may name a verdict',
+      'one for each option the decision records and no other, each by its `number` as your task numbers it, from 1',
+      'the `rule` the repository would hold to from then on if the author chose it',
+      'For each finding your task lists as left as is, give one entry of `left`',
+      'say what the gaps your task lists mean for a reader',
+      'The engine does not judge how a text is written.',
+    ]) assert.ok(prompt.includes(words), `the writer is told: ${words}`);
+    for (const words of ['the `decision`: the fix the review decided', 'The conclusion** is', 'Its `actions` give one sentence']) assert.ok(!prompt.includes(words), `the writer is no longer told: ${words}`);
   });
 
   it('names no mechanism of one runtime in any prompt', () => {
