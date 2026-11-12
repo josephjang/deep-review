@@ -95,7 +95,7 @@ describe('replayWriter', { timeout: 600_000 }, () => {
 
     const facts = JSON.parse(read(output, writerFactsFileName)) as WriterFacts;
     assert.deepEqual(outcome.facts, facts);
-    assert.deepEqual([facts.version, facts.outcome, facts.error, facts.findings], [4, 'completed', null, { explained: 2, left: 1, ranked: 3 }]);
+    assert.deepEqual([facts.version, facts.language, facts.outcome, facts.error, facts.findings], [4, 'en', 'completed', null, { explained: 2, left: 1, ranked: 3 }]);
     assert.equal(facts.answerBytes, Buffer.byteLength(JSON.stringify(answer), 'utf8'));
     assert.equal(facts.answerCharacters, textCharacters(answer));
     assert.deepEqual(facts.failed, [{ part: 'not-examined', failures: ['what the review did not examine is empty'] }]);
@@ -109,6 +109,14 @@ describe('replayWriter', { timeout: 600_000 }, () => {
     assert.equal(own.facts, null);
     assert.match(read(output, writerPromptFileName), /Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\./);
     await assert.rejects(replay({ output: newDirectory('older'), version: 2 }), (error: unknown) => error instanceof ReplayRefusedError && /configured for the writer's answer of version 3/.test(error.message));
+  });
+
+  it('asks the writer for the language given rather than the run\'s', async () => {
+    const output = newDirectory('language');
+    await replay({ output, language: 'ko', printTask: true });
+    const prompt = read(output, writerPromptFileName);
+    assert.match(prompt, /^Write every text of your answer in the language `ko` \(Korean\)\.$/m);
+    assert.doesNotMatch(prompt, /in the language `en`/);
   });
 
   it('counts the characters of every text of an answer, and no key', () => {

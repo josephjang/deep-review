@@ -39,6 +39,8 @@ export interface WriterTaskInput {
   readonly commitMessages?: ChangeMessages | null;
   /** The version of the answer to ask for: the one the run was configured with when absent; the replay of the writer gives 4, which no run is configured for yet (PD9, OQ1 of the review in the writer's words). */
   readonly version?: WriterVersion;
+  /** The language the writer writes in: the run's when absent; the replay of the writer may give another, to measure the answer in that language (OQ1 of the review in the writer's words). */
+  readonly language?: string;
 }
 
 /** A text fenced so nothing in it can end its fence, as the task embeds what the brief and a cited run printed. */
@@ -315,7 +317,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   const core = cored ? coreAsks(review, input.commitMessages!, clean) : [];
   const refutedCandidates = refuted(review);
   return [
-    `Write every text of your answer in the language ${languageWords(reviewLanguage(review))}.`,
+    `Write every text of your answer in the language ${languageWords(input.language ?? reviewLanguage(review))}.`,
     '',
     ...(version === 4 ? writtenAsks(ids, left) : [
       ids.length === 0
