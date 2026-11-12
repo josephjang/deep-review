@@ -6,7 +6,7 @@ import { after, describe, it } from 'node:test';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { checkAnswerV4, type AnswerCheckInput, type AnswerCheckInputV4, type CheckedAnswerV4, type DecisionFacts } from '../../src/review/explanation-checks.ts';
 import { decisionFactsOf, findingsLeftAsIs, mergeAnswersV4 } from '../../src/review/explanation.ts';
-import { writerBoundsV4, type WriterOutputV4 } from '../../src/review/schemas.ts';
+import type { WriterOutputV4 } from '../../src/review/schemas.ts';
 import type { ChangeMessages } from '../../src/review/tasks.ts';
 import { writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
 import { askDecision, decidedOf, decisions, departure, mergeRanked, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest, worker, type History } from '../helpers/review-history.ts';
@@ -206,16 +206,13 @@ describe('the checks of the writer\'s answer of version 4', () => {
     assert.deepEqual(failing(blankWhy), { left: ['the entry for MINOR-1 left as is says not why deep-review leaves it'] });
   });
 
-  it('fails a text over its bound in its own part alone, and tells the retry which text and by how much', () => {
+  it('holds no text to a length: a text far over the size its guide gives passes', () => {
     const long = withExplanation('RIPPLE-1', (explained) => {
-      explained.fix!.text = 'x'.repeat(writerBoundsV4.fixText + 7);
+      explained.fix!.text = 'x'.repeat(50_000);
     });
-    assert.deepEqual(failing(long), { 'finding RIPPLE-1': [`the fix of RIPPLE-1 is ${String(writerBoundsV4.fixText + 7)} characters, over its bound of ${String(writerBoundsV4.fixText)} by 7; say it in fewer words`] });
-    const summary = { ...goodAnswer(), summary: 'y'.repeat(writerBoundsV4.summary + 1) };
-    assert.deepEqual(Object.keys(failing(summary)), ['conclusion']);
-    const leftTitle = goodAnswer();
-    leftTitle.left[0]!.title = 'z'.repeat(writerBoundsV4.leftTitle + 1);
-    assert.deepEqual(Object.keys(failing(leftTitle)), ['left']);
+    long.summary = 'y'.repeat(50_000);
+    long.left[0]!.title = 'z'.repeat(50_000);
+    assert.deepEqual(failing(long), {});
   });
 
   it('keeps the checks of version 3 for the parts it keeps: the core names no id of the run, and the areas hold each major finding', () => {
