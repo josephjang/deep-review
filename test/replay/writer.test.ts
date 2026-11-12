@@ -81,6 +81,7 @@ describe('replayWriter', { timeout: 600_000 }, () => {
     assert.match(prompt, /^Role: writer\nUnit: explanation\nPhase: explanation$/m);
     assert.match(prompt, /^Explain these 2 findings, each by its id, with an entry of `findings`: SCAN-1, SCAN-2\.$/m);
     assert.match(prompt, /^Give one entry of `left` for each of these 1 finding left as is, by its id, and for no other: SWEEP-1\.$/m);
+    assert.match(prompt, /^Say in `unconfirmed` why each of these 2 findings is not CONFIRMED, as its verifier recorded, and give it null for every other: SCAN-1, SCAN-2\. /m);
     assert.match(prompt, /Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined` as your role prompt defines them\./);
     assert.ok(!existsSync(join(output, replayCheckpointDirectoryName)), 'nothing was launched');
     assert.deepEqual(readFileSync(join(box.checkpoint.root, ledgerFileName)), ledgerBefore, 'the recorded ledger is only read');

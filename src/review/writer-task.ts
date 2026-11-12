@@ -11,7 +11,7 @@ import { changeReadingOf, explanationVersionOf, type CandidateState, type Review
 import type { EvidenceStore } from '../evidence/store.ts';
 import { briefMarkdown, briefOf, passNames, type GapFacts } from './brief.ts';
 import { heldConditions, type ReportCheckInput } from './explanation-checks.ts';
-import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, isMajor, mergeAnswers, mergeAnswersV4, partNameOf, reportCheckInputOf, requireReview, reviewLanguage, type WriterDroppedPart } from './explanation.ts';
+import { checkedAnswers, checkedAnswersV4, decisionFactsOf, findingsLeftAsIs, findingsToExplain, isMajor, mergeAnswers, mergeAnswersV4, partNameOf, reportCheckInputOf, requireReview, reviewLanguage, type WriterDroppedPart } from './explanation.ts';
 import { counted, findingWords, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
@@ -218,9 +218,13 @@ function reportAsks(ids: readonly string[], report: ReportCheckInput): string[] 
 /**
  * What an answer of version 4 is asked first (R2, PD10 of the review in
  * the writer's words): the findings to explain, each with an entry of
- * `findings`, and the findings left as is, each with an entry of `left`.
+ * `findings`; the findings left as is, each with an entry of `left`; and
+ * the findings explained whose PLAUSIBLE verdict records why it is not
+ * confirmed, each with its `unconfirmed`, which the checks give exactly
+ * those and which a run recorded before verdicts said why cannot show
+ * otherwise, since its evidence may say it in free text.
  */
-function writtenAsks(ids: readonly string[], left: readonly string[]): string[] {
+function writtenAsks(ids: readonly string[], left: readonly string[], unconfirmed: readonly string[]): string[] {
   return [
     ids.length === 0
       ? 'No finding of this review asks a person to act, so you explain none: give no area and no entry in `findings`.'
@@ -229,6 +233,10 @@ function writtenAsks(ids: readonly string[], left: readonly string[]): string[] 
     left.length === 0
       ? 'No finding of this review is left as is, so give `left` empty.'
       : `Give one entry of \`left\` for each of these ${counted(left.length, 'finding', 'findings')} left as is, by its id, and for no other: ${idList(left)}.`,
+    '',
+    unconfirmed.length === 0
+      ? 'No finding you explain has a PLAUSIBLE verdict whose verifier said why it is not CONFIRMED, so give every `unconfirmed` null.'
+      : `Say in \`unconfirmed\` why each of these ${counted(unconfirmed.length, 'finding', 'findings')} is not CONFIRMED, as its verifier recorded, and give it null for every other: ${idList(unconfirmed)}. A finding whose evidence says it is not CONFIRMED and that is not listed here recorded no line of why, so its verdict is shown with no text of yours.`,
   ];
 }
 
@@ -319,7 +327,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   return [
     `Write every text of your answer in the language ${languageWords(input.language ?? reviewLanguage(review))}.`,
     '',
-    ...(version === 4 ? writtenAsks(ids, left) : [
+    ...(version === 4 ? writtenAsks(ids, left, ids.filter((id) => decisionFactsOf(review).get(id)?.unconfirmed === true)) : [
       ids.length === 0
         ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version === 1 ? 'the account' : 'no area'}, and no entry in \`findings\`.`
         : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
