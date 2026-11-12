@@ -373,14 +373,6 @@ export type WriterOutputV3 = z.infer<typeof writerOutputSchemaV3>;
 export type WriterVersion = ExplanationVersion | 4;
 
 /**
- * The most characters of any text of an answer of version 4, a bound that
- * only a runaway answer meets (TD7 of the review in the writer's words).
- * The bound of each text is a check of its part (`writerBoundsV4`), so a
- * text over it fails that part alone, and the retry is told which.
- */
-export const writerOuterBoundV4 = 20_000;
-
-/**
  * The bound of each text of an answer of version 4, in characters, which
  * `checkAnswer` holds each text to as a check of its part (TD7 of the
  * review in the writer's words). The bounds are a limit that keeps one
@@ -419,8 +411,14 @@ export const writerBoundsV4 = {
   notExamined: 1500,
 } as const;
 
-/** A text of an answer of version 4: the schema holds it to the outer bound alone, and `checkAnswer` holds it to its own bound and an empty one to its part. */
-const writerTextV4 = z.string().max(writerOuterBoundV4);
+/**
+ * A text of an answer of version 4, held to no length: a bound in the
+ * schema would reject the whole answer for one text, and a text is not
+ * understood by being short alone (TD7 of the review in the writer's
+ * words). `checkAnswer` holds it to its own bound and an empty one to its
+ * part; a runaway answer is ended by the writer's budget and timeout.
+ */
+const writerTextV4 = z.string();
 /** A diagram of an answer of version 4, its Mermaid text without a fence, or null where the flow is short to say. */
 const writerDiagramV4 = writerTextV4.nullable();
 
@@ -461,8 +459,8 @@ const writerAskSchemaV4 = z.strictObject({
  * `fix` and `ask`, the other null; `left`, a title and a reason for each
  * finding left as is; the refuted lines, as before; and `notExamined`,
  * what the review did not examine and what that means for a reader. Every
- * text is held to `writerOuterBoundV4` here and to its own bound by
- * `checkAnswer`, part by part.
+ * text is held to no length here, and to its own bound by `checkAnswer`,
+ * part by part.
  */
 export const writerOutputSchemaV4 = z.strictObject({
   core: z.strictObject({ title: writerTextV4, what: writerTextV4, why: writerTextV4.nullable(), whyFrom: z.array(writerTextV4).max(20), diagram: writerDiagramV4 }),
