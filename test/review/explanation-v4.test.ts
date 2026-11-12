@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { checkAnswerV4, type AnswerCheckInput, type AnswerCheckInputV4, type CheckedAnswerV4, type DecisionFacts } from '../../src/review/explanation-checks.ts';
+import { decisionFactsOf, findingsLeftAsIs, mergeAnswersV4 } from '../../src/review/explanation.ts';
 import { writerBoundsV4, type WriterOutputV4 } from '../../src/review/schemas.ts';
+import { askDecision, decidedOf, decisions, departure, mergeRanked, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest } from '../helpers/review-history.ts';
 
 // The checks of the writer's answer of version 4 (R2, R3, PD11, TD2, TD7, TD8 of the review in the writer's words).
 
@@ -218,5 +220,66 @@ describe('the checks of the writer\'s answer of version 4', () => {
       core: ['the core names RIPPLE-1, an id of this review; the core is about the change as submitted, and names no finding or candidate'],
       areas: ['the areas leave out SWEEP-1, a major finding that asks a person to act'],
     });
+  });
+});
+
+describe('what the run holds an answer of version 4 to', () => {
+  const decidedRun = (decided: readonly unknown[]) => withCoreForm(withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked(), decided), null))))).fold().review!;
+
+  it('gives each finding to explain its decision as decided, with its departure, the count of its options and whether its verdict records why it is not confirmed', () => {
+    const review = decidedRun([{ ...decisions[0], departure }, askDecision('SWEEP-1', true)]);
+    assert.deepEqual([...decisionFactsOf(review)], [
+      ['RIPPLE-1', { decision: 'fix', departs: true, options: 0, unconfirmed: false }],
+      ['SWEEP-1', { decision: 'ask', departs: false, options: 2, unconfirmed: false }],
+    ], 'SWEEP-1 is PLAUSIBLE with no verifier, so nothing records why it is not confirmed');
+    assert.deepEqual(findingsLeftAsIs(review), []);
+  });
+
+  it('gives the findings left as is, and no decision facts for them', () => {
+    const review = decidedRun(decisions);
+    assert.deepEqual(findingsLeftAsIs(review), ['SWEEP-1']);
+    assert.deepEqual([...decisionFactsOf(review).keys()], ['RIPPLE-1']);
+  });
+});
+
+describe('the merge of the answers of version 4 (TD2 of the review in the writer\'s words)', () => {
+  const ids = ['RIPPLE-1', 'SWEEP-1'];
+
+  it('keeps a finding from the first answer that passed it and `left` from the second, and drops what no answer passed', () => {
+    const first = goodAnswer();
+    first.left = [];
+    first.notExamined = '';
+    const second = withExplanation('RIPPLE-1', (explained) => {
+      explained.action = '';
+    });
+    second.notExamined = '';
+    const merged = mergeAnswersV4([checkAnswerV4(first, input()), checkAnswerV4(second, input())], ids);
+    const ripple = merged.answer.findings.find((finding) => finding.id === 'RIPPLE-1');
+    assert.ok(ripple !== undefined && !ripple.unexplained);
+    assert.equal(ripple.action, goodAnswer().findings[0]!.explanation!.action, 'from the first answer, which passed it');
+    assert.deepEqual(merged.answer.left, second.left, 'from the second answer, since the first left MINOR-1 out');
+    assert.equal(merged.answer.notExamined, null);
+    assert.deepEqual(merged.dropped, [{ part: 'not-examined', failures: ['what the review did not examine is empty'] }]);
+  });
+
+  it('takes the summary only with the areas it names, from the first answer that passed both', () => {
+    const noAreas = goodAnswer();
+    noAreas.areas = [];
+    noAreas.summary = 'The first summary.';
+    const both = goodAnswer();
+    both.summary = 'The second summary.';
+    const merged = mergeAnswersV4([checkAnswerV4(noAreas, input()), checkAnswerV4(both, input())], ids);
+    assert.equal(merged.answer.summary, 'The second summary.');
+    assert.deepEqual(merged.answer.areas, both.areas);
+    assert.deepEqual(merged.dropped, []);
+  });
+
+  it('drops a finding alone when its text of the decision fails in every answer, with the failures of the latest', () => {
+    const bad = withExplanation('SWEEP-1', (explained) => {
+      explained.ask = null;
+    });
+    const merged = mergeAnswersV4([checkAnswerV4(bad, input())], ids, ['the writer ran out of time']);
+    assert.deepEqual(merged.answer.findings.map((finding) => finding.id), ['RIPPLE-1']);
+    assert.deepEqual(merged.dropped, [{ part: 'finding', finding: 'SWEEP-1', failures: ['SWEEP-1 is decided ask and gives no question', 'the writer ran out of time'] }]);
   });
 });
