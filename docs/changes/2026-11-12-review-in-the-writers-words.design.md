@@ -233,4 +233,33 @@ The gate runs as R13 of the requirements says, and the Verification section reco
 
 ## Verification
 
-No checks have run yet.
+The work is in progress. This section records each unit as it lands, and is complete when the series is.
+
+### The measure of OQ1
+
+The replay of the writer (`npm run replay-writer`, commit "feat(replay): Replay the writer of a recorded run at the version given") ran once with a real writer, on Claude Opus at effort high with the budget of 8 USD and the timeout of 30 minutes that the run's own writer had. The answer of version 4 fits one call with room to spare, so PD9 stands and no second unit of the explanation is added.
+
+The run measured is not the one OQ1 names. The Korean run that #115 describes records its decisions in the shape of the first gate of the settled choice (`decisions.recorded@2` with `settled` as an object), which this engine refuses to fold, and so do the other runs of that gate. The run measured is the largest run on record that this engine folds: the read-only review of #96, with 30 ranked findings, 29 to explain (27 fixes, 2 of them against a written rule, and 2 questions) and 1 left as is, 12 refuted candidates and 10 major findings. It was reviewed in English, so the replay asked its writer to write in Korean (commit "feat(replay): Ask the replayed writer for a language other than the run's"): the writer read English evidence and decisions and wrote Korean, which is the language of the worst case but not a run recorded in Korean. The author keeps the recorded run outside the repository.
+
+| | Recorded writer, version 1, English | Replayed writer, version 4, Korean |
+|---|---|---|
+| Prompt | not recorded | 227,081 bytes |
+| Answer | 47,269 bytes | 106,642 bytes, 51,237 characters of text |
+| Time | 297 s | 713 s, 40% of the timeout |
+| Cost | 2.00 USD | 3.17 USD, 40% of the budget |
+
+Every part but 13 findings passed the checks: the core, the conditions, the summary with its 4 areas, 16 of the 29 findings, the finding left as is, the 12 refuted lines and what the review did not examine. No explanation was given as unexplained, and every text was within its bound; the longest against its bound were the core's `what` (2,100 of 4,000 characters), a condition (547 of 1,000) and the summary (710 of 1,500), so the bounds of the design stand. The 13 findings that failed each gave an `unconfirmed` text to a PLAUSIBLE verdict that recorded no line of why: the run predates the verdicts that record why, its evidence says "Not CONFIRMED" in free text, and the task named nowhere which findings take the text. The task now names them (commit "fix(review): Name the findings whose verdict says why it is unconfirmed"). A run configured for version 4 records each PLAUSIBLE verdict with why, so this failure is one of older runs; the measure was not run again after the fix.
+
+### Changes of the proposal during the work
+
+The facts of a gap moved ahead of the form. "Where the code goes" puts the facts of a gap in `src/review/brief.ts` after the ledger, with the form. The task of version 4 lists each gap as its facts for the writer's `notExamined`, so the facts came first, in the commit "refactor(review): Give each gap of the brief as its facts before its words", which leaves the brief's text as it was.
+
+The checks of version 4 are a function of their own. `checkAnswerV4` in `src/review/explanation-checks.ts` checks an answer of version 4, beside `checkAnswer`, which checks versions 1 to 3 as before. The parts of version 4 differ from those of version 3 (the summary apart from the areas, a decision's text for each finding, `left` and `notExamined`), and one function for both would branch in every part on the version while the older versions must be checked exactly as recorded runs were. The two share every rule: the diagrams, the lines of a case, the ids, the verdict words and the sources of the core.
+
+Every text of version 4 is bounded by a check of its part, the texts kept from version 3 among them. TD7 is written for the new texts. The core, the areas and the refuted lines are bounded by their checks too, with the bounds of version 3, since a bound left in the schema would still fail the whole answer for one long text, which TD7 removes.
+
+Two types stood in for the ledger's until the ledger had version 4: `WriterVersion` in `src/review/schemas.ts` and `WriterDroppedPart` in `src/review/explanation.ts`, since the version of an explanation and the dropped part are shapes of recorded events, which change only by a new version of the event.
+
+Each unit that is pushed ends with a commit that rebuilds `dist/`, so `npm run verify` passes at each pushed head, as AGENTS.md asks; the design rebuilds it once, at the end of the series.
+
+The replay of the writer takes a language. The design's replay asks the writer in the run's language; it also takes `--language`, for the measure above, and records the language in its facts.
