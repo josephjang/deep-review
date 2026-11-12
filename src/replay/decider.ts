@@ -36,7 +36,8 @@ import { pinnedRole, readPolicy, resolvePolicy, type ResolvedPolicy } from '../r
 import { composeWorkerPrompt, scopeBlock } from '../review/prompts.ts';
 import { machineContextOf } from '../review/public-text.ts';
 import { dryRunLines } from '../review/publish.ts';
-import { formRefusalWords, placeFindings, pullRequestForm } from '../review/pull-request-form.ts';
+import { formRefusalWords, pullRequestForm } from '../review/pull-request-form.ts';
+import { placeFindings } from '../review/pull-request-view.ts';
 import { checkDecisions, deciderOutputSchema, type DeciderOutput } from '../review/schemas.ts';
 import { settledWorkers, spendOf } from '../review/spend.ts';
 import { rankedFindings, type ReportFinding } from '../review/state.ts';

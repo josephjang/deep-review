@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
-import { placeFindings, pullRequestForm, type FormRefusal, type PullRequestForm, type PullRequestFormInput } from '../../src/review/pull-request-form.ts';
+import { pullRequestForm, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { placeFindings, type PullRequestFormInput } from '../../src/review/pull-request-view.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
 import { answerableDecisions, candidate, decisions, changeReading, explanation, History, pullRequestScope, readOnlyReported, settingsBlockV2, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from './review-history.ts';
 
