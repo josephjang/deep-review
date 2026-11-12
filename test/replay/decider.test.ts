@@ -1,23 +1,21 @@
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, readFileSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { Checkpoint, evidenceDirectoryName } from '../../src/checkpoint/checkpoint.ts';
 import { InvalidHistoryError } from '../../src/checkpoint/errors.ts';
 import { Ledger, ledgerFileName, type EventRow } from '../../src/checkpoint/ledger.ts';
-import type { Gh } from '../../src/github/gh.ts';
 import type { ScopeFile } from '../../src/checkpoint/events.ts';
 import { newLinesOf } from '../../src/github/pull-request.ts';
 import { answerFileName, decisionsFileName, factsFileName, newPathOfPatchPart, patchFiles, promptFileName, readRecordedRun, replayDecider, reviewFileName, type DeciderReplayOptions, type DeciderReplayOutcome } from '../../src/replay/decider.ts';
 import { ReplayRefusedError } from '../../src/replay/errors.ts';
 import { replayCheckpointDirectoryName } from '../../src/replay/run.ts';
-import { resolvePullRequestScope, type ScopeSource } from '../../src/review/controller.ts';
 import { diffNameStatus, diffPatch } from '../../src/scope/git.ts';
-import { fakeGh, writeFakeGhScript } from '../helpers/fake-gh.ts';
 import { deciderAnswer, type Script } from '../helpers/fake-runtime.ts';
 import { reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { baseEnvironment, fakeClaude } from '../helpers/launcher.ts';
 import { commitAll, git, remove, repositoryWith, temporaryDirectory, write } from '../helpers/repository.ts';
+import { pullRequestGh, pullRequestSource } from '../helpers/replay-pull-request.ts';
 import { reportText, ReviewSandbox } from '../helpers/review-sandbox.ts';
 
 /** The choice the verifier of SWEEP-1 leaves to the author. */
@@ -32,30 +30,6 @@ const recordedScript: Script = {
   ...reviewScript,
   'verifier:sweep-verification:g1': { output: { verdicts: [{ index: 0, verdict: 'PLAUSIBLE', evidence: 'other() has one caller', basis: 'traced', runs: [], unconfirmed: { kind: 'choice', text: 'whether other() stays a function is a choice of shape' }, authorChoice: sweepChoice }] } },
 };
-
-/** What `gh` answers for pull request #42 of the sandbox, whose change is its last commit. */
-function pullRequestGh(box: ReviewSandbox): Gh {
-  const head = git(box.repo, 'rev-parse', 'HEAD');
-  const baseHead = 'd'.repeat(40);
-  const directory = join(box.directory, 'gh');
-  mkdirSync(directory);
-  const script = join(directory, 'script.json');
-  writeFakeGhScript(script, [
-    { endpoint: 'repos/{owner}/{repo}/pulls/42', pages: [{ body: { html_url: 'https://github.com/acme/widgets/pull/42', number: 42, state: 'open', merged: false, head: { sha: head }, base: { ref: 'main' }, changed_files: 3, title: 'Parse with a guard', body: 'Why the parser needs a guard.' } }] },
-    { endpoint: 'repos/acme/widgets/git/ref/heads/main', pages: [{ body: { object: { sha: baseHead } } }] },
-    { endpoint: `repos/acme/widgets/compare/${baseHead}...${head}`, pages: [{ body: { merge_base_commit: { sha: git(box.repo, 'rev-parse', 'HEAD~1') } } }] },
-    { endpoint: 'repos/acme/widgets/pulls/42/files?per_page=100', pages: [{ body: [{ filename: 'src/a.ts', status: 'modified' }, { filename: 'src/b.ts', status: 'added' }, { filename: 'src/gone.ts', status: 'removed' }] }] },
-  ]);
-  return { executable: process.execPath, args: [fakeGh], cwd: directory, environment: { ...process.env, FAKE_GH_SCRIPT: script } };
-}
-
-/** The scope of `review --pr 42`, read through `gh`. */
-const pullRequestSource = (box: ReviewSandbox, gh: Gh): ScopeSource => ({
-  named: true,
-  pullRequest: true,
-  choice: () => ({ mode: 'pull-request', request: { pullRequest: { number: 42, repository: null }, paths: [] } }),
-  request: () => resolvePullRequestScope(box.repo, { pullRequest: { number: 42, repository: null }, paths: [] }, gh),
-});
 
 describe('patchFiles', () => {
   it('finds the part of the patch of each file by its path, quoted by git or holding " b/", and places a finding on its line', (t) => {
