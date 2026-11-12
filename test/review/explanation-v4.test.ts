@@ -303,6 +303,7 @@ describe('the writer\'s task of an answer of version 4 (R2, R6, TD6 of the revie
     const task = writerTask(running().fold(), input);
     assert.match(task, /^Explain these 1 finding, each by its id, with an entry of `findings`: RIPPLE-1\.$/m);
     assert.match(task, /^Give one entry of `left` for each of these 1 finding left as is, by its id, and for no other: SWEEP-1\.$/m);
+    assert.match(task, /^No finding you explain has a PLAUSIBLE verdict whose verifier said why it is not CONFIRMED, so give every `unconfirmed` null\.$/m);
     assert.match(task, /^#### 2\. SWEEP-1: left as is: give it a title and a reason in `left`, and explain it nowhere else$/m);
     assert.match(task, /^### The counts of the run\n\nThe engine's counts, [^\n]*\n\n- candidates the review passes raised: \d+$/m);
     assert.match(task, /^- findings deep-review decided to fix: 1\n- of them, fixes against a written rule: 0\n- findings deep-review asks the author about: 0\n- findings deep-review decided to leave as is: 1$/m);
