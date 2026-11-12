@@ -77,7 +77,7 @@ describe('the output schemas', () => {
     assert.equal(compiled.json.additionalProperties, false);
     const finding = { id: 'RIPPLE-1', explanation: { title: 't', problem: 'p', cases: [], diagram: null, checked: 'c', kind: null, action: 'a', unconfirmed: null, fix: { text: 'x'.repeat(5000), departure: null }, ask: null }, unexplained: null };
     const answer = { core: { title: 't', what: 'w', why: null, whyFrom: [], diagram: null }, conditions: [], summary: 's', areas: [], findings: [finding], left: [], refuted: [], notExamined: 'n' };
-    assert.ok(writerOutputSchemaV4.safeParse(answer).success, 'a text over its own bound still parses, so its part alone fails');
+    assert.ok(writerOutputSchemaV4.safeParse(answer).success, 'a long text parses');
     assert.ok(writerOutputSchemaV4.safeParse({ ...answer, summary: 'x'.repeat(100_000) }).success, 'no text is too long for the schema');
     assert.doesNotMatch(JSON.stringify(compiled.json), /maxLength/, 'the schema the runtime is given holds no text to a length');
     assert.ok(!writerOutputSchemaV4.safeParse({ ...answer, conclusion: { why: 's', actions: [], diagram: null } }).success, 'version 4 has no conclusion');

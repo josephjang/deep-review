@@ -12,7 +12,7 @@ import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
 import type { Account, AnyWriterOutput, Area, CitedLines, ConditionSentence, Conclusion, Core, FindingExplanation, FindingExplanationV4, LeftLine, RefutedLine, WriterAsk, WriterFix } from './explanation.ts';
 import { idsIn } from './finding-names.ts';
 import { counted } from './markdown.ts';
-import { writerBoundsV4, type CitedSide, type WriterOutputV4 } from './schemas.ts';
+import type { CitedSide, WriterOutputV4 } from './schemas.ts';
 import { truncated } from './steps.ts';
 import { changeConditions, verdicts, type ChangeConditionName } from './vocabulary.ts';
 
@@ -702,63 +702,16 @@ export interface CheckedAnswerV4 {
   readonly strays: readonly string[];
 }
 
-/** The failure of a text over its bound (TD7 of the review in the writer's words), which tells the retry which text and by how much; none for a text within it. */
-function boundFailures(what: string, text: string | null, bound: number): string[] {
-  if (text === null || text.length <= bound) return [];
-  return [`${what} is ${String(text.length)} characters, over its bound of ${String(bound)} by ${String(text.length - bound)}; say it in fewer words`];
-}
-
-/** The core of the change of an answer of version 4 checked: as in version 3, and each text within its bound. */
-function checkCoreV4(core: Core, input: CoreCheckInput): string[] {
-  const bounds = writerBoundsV4;
-  return [
-    ...checkCore(core, input),
-    ...boundFailures('the core\'s title', core.title, bounds.coreTitle),
-    ...boundFailures('the core\'s text of what the change does', core.what, bounds.coreWhat),
-    ...boundFailures('the core\'s reason', core.why, bounds.coreWhy),
-    ...core.whyFrom.flatMap((source, index) => boundFailures(`source ${String(index + 1)} of the core's reason`, source, bounds.source)),
-    ...boundFailures('the core\'s diagram', core.diagram, bounds.diagram),
-  ];
-}
-
-/** The conditions of an answer of version 4 checked: as in version 3, and each text within its bound. */
-function checkConditionsV4(conditions: readonly ConditionSentence[], held: readonly HeldCondition[]): string[] {
-  return [
-    ...checkConditions(conditions, held),
-    ...conditions.flatMap((entry) => boundFailures(`the entry for ${entry.condition}`, entry.explanation ?? entry.unexplained, writerBoundsV4.condition)),
-  ];
-}
-
-/** One text of the writer that stands alone, the summary or what the review did not examine, checked: said, with no verdict of the review, and within its bound. */
-function checkText(what: string, text: string, bound: number): string[] {
-  return [...(blank(text) ? [`${what} is empty`] : []), ...verdictFailures(what, [text]), ...boundFailures(what, text, bound)];
-}
-
-/** The areas of an answer of version 4 checked: as in version 2, and each text within its bound. */
-function checkAreasV4(areas: readonly Area[], ids: readonly string[], major: readonly string[]): string[] {
-  const bounds = writerBoundsV4;
-  return [
-    ...checkAreas(areas, ids, major),
-    ...areas.flatMap((area, index) => {
-      const what = `area ${String(index + 1)}`;
-      return [...boundFailures(`the title of ${what}`, area.title, bounds.areaTitle), ...boundFailures(`the intro of ${what}`, area.intro, bounds.areaIntro), ...boundFailures(`the diagram of ${what}`, area.diagram, bounds.diagram)];
-    }),
-  ];
-}
-
-/** The refuted lines of an answer of version 4 checked: as in version 2, and each text within its bound. */
-function checkRefutedV4(lines: readonly RefutedLine[], refutedIds: readonly string[]): string[] {
-  return [
-    ...checkRefuted(lines, refutedIds),
-    ...lines.filter((line) => refutedIds.includes(line.id)).flatMap((line) => [...boundFailures(`the claim of the refuted line for ${line.id}`, line.claim, writerBoundsV4.refutedClaim), ...boundFailures(`why the refuted line for ${line.id} was refuted`, line.why, writerBoundsV4.refutedWhy)]),
-  ];
+/** One text of the writer that stands alone, the summary or what the review did not examine, checked: said, and with no verdict of the review. */
+function checkText(what: string, text: string): string[] {
+  return [...(blank(text) ? [`${what} is empty`] : []), ...verdictFailures(what, [text])];
 }
 
 /**
  * The findings left as is checked (R2, PD10 of the review in the writer's
  * words; OQ4 of its design): one entry for each ranked finding that does
- * not act and for no other id, each with a title and a reason, no verdict,
- * and each text within its bound.
+ * not act and for no other id, each with a title and a reason, and no
+ * verdict.
  */
 function checkLeft(lines: readonly LeftLine[], leftIds: readonly string[], acting: readonly string[]): string[] {
   const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), leftIds);
@@ -770,18 +723,15 @@ function checkLeft(lines: readonly LeftLine[], leftIds: readonly string[], actin
       ...(blank(line.title) ? [`the entry for ${line.id} left as is has no title`] : []),
       ...(blank(line.why) ? [`the entry for ${line.id} left as is says not why deep-review leaves it`] : []),
       ...verdictFailures(`the entry for ${line.id} left as is`, [line.title, line.why]),
-      ...boundFailures(`the title of ${line.id} left as is`, line.title, writerBoundsV4.leftTitle),
-      ...boundFailures(`why ${line.id} is left as is`, line.why, writerBoundsV4.leftWhy),
     ]),
   ];
 }
 
-/** The failures of the options of a question against the count its decision records: one entry for each, numbered from 1, each number once, each with what it means, what it costs and its rule, within their bounds. */
+/** The failures of the options of a question against the count its decision records: one entry for each, numbered from 1, each number once, each with what it means, what it costs and its rule. */
 function optionFailures(id: string, ask: WriterAsk, recorded: number): string[] {
   const expected = Array.from({ length: recorded }, (_, index) => index + 1);
   const numbers = ask.options.map((option) => option.number);
   const range = `the decision records options 1 to ${String(recorded)}`;
-  const bounds = writerBoundsV4;
   return [
     ...expected.filter((number) => !numbers.includes(number)).map((number) => `the question of ${id} gives no option ${String(number)}; ${range}`),
     ...expected.flatMap((number) => {
@@ -795,9 +745,6 @@ function optionFailures(id: string, ask: WriterAsk, recorded: number): string[] 
         ...(blank(option.means) ? [`${what} says not what it means`] : []),
         ...(blank(option.cost) ? [`${what} says not what it costs`] : []),
         ...(blank(option.rule) ? [`${what} says not the rule it would become`] : []),
-        ...boundFailures(`what ${what} means`, option.means, bounds.means),
-        ...boundFailures(`what ${what} costs`, option.cost, bounds.cost),
-        ...boundFailures(`the rule of ${what}`, option.rule, bounds.rule),
       ];
     }),
   ];
@@ -811,7 +758,6 @@ function optionFailures(id: string, ask: WriterAsk, recorded: number): string[] 
  * options of a question as the decision records them.
  */
 function decisionTextFailures(id: string, fix: WriterFix | null, ask: WriterAsk | null, facts: DecisionFacts): string[] {
-  const bounds = writerBoundsV4;
   if (facts.decision === 'fix') {
     if (fix === null) return [`${id} is decided fix and gives no fix`, ...(ask === null ? [] : [`${id} is decided fix and gives a question, which only a finding decided ask has`])];
     return [
@@ -819,8 +765,6 @@ function decisionTextFailures(id: string, fix: WriterFix | null, ask: WriterAsk 
       ...(blank(fix.text) ? [`the fix of ${id} says not what it changes`] : []),
       ...(facts.departs && (fix.departure === null || blank(fix.departure)) ? [`${id} departs from a written rule, and its fix does not say the rule, the fact against it and what the fix does instead`] : []),
       ...(!facts.departs && fix.departure !== null ? [`${id} departs from no written rule, and its fix gives the text of a departure`] : []),
-      ...boundFailures(`the fix of ${id}`, fix.text, bounds.fixText),
-      ...boundFailures(`the departure of ${id}`, fix.departure, bounds.departure),
     ];
   }
   if (ask === null) return [`${id} is decided ask and gives no question`, ...(fix === null ? [] : [`${id} is decided ask and gives a fix, which only a finding decided fix has`])];
@@ -829,8 +773,6 @@ function decisionTextFailures(id: string, fix: WriterFix | null, ask: WriterAsk 
     ...(blank(ask.question) ? [`the question of ${id} says not what it asks`] : []),
     ...(blank(ask.recommendation) ? [`the question of ${id} says not why deep-review recommends its option`] : []),
     ...optionFailures(id, ask, facts.options),
-    ...boundFailures(`the question of ${id}`, ask.question, bounds.question),
-    ...boundFailures(`the recommendation of ${id}`, ask.recommendation, bounds.recommendation),
   ];
 }
 
@@ -840,22 +782,21 @@ type FindingEntryV4 = WriterOutputV4['findings'][number];
  * The explanation of one finding of an answer of version 4 checked: what
  * version 3 holds it to, `major` as there; one sentence of what
  * deep-review would do; the text of its decision against the decision;
- * `unconfirmed` exactly when its verdict records why it is not confirmed;
- * and each text within its bound. Every text of the explanation is held
+ * and `unconfirmed` exactly when its verdict records why it is not
+ * confirmed. Every text of the explanation is held
  * to no verdict of the review but `unconfirmed`, whose subject is why a
  * PLAUSIBLE verdict is not CONFIRMED, and beside which the review shows
  * the verdict of the ledger (TD8 of the review in the writer's words).
  */
 function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCount: AnswerCheckInput['lineCount'], major: boolean, facts: DecisionFacts): CheckedPart<FindingExplanationV4> {
   const refused = (failure: string): CheckedPart<FindingExplanationV4> => ({ value: null, failures: [failure] });
-  const bounds = writerBoundsV4;
   if (entries.length === 0) return refused(`the answer does not explain ${id}`);
   if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
   const { explanation, unexplained } = entries[0]!;
   if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
   if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
   if (unexplained !== null) {
-    const failures = [...(blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : []), ...verdictFailures(`the reason ${id} is unexplained`, [unexplained]), ...boundFailures(`the reason ${id} is unexplained`, unexplained, bounds.unexplained)];
+    const failures = [...(blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : []), ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
     return { value: { id, unexplained: true, reason: unexplained }, failures };
   }
   const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = explanation!;
@@ -871,7 +812,7 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
     ...(posted && cases.length === 0 ? [`${id} has no case`] : []),
     ...postedCases.flatMap((cited, index) => {
       const what = `case ${String(index + 1)} of ${id}`;
-      return [...(blank(cited.sentence) ? [`${what} has no sentence`] : []), ...linesFailures(what, cited.lines, lineCount), ...boundFailures(what, cited.sentence, bounds.caseSentence)];
+      return [...(blank(cited.sentence) ? [`${what} has no sentence`] : []), ...linesFailures(what, cited.lines, lineCount)];
     }),
     ...(postedChecked !== null && blank(postedChecked) ? [`${id} says nothing of how its verifier checked it`] : []),
     ...(!major && kind === null ? [`${id} is a minor finding and has no kind`] : []),
@@ -882,12 +823,6 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
     ...(!facts.unconfirmed && unconfirmed !== null ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : []),
     ...verdictFailures(`the explanation of ${id}`, [title, problem, action, postedDiagram ?? '', postedChecked ?? '', ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
     ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram),
-    ...boundFailures(`the title of ${id}`, title, bounds.title),
-    ...boundFailures(`the problem of ${id}`, problem, bounds.problem),
-    ...boundFailures(`the diagram of ${id}`, postedDiagram, bounds.diagram),
-    ...boundFailures(`how the verifier of ${id} checked it`, postedChecked, bounds.checked),
-    ...boundFailures(`what deep-review would do about ${id}`, action, bounds.action),
-    ...boundFailures(`why ${id} is not confirmed`, unconfirmed, bounds.unconfirmed),
   ];
   return { value: { id, unexplained: false, title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask }, failures };
 }
@@ -897,10 +832,8 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
  * TD8 of the review in the writer's words): each part of version 3 that
  * it keeps as version 3 checks it; the summary and what the review did
  * not examine said, with no verdict; each finding to explain against its
- * decision; one entry of `left` for each finding left as is; and every
- * text within its bound, as a check of its part, so a text over its
- * bound fails its part alone and the retry is told which. No check holds
- * a text to a form (TD8).
+ * decision; and one entry of `left` for each finding left as is. No
+ * check holds a text to a length (TD7) or to a form (TD8).
  */
 export function checkAnswerV4(output: WriterOutputV4, input: AnswerCheckInputV4): CheckedAnswerV4 {
   const entries = new Map(input.ids.map((id): [string, FindingEntryV4[]] => [id, []]));
@@ -917,14 +850,14 @@ export function checkAnswerV4(output: WriterOutputV4, input: AnswerCheckInputV4)
     return given;
   };
   return {
-    core: { value: output.core, failures: checkCoreV4(output.core, input.core) },
-    conditions: { value: output.conditions, failures: checkConditionsV4(output.conditions, input.core.held) },
-    conclusion: { value: output.summary, failures: checkText('the summary', output.summary, writerBoundsV4.summary) },
-    areas: { value: output.areas, failures: checkAreasV4(output.areas, input.ids, major) },
+    core: { value: output.core, failures: checkCore(output.core, input.core) },
+    conditions: { value: output.conditions, failures: checkConditions(output.conditions, input.core.held) },
+    conclusion: { value: output.summary, failures: checkText('the summary', output.summary) },
+    areas: { value: output.areas, failures: checkAreas(output.areas, input.ids, major) },
     findings: new Map(input.ids.map((id) => [id, checkFindingV4(id, entries.get(id)!, input.lineCount, major.includes(id), facts(id))])),
     left: { value: output.left, failures: checkLeft(output.left, input.left, input.ids) },
-    refuted: { value: output.refuted, failures: checkRefutedV4(output.refuted, refutedIds) },
-    notExamined: { value: output.notExamined, failures: checkText('what the review did not examine', output.notExamined, writerBoundsV4.notExamined) },
+    refuted: { value: output.refuted, failures: checkRefuted(output.refuted, refutedIds) },
+    notExamined: { value: output.notExamined, failures: checkText('what the review did not examine', output.notExamined) },
     strays,
   };
 }
