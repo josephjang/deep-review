@@ -352,7 +352,7 @@ The change under review can hold text aimed at a model, and the writer reads the
 
 ### RK9: A review that is understood, and longer
 
-R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, each new text has a bound, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
+R14 lets the writer use the words a reader needs, and #109 and #115 already found the review long. A longer first screen can bury the one question in it, which principle 5 does not permit. The order of the body, the folded parts and the cuts are unchanged, the prompt gives each new text a size as a guide, and M5 records where the review grew; a gate whose reader understands the review and cannot find what needs a person in it fails M4.
 
 ### RK10: A body that no cut can fit
 
