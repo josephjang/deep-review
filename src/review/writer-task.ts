@@ -7,17 +7,19 @@
  */
 import type { CandidateChoice, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { changeReadingOf, explanationVersionOf, type CandidateState, type ExplanationVersion, type ReviewState } from '../checkpoint/review-fold.ts';
+import { changeReadingOf, explanationVersionOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
-import { briefMarkdown, briefOf } from './brief.ts';
+import { briefMarkdown, briefOf, passNames, type GapFacts } from './brief.ts';
 import { heldConditions, type ReportCheckInput } from './explanation-checks.ts';
-import { checkedAnswers, findingsToExplain, isMajor, mergeAnswers, partNameOf, reportCheckInputOf, requireReview, reviewLanguage } from './explanation.ts';
-import { counted, inlineText } from './markdown.ts';
+import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, isMajor, mergeAnswers, mergeAnswersV4, partNameOf, reportCheckInputOf, requireReview, reviewLanguage, type WriterDroppedPart } from './explanation.ts';
+import { counted, findingWords, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
+import { reviewCountsOf } from './pull-request-view.ts';
+import type { WriterVersion } from './schemas.ts';
 import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { commitMessagesSection, describeLocation, type ChangeMessages } from './tasks.ts';
-import { verdictBasisWords, type ChangeConditionName } from './vocabulary.ts';
+import { verdictBases, verdictBasisWords, type ChangeConditionName } from './vocabulary.ts';
 
 /** A language tag with its name in English where the platform knows it, as `ko (Korean)`. */
 function languageWords(tag: string): string {
@@ -35,6 +37,8 @@ export interface WriterTaskInput {
   readonly evidence: Pick<EvidenceStore, 'read'>;
   readonly machine: MachineContext;
   readonly commitMessages?: ChangeMessages | null;
+  /** The version of the answer to ask for: the one the run was configured with when absent; the replay of the writer gives 4, which no run is configured for yet (PD9, OQ1 of the review in the writer's words). */
+  readonly version?: WriterVersion;
 }
 
 /** A text fenced so nothing in it can end its fence, as the task embeds what the brief and a cited run printed. */
@@ -101,8 +105,8 @@ function candidateLines(candidate: CandidateState, primary: boolean, clean: (tex
   ];
 }
 
-/** What a finding to explain asks of the writer, as its heading gives it: in an answer of version 2, an area for a major one and a kind for a minor one. */
-function explainWords(entry: ReportFinding, version: ExplanationVersion): string {
+/** What a finding to explain asks of the writer, as its heading gives it: in an answer of version 2 or later, an area for a major one and a kind for a minor one. */
+function explainWords(entry: ReportFinding, version: WriterVersion): string {
   if (version === 1) return 'explain it';
   return isMajor(entry) ? 'explain it, in an area' : 'explain it, with a kind';
 }
@@ -120,6 +124,71 @@ function findingLines(entry: ReportFinding, number: number, explained: string | 
     '    candidates:',
     ...[entry.primary, ...entry.members].flatMap((candidate, index) => candidateLines(candidate, index === 0, clean, fence)),
   ];
+}
+
+/** What the writer gives a finding left as is in an answer of version 4, as its heading gives it (R2, PD10 of the review in the writer's words). */
+const leftWords = 'left as is: give it a title and a reason in `left`, and explain it nowhere else';
+
+/**
+ * The counts of the run as lines of data, for an answer of version 4 (R6,
+ * R7 of the review in the writer's words): the counts the review shows
+ * beside the writer's text (`reviewCountsOf`), and the findings by what
+ * deep-review decided, which no later answer changes.
+ */
+function countLines(review: ReviewState): string[] {
+  const counts = reviewCountsOf(review);
+  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
+  const ranked = rankedFindings(review).map((entry) => decided.get(entry.finding.id));
+  const fixes = ranked.filter((decision) => decision?.decision === 'fix');
+  return [
+    `- candidates the review passes raised: ${String(counts.candidates)}`,
+    `- candidates after the duplicates were set aside: ${String(counts.groups)}`,
+    `- candidates a verifier refuted: ${String(counts.refuted)}`,
+    `- findings after merge and rank: ${String(counts.findings)}`,
+    `- candidates merged into another finding: ${String(counts.merged)}`,
+    `- findings of severity critical: ${String(counts.critical)}`,
+    `- findings of severity critical or major: ${String(counts.major)}`,
+    `- findings of severity minor: ${String(counts.minor)}`,
+    `- findings whose verdict is CONFIRMED: ${String(counts.confirmed)}`,
+    `- findings whose verdict is PLAUSIBLE: ${String(counts.plausible)}`,
+    `- findings no verifier examined: ${String(counts.unverified)}`,
+    ...verdictBases.map((basis) => `- findings whose verifier established the verdict as "${verdictBasisWords[basis]}": ${String(counts.bases[basis])}`),
+    `- findings deep-review decided to fix: ${String(fixes.length)}`,
+    `- of them, fixes against a written rule: ${String(fixes.filter((decision) => decision?.decision === 'fix' && decision.departure !== null).length)}`,
+    `- findings deep-review asks the author about: ${String(ranked.filter((decision) => decision?.decision === 'ask').length)}`,
+    `- findings deep-review decided to leave as is: ${String(ranked.filter((decision) => decision === undefined || decision.decision === 'leave').length)}`,
+  ];
+}
+
+/** One gap of what the review did not examine as a line of data, its kind and its facts (R5, R8 of the review in the writer's words), each text cleaned. */
+function gapLine(gap: GapFacts, clean: (text: string) => string): string {
+  switch (gap.kind) {
+    case 'angle':
+      return `- a review pass that did not run: the ${passNames[gap.pass]} pass; a later pass looked for what it would have found`;
+    case 'unverified':
+      return `- no verifier examined: ${[...(gap.findings.length === 0 ? [] : [findingWords(gap.findings)]), ...(gap.merged.length === 0 ? [] : [`candidates merged into ${findingWords(gap.merged)}`]), ...(gap.others === 0 ? [] : [`other candidates: ${String(gap.others)}`])].join('; ')}`;
+    case 'excluded':
+      return `- changed paths the settings left out: ${String(gap.count)}, under ${gap.patterns.map((pattern) => `\`${clean(pattern)}\``).join(', ')}`;
+    case 'oversized':
+      return `- files too large to give to a worker: ${gap.paths.map((path) => clean(path)).join(', ')}`;
+    case 'check':
+      return `- a check with no command: ${gap.check}, ${clean(gap.reason)}`;
+    case 'budget':
+      return `- steps of the fix pass the run budget stopped: ${gap.steps.join(', ')}`;
+    case 'series':
+      return '- a stop cut the commits of the fix pass short';
+    case 'documentation':
+      return `- the documentation step did not run: ${gap.cause}`;
+    case 'workers':
+      return `- workers a stop ended whose work did not run again: ${String(gap.count)}`;
+  }
+}
+
+/** A dropped part as the task of a writer of `version` names it: by the field of the answer that holds it, `summary` and `notExamined` in an answer of version 4. */
+function droppedPartWords(part: WriterDroppedPart, version: WriterVersion): string {
+  if (version === 4 && part.part === 'conclusion') return 'summary';
+  if (part.part === 'not-examined') return 'notExamined';
+  return partNameOf(part);
 }
 
 /** A list of ids in a sentence. */
@@ -141,6 +210,23 @@ function reportAsks(ids: readonly string[], report: ReportCheckInput): string[] 
     report.refuted.length === 0
       ? 'No candidate of this review was refuted, so give `refuted` empty.'
       : `Give one line in \`refuted\` for each of these ${counted(report.refuted.length, 'refuted candidate', 'refuted candidates')}, by its id, and for no other: ${idList(report.refuted)}.`,
+  ];
+}
+
+/**
+ * What an answer of version 4 is asked first (R2, PD10 of the review in
+ * the writer's words): the findings to explain, each with an entry of
+ * `findings`, and the findings left as is, each with an entry of `left`.
+ */
+function writtenAsks(ids: readonly string[], left: readonly string[]): string[] {
+  return [
+    ids.length === 0
+      ? 'No finding of this review asks a person to act, so you explain none: give no area and no entry in `findings`.'
+      : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an entry of \`findings\`: ${idList(ids)}.`,
+    '',
+    left.length === 0
+      ? 'No finding of this review is left as is, so give `left` empty.'
+      : `Give one entry of \`left\` for each of these ${counted(left.length, 'finding', 'findings')} left as is, by its id, and for no other: ${idList(left)}.`,
   ];
 }
 
@@ -191,48 +277,81 @@ function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: s
  * candidate with its evidence; and, after a refused answer, the parts that
  * still fail with their failures. In an answer of version 3, after the
  * brief, the commit messages of the change and what the core and the
- * conditions start from (`coreAsks`). Each text of a worker is cleaned as
- * the review cleans the text it posts (R11), and the brief and each
- * printed output are fenced. The scope block that follows the task carries
- * the patch. Neither the title nor the body of the pull request is in it
- * (PD8).
+ * conditions start from (`coreAsks`). In an answer of version 4 (R2,
+ * R6, TD6 of the review in the writer's words), as in version 3, and also
+ * the findings left as is, each to give a title and a reason, the counts
+ * of the run as data, counted by what deep-review decided, and each gap
+ * of what the review did not examine as its kind and facts. The task is
+ * built from the run's state while the explanation runs, which holds no
+ * answer and no continuation, and it gives no place of a finding in the
+ * diff, so it holds none of the facts that can change after the writer
+ * runs. Each text of a worker is cleaned as the review cleans the text it
+ * posts (R11), and the brief and each printed output are fenced. The
+ * scope block that follows the task carries the patch. Neither the title
+ * nor the body of the pull request is in it (PD8).
  */
 export function writerTask(state: RunState, input: WriterTaskInput): string {
   const review = requireReview(state);
-  const version = explanationVersionOf(review);
+  const version: WriterVersion = input.version ?? explanationVersionOf(review);
   const ids = findingsToExplain(review);
+  const left = version === 4 ? findingsLeftAsIs(review) : [];
   const clean = (text: string): string => inlineText(publicWords(text, input.machine).text);
   // Cleaned as code, so its places and secrets give way to their marks and nothing in it is escaped, then fenced longer than any run of backticks the cleaning left.
   const quote = (text: string, info = ''): string => fenced(publicCode(text, input.machine).text, info);
   const numbers = findingNumbers(review);
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked = rankedFindings(review);
-  const answers = checkedAnswers(state, review, input, ids, null);
-  const dropped = answers.length === 0 ? [] : mergeAnswers(version, answers, ids).dropped;
+  let dropped: readonly WriterDroppedPart[];
+  if (version === 4) {
+    const answers = checkedAnswersV4(state, review, input, ids, []);
+    dropped = answers.length === 0 ? [] : mergeAnswersV4(answers, ids).dropped;
+  } else {
+    const answers = checkedAnswers(state, review, input, ids, null);
+    dropped = answers.length === 0 ? [] : mergeAnswers(version, answers, ids).dropped;
+  }
   const report = version === 1 ? null : reportCheckInputOf(review);
-  if (version === 3 && (input.commitMessages === undefined || input.commitMessages === null)) throw new Error('The writer\'s task of an answer with the core of the change lists the commit messages of the change and needs them');
-  const core = version === 3 ? coreAsks(review, input.commitMessages!, clean) : [];
+  const cored = version === 3 || version === 4;
+  if (cored && (input.commitMessages === undefined || input.commitMessages === null)) throw new Error('The writer\'s task of an answer with the core of the change lists the commit messages of the change and needs them');
+  const core = cored ? coreAsks(review, input.commitMessages!, clean) : [];
   const refutedCandidates = refuted(review);
   return [
     `Write every text of your answer in the language ${languageWords(reviewLanguage(review))}.`,
     '',
-    ids.length === 0
-      ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version === 1 ? 'the account' : 'no area'}, and no entry in \`findings\`.`
-      : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
+    ...(version === 4 ? writtenAsks(ids, left) : [
+      ids.length === 0
+        ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version === 1 ? 'the account' : 'no area'}, and no entry in \`findings\`.`
+        : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
+    ]),
     ...(report === null ? [] : ['', ...reportAsks(ids, report).flatMap((line, index) => (index === 0 ? [line] : ['', line]))]),
     '',
     '### The brief of the run',
     '',
-    'The engine\'s account of the run, as its report gives it. The review on the pull request carries its facts in the engine\'s own words.',
+    version === 4
+      ? 'The engine\'s account of the run, as its report gives it for the person who ran it. The review on the pull request shows its facts as data beside your text, and none of its sentences.'
+      : 'The engine\'s account of the run, as its report gives it. The review on the pull request carries its facts in the engine\'s own words.',
     '',
     quote(briefMarkdown(briefOf(state), 'report').join('\n'), 'markdown'),
     '',
     ...core,
+    ...(version === 4 ? [
+      '### The counts of the run',
+      '',
+      'The engine\'s counts, which the review shows as data beside your text. Write a count only as it is given here, and count the findings by what deep-review decided, as here.',
+      '',
+      ...countLines(review),
+      '',
+      '### What the review did not examine',
+      '',
+      ...(briefOf(state).notExamined.length === 0
+        ? ['The review has no gap: every review pass ran and a verifier examined each candidate. Say what that means for a reader in `notExamined`.']
+        : ['Each gap as the engine records it, which the review shows as data beside `notExamined`. Say in `notExamined` what the gaps mean for a reader: what the review could have missed, and where a reader should look for it.', '', ...briefOf(state).notExamined.map((gap) => gapLine(gap.facts, clean))]),
+      '',
+    ] : []),
     '### The findings',
     '',
     `The review's ${counted(ranked.length, 'finding', 'findings')}, in rank order, each with its decision, every candidate merged into it and its verifier's evidence.${ranked.some((entry) => (decided.get(entry.finding.id)?.settled.length ?? 0) > 0) ? ' A choice a decision settles, on its line `settled by the decision`, is the decision\'s and not the author\'s to make, whatever a verifier\'s note says: explain it as decided.' : ''}`,
     '',
-    ...ranked.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids.includes(entry.finding.id) ? explainWords(entry, version) : null, decided.get(entry.finding.id), clean, quote), '']),
+    ...ranked.flatMap((entry) => [...findingLines(entry, numbers.get(entry.finding.id) ?? 0, ids.includes(entry.finding.id) ? explainWords(entry, version) : left.includes(entry.finding.id) ? leftWords : null, decided.get(entry.finding.id), clean, quote), '']),
     ...(report === null || refutedCandidates.length === 0 ? [] : [
       '### The refuted candidates',
       '',
@@ -244,15 +363,17 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     ...(dropped.length === 0 ? [] : [
       '### What failed in the earlier answer',
       '',
-      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version !== 1 && dropped.some((part) => part.part === 'conclusion' || part.part === 'areas') ? ' The conclusion and the areas go together, since the conclusion\'s summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.' : ''}`,
+      `An earlier writer's answer failed the engine's checks in these parts, and the engine keeps every other part of it. Give your whole answer again: the engine takes from it only these parts, and drops each that fails again.${version !== 1 && dropped.some((part) => part.part === 'conclusion' || part.part === 'areas') ? (version === 4 ? ' The summary and the areas go together, since the summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.' : ' The conclusion and the areas go together, since the conclusion\'s summary names the areas: when either is listed here, the engine takes both from your answer if both pass, so give both so that they pass.') : ''}`,
       '',
-      ...dropped.map((part) => `- ${partNameOf(part)}: ${part.failures.map((failure) => inlineText(failure)).join('; ')}`),
+      ...dropped.map((part) => `- ${droppedPartWords(part, version)}: ${part.failures.map((failure) => inlineText(failure)).join('; ')}`),
       '',
     ]),
     version === 1
       ? 'Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null.'
       : version === 2
         ? 'Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them.'
-        : 'Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them.',
+        : version === 3
+          ? 'Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them.'
+          : 'Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined` as your role prompt defines them.',
   ].join('\n');
 }

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
+import { EvidenceStore } from '../../src/evidence/store.ts';
 import { checkAnswerV4, type AnswerCheckInput, type AnswerCheckInputV4, type CheckedAnswerV4, type DecisionFacts } from '../../src/review/explanation-checks.ts';
 import { decisionFactsOf, findingsLeftAsIs, mergeAnswersV4 } from '../../src/review/explanation.ts';
 import { writerBoundsV4, type WriterOutputV4 } from '../../src/review/schemas.ts';
-import { askDecision, decidedOf, decisions, departure, mergeRanked, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest } from '../helpers/review-history.ts';
+import type { ChangeMessages } from '../../src/review/tasks.ts';
+import { writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
+import { askDecision, decidedOf, decisions, departure, mergeRanked, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest, worker, type History } from '../helpers/review-history.ts';
 
 // The checks of the writer's answer of version 4 (R2, R3, PD11, TD2, TD7, TD8 of the review in the writer's words).
 
@@ -281,5 +287,52 @@ describe('the merge of the answers of version 4 (TD2 of the review in the writer
     const merged = mergeAnswersV4([checkAnswerV4(bad, input())], ids, ['the writer ran out of time']);
     assert.deepEqual(merged.answer.findings.map((finding) => finding.id), ['RIPPLE-1']);
     assert.deepEqual(merged.dropped, [{ part: 'finding', finding: 'SWEEP-1', failures: ['SWEEP-1 is decided ask and gives no question', 'the writer ran out of time'] }]);
+  });
+});
+
+describe('the writer\'s task of an answer of version 4 (R2, R6, TD6 of the review in the writer\'s words)', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'deep-review-writer-v4-'));
+  after(() => rmSync(directory, { recursive: true, force: true }));
+  const evidence = new EvidenceStore(join(directory, 'evidence'));
+  const messages: ChangeMessages = { kind: 'read', messages: [{ commit: 'f'.repeat(40), message: 'Accept an empty file' }], withTree: false };
+  const input: WriterTaskInput = { worktree: join(directory, 'no-repository'), evidence, machine: { worktree: '/repo', checkpoint: '/repo/.git/deep-review-checkpoint', gitCommon: '/repo/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'repo'] }, commitMessages: messages, version: 4 };
+  /** The decided run of a pull request, configured at version 12, while its explanation runs: RIPPLE-1 a fix, SWEEP-1 left as is. */
+  const running = (): History => withCoreForm(withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked(), decisions), null))))).start('explanation');
+
+  it('asks for the findings to explain and the findings left as is, gives the counts by decision and each gap as data, and asks for the parts of version 4', () => {
+    const task = writerTask(running().fold(), input);
+    assert.match(task, /^Explain these 1 finding, each by its id, with an entry of `findings`: RIPPLE-1\.$/m);
+    assert.match(task, /^Give one entry of `left` for each of these 1 finding left as is, by its id, and for no other: SWEEP-1\.$/m);
+    assert.match(task, /^#### 2\. SWEEP-1: left as is: give it a title and a reason in `left`, and explain it nowhere else$/m);
+    assert.match(task, /^### The counts of the run\n\nThe engine's counts, [^\n]*\n\n- candidates the review passes raised: \d+$/m);
+    assert.match(task, /^- findings deep-review decided to fix: 1\n- of them, fixes against a written rule: 0\n- findings deep-review asks the author about: 0\n- findings deep-review decided to leave as is: 1$/m);
+    assert.match(task, /^### What the review did not examine\n\nEach gap as the engine records it, [^\n]*\n\n- a review pass that did not run: the footguns pass; [^\n]*\n- no verifier examined: finding 2; candidates merged into finding 1$/m);
+    assert.match(task, /^### The commit messages of the change$/m, 'version 4 keeps the core of version 3');
+    assert.match(task, /Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined` as your role prompt defines them\.$/);
+    assert.doesNotMatch(task, /an action of the conclusion/);
+  });
+
+  it('asks a run configured at version 12 for version 3 unless the replay asks for version 4', () => {
+    const task = writerTask(running().fold(), { worktree: input.worktree, evidence, machine: input.machine, commitMessages: messages });
+    assert.match(task, /Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\.$/);
+    assert.doesNotMatch(task, /### The counts of the run|`left`/);
+  });
+
+  it('names each part an earlier answer failed by the field that holds it, and tells the retry the summary goes with the areas', () => {
+    const answer = goodAnswer();
+    answer.findings = [{ id: 'RIPPLE-1', explanation: { ...explanation('RIPPLE-1'), cases: [] }, unexplained: null }];
+    answer.areas = [{ ...answer.areas[0]!, findings: ['RIPPLE-1'] }];
+    answer.left = [{ id: 'SWEEP-1', title: 'A helper the change does not touch', why: 'It is outside the change.' }];
+    answer.refuted = [];
+    answer.summary = '';
+    answer.notExamined = '';
+    const failed = running()
+      .worker(61, 'writer explanation:explanation', { output: evidence.put(JSON.stringify(answer)) })
+      .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(61), reason: 'structural check: the answer fails the engine\'s checks', fault: 'unit' }, 9);
+    const task = writerTask(failed.fold(), input);
+    assert.match(task, /^- summary: the summary is empty$/m);
+    assert.match(task, /^- notExamined: what the review did not examine is empty$/m);
+    assert.match(task, /^- finding RIPPLE-1: RIPPLE-1 has no case$/m);
+    assert.match(task, /The summary and the areas go together, since the summary names the areas/);
   });
 });
