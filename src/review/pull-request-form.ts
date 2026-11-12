@@ -30,7 +30,8 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, firstSentence, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { diagramFailures, resolveCommitSource, reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { diagramFailures, resolveCommitSource } from './explanation-checks.ts';
+import { reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
 import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
 import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';

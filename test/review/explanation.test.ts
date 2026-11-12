@@ -8,7 +8,8 @@ import { explanationRecordedV1, explanationRecordedV2, explanationRecordedV3, ty
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
-import { checkAnswer, checkConditions, checkCore, diagramFailures, droppedExplanation, findingsToExplain, gitLineCounts, lineCountOf, mergeAnswers, recordedAnswerOf, resolveCommitSource, writerTask, type AnswerCheckInput, type ConditionSentence, type Core, type CoreCheckInput, type HeldCondition, type WriterTaskInput } from '../../src/review/explanation.ts';
+import { checkAnswer, checkConditions, checkCore, diagramFailures, gitLineCounts, lineCountOf, resolveCommitSource, type AnswerCheckInput, type CoreCheckInput, type HeldCondition } from '../../src/review/explanation-checks.ts';
+import { droppedExplanation, findingsToExplain, mergeAnswers, recordedAnswerOf, writerTask, type ConditionSentence, type Core, type WriterTaskInput } from '../../src/review/explanation.ts';
 import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';

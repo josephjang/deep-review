@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { diagramFailures } from '../../src/review/explanation.ts';
+import { diagramFailures } from '../../src/review/explanation-checks.ts';
 import { namedFindings, namedInDiagram, type NamedId } from '../../src/review/finding-names.ts';
 import { pullRequestWords } from '../../src/review/pull-request-words.ts';
 
