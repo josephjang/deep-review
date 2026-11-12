@@ -244,7 +244,7 @@ export type DeciderOutput = z.infer<typeof deciderOutputSchema>;
 export const citedSides = ['head', 'base'] as const;
 export type CitedSide = (typeof citedSides)[number];
 
-/** A text of the writer's: the schema holds its length only, and `checkAnswer` in explanation.ts holds an empty one to its part, so one empty text never costs the whole answer. */
+/** A text of the writer's: the schema holds its length only, and `checkAnswer` in explanation-checks.ts holds an empty one to its part, so one empty text never costs the whole answer. */
 const writerText = (max: number) => z.string().max(max);
 /** A diagram of the writer's, its Mermaid text without a fence, or null where the flow is short to say. */
 const writerDiagram = z.string().max(8000).nullable();
