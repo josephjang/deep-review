@@ -69,7 +69,7 @@ describe('the output schemas', () => {
     }
   });
 
-  it('gives the answer of version 4 by its version alone, compiles it for both runtimes, and holds none of its texts to a length (TD7 of the review in the writer\'s words)', () => {
+  it('gives the answer of version 4 by its version alone, compiles it for both runtimes, and holds none of its texts to a length and none of its lists to a count (TD7 of the review in the writer\'s words)', () => {
     assert.equal(writerOutputSchemaOf(4), writerOutputSchemaV4);
     assert.equal(writerOutputSchemaOf(3), writerOutputSchemaV3);
     const compiled = compileOutputSchema(writerOutputSchemaV4);
@@ -79,7 +79,9 @@ describe('the output schemas', () => {
     const answer = { core: { title: 't', what: 'w', why: null, whyFrom: [], diagram: null }, conditions: [], summary: 's', areas: [], findings: [finding], left: [], refuted: [], notExamined: 'n' };
     assert.ok(writerOutputSchemaV4.safeParse(answer).success, 'a long text parses');
     assert.ok(writerOutputSchemaV4.safeParse({ ...answer, summary: 'x'.repeat(100_000) }).success, 'no text is too long for the schema');
-    assert.doesNotMatch(JSON.stringify(compiled.json), /maxLength/, 'the schema the runtime is given holds no text to a length');
+    assert.doesNotMatch(JSON.stringify(compiled.json), /maxLength|maxItems/, 'the schema the runtime is given holds no text to a length and no list to a count');
+    const area = { title: 't', intro: 'i', diagram: null, findings: ['RIPPLE-1'] };
+    assert.ok(writerOutputSchemaV4.safeParse({ ...answer, areas: Array.from({ length: 30 }, () => area) }).success, 'no list is too long for the schema');
     assert.ok(!writerOutputSchemaV4.safeParse({ ...answer, conclusion: { why: 's', actions: [], diagram: null } }).success, 'version 4 has no conclusion');
   });
 

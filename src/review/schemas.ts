@@ -403,7 +403,7 @@ const writerFixSchemaV4 = z.strictObject({ text: writerTextV4, departure: writer
  */
 const writerAskSchemaV4 = z.strictObject({
   question: writerTextV4,
-  options: z.array(z.strictObject({ number: z.number().int(), means: writerTextV4, cost: writerTextV4, rule: writerTextV4 })).max(4),
+  options: z.array(z.strictObject({ number: z.number().int(), means: writerTextV4, cost: writerTextV4, rule: writerTextV4 })),
   recommendation: writerTextV4,
 });
 
@@ -424,10 +424,10 @@ const writerAskSchemaV4 = z.strictObject({
  * text is held to no length, here or by `checkAnswer`.
  */
 export const writerOutputSchemaV4 = z.strictObject({
-  core: z.strictObject({ title: writerTextV4, what: writerTextV4, why: writerTextV4.nullable(), whyFrom: z.array(writerTextV4).max(20), diagram: writerDiagramV4 }),
-  conditions: z.array(z.strictObject({ condition: z.enum(changeConditions), explanation: writerTextV4.nullable(), unexplained: writerTextV4.nullable() })).max(changeConditions.length),
+  core: z.strictObject({ title: writerTextV4, what: writerTextV4, why: writerTextV4.nullable(), whyFrom: z.array(writerTextV4), diagram: writerDiagramV4 }),
+  conditions: z.array(z.strictObject({ condition: z.enum(changeConditions), explanation: writerTextV4.nullable(), unexplained: writerTextV4.nullable() })),
   summary: writerTextV4,
-  areas: z.array(z.strictObject({ title: writerTextV4, intro: writerTextV4, diagram: writerDiagramV4, findings: z.array(writerTextV4).max(200) })).max(12),
+  areas: z.array(z.strictObject({ title: writerTextV4, intro: writerTextV4, diagram: writerDiagramV4, findings: z.array(writerTextV4) })),
   findings: z.array(z.strictObject({
     id: writerTextV4,
     explanation: z.strictObject({
@@ -436,7 +436,7 @@ export const writerOutputSchemaV4 = z.strictObject({
       cases: z.array(z.strictObject({
         sentence: writerTextV4,
         lines: z.strictObject({ side: z.enum(citedSides), path: writerTextV4, from: z.number().int(), to: z.number().int() }),
-      })).max(12),
+      })),
       diagram: writerDiagramV4,
       checked: writerTextV4,
       kind: z.enum(findingKinds).nullable(),
@@ -446,9 +446,9 @@ export const writerOutputSchemaV4 = z.strictObject({
       ask: writerAskSchemaV4.nullable(),
     }).nullable(),
     unexplained: writerTextV4.nullable(),
-  })).max(200),
-  left: z.array(z.strictObject({ id: writerTextV4, title: writerTextV4, why: writerTextV4 })).max(200),
-  refuted: z.array(z.strictObject({ id: writerTextV4, claim: writerTextV4, why: writerTextV4 })).max(200),
+  })),
+  left: z.array(z.strictObject({ id: writerTextV4, title: writerTextV4, why: writerTextV4 })),
+  refuted: z.array(z.strictObject({ id: writerTextV4, claim: writerTextV4, why: writerTextV4 })),
   notExamined: writerTextV4,
 });
 export type WriterOutputV4 = z.infer<typeof writerOutputSchemaV4>;
