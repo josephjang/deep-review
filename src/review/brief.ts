@@ -13,13 +13,13 @@
  */
 import { answerWords, owedAnswers, standingAnswer, type RecordedAnswer } from '../checkpoint/answer-state.ts';
 import type { ChangeCondition, RecordedDecision, ScopeMode, ScopeState, TreeRevised } from '../checkpoint/events.ts';
-import { budgetStoppedUnits, committedRevisions, type FixState } from '../checkpoint/fix-state.ts';
+import { budgetStoppedUnits, committedRevisions, type FixState, type PlannedCheck } from '../checkpoint/fix-state.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { isAnswered, unverifiedGroupsOf, type ReviewState, type TriageAccount } from '../checkpoint/review-fold.ts';
 import { endedByKill } from '../runtime/kill-marks.ts';
 import { baseNameOf } from '../scope/scope-line.ts';
 import { defaultInPlace, leaveWords } from './decision-report.ts';
-import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument } from './documents.ts';
+import { leftDocumentsOf, stepNotRunCause, stepNotRunSentence, type LeftDocument, type StepNotRunCause } from './documents.ts';
 import { baseWords, briefChecksOf, meaningRowOf, validationKindsOf, validationWords, type BriefCheck, type ComparedBy } from './brief-checks.ts';
 import type { GapKind } from './brief-json.ts';
 import { findingOutcomes, lastFixAnswer, scratchSpellings, type FindingOutcome, type FindingOutcomes } from './fix-report.ts';
@@ -185,10 +185,35 @@ export interface BriefFix {
   readonly patches: readonly number[];
 }
 
-/** A gap of what the run did not examine (R10 of the brief of a run), with its kind, so a reader of the brief tells gaps apart without reading their words. */
+/**
+ * The facts of a gap of what the run did not examine, by what it is, with
+ * no words: a review pass that did not run; the findings, by number, and
+ * the candidates merged into a finding, by its number, and the other
+ * candidates, by count, that no verifier examined; the patterns of the
+ * settings that left changed paths out, with their count; the files too
+ * large to freeze, by path; a check with no command, with why; the steps
+ * of the fix pass the run budget stopped; a stop that cut `deep-review
+ * commit` short; the cause of a documentation step that did not run; and
+ * the count of workers a stop ended whose work did not run again. The
+ * brief words each (`gapText`); the form of the pull request shows each
+ * as data.
+ */
+export type GapFacts =
+  | { readonly kind: 'angle'; readonly pass: Angle }
+  | { readonly kind: 'unverified'; readonly findings: readonly number[]; readonly merged: readonly number[]; readonly others: number }
+  | { readonly kind: 'excluded'; readonly patterns: readonly string[]; readonly count: number }
+  | { readonly kind: 'oversized'; readonly paths: readonly string[] }
+  | { readonly kind: 'check'; readonly check: PlannedCheck['kind']; readonly reason: string }
+  | { readonly kind: 'budget'; readonly steps: readonly ('documentation' | 'repair')[] }
+  | { readonly kind: 'series' }
+  | { readonly kind: 'documentation'; readonly cause: StepNotRunCause }
+  | { readonly kind: 'workers'; readonly count: number };
+
+/** A gap of what the run did not examine (R10 of the brief of a run), with its kind, so a reader of the brief tells gaps apart without reading their words, its words, and its facts. */
 export interface BriefGap {
   readonly kind: GapKind;
   readonly text: string;
+  readonly facts: GapFacts;
 }
 
 export interface Brief {
@@ -604,54 +629,84 @@ export function angleRan(review: ReviewState, angle: Angle): boolean {
 }
 
 /**
- * What the run did not examine, each gap with its kind and in plain words
- * (R4, R10 of the report for the person; R10 of the brief of a run): the
- * review passes that did not run, the findings no verifier examined, the
- * paths the settings left out, the files too large to freeze, the checks
- * with no command, the work a stop ended, the steps the run budget
- * stopped, and a documentation step that did not run. What needs the
- * person is an item of "What needs you", not a gap.
+ * What the run did not examine, each gap as its facts (R4, R10 of the
+ * report for the person; R10 of the brief of a run): the review passes
+ * that did not run, the findings no verifier examined, the paths the
+ * settings left out, the files too large to freeze, the checks with no
+ * command, the steps the run budget stopped, a stop of the commits, a
+ * documentation step that did not run, and the work a stop ended. What
+ * needs the person is an item of "What needs you", not a gap.
  */
-function notExaminedOf(context: BriefContext): BriefGap[] {
+function gapFactsOf(context: BriefContext): GapFacts[] {
   const { state, review } = context;
   const scope = state.scope!;
-  const gaps: BriefGap[] = [];
-  const gap = (kind: GapKind, text: string): void => {
-    gaps.push({ kind, text });
-  };
-  for (const angle of Object.keys(review.anglesNotRun) as Angle[]) gap('angle', `The ${passNames[angle]} review pass did not run, and a later pass looked for what it would have found.`);
+  const gaps: GapFacts[] = [];
+  for (const angle of Object.keys(review.anglesNotRun) as Angle[]) gaps.push({ kind: 'angle', pass: angle });
   // A candidate of a group no verifier examined is a finding of its own, or merged into one whose verdict another candidate may give.
   const primaries = new Set(context.findings.map(({ entry }) => entry.finding.id));
   for (const group of unverifiedGroupsOf(review)) {
-    const own = group.candidateIds.filter((id) => primaries.has(id)).map((id) => context.numbers.get(id)!);
+    const findings = group.candidateIds.filter((id) => primaries.has(id)).map((id) => context.numbers.get(id)!);
     const merged = group.candidateIds.filter((id) => !primaries.has(id) && context.numbers.has(id)).map((id) => context.numbers.get(id)!);
-    const others = group.candidateIds.length - own.length - merged.length;
-    const parts = [
-      ...(own.length === 0 ? [] : [findingWords(own)]),
-      ...(merged.length === 0 ? [] : [`${merged.length === 1 ? 'a candidate' : 'candidates'} merged into ${findingWords(merged)}`]),
-      ...(others === 0 ? [] : [counted(others, 'candidate', 'candidates')]),
-    ];
-    gap('unverified', `No verifier examined ${listed(parts)}${own.length === 0 ? '' : `; ${own.length === 1 ? 'it counts' : 'each counts'} as plausible`}.`);
+    gaps.push({ kind: 'unverified', findings, merged, others: group.candidateIds.length - findings.length - merged.length });
   }
-  if (scope.excluded.count > 0) gap('excluded', `${capitalized(counted(scope.excluded.count, 'changed path', 'changed paths'))} under ${scope.request.exclude.join(', ')}, which the settings leave out.`);
+  if (scope.excluded.count > 0) gaps.push({ kind: 'excluded', patterns: scope.request.exclude, count: scope.excluded.count });
   const oversized = scope.files.filter((file) => (file.before !== null && 'oversized' in file.before) || (file.after !== null && 'oversized' in file.after)).map((file) => file.path);
-  if (oversized.length > 0) gap('oversized', `${capitalized(counted(oversized.length, 'file', 'files'))} too large to freeze, which no worker was given: ${oversized.join(', ')}.`);
+  if (oversized.length > 0) gaps.push({ kind: 'oversized', paths: oversized });
   const fix = review.fix;
   if (fix !== null) {
     for (const check of fix.checks.planned?.checks ?? []) {
-      if (check.command === null) gap('check', `No ${check.kind} check ran: ${droppedByOperator(review.survey, check) ?? check.reason ?? 'the run has no command for it'}.`);
+      if (check.command === null) gaps.push({ kind: 'check', check: check.kind, reason: droppedByOperator(review.survey, check) ?? check.reason ?? 'the run has no command for it' });
     }
     const stopped = budgetStoppedUnits(fix);
-    const steps = [...(stopped.some((unit) => unit.phase === 'documentation') ? ['the documentation step'] : []), ...(stopped.some((unit) => unit.phase === 'repair') ? ['the fixes for the checks'] : [])];
-    if (steps.length > 0) gap('budget', `The run budget stopped the fix pass before ${listed(steps)}, and the end of the report gives the command that continues it.`);
-    if (fix.openSeries !== null) gap('stop', 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.');
+    const steps = [...(stopped.some((unit) => unit.phase === 'documentation') ? ['documentation' as const] : []), ...(stopped.some((unit) => unit.phase === 'repair') ? ['repair' as const] : [])];
+    if (steps.length > 0) gaps.push({ kind: 'budget', steps });
+    if (fix.openSeries !== null) gaps.push({ kind: 'series' });
     const cause = stepNotRunCause(review);
-    if (review.documentationStep && cause !== null && cause !== 'no-edits') gap('documentation', stepNotRunSentence(cause));
+    if (review.documentationStep && cause !== null && cause !== 'no-edits') gaps.push({ kind: 'documentation', cause });
   }
   const workers = Object.values(state.workers);
   const ended = workers.filter((worker) => (worker.status === 'lost' || (worker.status === 'finished' && endedByKill(worker.finish))) && !ranAgain(workers, worker));
-  if (ended.length > 0) gap('stop', `A stop ended ${counted(ended.length, 'worker', 'workers')} whose work did not run again; the end of the report names ${ended.length === 1 ? 'it' : 'them'}.`);
+  if (ended.length > 0) gaps.push({ kind: 'workers', count: ended.length });
   return gaps;
+}
+
+/** The kind of the brief that each gap's facts have: a stop of the commits and the workers a stop ended are both a stop. */
+const gapKindOf: Readonly<Record<GapFacts['kind'], GapKind>> = { angle: 'angle', unverified: 'unverified', excluded: 'excluded', oversized: 'oversized', check: 'check', budget: 'budget', series: 'stop', documentation: 'documentation', workers: 'stop' };
+
+/** A gap in the plain words of the brief and the report. */
+function gapText(facts: GapFacts): string {
+  switch (facts.kind) {
+    case 'angle':
+      return `The ${passNames[facts.pass]} review pass did not run, and a later pass looked for what it would have found.`;
+    case 'unverified': {
+      const { findings: own, merged, others } = facts;
+      const parts = [
+        ...(own.length === 0 ? [] : [findingWords(own)]),
+        ...(merged.length === 0 ? [] : [`${merged.length === 1 ? 'a candidate' : 'candidates'} merged into ${findingWords(merged)}`]),
+        ...(others === 0 ? [] : [counted(others, 'candidate', 'candidates')]),
+      ];
+      return `No verifier examined ${listed(parts)}${own.length === 0 ? '' : `; ${own.length === 1 ? 'it counts' : 'each counts'} as plausible`}.`;
+    }
+    case 'excluded':
+      return `${capitalized(counted(facts.count, 'changed path', 'changed paths'))} under ${facts.patterns.join(', ')}, which the settings leave out.`;
+    case 'oversized':
+      return `${capitalized(counted(facts.paths.length, 'file', 'files'))} too large to freeze, which no worker was given: ${facts.paths.join(', ')}.`;
+    case 'check':
+      return `No ${facts.check} check ran: ${facts.reason}.`;
+    case 'budget':
+      return `The run budget stopped the fix pass before ${listed(facts.steps.map((step) => (step === 'documentation' ? 'the documentation step' : 'the fixes for the checks')))}, and the end of the report gives the command that continues it.`;
+    case 'series':
+      return 'A stop cut `deep-review commit` short; the next command completes the commits or drops them.';
+    case 'documentation':
+      return stepNotRunSentence(facts.cause);
+    case 'workers':
+      return `A stop ended ${counted(facts.count, 'worker', 'workers')} whose work did not run again; the end of the report names ${facts.count === 1 ? 'it' : 'them'}.`;
+  }
+}
+
+/** What the run did not examine, each gap with its kind, in plain words, and its facts (`gapFactsOf`). */
+function notExaminedOf(context: BriefContext): BriefGap[] {
+  return gapFactsOf(context).map((facts) => ({ kind: gapKindOf[facts.kind], text: gapText(facts), facts }));
 }
 
 /** Why the findings left as is were left, as one sentence: each reason with its findings; null when the run left none. */

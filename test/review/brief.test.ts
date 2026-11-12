@@ -176,6 +176,25 @@ describe('briefOf (R1, R2 of the brief of a run)', () => {
       assert.ok(gaps.includes('oversized: 1 file too large to freeze, which no worker was given: big.bin.'), JSON.stringify(gaps));
     });
 
+    it('gives each gap its facts beside its words, so a reader that shows data needs no sentence of the brief', () => {
+      const state = { ...passes, scope: { ...passes.scope!, excluded: { count: 2, paths: ['dist/a.js', 'dist/b.js'] }, request: { ...passes.scope!.request, exclude: ['dist/**'] }, files: [...passes.scope!.files, { path: 'big.bin', status: 'added' as const, symlink: false, before: null, after: { oversized: { sha256: 'f'.repeat(64), size: 9_000_000 } } }] } } as RunState;
+      assert.deepEqual(briefOf(state).notExamined.map((gap) => gap.facts), [
+        { kind: 'angle', pass: 'FOOTGUNS' },
+        { kind: 'unverified', findings: [2], merged: [1], others: 0 },
+        { kind: 'excluded', patterns: ['dist/**'], count: 2 },
+        { kind: 'oversized', paths: ['big.bin'] },
+      ]);
+      const fixRun = decidedFixRun().fold();
+      const fix = fixRun.review!.fix!;
+      const stopped = { ...fixRun, review: { ...fixRun.review!, fix: { ...fix, notAttempted: { ...fix.notAttempted, repair: { repair: { cause: 'budget' as const, reason: 'spent' } } } } } } as RunState;
+      const facts = briefOf(stopped).notExamined.map((gap) => gap.facts);
+      assert.ok(facts.some((gap) => gap.kind === 'check' && gap.check === 'typecheck' && gap.reason === 'no typecheck step'), JSON.stringify(facts));
+      assert.ok(facts.some((gap) => gap.kind === 'budget' && gap.steps.join() === 'repair'), JSON.stringify(facts));
+      const launched = launch(worker(90), 'finder-WRAPPERS finders:WRAPPERS');
+      const lost = { ...fixRun, workers: { ...fixRun.workers, [worker(90)]: { status: 'lost', launch: launched } } } as unknown as RunState;
+      assert.deepEqual(briefOf(lost).notExamined.filter((gap) => gap.kind === 'stop').map((gap) => gap.facts), [{ kind: 'workers', count: 1 }]);
+    });
+
     it('names a check with no command, the steps the run budget stopped, and a stop whose work did not run again, and no fix no fixer applied, which needs the person', () => {
       const state = decidedFixRun().fold();
       const fix = state.review!.fix!;
@@ -496,7 +515,7 @@ describe('the brief for the person', () => {
     ];
     const checks = (['build', 'typecheck', 'lint', 'test'] as const).map((kind) => ({ ...brief.checks[0]!, kind }));
     const fixes = Array.from({ length: 20 }, (_, index) => ({ finding: index + 1, severity: 'minor' as const, plausible: true, againstRule: false, subject: long('subject'), kinds: [], patches: [index + 1] }));
-    const full: Brief = { ...brief, title: long('title'), needs, checks, fixes, notExamined: Array.from({ length: 30 }, () => ({ kind: 'excluded' as const, text: long('gap') })) };
+    const full: Brief = { ...brief, title: long('title'), needs, checks, fixes, notExamined: Array.from({ length: 30 }, () => ({ kind: 'excluded' as const, text: long('gap'), facts: { kind: 'excluded' as const, patterns: ['gap/**'], count: 1 } })) };
     assert.equal(briefMarkdown(full).length, briefLineLimit, 'every list at its cap reaches the maximum');
     assert.ok(briefChatForm(full).length <= chatLineLimit, String(briefChatForm(full).length));
     assert.ok(briefChatForm(briefOf(answerable())).length < chatLineLimit);
