@@ -26,8 +26,8 @@ import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { commitIdsOrNull } from '../scope/git.ts';
 import { StructuralCheckError } from './errors.ts';
-import { checkAnswer, gitLineCounts, heldConditions, type CheckedAnswer, type CheckedPart, type CoreCheckInput, type ReportCheckInput } from './explanation-checks.ts';
-import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
+import { checkAnswer, checkAnswerV4, gitLineCounts, heldConditions, type CheckedAnswer, type CheckedAnswerV4, type CheckedPart, type CoreCheckInput, type DecisionFacts, type ReportCheckInput } from './explanation-checks.ts';
+import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, writerOutputSchemaV4, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { asksToAct, singleUnitKey, type FindingKind } from './vocabulary.ts';
@@ -212,7 +212,7 @@ export function reportCheckInputOf(review: ReviewState): ReportCheckInput {
 }
 
 /** A part of the answer as `explanation.recorded` names a dropped one: the conclusion, the account, the areas, the refuted lines, the core, the conditions, or `finding <id>`. */
-export type PartName = 'conclusion' | 'account' | 'areas' | 'refuted' | 'core' | 'conditions' | `finding ${string}`;
+export type PartName = 'conclusion' | 'account' | 'areas' | 'refuted' | 'core' | 'conditions' | 'left' | 'not-examined' | `finding ${string}`;
 
 /** The most failures a dropped part records, as `explanation.recorded` holds them. */
 const maxPartFailures = 100;
@@ -276,11 +276,62 @@ export function mergeAnswers(version: ExplanationVersion, answers: readonly Chec
   return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
 }
 
+/** What the merge of a unit's answers of version 4 keeps, and each part none of them passed. */
+export interface MergedAnswerV4 {
+  readonly answer: AnswerV4;
+  readonly dropped: readonly WriterDroppedPart[];
+}
+
+/**
+ * The answers of version 4 of one unit merged, in the order they were
+ * given (TD2 of the review in the writer's words), as `mergeAnswers`
+ * merges an answer of version 3: each part taken from the first answer
+ * that passed it, and a part that no answer passed dropped with the
+ * failures of the latest answer and `extra`. Each finding, with its
+ * sentence of what deep-review would do and the text of its decision,
+ * is one part, so a failure in it drops that finding alone. The summary
+ * keeps the part name `conclusion` and is taken with the areas from one
+ * answer, since it names them.
+ */
+export function mergeAnswersV4(answers: readonly CheckedAnswerV4[], ids: readonly string[], extra: readonly string[] = []): MergedAnswerV4 {
+  const dropped: WriterDroppedPart[] = [];
+  const passes = <T>(part: CheckedPart<T>): boolean => part.value !== null && part.failures.length === 0;
+  const pick = <T>(parts: readonly CheckedPart<T>[], drop: (failures: string[]) => WriterDroppedPart): T | null => {
+    const passed = parts.find(passes);
+    if (passed !== undefined) return passed.value;
+    dropped.push(drop(recordedFailures(parts.at(-1)?.failures ?? [], extra)));
+    return null;
+  };
+  const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
+  const areasFrom = paired ?? answers.find((answer) => passes(answer.areas));
+  const pairedSource = areasFrom === undefined ? answers : [areasFrom];
+  const summary = pick(pairedSource.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
+  const areas = pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures }));
+  const core = pick(answers.map((answer) => answer.core), (failures) => ({ part: 'core', failures }));
+  const conditions = pick(answers.map((answer) => answer.conditions), (failures) => ({ part: 'conditions', failures }));
+  const findings = ids.flatMap((id) => {
+    const kept = pick(answers.map((answer) => answer.findings.get(id)!), (failures) => ({ part: 'finding', finding: id, failures }));
+    return kept === null ? [] : [kept];
+  });
+  const left = pick(answers.map((answer) => answer.left), (failures) => ({ part: 'left', failures }));
+  const lines = pick(answers.map((answer) => answer.refuted), (failures) => ({ part: 'refuted', failures }));
+  const notExamined = pick(answers.map((answer) => answer.notExamined), (failures) => ({ part: 'not-examined', failures }));
+  return { answer: { core, conditions, summary, areas, findings, left, refuted: lines, notExamined }, dropped };
+}
+
 /** Whether the merge kept any part. */
 const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || answer.areas !== null || answer.refuted !== null || answer.core !== null || answer.conditions !== null || answer.findings.length > 0;
 
-/** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted`, `core`, `conditions` or `finding <id>`. */
-export const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
+/**
+ * A part of an answer that no answer passed, as a merge drops it: a part
+ * `explanation.recorded` names, or one of the two parts that only an
+ * answer of version 4 has, the findings left as is and what the review
+ * did not examine, which no version of the event names yet.
+ */
+export type WriterDroppedPart = DroppedPart | { readonly part: 'left' | 'not-examined'; readonly failures: string[] };
+
+/** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted`, `core`, `conditions`, `left`, `not-examined` or `finding <id>`. */
+export const partNameOf = (part: WriterDroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
 
 /** The event that records a writer's explanation, at the version of its answer, typed as a pair. */
 export type ExplanationEvent =
@@ -355,6 +406,60 @@ export function checkedAnswers(state: RunState, review: ReviewState, context: { 
   const report = version === 1 ? {} : { report: reportCheckInputOf(review) };
   const core = version === 3 && answers.length > 0 ? { core: coreCheckInputOf(review, state.scope, context.worktree) } : {};
   return answers.map((answer) => checkAnswer(answer, { ids, lineCount, ...report, ...core }));
+}
+
+/** The findings left as is, by id in rank order: each ranked finding that does not ask a person to act, which an answer of version 4 gives a title and a reason (R2, PD10 of the review in the writer's words). */
+export function findingsLeftAsIs(review: ReviewState): string[] {
+  const acting = new Set(findingsToExplain(review));
+  return rankedFindings(review).map((entry) => entry.finding.id).filter((id) => !acting.has(id));
+}
+
+/**
+ * What the decision of each finding to explain holds an answer of version
+ * 4 to (`DecisionFacts`): a fix or a question; whether the fix departs from
+ * a written rule; the count of options the question records; and whether
+ * a verifier examined the finding's PLAUSIBLE verdict and recorded why it
+ * is not confirmed. The decision as decided, which no answer changes (R6
+ * of the review in the writer's words).
+ */
+export function decisionFactsOf(review: ReviewState): Map<string, DecisionFacts> {
+  const acting = new Set(findingsToExplain(review));
+  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
+  return new Map(rankedFindings(review).flatMap((entry): [string, DecisionFacts][] => {
+    const decision = decided.get(entry.finding.id);
+    if (!acting.has(entry.finding.id) || decision === undefined || decision.decision === 'leave') return [];
+    const { resolution } = entry;
+    return [[entry.finding.id, {
+      decision: decision.decision,
+      departs: decision.decision === 'fix' && decision.departure !== null,
+      options: decision.decision === 'ask' ? decision.ask.options.length : 0,
+      unconfirmed: resolution.verdict === 'PLAUSIBLE' && !resolution.unverified && resolution.unconfirmed !== null,
+    }]];
+  }));
+}
+
+/**
+ * Answers of version 4 checked against the run, in order, the lines of
+ * every path their cases cite read at once: the answers of the unit's
+ * earlier attempts that parse at version 4, then `latest`. The replay of
+ * the writer gives a run whose unit has no earlier attempt, and the
+ * answers its own writers gave.
+ */
+export function checkedAnswersV4(state: RunState, review: ReviewState, context: { readonly worktree: string; readonly evidence: Pick<EvidenceStore, 'read'> }, ids: readonly string[], latest: readonly WriterOutputV4[]): CheckedAnswerV4[] {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
+  const earlier = writerFailures(review).flatMap((failure) => {
+    const worker = Object.hasOwn(state.workers, failure.workerId) ? state.workers[failure.workerId] : undefined;
+    if (worker?.status !== 'finished' || worker.finish.output === null) return [];
+    const parsed = writerOutputSchemaV4.safeParse(JSON.parse(context.evidence.read(worker.finish.output).toString('utf8')));
+    return parsed.success ? [parsed.data] : [];
+  });
+  const answers = [...earlier, ...latest];
+  if (answers.length === 0) return [];
+  const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
+  const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
+  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') });
+  const input = { ids, lineCount, report: reportCheckInputOf(review), core: coreCheckInputOf(review, state.scope, context.worktree), decided: decisionFactsOf(review), left: findingsLeftAsIs(review) };
+  return answers.map((answer) => checkAnswerV4(answer, input));
 }
 
 /**
