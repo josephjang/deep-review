@@ -36,8 +36,10 @@ that the evidence and the recorded decision do not hold. When you
 restate the decider's question, an option, its cost, its rule or a
 departure, say what the decider recorded, in other words and with the
 same meaning: an answer applies the decider's words, and the review
-shows them beside yours. The bounds of each text below keep one text
-from filling the page; they are not targets.
+shows them beside yours. The size given below for each text, as about
+400 characters, is a guide to how much a reader usually needs, neither
+a limit nor a target: write what the reader needs to understand, and no
+check holds a text to a length.
 
 ### What you leave to the engine
 
@@ -60,19 +62,19 @@ and no severity of your own.
 **The core of the change** is the first thing every reader reads, and
 the one part about the change rather than the review. Give:
 
-- a `title` that says what the change is, in plain words, up to 200
+- a `title` that says what the change is, in plain words, about 200
   characters;
 - `what` the change does, in a few short paragraphs, in the order the
   reader needs: what it does first, then how, only as far as the
   reader needs it to follow the findings. Write it from the patch and
   the code at the head and at the merge base, and say nothing of the
-  change that the code at the head does not show. Up to 4000
+  change that the code at the head does not show. About 4000
   characters;
 - `why` the change does it, in the change's own words: restate, or
   quote where the exact words matter, the commit messages your task
   lists and the proposals and other documents the change adds or
   edits. Give no reason of your own. Give `why` null when the change
-  states no reason. Up to 2000 characters;
+  states no reason. About 2000 characters;
 - `whyFrom`, each commit and each file that states the reason: a
   commit by its id as your task lists it, a file by its path from the
   root of the repository. Give it empty when `why` is null;
@@ -97,12 +99,12 @@ change is the public interface and who reads or calls it, or which
 files beyond the change its effect reaches and how. When the code does
 not show what the triage judged, give `explanation` null and, in
 `unexplained`, a sentence of what you found instead. Give an entry for
-each listed condition and for no other, each up to 1000 characters: the
+each listed condition and for no other, each about 1000 characters: the
 triage made the judgment, and you neither add a condition nor remove
 one. Give `conditions` empty when your task lists none.
 
 **The summary** is for the author and the reviewers, who look first
-for what to do. In `summary`, up to 1500 characters, say what the
+for what to do. In `summary`, about 1500 characters, say what the
 review found and what deep-review decided: what it would fix, what it
 asks the author, what it leaves as is, and in which areas, or that the
 pull request needs nothing. The review shows the counts by decision as
@@ -114,8 +116,8 @@ exactly one area, group in one area the findings that a reader meets
 in the same way, and put no minor finding in any area. Give each area:
 
 - a `title` that says what goes wrong and for whom, as the title of a
-  finding does, up to 200 characters;
-- an `intro` of one or two sentences that says what the area is, up to
+  finding does, about 200 characters;
+- an `intro` of one or two sentences that says what the area is, about
   600 characters;
 - a `diagram` where it shows how the findings of the area arise, else
   null;
@@ -131,53 +133,53 @@ lists to explain, give its `id` and, in `explanation`:
 - a `title` that says what goes wrong and for whom, not which code does
   it: "Quoting a regex turns the code into a local path", not "The
   alternative of `localPath` takes two backslashes and a word as a
-  network path". The cause stays in the lines below it. Up to 400
+  network path". The cause stays in the lines below it. About 400
   characters;
 - the `problem`, as who meets what: the caller, the user or the
-  operator, and what goes wrong for them. Up to 2000 characters;
+  operator, and what goes wrong for them. About 2000 characters;
 - the `cases` in which it breaks, each one sentence with the lines that
-  show it, up to 800 characters a sentence;
+  show it, about 800 characters a sentence;
 - a `diagram` where the flow takes long to say, else null;
 - `checked`, one line of what the verifier did and saw, from its
   evidence and its runs: what it fed and what it got back for a run, or
   what it traced or read. Name no path of the machine, such as a scratch
   directory, and quote no command, since a command holds those paths.
-  Up to 400 characters;
+  About 400 characters;
 - `kind`, for a minor finding: `user` when it changes what a user of
   the code sees, `code` when it is about the code alone. Give `kind`
   null for a major finding;
 - `action`, one sentence of what deep-review would do about it, or, for
   a question, what it asks and which option it recommends. The review
   shows it on the finding's line in what needs a person, in its area
-  and in the table of minor findings, so it must stand alone. Up to 400
+  and in the table of minor findings, so it must stand alone. About 400
   characters;
 - `unconfirmed`, for a finding whose verdict your task gives as
   PLAUSIBLE with a line of why it is not CONFIRMED: why the verifier
-  could not confirm it, in plain words, up to 600 characters. Give it
+  could not confirm it, in plain words, about 600 characters. Give it
   null for every other finding. This is the one text where you may
   name a verdict;
 - for a finding decided `fix`, `fix` and `ask` null. In `fix`, give
   `text`: what the fix changes, and each choice the decision settles
   and what settled it, as the lines `settled by the decision` give
-  them, up to 2000 characters. And give `departure` for a fix whose
+  them, about 2000 characters. And give `departure` for a fix whose
   decision departs from a written rule: the rule in plain words, the
-  fact against it, and what the fix does instead, up to 800 characters;
+  fact against it, and what the fix does instead, about 800 characters;
   null for any other fix;
 - for a finding decided `ask`, `ask` and `fix` null. In `ask`, give the
   `question`: what is asked, and why the repository does not answer
-  it, up to 800 characters; `options`, one for each option the decision
+  it, about 800 characters; `options`, one for each option the decision
   records and no other, each by its `number` as your task numbers it,
   from 1, with what choosing it `means`, what it `cost`s, and the `rule`
   the repository would hold to from then on if the author chose it,
-  each up to 400 characters; and the `recommendation`: why deep-review
-  recommends the option it does, up to 600 characters.
+  each about 400 characters; and the `recommendation`: why deep-review
+  recommends the option it does, about 600 characters.
 
 Write each explanation from the finding's evidence, its decision and
 the code it points at, and no further. A case is a claim a reader takes
 as the review's, and only the evidence beneath it was verified: state
 no case its lines do not show. When you cannot explain a finding from
 its evidence and the code, say so: give `explanation` null and, in
-`unexplained`, the reason in a sentence of up to 1000 characters. The
+`unexplained`, the reason in a sentence of about 1000 characters. The
 review then gives that finding in the other workers' words, with a
 mark that tells the reader to look. Every listed finding has exactly
 one of `explanation` and `unexplained`, and the other null.
@@ -185,13 +187,13 @@ one of `explanation` and `unexplained`, and the other null.
 **The findings left as is** are for a reader who wants to know what the
 review set aside and why. For each finding your task lists as left as
 is, give one entry of `left` with its `id`; a `title` that says what
-the problem is, not which code it is in, up to 200 characters; and
+the problem is, not which code it is in, about 200 characters; and
 `why` deep-review leaves it, from its decision's grounds and reason,
 with the choice its verifier left to the author, when it named one,
-and what settles it, up to 600 characters. Give no case and no diagram.
+and what settles it, about 600 characters. Give no case and no diagram.
 
 **What the review did not examine** is for a reader who must know
-where the review is not a gate. In `notExamined`, up to 1500
+where the review is not a gate. In `notExamined`, about 1500
 characters, say what the gaps your task lists mean for a reader: what
 the review could have missed, and where a reader should look for it.
 When your task lists no gap, say what that means. The review shows
@@ -199,8 +201,8 @@ each gap as data beside your text.
 
 **The refuted candidates** are for a reader who wonders what the review
 looked at and set aside. For each refuted candidate your task lists,
-give its `id`, its `claim` in one sentence of up to 300 characters, and
-`why` it was refuted in one sentence of up to 300 characters, from its
+give its `id`, its `claim` in one sentence of about 300 characters, and
+`why` it was refuted in one sentence of about 300 characters, from its
 verifier's evidence. The engine folds them with their lines.
 
 ### The lines of a case
@@ -220,7 +222,7 @@ a range past its last line.
 A diagram is Mermaid, of a kind GitHub draws: its first line is
 `flowchart` with a direction, such as `flowchart LR`, `sequenceDiagram`
 or `stateDiagram-v2`, and nothing comes before it. Give its text alone,
-with no fence around it, up to 8000 characters; the engine fences it.
+with no fence around it; the engine fences it.
 
 - In a flowchart, quote the label of every node, as `A["parse()
   returns null"]`, whatever its shape, and write a label on an arrow
@@ -259,8 +261,8 @@ its side, the core has a title and says what the change does, its
 commit of the change named by at least 7 characters of its id that
 begin no other of its commits, or a file the change adds, edits or
 removes, the core names no id of a finding or a candidate, each listed
-condition has exactly one entry, no text is empty
-or over its bound, no text but `unconfirmed` holds a verdict of the
+condition has exactly one entry, no text is empty,
+no text but `unconfirmed` holds a verdict of the
 review, and each diagram keeps the rules above. The engine does not
 judge how a text is written. An answer that fails a check is given back
 to a fresh writer once, with what failed; the parts of the first
