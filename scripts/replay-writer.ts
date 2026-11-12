@@ -9,17 +9,20 @@
 // output directory. It calls a real model, costs money and needs the
 // runtime's CLI signed in, so it is run by hand, never by `npm run check`:
 //   npm run replay-writer -- --checkpoint <dir> --run <id> --tree <dir> --output <dir> --runtime <claude|codex>
-//     [--version <1|2|3|4>] [--roles <dir>] [--executable <path>] [--executable-arg <arg>]... [--print-task]
+//     [--version <1|2|3|4>] [--language <tag>] [--roles <dir>] [--executable <path>] [--executable-arg <arg>]... [--print-task]
 // --checkpoint is the run's `deep-review-checkpoint` directory: a copy of
 // its ledger is read, and its frozen blobs, and nothing is written there.
 // --run takes a run id or a prefix of one. --tree is a checkout of the
 // repository at the reviewed head with no change and with the run's
 // commits; a tree that differs is refused. --output must be absent or
 // empty. --version is 4 by default; the run's own version is the other
-// one it takes. --roles is this checkout's roles/ by default.
+// one it takes. --language asks the writer to write in the language
+// tagged, such as ko, rather than the run's own. --roles is this
+// checkout's roles/ by default.
 // --print-task writes the prompt and launches nothing.
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { languageTagSchemaV1 } from '../src/checkpoint/events.ts';
 import { engineVersion } from '../src/engine.ts';
 import { replayWriter, writerFactsFileName } from '../src/replay/writer.ts';
 import { resolveExecutable } from '../src/review/executable.ts';
@@ -34,6 +37,7 @@ const { values } = parseArgs({
     output: { type: 'string' },
     runtime: { type: 'string' },
     version: { type: 'string' },
+    language: { type: 'string' },
     executable: { type: 'string' },
     'executable-arg': { type: 'string', multiple: true },
     roles: { type: 'string' },
@@ -56,7 +60,15 @@ function versionOf(given: string | undefined): WriterVersion {
   throw new Error(`--version takes 1, 2, 3 or 4, not ${given}`);
 }
 
+/** The language `--language` tags, checked as the settings check one, or the run's own when it is not given. */
+function languageOf(given: string | undefined): string | undefined {
+  if (given === undefined) return undefined;
+  if (!languageTagSchemaV1.safeParse(given).success) throw new Error(`--language takes a language tag, such as en, ko or pt-BR, not ${given}`);
+  return given;
+}
+
 const runtime = required('runtime');
+const language = languageOf(values.language);
 const output = resolve(required('output'));
 const outcome = await replayWriter({
   checkpoint: required('checkpoint'),
@@ -65,6 +77,7 @@ const outcome = await replayWriter({
   output,
   runtime,
   version: versionOf(values.version),
+  ...(language === undefined ? {} : { language }),
   executable: resolveExecutable(values.executable ?? runtime),
   executableArgs: values['executable-arg'] ?? [],
   rolesRoot: values.roles === undefined ? repositoryRolesRoot() : resolve(values.roles),

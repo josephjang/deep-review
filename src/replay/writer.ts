@@ -27,7 +27,7 @@ import { EvidenceStore } from '../evidence/store.ts';
 import { ghTokenVariables } from '../github/gh.ts';
 import { isInside } from '../paths.ts';
 import { changeShapeOf } from '../review/brief.ts';
-import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, mergeAnswers, mergeAnswersV4, partNameOf, type AnyWriterOutput, type WriterDroppedPart } from '../review/explanation.ts';
+import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, mergeAnswers, mergeAnswersV4, partNameOf, reviewLanguage, type AnyWriterOutput, type WriterDroppedPart } from '../review/explanation.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { pinnedRole, readPolicy, resolvePolicy, type ResolvedPolicy } from '../review/policy.ts';
 import { composeWorkerPrompt, scopeBlock } from '../review/prompts.ts';
@@ -157,6 +157,8 @@ export interface FailedPart {
 export interface WriterFacts {
   readonly run: string;
   readonly version: WriterVersion;
+  /** The language the writer was asked to write in, the run's unless the replay was given another. */
+  readonly language: string;
   readonly runtime: string;
   readonly model: string;
   readonly effort: WorkerLaunch['effort'];
@@ -204,6 +206,8 @@ export interface WriterReplayOptions {
   readonly rolesRoot: string;
   /** The version of the answer to ask for: 4 by default, or the version the run was configured for. */
   readonly version?: WriterVersion;
+  /** The language to ask the writer to write in, as a language tag: the run's by default. */
+  readonly language?: string;
   /** Write the prompt and launch nothing. */
   readonly printTask?: boolean;
   /** The engine version the replay's own checkpoint names. */
@@ -227,7 +231,7 @@ export interface WriterReplayOutcome {
  * refuse a version the run can neither be asked for nor checked at, a tree
  * that is not the reviewed commit, unchanged, and an output directory
  * inside it or holding anything; build the prompt with the roles given and
- * the task of the version asked for; then, unless only printing the task,
+ * the task of the version asked for, in the language asked for; then, unless only printing the task,
  * launch one writer, check its answer as the explanation phase would, and
  * write the answer and the facts. The prompt and the answer are written as
  * they are made. Nothing is appended to the recorded run's ledger.
@@ -261,12 +265,13 @@ export async function replayWriter(options: WriterReplayOptions): Promise<Writer
   const settings = writerSettings(resolvePolicy(readPolicy(options.rolesRoot), roles, adapter, {}, platform), adapter, state, recordedWriterLaunch(recorded));
   const machine = machineContextOf({ worktree: state.worktree, checkpoint: root, gitCommon: locateCheckpoint(tree).commonDir, engine: join(import.meta.dirname, '..'), workers: state.workers, environment: options.environment ?? process.env, platform });
   const cored = version === 4 || review.coreForm;
-  const task = writerTask(state, { worktree: tree, evidence, machine, commitMessages: cored ? changeMessagesOf(scope, tree) : null, version });
+  const language = options.language ?? reviewLanguage(review);
+  const task = writerTask(state, { worktree: tree, evidence, machine, commitMessages: cored ? changeMessagesOf(scope, tree) : null, version, language });
   const prompt = composeWorkerPrompt(assembled.prompt, { role, phase: 'explanation', unitKey, task }, scopeBlockOf(state, scope, tree, evidence));
   const ids = findingsToExplain(review);
   const findings = { explained: ids.length, left: findingsLeftAsIs(review).length, ranked: (review.ranking ?? []).length };
 
-  log(`replaying the writer of run ${state.id} at version ${String(version)} of its answer: ${String(findings.explained)} findings to explain, ${String(findings.left)} left as is, read up to sequence ${String(state.lastSequence)}, as its explanation phase started`);
+  log(`replaying the writer of run ${state.id} at version ${String(version)} of its answer, in ${language}${language === reviewLanguage(review) ? '' : ` rather than the run's ${reviewLanguage(review)}`}: ${String(findings.explained)} findings to explain, ${String(findings.left)} left as is, read up to sequence ${String(state.lastSequence)}, as its explanation phase started`);
   log(`the writer runs with this engine and the roles in ${options.rolesRoot}, on ${adapter.name} ${settings.model} at effort ${settings.effort}, a timeout of ${String(Math.round(settings.timeoutMs / 60_000))} minutes and ${settings.budgetUsd === null ? 'no budget cap' : `a budget of ${String(settings.budgetUsd)} USD`}, ${settings.from === 'recorded' ? 'as the run\'s writer ran' : 'as the roles\' policy has it, since the run recorded no writer launch on this runtime'}`);
   mkdirSync(output, { recursive: true });
   const write = (name: string, text: string): string => {
@@ -321,6 +326,7 @@ export async function replayWriter(options: WriterReplayOptions): Promise<Writer
     const facts: WriterFacts = {
       run: state.id,
       version,
+      language,
       runtime: adapter.name,
       model: settings.model,
       effort: settings.effort,
