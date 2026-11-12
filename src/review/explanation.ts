@@ -27,7 +27,7 @@ import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { commitIdsOrNull } from '../scope/git.ts';
 import { StructuralCheckError } from './errors.ts';
 import { checkAnswer, gitLineCounts, heldConditions, type CheckedAnswer, type CheckedPart, type CoreCheckInput, type ReportCheckInput } from './explanation-checks.ts';
-import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from './schemas.ts';
+import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { asksToAct, singleUnitKey, type FindingKind } from './vocabulary.ts';
@@ -76,6 +76,52 @@ export type ExplainedFinding = z.infer<typeof explainedFindingSchema> & { readon
 const unexplainedFindingSchema = z.strictObject({ id: z.string(), unexplained: z.literal(true), reason: z.string() });
 export type UnexplainedFinding = z.infer<typeof unexplainedFindingSchema>;
 export type FindingExplanation = ExplainedFinding | UnexplainedFinding;
+
+/** The fix of a finding decided `fix`, in the writer's words, in an answer of version 4 (R2 of the review in the writer's words): what it changes and settles, and the text of a departure, or null. */
+export type WriterFix = NonNullable<NonNullable<WriterOutputV4['findings'][number]['explanation']>['fix']>;
+/** The question of a finding decided `ask`, in the writer's words, in an answer of version 4 (R3 of the review in the writer's words): what is asked, each option by its number, and why deep-review recommends its option. */
+export type WriterAsk = NonNullable<NonNullable<WriterOutputV4['findings'][number]['explanation']>['ask']>;
+/** The title and the reason of a finding left as is, in an answer of version 4 (R2, PD10 of the review in the writer's words). */
+export type LeftLine = WriterOutputV4['left'][number];
+
+/**
+ * A finding the writer explained in an answer of version 4 (R2, R3 of the
+ * review in the writer's words): the parts of version 3 but its decision,
+ * and one sentence of what deep-review would do, why a PLAUSIBLE verdict
+ * is not confirmed or null, and the fix in full or the question, the
+ * other null.
+ */
+export interface ExplainedFindingV4 {
+  readonly id: string;
+  readonly unexplained: false;
+  readonly title: string;
+  readonly problem: string;
+  readonly cases: readonly CitedCase[];
+  readonly diagram: string | null;
+  readonly checked: string;
+  readonly kind: FindingKind | null;
+  readonly action: string;
+  readonly unconfirmed: string | null;
+  readonly fix: WriterFix | null;
+  readonly ask: WriterAsk | null;
+}
+export type FindingExplanationV4 = ExplainedFindingV4 | UnexplainedFinding;
+
+/**
+ * The parts of an answer of version 4 that a merge keeps, each null when
+ * no answer passed it, and each finding kept in the order of the findings
+ * to explain (TD2 of the review in the writer's words).
+ */
+export interface AnswerV4 {
+  readonly core: Core | null;
+  readonly conditions: ConditionSentence[] | null;
+  readonly summary: string | null;
+  readonly areas: Area[] | null;
+  readonly findings: FindingExplanationV4[];
+  readonly left: LeftLine[] | null;
+  readonly refuted: RefutedLine[] | null;
+  readonly notExamined: string | null;
+}
 
 /**
  * The writer's answer as the evidence store freezes it at version 1, the
