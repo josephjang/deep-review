@@ -18,21 +18,21 @@
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Checkpoint, evidenceDirectoryName } from '../checkpoint/checkpoint.ts';
-import { workerLaunchedV1, type ScopeState, type WorkerLaunch } from '../checkpoint/events.ts';
+import { workerLaunchedV1, type DroppedPart, type ScopeState, type WorkerLaunch } from '../checkpoint/events.ts';
 import { firstUnknownEvent, foldRun, type DecodedEvent, type RunState } from '../checkpoint/fold.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
-import { changeReadingOf, explanationVersionOf } from '../checkpoint/review-fold.ts';
+import { changeReadingOf, explanationVersionOf, type ExplanationVersion } from '../checkpoint/review-fold.ts';
 import { conventionsKnown } from '../checkpoint/survey-state.ts';
 import { EvidenceStore } from '../evidence/store.ts';
 import { ghTokenVariables } from '../github/gh.ts';
 import { isInside } from '../paths.ts';
 import { changeShapeOf } from '../review/brief.ts';
-import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, mergeAnswers, mergeAnswersV4, partNameOf, reviewLanguage, type AnyWriterOutput, type WriterDroppedPart } from '../review/explanation.ts';
+import { checkedAnswers, checkedAnswersV4, findingsLeftAsIs, findingsToExplain, mergeAnswers, mergeAnswersV4, partNameOf, reviewLanguage, type AnyWriterOutput } from '../review/explanation.ts';
 import { parseUnitLabel, unitLabel } from '../review/labels.ts';
 import { pinnedRole, readPolicy, resolvePolicy, type ResolvedPolicy } from '../review/policy.ts';
 import { composeWorkerPrompt, scopeBlock } from '../review/prompts.ts';
 import { machineContextOf } from '../review/public-text.ts';
-import { writerOutputSchemaOf, type WriterOutputV4, type WriterVersion } from '../review/schemas.ts';
+import { writerOutputSchemaOf, type WriterOutputV4 } from '../review/schemas.ts';
 import { settledWorkers, spendOf } from '../review/spend.ts';
 import type { ChangeMessages } from '../review/tasks.ts';
 import { singleUnitKey } from '../review/vocabulary.ts';
@@ -156,7 +156,7 @@ export interface FailedPart {
 /** What the measure reads of one replayed writer (OQ1 of the review in the writer's words). */
 export interface WriterFacts {
   readonly run: string;
-  readonly version: WriterVersion;
+  readonly version: ExplanationVersion;
   /** The language the writer was asked to write in, the run's unless the replay was given another. */
   readonly language: string;
   readonly runtime: string;
@@ -205,7 +205,7 @@ export interface WriterReplayOptions {
   /** The roles directory whose writer prompt the replay runs with. Its policy gives the launch settings only on another runtime than the run's writer ran on, or for a run that recorded no writer launch. */
   readonly rolesRoot: string;
   /** The version of the answer to ask for: 4 by default, or the version the run was configured for. */
-  readonly version?: WriterVersion;
+  readonly version?: ExplanationVersion;
   /** The language to ask the writer to write in, as a language tag: the run's by default. */
   readonly language?: string;
   /** Write the prompt and launch nothing. */
@@ -314,12 +314,12 @@ export async function replayWriter(options: WriterReplayOptions): Promise<Writer
     const answered = receipt.outcome === 'completed' && receipt.output !== null;
     const answerText = answered ? `${JSON.stringify(receipt.output, null, 2)}\n` : null;
     if (answerText !== null) write(writerAnswerFileName, answerText);
-    let dropped: readonly WriterDroppedPart[] = [];
+    let dropped: readonly DroppedPart[] = [];
     if (answered) {
       const context = { worktree: tree, evidence };
       dropped = version === 4
         ? mergeAnswersV4(checkedAnswersV4(state, review, context, ids, [receipt.output as WriterOutputV4]), ids).dropped
-        : mergeAnswers(configured, checkedAnswers(state, review, context, ids, receipt.output as AnyWriterOutput), ids).dropped;
+        : mergeAnswers(version, checkedAnswers(state, review, context, ids, receipt.output as AnyWriterOutput), ids).dropped;
     }
     const settled = settledWorkers(replay.fold(run.id)).filter((worker) => worker.launch.workerId === receipt.workerId);
     const spend = spendOf(settled, adapter);

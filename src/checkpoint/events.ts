@@ -2767,8 +2767,8 @@ const droppedPartSchemaV2 = z.discriminatedUnion('part', [
   z.strictObject({ part: z.literal(vocabularyV12.explanationParts[3]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
 ]);
 export type DroppedPartV2 = z.infer<typeof droppedPartSchemaV2>;
-/** A dropped part as the fold holds it, of any version: version 1 can drop the account, version 2 the areas and the refuted lines, and version 3 also the core of the change and the sentences of the conditions. */
-export type DroppedPart = DroppedPartV1 | DroppedPartV2 | DroppedPartV3;
+/** A dropped part as the fold holds it, of any version: version 1 can drop the account, version 2 the areas and the refuted lines, version 3 also the core of the change and the sentences of the conditions, and version 4 also the findings left as is and what the review did not examine. */
+export type DroppedPart = DroppedPartV1 | DroppedPartV2 | DroppedPartV3 | DroppedPartV4;
 
 /**
  * The writer's explanation of a run configured at `review.configured@11`
@@ -2792,7 +2792,7 @@ export type ExplanationRecordedV2 = z.infer<typeof explanationRecordedV2>;
  * frozen answer (`recordedAnswerOf`).
  */
 export interface ExplanationRecorded extends Omit<ExplanationRecordedV2, 'dropped'> {
-  readonly version: 1 | 2 | 3;
+  readonly version: 1 | 2 | 3 | 4;
   readonly dropped: readonly DroppedPart[];
 }
 
@@ -3117,6 +3117,68 @@ export const explanationRecordedV3 = z.strictObject({
 }).superRefine(refineExplanation(['conclusion', 'areas', 'refuted', 'core', 'conditions'], 'its conclusion, its areas, its refuted lines, its core and its conditions'));
 export type ExplanationRecordedV3 = z.infer<typeof explanationRecordedV3>;
 
+/**
+ * The vocabulary version 15 of the review events records (TD2 of the
+ * review in the writer's words): the parts of the writer's answer the
+ * engine can drop, which gain the findings left as is and what the review
+ * did not examine; and the conditions of principle 8, as version 14 names
+ * them. Frozen here for the reason `reviewVocabularyV1` is: a test holds
+ * it equal to today's vocabulary.
+ */
+export const reviewVocabularyV15 = {
+  explanationParts: ['conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions', 'left', 'not-examined'],
+  changeConditions: ['public-interface', 'wide-effect'],
+} as const;
+
+const vocabularyV15 = reviewVocabularyV15;
+
+/**
+ * `review.configured` of a read-only run of a pull request whose writer
+ * writes every sentence of the review (TD1 of the review in the writer's
+ * words): version 12 unchanged. The version alone says that the run's
+ * writer answers in the fourth form, with the summary, the text of each
+ * finding's decision, the findings left as is and what the review did not
+ * examine (`explanation.recorded@4`). A run of a pull request an earlier
+ * engine configured at version 10, 11 or 12 keeps its answers as they
+ * were, also when this engine resumes it.
+ */
+export const reviewConfiguredV13 = reviewConfiguredV12;
+export type ReviewConfigurationV13 = ReviewConfigurationV12;
+
+/**
+ * A part of the writer's answer that no answer passed, as version 4 of
+ * the explanation names it (TD2 of the review in the writer's words):
+ * those of version 3, where the conclusion is the summary, the findings
+ * left as is, or what the review did not examine.
+ */
+const droppedPartSchemaV4 = z.discriminatedUnion('part', [
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[0]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[1]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[2]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[3]), finding: candidateIdSchema, failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[4]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[5]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[6]), failures: partFailuresSchemaV1 }),
+  z.strictObject({ part: z.literal(vocabularyV15.explanationParts[7]), failures: partFailuresSchemaV1 }),
+]);
+export type DroppedPartV4 = z.infer<typeof droppedPartSchemaV4>;
+
+/**
+ * The writer's explanation of a run configured at `review.configured@13`
+ * (TD2 of the review in the writer's words): version 3's fields, its
+ * answer frozen in the shape of the writer's fourth answer, and its
+ * dropped parts named by version 4. With no answer, the findings left as
+ * is and what the review did not examine are dropped too. The fold holds
+ * it to such a run, once.
+ */
+export const explanationRecordedV4 = z.strictObject({
+  workerId: z.uuid().nullable(),
+  answer: artifactReferenceSchema.nullable(),
+  dropped: z.array(droppedPartSchemaV4).max(2007),
+  unexplained: z.array(candidateIdSchema).max(2000),
+}).superRefine(refineExplanation(['conclusion', 'areas', 'refuted', 'core', 'conditions', 'left', 'not-examined'], 'its summary, its areas, its refuted lines, its core, its conditions, its findings left as is and what the review did not examine'));
+export type ExplanationRecordedV4 = z.infer<typeof explanationRecordedV4>;
+
 /** Every event kind this engine can write or read. Later elements add theirs here. */
 export const eventRegistry = defineRegistry({
   'run.created': { 1: { schema: runCreatedV1 } },
@@ -3125,7 +3187,7 @@ export const eventRegistry = defineRegistry({
   'worker.launched': { 1: { schema: workerLaunchedV1 } },
   'worker.finished': { 1: { schema: workerFinishedV1 } },
   'worker.lost': { 1: { schema: workerLostV1 }, 2: { schema: workerLostV2 }, 3: { schema: workerLostV3 }, 4: { schema: workerLostV4 }, 5: { schema: workerLostV5 }, 6: { schema: workerLostV6 }, 7: { schema: workerLostV7 } },
-  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 }, 11: { schema: reviewConfiguredV11 }, 12: { schema: reviewConfiguredV12 } },
+  'review.configured': { 1: { schema: reviewConfiguredV1 }, 2: { schema: reviewConfiguredV2 }, 3: { schema: reviewConfiguredV3 }, 4: { schema: reviewConfiguredV4 }, 5: { schema: reviewConfiguredV5 }, 6: { schema: reviewConfiguredV6 }, 7: { schema: reviewConfiguredV7 }, 8: { schema: reviewConfiguredV8 }, 9: { schema: reviewConfiguredV9 }, 10: { schema: reviewConfiguredV10 }, 11: { schema: reviewConfiguredV11 }, 12: { schema: reviewConfiguredV12 }, 13: { schema: reviewConfiguredV13 } },
   'limits.changed': { 1: { schema: limitsChangedV1 } },
   'phase.started': { 1: { schema: phaseStartedV1 }, 2: { schema: phaseStartedV2 }, 3: { schema: phaseStartedV3 }, 4: { schema: phaseStartedV4 }, 5: { schema: phaseStartedV5 }, 6: { schema: phaseStartedV6 }, 7: { schema: phaseStartedV7 }, 8: { schema: phaseStartedV8 } },
   'phase.finished': { 1: { schema: phaseFinishedV1 }, 2: { schema: phaseFinishedV2 }, 3: { schema: phaseFinishedV3 }, 4: { schema: phaseFinishedV4 }, 5: { schema: phaseFinishedV5 }, 6: { schema: phaseFinishedV6 }, 7: { schema: phaseFinishedV7 }, 8: { schema: phaseFinishedV8 }, 9: { schema: phaseFinishedV9 } },
@@ -3161,7 +3223,7 @@ export const eventRegistry = defineRegistry({
   'documentation.planned': { 1: { schema: documentationPlannedV1 } },
   'answer.recorded': { 1: { schema: answerRecordedV1 } },
   'answer.pass': { 1: { schema: answerPassV1 } },
-  'explanation.recorded': { 1: { schema: explanationRecordedV1 }, 2: { schema: explanationRecordedV2 }, 3: { schema: explanationRecordedV3 } },
+  'explanation.recorded': { 1: { schema: explanationRecordedV1 }, 2: { schema: explanationRecordedV2 }, 3: { schema: explanationRecordedV3 }, 4: { schema: explanationRecordedV4 } },
   'publish.prepared': { 1: { schema: publishPreparedV1 } },
   'publish.posted': { 1: { schema: publishPostedV1 } },
   'publish.dropped': { 1: { schema: publishDroppedV1 } },

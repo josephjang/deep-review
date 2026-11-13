@@ -932,6 +932,21 @@ export function withCoreForm(history: History, notes?: (verdict: Record<string, 
   return result;
 }
 
+/**
+ * The history with the run configured at `review.configured@13`, whose
+ * writer writes every sentence of the review, and its explanation
+ * recorded at version 4 (TD1, TD2 of the review in the writer's words):
+ * `withCoreForm`'s history, which version 13 keeps every rule of.
+ */
+export function withWrittenForm(history: History, notes?: (verdict: Record<string, unknown>) => Record<string, unknown>): History {
+  const result = new History();
+  for (const event of withCoreForm(history, notes).events) {
+    const version = event.kind === 'review.configured' ? 13 : event.kind === 'explanation.recorded' ? 4 : event.version;
+    result.add(event.kind, event.payload, version);
+  }
+  return result;
+}
+
 /** The writer's explanation as `explanation.recorded@1` records it, the worker's answer frozen, with `change` over it. */
 export const explanation = (workerId: string | null, change: Record<string, unknown> = {}): Record<string, unknown> => ({ workerId, answer: reference('8', 300), dropped: [], unexplained: [], ...change });
 

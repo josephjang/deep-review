@@ -449,17 +449,22 @@ export const verdictBasisWords: Readonly<Record<VerdictBasis, string>> = {
  * The parts of the writer's answer that the engine can drop when no
  * answer passes its checks (R18, R19 of the review on the pull request;
  * R4, R11 of the review that reads as a report; TD2 of the core of the
- * change on the pull request): the conclusion, the areas of the major
- * findings, the lines of the refuted candidates, the explanation of one
- * finding, the core of the change, or the sentences of the conditions. A
- * dropped part takes the ledger's own words, and a dropped core the
- * triage's account. A run configured before the review read as a report
- * could drop the account of the pull request instead of the areas and the
- * refuted lines, which `reviewVocabularyV11` keeps, and one configured
- * before the core of the change could drop neither the core nor the
- * conditions, which `reviewVocabularyV12` keeps.
+ * change on the pull request; TD2 of the review in the writer's words):
+ * the conclusion, which an answer of version 4 calls its summary, the
+ * areas of the major findings, the lines of the refuted candidates, the
+ * explanation of one finding, the core of the change, the sentences of
+ * the conditions, the findings left as is, or what the review did not
+ * examine. A dropped part takes the ledger's own words, and a dropped
+ * core the triage's account. A run configured before the review read as a
+ * report could drop the account of the pull request instead of the areas
+ * and the refuted lines, which `reviewVocabularyV11` keeps; one
+ * configured before the core of the change could drop neither the core
+ * nor the conditions, which `reviewVocabularyV12` keeps; and one
+ * configured before the review in the writer's words could drop neither
+ * the findings left as is nor what the review did not examine, which
+ * `reviewVocabularyV14` keeps.
  */
-export const explanationParts = ['conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions'] as const;
+export const explanationParts = ['conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions', 'left', 'not-examined'] as const;
 export type ExplanationPart = (typeof explanationParts)[number];
 
 /**

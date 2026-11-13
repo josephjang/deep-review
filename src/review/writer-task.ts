@@ -5,18 +5,17 @@
  * writer is given to explain the review, at the version of the run's
  * answer, and, after a refused answer, what still fails.
  */
-import type { CandidateChoice, RecordedDecision } from '../checkpoint/events.ts';
+import type { CandidateChoice, DroppedPart, RecordedDecision } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
-import { changeReadingOf, explanationVersionOf, type CandidateState, type ReviewState } from '../checkpoint/review-fold.ts';
+import { changeReadingOf, explanationVersionOf, type CandidateState, type ExplanationVersion, type ReviewState } from '../checkpoint/review-fold.ts';
 import type { EvidenceStore } from '../evidence/store.ts';
 import { briefMarkdown, briefOf, passNames, type GapFacts } from './brief.ts';
 import { heldConditions, type ReportCheckInput } from './explanation-checks.ts';
-import { checkedAnswers, checkedAnswersV4, decisionFactsOf, findingsLeftAsIs, findingsToExplain, isMajor, mergeAnswers, mergeAnswersV4, partNameOf, reportCheckInputOf, requireReview, reviewLanguage, type WriterDroppedPart } from './explanation.ts';
+import { checkedAnswers, checkedAnswersV4, decisionFactsOf, findingsLeftAsIs, findingsToExplain, isMajor, mergeAnswers, mergeAnswersV4, partNameOf, reportCheckInputOf, requireReview, reviewLanguage } from './explanation.ts';
 import { counted, findingWords, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
 import { reviewCountsOf } from './pull-request-view.ts';
-import type { WriterVersion } from './schemas.ts';
 import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { commitMessagesSection, describeLocation, type ChangeMessages } from './tasks.ts';
 import { verdictBases, verdictBasisWords, type ChangeConditionName } from './vocabulary.ts';
@@ -38,7 +37,7 @@ export interface WriterTaskInput {
   readonly machine: MachineContext;
   readonly commitMessages?: ChangeMessages | null;
   /** The version of the answer to ask for: the one the run was configured with when absent; the replay of the writer gives 4, which no run is configured for yet (PD9, OQ1 of the review in the writer's words). */
-  readonly version?: WriterVersion;
+  readonly version?: ExplanationVersion;
   /** The language the writer writes in: the run's when absent; the replay of the writer may give another, to measure the answer in that language (OQ1 of the review in the writer's words). */
   readonly language?: string;
 }
@@ -108,7 +107,7 @@ function candidateLines(candidate: CandidateState, primary: boolean, clean: (tex
 }
 
 /** What a finding to explain asks of the writer, as its heading gives it: in an answer of version 2 or later, an area for a major one and a kind for a minor one. */
-function explainWords(entry: ReportFinding, version: WriterVersion): string {
+function explainWords(entry: ReportFinding, version: ExplanationVersion): string {
   if (version === 1) return 'explain it';
   return isMajor(entry) ? 'explain it, in an area' : 'explain it, with a kind';
 }
@@ -187,7 +186,7 @@ function gapLine(gap: GapFacts, clean: (text: string) => string): string {
 }
 
 /** A dropped part as the task of a writer of `version` names it: by the field of the answer that holds it, `summary` and `notExamined` in an answer of version 4. */
-function droppedPartWords(part: WriterDroppedPart, version: WriterVersion): string {
+function droppedPartWords(part: DroppedPart, version: ExplanationVersion): string {
   if (version === 4 && part.part === 'conclusion') return 'summary';
   if (part.part === 'not-examined') return 'notExamined';
   return partNameOf(part);
@@ -302,7 +301,7 @@ function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: s
  */
 export function writerTask(state: RunState, input: WriterTaskInput): string {
   const review = requireReview(state);
-  const version: WriterVersion = input.version ?? explanationVersionOf(review);
+  const version: ExplanationVersion = input.version ?? explanationVersionOf(review);
   const ids = findingsToExplain(review);
   const left = version === 4 ? findingsLeftAsIs(review) : [];
   const clean = (text: string): string => inlineText(publicWords(text, input.machine).text);
@@ -311,7 +310,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   const numbers = findingNumbers(review);
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked = rankedFindings(review);
-  let dropped: readonly WriterDroppedPart[];
+  let dropped: readonly DroppedPart[];
   if (version === 4) {
     const answers = checkedAnswersV4(state, review, input, ids, []);
     dropped = answers.length === 0 ? [] : mergeAnswersV4(answers, ids).dropped;

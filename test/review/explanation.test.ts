@@ -4,24 +4,24 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import type { NewEvent } from '../../src/checkpoint/checkpoint.ts';
-import { explanationRecordedV1, explanationRecordedV2, explanationRecordedV3, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
+import { explanationRecordedV1, explanationRecordedV2, explanationRecordedV3, explanationRecordedV4, type ExplanationRecorded } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { noCheckSettings } from '../../src/review/checks/discover.ts';
 import { checkAnswer, checkConditions, checkCore, diagramFailures, gitLineCounts, lineCountOf, resolveCommitSource, type AnswerCheckInput, type CoreCheckInput, type HeldCondition } from '../../src/review/explanation-checks.ts';
-import { droppedExplanation, findingsToExplain, mergeAnswers, recordedAnswerOf, type ConditionSentence, type Core } from '../../src/review/explanation.ts';
+import { droppedExplanation, findingsToExplain, frozenAnswerV4Of, mergeAnswers, recordedAnswerOf, type ConditionSentence, type Core } from '../../src/review/explanation.ts';
 import { writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
 import { contributionOf, invocationFor, type PhaseContext } from '../../src/review/phases.ts';
 import { fenceFor } from '../../src/review/prompts.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
-import { writerOutputSchemaV2, writerOutputSchemaV3, type WriterOutput, type WriterOutputV2, type WriterOutputV3 } from '../../src/review/schemas.ts';
+import { writerOutputSchemaV2, writerOutputSchemaV3, writerOutputSchemaV4, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from '../../src/review/schemas.ts';
 import type { ChangeMessages } from '../../src/review/tasks.ts';
 import { nextStep, type Live, type Step } from '../../src/review/steps.ts';
 import { reviewRoles } from '../../src/review/vocabulary.ts';
 import type { AssembledRole } from '../../src/roles/assemble.ts';
 import { claudeTools } from '../../src/runtime/claude.ts';
 import type { WorkerReceipt } from '../../src/runtime/launcher.ts';
-import { askDecision, changeReading, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest, withReportForm, worker } from '../helpers/review-history.ts';
+import { askDecision, changeReading, configuration, decidedOf, decisions, History, launch, mergeRanked, pullRequestFacts, pullRequestScope, readOnlyReported, withBaseChecks, withCitedRuns, withCoreForm, withWrittenForm, withDocumentationStep, withPullRequest, withReportForm, worker } from '../helpers/review-history.ts';
 import { commitAll, createRepository, remove, write } from '../helpers/repository.ts';
 
 /** Ten numbered lines, as the base's `src/a.ts` holds them. */
@@ -392,6 +392,91 @@ const receipt = (output: unknown, workerId = worker(62), change: Partial<WorkerR
 
 const writerUnit = { phase: 'explanation', key: 'explanation', role: 'writer' } as const;
 
+// TD1, TD2, TD7 of the review in the writer's words.
+describe('the explanation phase of a run whose writer writes the review', () => {
+  let directory = '';
+  let fixture: Fixture;
+  before(() => {
+    directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'deep-review-written-form-')));
+    const repo = createRepository(join(directory, 'repo'));
+    write(repo, 'src/a.ts', numbered(10));
+    const base = commitAll(repo, 'base');
+    write(repo, 'src/a.ts', numbered(12));
+    const head = commitAll(repo, 'head');
+    fixture = { repo, base, head, evidence: new EvidenceStore(join(directory, 'evidence')) };
+  });
+  after(() => rmSync(directory, { recursive: true, force: true }));
+
+  /** The decided run of a pull request configured at version 13, while its explanation runs: RIPPLE-1 a fix, SWEEP-1 left as is. */
+  const writing = (): History => withWrittenForm(decided(fixture)).start('explanation');
+  /** An answer of version 4 that passes every check against this run, whose triage judged no condition to hold and whose verifiers refuted no candidate, with `change` over it. */
+  const answered = (change: Partial<WriterOutputV4> = {}): WriterOutputV4 => {
+    const report = goodReport();
+    const ripple = report.findings.find((entry) => entry.id === 'RIPPLE-1')!.explanation!;
+    return {
+      core: goodCore({ why: null, whyFrom: [], diagram: null }),
+      conditions: [],
+      summary: 'The review found a crash on an empty file, which deep-review would fix, and left one finding as is.',
+      areas: report.areas,
+      findings: [{ id: 'RIPPLE-1', explanation: { title: ripple.title, problem: ripple.problem, cases: ripple.cases, diagram: null, checked: ripple.checked, kind: null, action: 'deep-review would return early on an empty file.', unconfirmed: null, fix: { text: 'The fix returns null from parse() before the read on line 4.', departure: null }, ask: null }, unexplained: null }],
+      left: [{ id: 'SWEEP-1', title: 'A helper sits apart from its caller', why: 'It is outside the change, and deep-review leaves it as is.' }],
+      refuted: [],
+      notExamined: 'The review examined every file the change touches.',
+      ...change,
+    };
+  };
+
+  it('asks the writer for the fourth form in its schema', () => {
+    const roles = new Map<string, AssembledRole>(reviewRoles.map((key) => [key, { key, fragments: [], prompt: `You are ${key}.\n`, sha256: 'b'.repeat(64) }]));
+    const messages: ChangeMessages = { kind: 'read', messages: [{ commit: 'f'.repeat(40), message: 'Accept an empty file' }], withTree: false };
+    const context: PhaseContext = {
+      state: writing().fold(), worktree: fixture.repo, roles,
+      configuration: { ...configuration, roles: reviewRoles.map((role) => ({ role, model: 'opus', effort: 'high' as const, budgetUsd: 8, timeoutMs: 1_800_000 })) },
+      scopeBlock: () => '## Scope', survey: () => { throw new Error('no survey'); }, commitMessages: () => messages, evidence: fixture.evidence,
+      newScratch: () => { throw new Error('the writer has no scratch'); }, snapshotCommand: () => 'snapshot', unelevatedEditors: false, readerScratch: true,
+      claims: { directoryOf: () => '/claims', command: () => 'claim', live: () => null, caseInsensitive: () => false }, documentation: () => ({ patches: [], exclude: [] }),
+      writer: () => ({ machine: machine(fixture.repo), withholdShell: true }),
+    };
+    const invocation = invocationFor(writerUnit, context);
+    assert.equal(invocation.outputSchema, writerOutputSchemaV4);
+    assert.match(invocation.prompt, /Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined` as your role prompt defines them\./);
+  });
+
+  it('records an answer that passes at version 4, frozen in the fourth form', () => {
+    const answer = answered();
+    const [event] = contribution(writing(), fixture, receipt(answer));
+    const explanation = recorded(event);
+    assert.deepEqual([explanation.version, explanation.dropped, explanation.unexplained], [4, [], []]);
+    const frozen = frozenAnswerV4Of(explanation, fixture.evidence);
+    assert.deepEqual([frozen?.summary, frozen?.left, frozen?.notExamined], [answer.summary, answer.left, answer.notExamined]);
+    assert.deepEqual(frozen?.findings, [{ id: 'RIPPLE-1', unexplained: false, ...answer.findings[0]!.explanation! }]);
+    assert.throws(() => recordedAnswerOf(explanation, fixture.evidence), /is read by `frozenAnswerV4Of`/);
+  });
+
+  it('refuses an answer a part of which fails while the unit has an attempt left, and drops that part alone on the last', () => {
+    const bad = answered({ notExamined: '', left: [] });
+    const [failure] = contribution(writing(), fixture, receipt(bad));
+    assert.equal(failure?.kind, 'attempt.failed');
+    assert.match((failure?.payload as { reason: string }).reason, /checks: left: the findings left as is have no entry for SWEEP-1\. not-examined: what the review did not examine is empty$/);
+    const retried = writing().worker(61, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(bad)) })
+      .add('attempt.failed', { phase: 'explanation', key: 'explanation', workerId: worker(61), reason: 'structural check: the answer fails the engine\'s checks', fault: 'unit' }, 9);
+    const explanation = recorded(contribution(retried, fixture, receipt(bad))[0]);
+    assert.deepEqual([explanation.version, explanation.dropped.map((part) => part.part)], [4, ['left', 'not-examined']]);
+    assert.equal(frozenAnswerV4Of(explanation, fixture.evidence)?.summary, bad.summary, 'every other part is kept');
+  });
+
+  it('drops every part but the findings when the phase degrades with no answer, at version 4', () => {
+    const history = writing();
+    const reason = 'spent 8.00 USD of the 8.00 USD run budget';
+    const explanation = recorded(droppedExplanation(history.fold(), { worktree: fixture.repo, evidence: fixture.evidence }, reason));
+    assert.equal(explanation.answer, null);
+    assert.deepEqual(explanation.dropped.map((part) => (part.part === 'finding' ? `finding ${part.finding}` : part.part)), ['conclusion', 'areas', 'core', 'conditions', 'finding RIPPLE-1', 'left', 'refuted', 'not-examined']);
+    for (const part of explanation.dropped) assert.deepEqual(part.failures, [reason]);
+    const after = history.add('explanation.recorded', payloadOf(explanation), explanation.version);
+    assert.equal(after.fold().explanation?.version, 4, 'the fold takes it');
+  });
+});
+
 /** The events a writer's receipt becomes in `history`. */
 const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt, logged: string[] = []): NewEvent[] =>
   contributionOf(writerUnit, answer, { state: history.fold(), worktree: fixture.repo, evidence: fixture.evidence, match: () => { throw new Error('the writer compares no file'); }, claims: null, survey: () => { throw new Error('the writer has no survey'); }, claimsLost: false, log: (line) => logged.push(line) });
@@ -399,6 +484,7 @@ const contribution = (history: History, fixture: Fixture, answer: WorkerReceipt,
 /** The explanation an event records, held to the schema of its version, as the fold holds it. */
 const recorded = (event: NewEvent | undefined): ExplanationRecorded => {
   assert.equal(event?.kind, 'explanation.recorded', JSON.stringify(event));
+  if (event.version === 4) return { ...explanationRecordedV4.parse(event.payload), version: 4 };
   if (event.version === 3) return { ...explanationRecordedV3.parse(event.payload), version: 3 };
   if (event.version === 2) return { ...explanationRecordedV2.parse(event.payload), version: 2 };
   assert.equal(event.version, 1);

@@ -365,14 +365,6 @@ export const writerOutputSchemaV3 = z.strictObject({
 export type WriterOutputV3 = z.infer<typeof writerOutputSchemaV3>;
 
 /**
- * The versions of the writer's answer the engine checks, merges and asks
- * for: those of `explanation.recorded`, and version 4, which no run is
- * configured for yet and the replay of the writer asks for (PD9, OQ1 of
- * the review in the writer's words).
- */
-export type WriterVersion = ExplanationVersion | 4;
-
-/**
  * A text of an answer of version 4, held to no length: a bound in the
  * schema would reject the whole answer for one text, and a text is not
  * understood by being short alone (TD7 of the review in the writer's
@@ -453,16 +445,16 @@ export const writerOutputSchemaV4 = z.strictObject({
 });
 export type WriterOutputV4 = z.infer<typeof writerOutputSchemaV4>;
 
-/** The schema of each version of the writer's answer, by the version of `explanation.recorded` that records it, and version 4, which no run asks for yet. */
-const writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3, 4: writerOutputSchemaV4 } as const satisfies Record<WriterVersion, z.ZodType>;
+/** The schema of each version of the writer's answer, by the version of `explanation.recorded` that records it. */
+const writerOutputSchemas = { 1: writerOutputSchema, 2: writerOutputSchemaV2, 3: writerOutputSchemaV3, 4: writerOutputSchemaV4 } as const satisfies Record<ExplanationVersion, z.ZodType>;
 
 /** The schema of the writer's answer at `version`, as the replay of the writer asks for one (PD9, OQ1 of the review in the writer's words). */
-export function writerOutputSchemaOf<V extends WriterVersion>(version: V): (typeof writerOutputSchemas)[V] {
+export function writerOutputSchemaOf<V extends ExplanationVersion>(version: V): (typeof writerOutputSchemas)[V] {
   return writerOutputSchemas[version];
 }
 
-/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: the schema of the version `explanationVersionOf` gives, 3 in a run whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
-export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm'>): (typeof writerOutputSchemas)[ExplanationVersion] {
+/** The schema the writer of a run answers in, the one the run was configured with, also when this engine resumes it: the schema of the version `explanationVersionOf` gives, 4 in a run whose writer writes every sentence of the review, 3 in one whose review opens with the core of the change, 2 in one whose review reads as a report, 1 before. */
+export function writerOutputSchemaFor(review: Pick<ReviewState, 'reportForm' | 'coreForm' | 'writtenForm'>): (typeof writerOutputSchemas)[ExplanationVersion] {
   return writerOutputSchemas[explanationVersionOf(review)];
 }
 

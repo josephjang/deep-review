@@ -59,9 +59,10 @@ describe('the output schemas', () => {
 
   it('gives the writer the schema of the version of explanation.recorded its run asks for, as the fold reads that version', () => {
     const forms = [
-      { review: { reportForm: false, coreForm: false }, schema: writerOutputSchema, version: 1 },
-      { review: { reportForm: true, coreForm: false }, schema: writerOutputSchemaV2, version: 2 },
-      { review: { reportForm: true, coreForm: true }, schema: writerOutputSchemaV3, version: 3 },
+      { review: { reportForm: false, coreForm: false, writtenForm: false }, schema: writerOutputSchema, version: 1 },
+      { review: { reportForm: true, coreForm: false, writtenForm: false }, schema: writerOutputSchemaV2, version: 2 },
+      { review: { reportForm: true, coreForm: true, writtenForm: false }, schema: writerOutputSchemaV3, version: 3 },
+      { review: { reportForm: true, coreForm: true, writtenForm: true }, schema: writerOutputSchemaV4, version: 4 },
     ] as const;
     for (const { review, schema, version } of forms) {
       assert.equal(explanationVersionOf(review), version, JSON.stringify(review));
