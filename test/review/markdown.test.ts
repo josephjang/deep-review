@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { capitalized, codeSpan, counted, escapedText, findingAnchor, findingLink, inlineText, listed, localPathWords, paragraphText, quoted, sentenceText, tableCell } from '../../src/review/markdown.ts';
+import { capitalized, codeSpan, counted, escapedText, factsLine, factsTable, findingAnchor, findingLink, inlineText, labeledValue, listed, localPathWords, paragraphText, quoted, sentenceText, tableCell, valueList } from '../../src/review/markdown.ts';
 
 describe('codeSpan', () => {
   it('quotes plain text in single backticks', () => {
@@ -229,5 +229,23 @@ describe('sentenceText', () => {
     assert.equal(sentenceText('see (it is gone.)'), 'see (it is gone.)');
     assert.equal(sentenceText('as follows:'), 'as follows.');
     assert.equal(sentenceText('one\n## two'), 'one ## two.');
+  });
+});
+
+// R1, TD3 of the review in the writer's words.
+describe('the data forms', () => {
+  it('gives a fact as its label, a colon and its value, and values as a list', () => {
+    assert.equal(labeledValue('Verdict', 'CONFIRMED'), 'Verdict: CONFIRMED');
+    assert.equal(labeledValue('Files', valueList(['`a.ts`', '`b.ts`'])), 'Files: `a.ts`, `b.ts`');
+  });
+
+  it('ends each fact of a line with a period, and keeps the stop a value has', () => {
+    assert.equal(factsLine([['Severity', 'major'], ['Verdict', 'CONFIRMED']]), 'Severity: major. Verdict: CONFIRMED.');
+    assert.equal(factsLine([['Answered on', '2026-11-13'], ['Command', 'run it.']]), 'Answered on: 2026-11-13. Command: run it.');
+    assert.equal(factsLine([]), '');
+  });
+
+  it('gives facts as a table whose header row is labels, each cell kept to its cell', () => {
+    assert.deepEqual(factsTable(['Findings', 'Major'], [['3', 'a | b']]), ['| Findings | Major |', '|---|---|', '| 3 | a \\| b |']);
   });
 });

@@ -41,6 +41,27 @@ export function codeSpan(text: string): string {
 }
 
 /**
+ * A fact as the review on the pull request shows it (R1, TD3 of the review
+ * in the writer's words): its label, a colon and its value, as `Verdict:
+ * CONFIRMED`. The value is a number, code, a link, a list of these, or the
+ * name of a value of a closed list, never a sentence, and no word follows
+ * it.
+ */
+export const labeledValue = (label: string, value: string): string => `${label}: ${value}`;
+
+/** Values as one value of a fact holds them: in the order given, parted by commas. */
+export const valueList = (values: readonly string[]): string => values.join(', ');
+
+/** Facts in a run, each a labeled value ended by a period, as `Severity: major. Verdict: CONFIRMED.`; a value that already ends a sentence keeps its own stop. */
+export const factsLine = (facts: readonly (readonly [label: string, value: string])[]): string => facts.map(([label, value]) => `${labeledValue(label, value)}${/[.?!]$/.test(value) ? '' : '.'}`).join(' ');
+
+/** Facts as a table: a header row of labels, then each row of values, every cell kept to its cell. */
+export function factsTable(labels: readonly string[], rows: readonly (readonly string[])[]): string[] {
+  const row = (cells: readonly string[]): string => `| ${cells.map(tableCell).join(' | ')} |`;
+  return [row(labels), `|${labels.map(() => '---').join('|')}|`, ...rows.map(row)];
+}
+
+/**
  * The fixed anchor of a finding in the report, from its number (R6 of the
  * report for the person): the report puts it before the finding's
  * heading, and each mention of the finding that links links to it.
