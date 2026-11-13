@@ -104,12 +104,10 @@ describe('replayWriter', { timeout: 600_000 }, () => {
     assert.deepEqual(JSON.parse(read(output, writerAnswerFileName)), answer);
   });
 
-  it('asks the run for its own version when told to, and refuses a version it was neither configured for nor is version 4', async () => {
-    const output = newDirectory('own');
-    const own = await replay({ output, version: 3, printTask: true });
-    assert.equal(own.facts, null);
-    assert.match(read(output, writerPromptFileName), /Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\./);
-    await assert.rejects(replay({ output: newDirectory('older'), version: 2 }), (error: unknown) => error instanceof ReplayRefusedError && /configured for the writer's answer of version 3/.test(error.message));
+  it('refuses a version that the run was neither configured for nor is version 4: a run configured at version 13 takes version 4 alone', async () => {
+    for (const version of [1, 2, 3] as const) {
+      await assert.rejects(replay({ output: newDirectory('older'), version }), (error: unknown) => error instanceof ReplayRefusedError && /configured for the writer's answer of version 4/.test(error.message), String(version));
+    }
   });
 
   it('asks the writer for the language given rather than the run\'s', async () => {

@@ -109,13 +109,13 @@ const scanOneExplained = {
 
 // R18, R19, TD8 of the review on the pull request.
 describe('the explanation of a read-only run of a pull request', { timeout: 600_000, concurrency: sandboxConcurrency }, () => {
-  it('records review.configured@12 with the second record of the settings, plans explanation right after decision, launches the writer without a shell with the commit messages and records its answer at version 3', async (t) => {
+  it('records review.configured@13 with the second record of the settings, plans explanation right after decision, launches the writer without a shell with the commit messages and records its answer at version 4', async (t) => {
     const { box, scope } = pullRequestSandbox(t, { ...reviewScript, writer: { output: writerAnswer(['SCAN-1', 'SCAN-2'], { 'SCAN-1': scanOneExplained }) } });
     const recordFile = join(box.directory, 'writer.json');
     reportText(await box.review('claude', { scope }, { FAKE_RECORD: recordFile, FAKE_RECORD_ROLE: 'writer' }));
     const events = kindsOf(box);
     const configured = events.find((event) => event.kind === 'review.configured')!;
-    assert.equal(configured.version, 12, 'the version of a run whose review opens with the core of the change');
+    assert.equal(configured.version, 13, 'the version of a run whose writer writes the review');
     const settings = recordedSettings(box);
     assert.deepEqual([settings.values['review.language'], settings.values['github.executable'], settings.values['github.args']], ['en', 'gh', []]);
     assert.deepEqual([settings.layers['review.language'], settings.layers['github.executable'], settings.layers['github.args']], ['default', 'default', 'default']);
@@ -124,18 +124,18 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     const decision = started.findIndex(([phase]) => phase === 'decision');
     assert.deepEqual(started.slice(decision, decision + 2).map(([phase]) => phase), ['decision', 'explanation']);
     assert.equal(started[decision + 1]![1], 8, 'phase.started@8, the first version that names the phase');
-    // The writer's answer is the one recorded, with SCAN-2 marked unexplained and nothing dropped, in the form of the review that opens with the core of the change.
+    // The writer's answer is the one recorded, with SCAN-2 marked unexplained and nothing dropped, in the fourth form.
     const recorded = events.find((event) => event.kind === 'explanation.recorded')!;
-    assert.equal(recorded.version, 3);
+    assert.equal(recorded.version, 4);
     const state = box.run();
     const writer = Object.values(state.workers).find((worker) => worker.launch.label === 'writer explanation:explanation')!;
     assert.deepEqual([recorded.payload.workerId, recorded.payload.dropped, recorded.payload.unexplained], [writer.launch.workerId, [], ['SCAN-2']]);
     const answer = recordedAnswerOf(state.explanation!, box.checkpoint.evidence, state.review!)!;
     assert.deepEqual(answer.findings.map((finding) => [finding.id, finding.unexplained]), [['SCAN-1', false], ['SCAN-2', true]]);
-    assert.deepEqual([answer.left, answer.notExamined], [null, null], 'an answer of version 3 has neither the findings left as is nor what the review did not examine');
+    assert.deepEqual([answer.summary, answer.notExamined], ['fake: the pull request needs what its findings ask before a merge.', 'fake: what the review did not examine, and where to look.'], 'the summary and what the review did not examine are the writer\'s');
     const explained = answer.findings[0];
     assert.ok(explained !== undefined && !explained.unexplained);
-    assert.equal(explained.checked, 'fake: the verifier read the lines of SCAN-1.');
+    assert.deepEqual([explained.checked, explained.action, explained.fix?.text], ['fake: the verifier read the lines of SCAN-1.', 'fake: act on SCAN-1 as decided.', 'fake: what the fix of SCAN-1 changes.'], 'the finding carries its action and its fix');
     assert.ok(answer.areas !== null && answer.areas !== undefined && answer.refuted !== null && answer.refuted !== undefined, 'the areas and the refuted lines are kept');
     assert.deepEqual([answer.core?.title, answer.conditions?.map((entry) => entry.condition)], ['fake: what the change is', ['public-interface']], 'the core is kept, and the condition the triage judged to hold is explained');
     // Each verifier gave its notes, recorded at verdicts.recorded@3.
@@ -153,10 +153,10 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     assert.match(seen.stdin, /^The subjects of the \d+ commits? of the change, oldest first:$/m);
     assert.match(seen.stdin, /^The triage judged this condition to hold\. Give one entry of `conditions` for each, by its name, and for no other:$/m);
     assert.match(seen.stdin, /^- `public-interface`, a change to a public interface: /m);
-    assert.ok(box.logs.some((line) => line.startsWith(`run ${state.id}: configured for `) && line.endsWith('; it explains its review in en')), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => line.startsWith(`run ${state.id}: configured for `) && line.endsWith('; it explains its review in en, its writer answering at version 4')), box.logs.join('\n'));
   });
 
-  it('neither records version 12 nor plans the explanation for a --branch run, and records both for a run of a pull request with --fix, which it configures read-only (R1 of the review of a fix run)', async (t) => {
+  it('neither records version 13 nor plans the explanation for a --branch run, and records both for a run of a pull request with --fix, which it configures read-only (R1 of the review of a fix run)', async (t) => {
     const branch = ReviewSandbox.forTest(t, { triage: { exit: 2 } });
     await branch.review('claude', { scope: scopeSource(() => ({ range: { from: 'HEAD~1', to: 'HEAD', mergeBase: true }, paths: [] })) });
     assert.equal(kindsOf(branch).find((event) => event.kind === 'review.configured')!.version, 9);
@@ -165,7 +165,7 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     const fixing = pullRequestSandbox(t, { triage: { exit: 2 } });
     await fixing.box.review('claude', { scope: fixing.scope, configuration: sourceFor(fixing.box, { fix: true }), fix: ReviewSandbox.checkFlags() });
     const configured = kindsOf(fixing.box).find((event) => event.kind === 'review.configured')!;
-    assert.deepEqual([configured.version, (configured.payload as { fix: boolean }).fix], [12, false]);
+    assert.deepEqual([configured.version, (configured.payload as { fix: boolean }).fix], [13, false]);
     assert.equal(fixing.box.run().review!.phases.explanation.status, 'pending');
     assert.equal(recordedSettings(fixing.box).values['review.language'], 'en');
   });
@@ -176,10 +176,10 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     const recorded = kindsOf(box).find((event) => event.kind === 'explanation.recorded')!.payload as { workerId: string | null; answer: unknown; dropped: { part: string; finding?: string; failures: string[] }[] };
     assert.equal(recorded.workerId, null);
     assert.equal(recorded.answer, null, 'no answer passed any part');
-    assert.deepEqual(recorded.dropped.map((part) => part.finding ?? part.part), ['conclusion', 'areas', 'refuted', 'core', 'conditions', 'SCAN-1', 'SCAN-2']);
+    assert.deepEqual(recorded.dropped.map((part) => part.finding ?? part.part), ['conclusion', 'areas', 'core', 'conditions', 'SCAN-1', 'SCAN-2', 'left', 'refuted', 'not-examined']);
     assert.ok(recorded.dropped.every((part) => part.failures.some((failure) => /exited with code 1|exit code 1|exit 1/.test(failure))), JSON.stringify(recorded.dropped));
     assert.equal(box.run().review!.phases.explanation.status, 'degraded');
-    assert.ok(box.logs.some((line) => line.startsWith('phase explanation: 7 parts of the explanation dropped: ')), box.logs.join('\n'));
+    assert.ok(box.logs.some((line) => line.startsWith('phase explanation: 9 parts of the explanation dropped: ')), box.logs.join('\n'));
     assert.notEqual(box.run().review!.report, null, 'the run wrote its report');
   });
 
@@ -189,7 +189,7 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     const state = box.run();
     assert.equal(Object.values(state.workers).some((worker) => worker.launch.label === 'writer explanation:explanation'), false, 'no writer launched');
     const recorded = kindsOf(box).find((event) => event.kind === 'explanation.recorded')!.payload as { dropped: { part: string; finding?: string; failures: string[] }[] };
-    assert.deepEqual(recorded.dropped.map((part) => part.finding ?? part.part), ['conclusion', 'areas', 'refuted', 'core', 'conditions', 'SCAN-1', 'SCAN-2']);
+    assert.deepEqual(recorded.dropped.map((part) => part.finding ?? part.part), ['conclusion', 'areas', 'core', 'conditions', 'SCAN-1', 'SCAN-2', 'left', 'refuted', 'not-examined']);
     assert.ok(recorded.dropped.every((part) => part.failures.some((failure) => failure.includes('budget'))), JSON.stringify(recorded.dropped));
   });
 });

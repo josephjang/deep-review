@@ -113,6 +113,9 @@ const reportFormWords = 'Return `conclusion`, `areas`, `findings` and `refuted`'
 /** The words a writer's task ends with when it also gives the core of the change and the conditions (TD2 of the core of the change on the pull request). */
 const coreFormWords = 'Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions`';
 
+/** The words a writer's task ends with when it answers in the fourth form, in which it writes every sentence of the review (TD2 of the review in the writer's words). */
+const writtenFormWords = 'Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined`';
+
 /** The conditions a writer's task asks it to explain, by name, none when it asks for none. */
 const conditionsOf = (prompt: string): string[] => [...prompt.matchAll(/^- `(public-interface|wide-effect)`, /gm)].map((match) => match[1]!);
 
@@ -133,6 +136,52 @@ function coreFormAnswer(output: Record<string, unknown>, prompt: string): Record
 
 /** The ids a writer's task lists after `pattern`, none when it lists none. */
 const listedIds = (prompt: string, pattern: RegExp): string[] => pattern.exec(prompt)?.[1]?.split(', ') ?? [];
+
+/** The decision of finding `id` as the writer's task gives it: a fix, against a written rule or not, or a question with the count of its options. */
+function taskDecision(prompt: string, id: string): { readonly kind: 'fix' | 'ask' | 'other'; readonly departs: boolean; readonly options: number } {
+  const start = prompt.search(new RegExp(`^#### \\d+\\. ${id}: `, 'm'));
+  if (start === -1) return { kind: 'other', departs: false, options: 0 };
+  const rest = prompt.slice(start + 5);
+  const block = rest.slice(0, rest.search(/^####? /m) === -1 ? undefined : rest.search(/^####? /m));
+  if (/^ {4}decision: fix/m.test(block)) return { kind: 'fix', departs: /^ {4}decision: fix, against a written rule$/m.test(block), options: 0 };
+  if (/^ {4}decision: ask the author$/m.test(block)) return { kind: 'ask', departs: false, options: [...block.matchAll(/^ {8}option \d+: /gm)].length };
+  return { kind: 'other', departs: false, options: 0 };
+}
+
+/**
+ * A writer's answer in the fourth form (TD2 of the review in the writer's
+ * words), from one scripted in an earlier form (`coreFormAnswer`): the
+ * summary from the conclusion; on each explanation that gives none, its
+ * action from the conclusion, a fix for a finding decided fix, with a
+ * departure when it departs from a rule, or a question with one option
+ * for each the decision records, and the reason a verdict is not
+ * confirmed for each finding the task lists; a title and a reason for
+ * each finding the task lists as left as is; and what the review did not
+ * examine; each unless the script gives it.
+ */
+function writtenFormAnswer(output: Record<string, unknown>, prompt: string): Record<string, unknown> {
+  const { conclusion, ...cored } = coreFormAnswer(output, prompt);
+  const actions = ((conclusion as { readonly actions?: readonly { readonly id: string; readonly sentence: string }[] } | undefined)?.actions ?? []);
+  const unconfirmed = listedIds(prompt, /^Say in `unconfirmed` why each of these \d+ findings? is not CONFIRMED, as its verifier recorded, and give it null for every other: (.+?)\. /m);
+  const left = listedIds(prompt, /^Give one entry of `left` for each of these \d+ findings? left as is, by its id, and for no other: (.+)\.$/m);
+  const findings = (cored.findings as readonly { readonly id: string; readonly explanation: Record<string, unknown> | null; readonly unexplained: string | null }[]).map((entry) => {
+    if (entry.explanation === null || Object.hasOwn(entry.explanation, 'action')) return entry;
+    // The fourth form has no `decision`: each finding carries its action and its fix or its question instead.
+    const explanation = Object.fromEntries(Object.entries(entry.explanation).filter(([key]) => key !== 'decision'));
+    const decided = taskDecision(prompt, entry.id);
+    const action = actions.find((given) => given.id === entry.id)?.sentence ?? `fake: what deep-review would do about ${entry.id}.`;
+    const fix = decided.kind === 'fix' ? { text: `fake: what the fix of ${entry.id} changes.`, departure: decided.departs ? `fake: the rule ${entry.id} departs from, and why.` : null } : null;
+    const ask = decided.kind === 'ask' ? { question: `fake: what ${entry.id} asks.`, options: Array.from({ length: decided.options }, (_, index) => ({ number: index + 1, means: `fake: option ${String(index + 1)}.`, cost: 'fake: its cost.', rule: 'fake: its rule.' })), recommendation: 'fake: why this option.' } : null;
+    return { ...entry, explanation: { ...explanation, action, unconfirmed: unconfirmed.includes(entry.id) ? `fake: why ${entry.id} is not confirmed.` : null, fix, ask } };
+  });
+  return {
+    ...cored,
+    summary: output.summary ?? (conclusion as { readonly why?: string } | undefined)?.why ?? 'fake: what the review found.',
+    findings,
+    left: output.left ?? left.map((id) => ({ id, title: `fake: what ${id} is.`, why: `fake: why deep-review leaves ${id}.` })),
+    notExamined: output.notExamined ?? 'fake: what the review did not examine, and where to look.',
+  };
+}
 
 /**
  * A writer's answer in the form of the review that reads as a report,
@@ -237,7 +286,7 @@ export function defaultOutput(role: string, prompt: string): unknown {
 
 /** The ids of the findings the writer's task asks it to explain, none when it asks for none. */
 export function findingsToExplainOf(prompt: string): string[] {
-  return /^Explain these \d+ findings?, each by its id, .*?: (.+?)\. Every other finding/m.exec(prompt)?.[1]?.split(', ') ?? [];
+  return /^Explain these \d+ findings?, each by its id, .*?: (.+?)\.(?: Every other finding|$)/m.exec(prompt)?.[1]?.split(', ') ?? [];
 }
 
 /**
@@ -430,9 +479,10 @@ export async function applyEdits(host: FakeHost, edits: readonly ScriptEdit[], p
  * gives each verdict its notes, so a scripted verdict that names none is
  * PLAUSIBLE for a fact not settled, or has no note, and leaves the author
  * no choice. A writer of such a run answers in its form
- * (`reportFormAnswer`), and one of a run whose review opens with the core
+ * (`reportFormAnswer`), one of a run whose review opens with the core
  * of the change also gives the core and the conditions
- * (`coreFormAnswer`).
+ * (`coreFormAnswer`), and one of a run whose writer writes the review
+ * answers in the fourth form (`writtenFormAnswer`).
  */
 function answerFor(output: unknown, prompt: string): unknown {
   if (typeof output !== 'object' || output === null) return output;
@@ -440,6 +490,7 @@ function answerFor(output: unknown, prompt: string): unknown {
     const noted = (verdict: Record<string, unknown>): object => (!prompt.includes(notesWords) || 'unconfirmed' in verdict ? verdict : { ...verdict, unconfirmed: verdict.verdict === 'PLAUSIBLE' ? { kind: 'fact', text: 'fake: one condition is not settled here.' } : null, authorChoice: null });
     return { ...output, verdicts: (output as { readonly verdicts: readonly Record<string, unknown>[] }).verdicts.map((verdict) => noted('basis' in verdict ? verdict : { ...verdict, basis: 'traced', runs: [] })) };
   }
+  if (prompt.includes(writtenFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return writtenFormAnswer(output as Record<string, unknown>, prompt);
   if (prompt.includes(coreFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return coreFormAnswer(output as Record<string, unknown>, prompt);
   if (prompt.includes(reportFormWords) && Object.hasOwn(output, 'findings') && Object.hasOwn(output, 'conclusion')) return reportFormAnswer(output as Record<string, unknown>, prompt);
   if (!prompt.includes('Return `comparisons`') || Object.hasOwn(output, 'comparisons')) return output;

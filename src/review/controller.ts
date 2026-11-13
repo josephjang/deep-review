@@ -19,8 +19,8 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Checkpoint, NewEvent } from '../checkpoint/checkpoint.ts';
-import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, ExplanationRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, PullRequestFacts, ReviewConfiguration, ReviewConfigurationV12, ReviewConfigurationV9, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
-import { isDocumentItem, reviewConfiguredV12, reviewConfiguredV9 } from '../checkpoint/events.ts';
+import type { Blocker, ChangeReading, CheckRan, CheckStarted, ClaimsLost, DecisionsRecorded, ExplanationRecorded, FilesClaimed, FixPinnedV2, FixReopened, PlannedCheckV3, PullRequestFacts, ReviewConfiguration, ReviewConfigurationV13, ReviewConfigurationV9, ReviewLimits, ScopeRequest, SurveyRecorded, TreeRestored, TreeRevised } from '../checkpoint/events.ts';
+import { isDocumentItem, reviewConfiguredV13, reviewConfiguredV9 } from '../checkpoint/events.ts';
 import { locateCheckpoint } from '../checkpoint/locate.ts';
 import { fixSettingsRecordOf, settingOf, settingsRecordOf, settingsRecordV2Of } from '../config/record.ts';
 import { resolvedValue, withChangedPaths, type ResolvedSettings } from '../config/resolve.ts';
@@ -809,10 +809,10 @@ async function runPass(options: ReviewOptions, log: (line: string) => void, cont
       log(`run ${runId}: scope captured, ${reviewed}${String(state.scope!.files.length)} files${excluded === 0 ? '' : `; scope.exclude left out ${String(excluded)} changed path${excluded === 1 ? '' : 's'}`}`);
     }
     if (configure !== null) {
-      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration), the language of the review among them for a run that explains it (R20 of the review on the pull request). Version 9 says the run has the documentation step (TD4 of the documentation step), the checks on the base (TD8 of the facts before a merge) and runs on the record (TD6 of runs on the record); version 12 also says it explains its review (TD8 of the review on the pull request), that its review reads as a report (TD1, TD2 of the review that reads as a report) and that it opens with the core of the change (TD1 of the core of the change on the pull request).
+      // The checks are planned when the survey completes, not here (R6 of the repository survey); the settings are recorded with the configuration, before the first worker (R6 of the configuration), the language of the review among them for a run that explains it (R20 of the review on the pull request). Version 9 says the run has the documentation step (TD4 of the documentation step), the checks on the base (TD8 of the facts before a merge) and runs on the record (TD6 of runs on the record); version 13 also says it explains its review (TD8 of the review on the pull request), that its review reads as a report (TD1, TD2 of the review that reads as a report), that it opens with the core of the change (TD1 of the core of the change on the pull request) and that its writer writes every sentence of the review (TD1 of the review in the writer's words).
       state = append(checkpoint, state, [{ kind: 'review.configured', version: configure.version, payload: configure.payload }]);
       const pinnedNow = configure.payload;
-      const language = configure.version === 12 ? `; it explains its review in ${configure.payload.settings.values['review.language']}` : '';
+      const language = configure.version === 13 ? `; it explains its review in ${configure.payload.settings.values['review.language']}, its writer answering at version 4` : '';
       // A run of a pull request is configured read-only with --fix too, and this command continues it once its report is written (R1 of the review of a fix run): said by the rule runReview continues it by, not by the version of its configuration.
       const continues = (options.fix ?? null) !== null && continuesAfterReport(state, options.scope) ? `; ${continuedAfterReportWords}` : '';
       log(`run ${runId}: configured for ${pinnedNow.runtime} ${pinnedNow.version}, models ${pinnedNow.models.strong} and ${pinnedNow.models.fast}${pinnedNow.fix ? ', with the fix pass' : ''}${pinnedNow.codex === null ? '' : `, Codex Windows sandbox ${pinnedNow.codex.windowsSandbox}`}; the reviewer's own rules: ${pinnedNow.survey.userRules}${language}${continues}`);
@@ -1320,7 +1320,7 @@ interface OpenedRun {
   /** The scope to capture, for a run that has none yet, with the patterns `scope.exclude` leaves out, the base its configuration was read at and the pull request whose change it is, if any; null for one that captured it. */
   readonly capture: { readonly request: ScopeRequest; readonly exclude: readonly string[]; readonly base: string; readonly pullRequest: CapturedPullRequest | null } | null;
   /** The configuration to pin, for a run not yet configured, at the version that says what the run plans, with the settings it was resolved from; null for one whose configuration is pinned. */
-  readonly configure: ({ readonly version: 9; readonly payload: ReviewConfigurationV9 } | { readonly version: 12; readonly payload: ReviewConfigurationV12 }) & { readonly resolved: ResolvedSettings } | null;
+  readonly configure: ({ readonly version: 9; readonly payload: ReviewConfigurationV9 } | { readonly version: 13; readonly payload: ReviewConfigurationV13 }) & { readonly resolved: ResolvedSettings } | null;
   /** The continuation to pin, for a finished read-only run this command continues into the fix pass, with where its read-only report is; null otherwise (R1 of fix pass continuation). */
   readonly continuation: { readonly pin: FixPinnedV2; readonly report: string } | null;
 }
@@ -1387,12 +1387,13 @@ function nothingToFix(run: RunState): string | null {
  *   `--no-check` apply until the checks are planned. A run not yet
  *   configured resolves the policy and the command's executable and
  *   preflights it, before a new run is created so a refusal creates
- *   nothing. It is configured at `review.configured@12`, which plans the
+ *   nothing. It is configured at `review.configured@13`, which plans the
  *   explanation, when its scope, captured now or before, has a pull
  *   request, read-only whether or not the command gives `--fix`, and at
  *   version 9 otherwise (TD8 of the review on the pull request; TD1, TD2
  *   of the review that reads as a report; TD1 of the core of the change
- *   on the pull request; R1 of the review of a fix run).
+ *   on the pull request; TD1 of the review in the writer's words; R1 of
+ *   the review of a fix run).
  *
  * The run lock is taken before the preflight for a found run, so an
  * engine running it refuses this one at once, and is released on every
@@ -1540,9 +1541,9 @@ async function openRun(context: OpenContext): Promise<OpenedRun> {
       const version = await qualify(context.adapter, executable, executableArgs, toolsPath, context, null);
       const { checks, fixes, survey, ...rest } = policyResolved;
       const payload = { ...rest, roles: [...policyResolved.roles], executable, executableArgs, version, fix: fix !== null, checks: fix === null ? null : checks, fixes: fix === null ? null : fixes, survey };
-      configure = explains ? { version: 12, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
+      configure = explains ? { version: 13, payload: { ...payload, settings: settingsRecordV2Of(resolved, payload) }, resolved } : { version: 9, payload: { ...payload, settings: settingsRecordOf(resolved, payload) }, resolved };
       // Checked before the run exists: a configuration the ledger would refuse must not leave a run with its scope and no configuration behind.
-      const recordable = (configure.version === 12 ? reviewConfiguredV12 : reviewConfiguredV9).safeParse(configure.payload);
+      const recordable = (configure.version === 13 ? reviewConfiguredV13 : reviewConfiguredV9).safeParse(configure.payload);
       if (!recordable.success) throw new Error(`The engine built a configuration its ledger refuses, so no run is created: ${recordable.error.message}`);
     }
     const state = found ?? checkpoint.createRun({ worktree: context.worktree });
