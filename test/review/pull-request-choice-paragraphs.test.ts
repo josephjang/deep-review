@@ -6,8 +6,8 @@ import { decisions } from '../helpers/review-history.ts';
 
 const choice = 'Whether parse should throw or return null on an empty file.';
 const otherChoice = 'Whether the helper at line 7 guards the null too, or leaves it to its callers.';
-const first = `**The choice.** Its verifier left this choice to the author: ${choice} deep-review did not settle it.`;
-const second = `**The choice.** Its verifier left this choice to the author: ${otherChoice} deep-review did not settle it.`;
+const first = `- Choice its verifier left to the author: ${choice} Settled as: not settled by deep-review`;
+const second = `- Choice its verifier left to the author: ${otherChoice} Settled as: not settled by deep-review`;
 
 /** The state with the verdict of candidate `id` changed as `change` says. */
 const withVerdict = (state: RunState, id: string, change: Record<string, unknown>): RunState => {
@@ -22,14 +22,14 @@ const withTwoChoices = (state: RunState): RunState => {
 };
 const leftIntended = { ...decisions[0], decision: 'leave', fix: null, departure: null, leave: { reason: 'intended', supersededBy: null } };
 
-describe('the choices beside one decision, a paragraph each (PD9 of the settled choice)', () => {
-  it('parts the choices of a merged finding\'s fix by a blank line in its comment', () => {
+describe('the choices beside one decision, a list item each (PD9 of the settled choice; R4 of the review in the writer\'s words)', () => {
+  it('gives each choice of a merged finding\'s fix an item of its own in the record its comment folds', () => {
     const comment = formOf(withTwoChoices(run().fold())).comments[0]!.body;
-    assert.ok(comment.includes(`${first}\n\n${second}`), comment);
+    assert.ok(comment.includes(`${first}\n${second}`), comment);
   });
 
-  it('parts the choices of a merged finding left as is by a blank line in the body', () => {
+  it('gives each choice of a merged finding left as is an item of its own in the body', () => {
     const body = formOf(withTwoChoices(run([leftIntended, decisions[1]]).fold())).body;
-    assert.ok(body.includes(`${first}\n\n${second}`), body);
+    assert.ok(body.includes(`${first}\n${second}`), body);
   });
 });

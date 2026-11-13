@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { ExplainedFinding } from '../../src/review/explanation.ts';
-import { formOf, pullRequestRun as run, writerAnswer } from '../helpers/pull-request-review.ts';
+import { formOf, pullRequestRun as run, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
 
 const head = '2'.repeat(40);
 
@@ -9,7 +8,7 @@ describe('a permalink in a Markdown link', () => {
   /** The comment of RIPPLE-1 with its writer's one case on `path`, at lines 3 to 4 of the head. */
   const commentOf = (path: string): string => {
     const said = writerAnswer();
-    const fix = said.findings[0] as ExplainedFinding;
+    const fix = said.findings[0] as WrittenFinding;
     return formOf(run().fold(), { ...said, findings: [{ ...fix, cases: [{ sentence: 'It is read here', lines: { side: 'head', path, from: 3, to: 4 } }] }, said.findings[1]!] }).comments[0]!.body;
   };
   /** Each link destination of a text as Markdown reads it, up to the first `)`. */

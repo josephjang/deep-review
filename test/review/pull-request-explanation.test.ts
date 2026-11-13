@@ -130,9 +130,9 @@ describe('the explanation of a read-only run of a pull request', { timeout: 600_
     const state = box.run();
     const writer = Object.values(state.workers).find((worker) => worker.launch.label === 'writer explanation:explanation')!;
     assert.deepEqual([recorded.payload.workerId, recorded.payload.dropped, recorded.payload.unexplained], [writer.launch.workerId, [], ['SCAN-2']]);
-    const answer = recordedAnswerOf(state.explanation!, box.checkpoint.evidence)!;
+    const answer = recordedAnswerOf(state.explanation!, box.checkpoint.evidence, state.review!)!;
     assert.deepEqual(answer.findings.map((finding) => [finding.id, finding.unexplained]), [['SCAN-1', false], ['SCAN-2', true]]);
-    assert.equal(answer.account, null, 'the writer gives no account');
+    assert.deepEqual([answer.left, answer.notExamined], [null, null], 'an answer of version 3 has neither the findings left as is nor what the review did not examine');
     const explained = answer.findings[0];
     assert.ok(explained !== undefined && !explained.unexplained);
     assert.equal(explained.checked, 'fake: the verifier read the lines of SCAN-1.');

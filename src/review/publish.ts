@@ -386,7 +386,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const form = pullRequestForm({
     state: reviewed,
     fixPass: run.review!.continuedFrom === null ? 'to-come' : 'continued',
-    answer: reviewed.explanation === null ? null : recordedAnswerOf(reviewed.explanation, checkpoint.evidence),
+    answer: reviewed.explanation === null ? null : recordedAnswerOf(reviewed.explanation, checkpoint.evidence, reviewed.review!),
     places: placements,
     machine: machineContextOf({ worktree: run.worktree, checkpoint: checkpoint.root, gitCommon: options.gitCommon, engine: dirname(options.engineEntry), workers: run.workers, environment: options.environment, platform: options.platform ?? process.platform }),
     engine: checkpoint.engine,

@@ -27,11 +27,11 @@ describe('the writer\'s areas in the body', () => {
     includes(form.body, '**Parsing an empty input.** What parse() does with an empty file.');
   });
 
-  it('leaves the writer\'s sentence on the areas out of the summary when the checks dropped the areas, and keeps the counts and what comes next', () => {
+  it('leaves the writer\'s sentence on the areas out of the summary when the checks dropped the areas, and keeps the table of counts and what comes next', () => {
     const form = formOf(reported(['areas']), { ...answerWithArea(null), areas: null });
     const summary = summaryOf(form.body);
     excludes(summary, why);
-    includes(summary, '2 findings');
+    includes(summary, '| 2 | 0 | 1 | 1 | 1 | 1 | 0 |');
     includes(summary, '--fix');
     excludes(form.body, 'Parsing an empty input');
   });

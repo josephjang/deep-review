@@ -375,14 +375,14 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     const text = printed.kind === 'dry-run' ? printed.lines.join('\n') : '';
     // The findings go where they go in the review of the read-only run of the same head.
     assert.ok(text.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42, on its head ${commitsOf(box).head}; nothing is posted or recorded.\nWhere each finding goes:\n- 1 (SCAN-1): a comment on src/a.ts:2\n- 2 (SCAN-2): a comment on src/b.ts:1\n- 3 (SWEEP-1): in the body, left as is (src/a.ts:5)\n`), text);
-    assert.ok(text.includes('. It then went on to fix the findings it decided to fix, in the fix pass of its own run on the machine of the person who ran the review; those edits are not part of this review'), text);
-    assert.ok(text.includes('What its fix pass changed reaches this branch only when the person who ran the review pushes it.'), text);
-    for (const gone of ['changed no file', '--fix', 'deep-review fixed this']) assert.ok(!text.includes(gone), `no ${gone}`);
+    assert.ok(text.includes('After the review: the run went on into its fix pass.\n\nThe fix pass ran on the machine of the person who ran the review. Its edits are not part of this review'), text);
+    assert.ok(text.includes('What the fix pass changes reaches this branch only when the person who ran the review pushes it.'), text);
+    for (const gone of ['no file changed', '--fix', 'Status: fixed']) assert.ok(!text.includes(gone), `no ${gone}`);
     assert.equal(writes(dry.script), 0);
     const { gh, script } = publishGh(t, publishSteps(box));
     assert.deepEqual(publishWith(box, gh).outcome, { kind: 'posted', runId, url: reviewUrl, how: 'posted', comments: 2 });
     const [held] = fakeGhHeld(script);
-    assert.ok(held!.body.includes('It then went on to fix the findings it decided to fix') && !held!.body.includes('--fix'), held!.body);
+    assert.ok(held!.body.includes('After the review: the run went on into its fix pass.') && !held!.body.includes('--fix'), held!.body);
     // The publication is recorded on the whole run, after its fix report.
     const kinds = box.events(runId).map(([kind]) => kind);
     assert.ok(kinds.lastIndexOf('report.written') < kinds.indexOf('publish.prepared'), kinds.join(', '));
@@ -399,7 +399,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     const { gh } = publishGh(t, publishSteps(box));
     const printed = publishWith(box, gh, { dryRun: true }).outcome;
     assert.equal(printed.runId, runId, 'the run whose fix pass blocked is chosen');
-    assert.ok(printed.kind === 'dry-run' && printed.lines.join('\n').includes('It then went on to fix the findings it decided to fix'), JSON.stringify(printed));
+    assert.ok(printed.kind === 'dry-run' && printed.lines.join('\n').includes('After the review: the run went on into its fix pass.'), JSON.stringify(printed));
     box.checkpoint.append(runId, box.run().lastSequence, [{ kind: 'run.abandoned', version: 1, payload: { reason: 'the fixes went another way' } }]);
     refused(() => publishWith(box, () => assert.fail('a refusal before GitHub resolves no gh')), new RegExp(`^run ${runId} was abandoned in its fix pass, and an abandoned run records nothing more, so its review cannot be recorded as posted; review the pull request again with deep-review review --pr 42$`));
     assert.deepEqual(publications(box), []);

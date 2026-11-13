@@ -14,11 +14,10 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { reviewLanguage, type ConditionSentence, type Core, type ExplainedFinding, type RecordedAnswer as WriterAnswer } from './explanation.ts';
+import { reviewLanguage, type ConditionSentence, type Core, type LeftLine, type RecordedAnswer as WriterAnswer, type RecordedFinding } from './explanation.ts';
 import type { NamedId } from './finding-names.ts';
-import { codeSpan } from './markdown.ts';
 import type { MachineContext } from './public-text.ts';
-import { pullRequestWords, type FollowingWords, type PullRequestWords, type ReviewCounts } from './pull-request-words.ts';
+import { pullRequestWords, type PullRequestWords } from './pull-request-words.ts';
 import { mergeRankInput, rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { asksToAct, verdictBases, type FindingKind, type PlaceReason, type VerdictBasis } from './vocabulary.ts';
 
@@ -104,17 +103,39 @@ export interface PullRequestFormInput {
   readonly commits?: readonly string[] | null;
 }
 
+/** The counts of the run that the review shows as data (R3, R12, TD3): the candidates through each step, and the verdicts and bases of the ranked findings. */
+export interface ReviewCounts {
+  readonly candidates: number;
+  readonly groups: number;
+  readonly refuted: number;
+  readonly kept: number;
+  readonly merged: number;
+  readonly findings: number;
+  readonly major: number;
+  readonly critical: number;
+  readonly minor: number;
+  readonly confirmed: number;
+  readonly plausible: number;
+  readonly unverified: number;
+  readonly majorConfirmed: number;
+  readonly majorConfirmedRan: number;
+  readonly bases: Readonly<Record<VerdictBasis, number>>;
+  /** The findings whose verdict records no basis. */
+  readonly noBasis: number;
+}
+
 /** How a finding is explained: by the writer, not explained (marked by the writer with its reason, dropped by the checks, or not asked of the writer), or by no explanation the run recorded. */
 export type Explained =
-  | { readonly kind: 'explained'; readonly value: ExplainedFinding }
+  | { readonly kind: 'explained'; readonly value: RecordedFinding }
   | { readonly kind: 'unexplained'; readonly reason: string | null }
   | { readonly kind: 'none' };
 
 /**
  * A ranked finding with all the form reads of it: the ledger's facts, and
  * the parts that the writer's and the verifier's answers give, each null
- * when the answer has none, which the form then replaces with the engine's
- * words (R16).
+ * when the answer has none, which the form then replaces with the
+ * recorded words of the other workers under a label (R8 of the review in
+ * the writer's words).
  */
 export interface FindingView {
   readonly finding: BriefFinding;
@@ -124,12 +145,12 @@ export interface FindingView {
   readonly explained: Explained;
   readonly question: BriefQuestion | null;
   readonly departure: BriefDeparture | null;
-  /** The writer's sentence of what deep-review would do (`conclusion.actions`); null falls back to the first sentence of the decided approach. */
-  readonly action: string | null;
-  /** The writer's line of how the verifier checked it (R10); null falls back to the words of the verdict's basis. */
-  readonly checked: string | null;
+  /** The writer's text of the finding, null when it gave none that passed: its sentence of what deep-review would do, and its fix or its question. */
+  readonly written: RecordedFinding | null;
   /** The writer's kind of a minor finding (R13); null lists it with the code. */
   readonly kind: FindingKind | null;
+  /** The writer's title and reason for a finding left as is, or null. */
+  readonly left: LeftLine | null;
   /** The verifier's reason for a PLAUSIBLE verdict (R7); null says that it gave none. */
   readonly unconfirmed: Unconfirmed | null;
   /** Every candidate, primary first, with the choice its verifier left to the author or null (R9), which the review shows beside the decision (PD8, PD9 of the settled choice). */
@@ -171,41 +192,23 @@ export interface FormView {
   readonly brief: Brief;
   readonly words: PullRequestWords;
   readonly core: CoreView;
-  /** The writer's sentences on the conditions the triage judged to hold, from an answer of version 3 that kept them; null otherwise, and each condition is then given in the triage's words (R8, R10 of the core of the change on the pull request). */
+  /** The writer's sentences on the conditions the triage judged to hold, from an answer that kept them; null otherwise, and each condition is then given in the triage's words (R8, R10 of the core of the change on the pull request). */
   readonly conditions: readonly ConditionSentence[] | null;
-  /** The words of what follows the review, for the run's fix pass (`followingOf`). */
-  readonly following: FollowingWords;
+  /** Whether the run went on into its fix pass, which chooses the fixed notices of what follows the review. */
+  readonly fixPass: FixPass;
   readonly findings: readonly FindingView[];
   /** The writer's areas; null puts every major finding that acts in one area named by the engine (R16). */
   readonly areas: readonly AreaView[] | null;
   readonly refuted: readonly RefutedView[];
   readonly counts: ReviewCounts;
-  /** The writer's sentence that names the areas. */
-  readonly conclusion: { readonly why: string } | null;
+  /** The writer's summary, which names the areas, so it is null when the writer's areas are not shown. */
+  readonly summary: string | null;
+  /** The writer's text of what the review did not examine, or null. */
+  readonly notExamined: string | null;
   readonly recorded: ExplanationRecorded | null;
   /** What each id of the run names in a worker's text: a finding by its number, merged candidates included, or a refuted candidate (R1, R2 of the finding names in the review). */
   readonly names: ReadonlyMap<string, NamedId>;
   readonly input: PullRequestFormInput;
-}
-
-/**
- * The words of what follows the review (R6 of the review of a fix run):
- * those of a run continued into its fix pass, or the read-only ones, which
- * name the command that continues the run into the fix pass, a code span.
- */
-export function followingOf(words: PullRequestWords, fixPass: FixPass, pullRequest: number): FollowingWords {
-  if (fixPass === 'continued') return words.continued;
-  const fix = codeSpan(`deep-review review --pr ${String(pullRequest)} --fix`);
-  return {
-    reviewed: words.reviewed,
-    summaryNext: (counts) => words.summaryNext(counts, fix),
-    departureStands: words.departureStands,
-    departure: (rule, source, fact, accept, reject) => words.departure(rule, source, fact, accept, reject, fix),
-    standing: words.standing,
-    answerQuestion: (command) => words.answerQuestion(command, fix),
-    howDiagram: words.howDiagram,
-    noCheck: words.noCheck,
-  };
 }
 
 /**
@@ -272,7 +275,7 @@ export function formViewOf(input: PullRequestFormInput): FormView {
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const entries = new Map(rankedFindings(review).map((entry) => [entry.finding.id, entry]));
   const recorded = state.explanation;
-  const conclusion = input.answer?.conclusion ?? null;
+  const answer = input.answer;
   const findings = brief.findings.map((finding): FindingView => {
     const placement = placements.get(finding.id);
     if (placement === undefined) throw new Error(`Finding ${finding.id} of run ${state.id} has no place`);
@@ -286,9 +289,9 @@ export function formViewOf(input: PullRequestFormInput): FormView {
       explained,
       question: brief.questions.find((question) => question.id === finding.id) ?? null,
       departure: brief.departures.find((departure) => departure.id === finding.id) ?? null,
-      action: conclusion?.actions.find((action) => action.id === finding.id)?.sentence ?? null,
-      checked: explained.kind === 'explained' ? explained.value.checked : null,
+      written: explained.kind === 'explained' ? explained.value : null,
       kind: explained.kind === 'explained' ? explained.value.kind : null,
+      left: answer?.left?.find((line) => line.id === finding.id) ?? null,
       unconfirmed: entry.resolution.unconfirmed,
       choices: entry.choices,
     };
@@ -301,16 +304,18 @@ export function formViewOf(input: PullRequestFormInput): FormView {
     brief,
     words,
     core,
-    conditions: input.answer?.conditions ?? null,
-    following: followingOf(words, input.fixPass, scope.pullRequest.number),
+    conditions: answer?.conditions ?? null,
+    fixPass: input.fixPass,
     findings,
-    areas: input.answer?.areas ?? null,
+    areas: answer?.areas ?? null,
     refuted: refuted(review).map(({ candidate }) => {
-      const line = input.answer?.refuted?.find((given) => given.id === candidate.id);
+      const line = answer?.refuted?.find((given) => given.id === candidate.id);
       return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
     }),
     counts: reviewCountsOf(review),
-    conclusion: conclusion === null ? null : { why: conclusion.why },
+    // The summary names the areas, so it is not shown when the checks dropped them: the merge of an answer of version 4 keeps the two from one answer, and an older one could keep the summary and drop its areas.
+    summary: recorded?.dropped.some((part) => part.part === 'areas') ?? false ? null : answer?.summary ?? null,
+    notExamined: answer?.notExamined ?? null,
     recorded,
     names: new Map<string, NamedId>([
       ...refuted(review).map(({ candidate }): [string, NamedId] => [candidate.id, { kind: 'refuted' }]),

@@ -1,39 +1,40 @@
 /**
  * The form of the pull request (R9, R10, R12, TD6 of the review on the
- * pull request; R1 to R5, R12 to R16 of the review that reads as a
- * report): the body and the comments of the one review `publish` posts,
- * rendered from one view of the run (`FormView`) that `formViewOf` in
+ * pull request; R1 to R10, TD3, TD4 of the review in the writer's words):
+ * the body and the comments of the one review `publish` posts, rendered
+ * from one view of the run (`FormView`) that `formViewOf` in
  * `pull-request-view.ts` builds once, and nothing else. Pure: the caller
  * reads GitHub, the evidence store and the commits, places each finding
  * (`placeFindings`), and this module only renders.
  *
- * `pullRequestForm` renders the body in the order of R1, with the
- * engine's own words from the table of the run's language
- * (pull-request-words.ts, R15), each text of a worker, the runtime's
- * version and the models and the patterns the settings name through
- * `publicWords` or `publicCode`, each of the writer through `publicProse`
- * (R11), and a comment on its line for each fix and each question that
- * has one (R5). Every link to code is a permalink at the reviewed head,
- * or at the merge base for removed lines (R14). A body over the limit is
- * cut in the order of `bodyCuts`, and a body that still does not fit, or
- * a comment that does not, is a refusal with its size and parts, before
- * anything is recorded. The texts that say what follows the review are
- * chosen once, by whether the run went on into its fix pass
- * (`followingOf`, R6 of the review of a fix run).
+ * Every sentence that says something of the run or of the change is the
+ * writer's, from its answer of any version read into one shape. Code
+ * shows each fact as data, a labeled value, a facts line or a facts table
+ * (`markdown.ts`), with its labels and the names of its values from the
+ * table of the run's language (`pull-request-words.ts`), and adds the
+ * fixed notices of that table. Where a part of the writer's is missing,
+ * the form shows the facts and the other workers' recorded words, each
+ * under a label that names its worker, and never joins one to a text of
+ * the writer's. Each text of a worker, the writer among them, passes the
+ * Speaker, which cleans it (R11 of the review on the pull request). Every
+ * link to code is a permalink at the reviewed head, or at the merge base
+ * for removed lines. A body over the limit is cut in the order of
+ * `bodyCuts`, and a body that still does not fit, or a comment that does
+ * not, is a refusal with its size and parts, before anything is recorded.
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import type { PullRequestFacts, RecordedDecision } from '../checkpoint/events.ts';
 import { repositoryLocation } from '../checkpoint/review-fold.ts';
-import { firstSentence, type BriefDeparture, type BriefQuestion } from './brief.ts';
+import { firstSentence, type FindingStatus, type GapFacts } from './brief.ts';
 import { diagramFailures, resolveCommitSource } from './explanation-checks.ts';
-import type { ConditionSentence, ExplainedFinding } from './explanation.ts';
+import type { CitedLines, ConditionSentence } from './explanation.ts';
 import { namedFindings, namedInDiagram, type NamedId } from './finding-names.ts';
-import { capitalized, codeSpan, findingAnchor, inlineText, paragraphText, sentenceText, tableCell } from './markdown.ts';
+import { capitalized, codeSpan, factsLine, factsTable, findingAnchor, inlineText, labeledValue, paragraphText, sentenceText, valueList } from './markdown.ts';
 import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
-import type { PullRequestWords } from './pull-request-words.ts';
+import type { DecisionValue, LineNote, PullRequestWords, RecordedSpeaker, WriterPart } from './pull-request-words.ts';
 import { formViewOf, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
@@ -246,170 +247,262 @@ const verdictMarks = (view: FormView, finding: FindingView): string[] => (findin
 /** A finding's verdict with its marks, as the areas and the minor table give it. */
 const verdictText = (view: FormView, finding: FindingView): string => [finding.finding.verdict, ...verdictMarks(view, finding)].join(', ');
 
-/** The note on what the pull request does to a finding's line, or that it has no place; none for an added line. */
-function diffNote(view: FormView, placement: FindingPlacement): string | null {
-  const { words } = view;
-  if (placement.reason === 'no-place') return words.noPlaceNote;
+/** Recorded words of another worker under the label that names it (R8 of the review in the writer's words), already cleaned by the Speaker. */
+const recordedWords = (view: FormView, speaker: RecordedSpeaker, text: string): string => `${view.words.recorded[speaker]}: ${text}`;
+
+/** A finding's number as a link to where the body or its comment gives it, with the label that says finding. */
+const findingRef = (view: FormView, finding: FindingView): string => `[${view.words.findingLabel} ${String(finding.finding.number)}](${hrefOf(view, finding)})`;
+
+/** The findings of `numbers` as links, in the order given; a number of no ranked finding as itself. */
+function findingRefs(view: FormView, numbers: readonly number[]): string {
+  return valueList(numbers.map((number) => {
+    const finding = view.findings.find((candidate) => candidate.finding.number === number);
+    return finding === undefined ? String(number) : findingRef(view, finding);
+  }));
+}
+
+/** The status the decision alone gives a finding in a run that only reviewed, so a status that differs is one an answer gave (R6 of the review in the writer's words). */
+function decidedStatus(finding: FindingView): FindingStatus {
+  const { decision } = finding;
+  if (decision?.decision === 'fix') return decision.departure === null ? 'planned' : 'planned-against-rule';
+  return decision?.decision === 'ask' ? 'question' : 'left';
+}
+
+/** The decision on a finding as its facts name it. */
+function decisionValue(finding: FindingView): DecisionValue {
+  const { decision } = finding;
+  if (decision?.decision === 'fix') return decision.departure === null ? 'fix' : 'fix-against-rule';
+  return decision?.decision === 'ask' ? 'ask' : 'leave';
+}
+
+/** What the pull request does to a finding's line, or that it has no place; none for an added line. */
+function lineNoteOf(placement: FindingPlacement): LineNote | null {
+  if (placement.reason === 'no-place') return 'no-place';
   switch (placement.diff) {
     case 'context':
     case 'outside-the-hunks':
-      return words.lineNotChanged;
+      return 'line-not-changed';
     case 'not-in-the-pull-request':
-      return words.fileNotChanged;
+      return 'file-not-changed';
     case 'no-patch':
-      return placement.reason === 'no-patch' ? words.noPatch : null;
+      return placement.reason === 'no-patch' ? 'no-patch' : null;
     default:
       return null;
   }
 }
 
-/** The line under a finding's title (R5): its severity, its verdict with how it was checked, what became of it, or the sentence `status` gives in its place, and the note on its line. */
-function gradeLine(view: FormView, finding: FindingView, status: string | null = null): string {
+/** The facts line of a finding (R5): its severity, its verdict with its marks, how its verifier checked it, its decision, what became of it when an answer changed it, and what the pull request does to its line, with `extra` facts after. */
+function findingFacts(view: FormView, finding: FindingView, extra: readonly (readonly [string, string])[] = []): string {
   const { words } = view;
   const { basis } = finding.entry.resolution;
-  const note = diffNote(view, finding.placement);
-  return [words.grade(finding.finding.severity, finding.finding.verdict, basis === null ? null : words.basisWords[basis], verdictMarks(view, finding)), status ?? words.statusSentences[finding.finding.status], ...(note === null ? [] : [note])].join(' ');
+  const status = finding.finding.status === decidedStatus(finding) ? [] : [[words.statusLabel, words.statusValues[finding.finding.status]] as const];
+  const note = lineNoteOf(finding.placement);
+  return factsLine([
+    [words.severityLabel, finding.finding.severity],
+    [words.verdictLabel, verdictText(view, finding)],
+    ...(basis === null ? [] : [[words.checkedByLabel, words.basisValues[basis]] as const]),
+    [words.decisionLabel, words.decisionValues[decisionValue(finding)]],
+    ...status,
+    ...extra,
+    ...(note === null ? [] : [[words.lineLabel, words.lineNotes[note]] as const]),
+  ]);
 }
 
-/** A finding's title: the writer's, or the first sentence of its summary. */
-const titleOf = (finding: FindingView, say: Speaker): string => (finding.explained.kind === 'explained' ? say.prose(finding.explained.value.title) : say.words(firstSentence(finding.entry.finding.summary)));
-
-/** What deep-review would do about a fix, as one sentence: the writer's, or the first sentence of the decided approach. */
-function actionSentence(finding: FindingView, say: Speaker): string {
-  if (finding.action !== null) return sentenceText(say.prose(finding.action));
-  return finding.decision?.decision === 'fix' ? say.sentence(firstSentence(finding.decision.fix.approach)) : '';
+/** A finding's title as a line of its own: the writer's in bold, or the first sentence of its summary as the ranking's recorded words. */
+function titleLine(view: FormView, finding: FindingView, say: Speaker): string {
+  const written = finding.left?.title ?? finding.written?.title;
+  return written === undefined ? recordedWords(view, 'ranking', say.words(firstSentence(finding.entry.finding.summary))) : `**${say.prose(written)}**`;
 }
 
-/** The tail of a finding's line in an area or a row of the minor table: what deep-review would do, or what a question recommends. */
-function actionTail(view: FormView, finding: FindingView, say: Speaker): string {
+/** A finding's title inside a line or a cell: the writer's, or the ranking's recorded words under their label. */
+function titleText(view: FormView, finding: FindingView, say: Speaker): string {
+  const written = finding.left?.title ?? finding.written?.title;
+  return written === undefined ? recordedWords(view, 'ranking', say.words(firstSentence(finding.entry.finding.summary))) : say.prose(written);
+}
+
+/** The heading of a finding's block, its comment or its text in full: the label and its number, then its title. */
+const findingHeading = (view: FormView, finding: FindingView, say: Speaker): string[] => [`**${view.words.findingLabel} ${String(finding.finding.number)}**`, '', titleLine(view, finding, say)];
+
+/** What deep-review would do about a finding that acts, as one text: the writer's `action`, or the first sentence of the decided approach as the decider's recorded words; for a question with no writer's text, none. */
+function actionText(view: FormView, finding: FindingView, say: Speaker): string | null {
+  const action = finding.written?.action ?? null;
+  if (action !== null) return sentenceText(say.prose(action));
+  return finding.decision?.decision === 'fix' ? recordedWords(view, 'decider', say.sentence(firstSentence(finding.decision.fix.approach))) : null;
+}
+
+/** The facts of a question that stand beside its finding wherever it is listed: the option recommended, and the answer or the option that stands until one. */
+function questionFacts(view: FormView, finding: FindingView): (readonly [string, string])[] {
   const { words } = view;
   const { question } = finding;
-  if (finding.decision?.decision === 'ask' && question !== null) return words.recommends(question.choice, say.sentence(question.options[question.choice - 1]!.option));
-  return [words.wouldDo(actionSentence(finding, say)), ...(finding.departure === null ? [] : [words.againstRule])].join(' ');
-}
-
-/** Why a PLAUSIBLE verdict is not CONFIRMED (R7): its verifier's reason, that it gave none, or that no verifier examined it; none for a CONFIRMED one. */
-function whyPlausible(view: FormView, finding: FindingView, say: Speaker): string[] {
-  if (finding.finding.verdict !== 'PLAUSIBLE') return [];
-  if (finding.entry.resolution.unverified) return [view.words.whyUnverified];
-  const given = finding.unconfirmed;
-  return [view.words.whyPlausible(given === null ? null : { kind: given.kind, text: sentenceText(say.words(given.text)) })];
-}
-
-/** The mark of a finding the writer did not explain, with its reason, as a paragraph of its own (R19 of the review on the pull request); none for one it explained or a run with no explanation. */
-function unexplainedMark(view: FormView, finding: FindingView, say: Speaker): string[][] {
-  const { explained } = finding;
-  return explained.kind === 'unexplained' ? [[view.words.unexplained(explained.reason === null ? null : say.prose(explained.reason))]] : [];
-}
-
-/** The paragraphs of what goes wrong: the writer's problem, or, without it, the finder's own account in its place. */
-function problemParagraphs(finding: FindingView, say: Speaker): string[] {
-  const { explained } = finding;
-  return explained.kind === 'explained' ? say.paragraphs(explained.value.problem) : [paragraphText(say.words(finding.entry.primary.detail))];
-}
-
-/** What goes wrong, each paragraph a block after the mark of a finding not explained, the first under its label and the last with the reason of a PLAUSIBLE verdict, then the writer's diagram (R5, R7). */
-function explanationBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
-  const paragraphs = problemParagraphs(finding, say);
-  const told = paragraphs.length === 0 ? [''] : paragraphs;
-  const last = told.length - 1;
-  const lines = told.map((paragraph, index) => [index === 0 ? `${view.words.problemLabel} ${paragraph}` : paragraph, ...(index === last ? whyPlausible(view, finding, say) : [])].join(' ').trim());
-  const diagram = finding.explained.kind === 'explained' && finding.explained.value.diagram !== null ? [[say.diagram(finding.explained.value.diagram)]] : [];
-  return [...unexplainedMark(view, finding, say), ...lines.map((line) => [line]), ...diagram];
-}
-
-/** A minor finding's one paragraph (R5) after the mark of one not explained: what goes wrong, why it is PLAUSIBLE, and what deep-review would do. */
-function minorBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
-  const parts = [...problemParagraphs(finding, say), ...whyPlausible(view, finding, say), ...(finding.decision?.decision === 'fix' ? [view.words.wouldDo(actionSentence(finding, say))] : [])];
-  return [...unexplainedMark(view, finding, say), [parts.join(' ')]];
-}
-
-/** The decided fix, folded, with each option rejected (R5). */
-function decidedFixLines(view: FormView, decision: Extract<RecordedDecision, { decision: 'fix' }>, say: Speaker): string[] {
-  const { words } = view;
-  const rejected = decision.fix.rejected.map((option) => `- ${words.rejected(say.sentence(option.option), say.sentence(option.reason))}`);
-  return details(words.asDecided, [paragraphText(say.sentence(decision.fix.approach))], rejected);
-}
-
-/** A fix against a written rule (R8): the rule, its source, the fact against it, and how its answer is given or was. */
-function departureLines(view: FormView, departure: BriefDeparture, say: Speaker): string[] {
-  const { words } = view;
-  const sentence = (text: string): string => sentenceText(say.words(text));
-  const paragraph = view.following.departure(sentence(departure.rule), sentence(departure.source), say.sentence(departure.fact), codeSpan(departure.accept), codeSpan(departure.reject));
-  const given = departure.review;
-  const answered = given === null ? [] : [given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at)];
-  return [[paragraph, ...answered].join(' ')];
-}
-
-/** A question (R8): why it is one, the question, its options with their costs, then the option recommended and the one that stands with the command that answers, or the answer given. */
-function questionBlocks(view: FormView, finding: FindingView, question: BriefQuestion, grounds: string, say: Speaker): string[][] {
-  const { words } = view;
-  const options = question.options.map((option) => words.option(option.number, say.sentence(option.option), say.sentence(option.cost)));
+  if (question === null) return [];
   const given = question.answer;
-  const standing = given !== null && given.option !== null
-    ? [[words.answeredOption(given.option, given.at)]]
-    : [
-      [view.following.standing(question.choice, question.default, question.options[question.default - 1]!.edits, null)],
-      [view.following.answerQuestion(codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>')))],
-    ];
-  return [[`${words.whyAsked} ${say.sentence(grounds)}`], [words.question(say.sentence(question.question))], options, ...standing];
+  const answer = given !== null && given.option !== null
+    ? [[words.statusLabel, words.questionStatus.answered], [words.answeredLabel, String(given.option)], [words.answeredOnLabel, given.at]] as const
+    : [[words.standingLabel, String(question.default)], [words.editsLabel, question.options[question.default - 1]!.edits ? words.yesNo.yes : words.yesNo.no], [words.statusLabel, words.questionStatus.open]] as const;
+  return [[words.recommendedLabel, String(question.choice)], ...answer];
+}
+
+/** The facts of a fix against a written rule: whether it stands, or the answer, and when. */
+function departureFacts(view: FormView, finding: FindingView): (readonly [string, string])[] {
+  const { words } = view;
+  const given = finding.departure?.review ?? null;
+  if (given === null) return [[words.statusLabel, words.departureStatus.stands]];
+  return [[words.statusLabel, given.kind === 'reject' ? words.departureStatus.rejected : words.departureStatus.accepted], [words.answeredOnLabel, given.at]];
+}
+
+/** The mark of a finding the writer did not explain, with its reason (R19 of the review on the pull request); none for one it explained or a run with no explanation. */
+function unexplainedBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { explained } = finding;
+  if (explained.kind !== 'unexplained') return [];
+  return [[[view.words.unexplainedNotice, ...(explained.reason === null ? [] : [`${view.words.writerReasonLabel}: ${sentenceText(say.prose(explained.reason))}`])].join(' ')]];
+}
+
+/** What goes wrong: the writer's problem, its first paragraph under its label, or the finder's own account as its recorded words. */
+function problemBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const written = finding.written;
+  if (written === null) return [[recordedWords(view, 'finder', paragraphText(say.words(finding.entry.primary.detail)))]];
+  const paragraphs = say.paragraphs(written.problem);
+  return paragraphs.map((paragraph, index) => [index === 0 ? `${view.words.problemLabel} ${paragraph}` : paragraph]);
+}
+
+/** Why a PLAUSIBLE verdict is not CONFIRMED (R7 of the review that reads as a report): the writer's text, or the verifier's reason with its kind as recorded words, or that no verifier examined it, or that the verdict predates the reason; none for a CONFIRMED one. */
+function unconfirmedBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { words } = view;
+  if (finding.finding.verdict !== 'PLAUSIBLE') return [];
+  if (finding.entry.resolution.unverified) return [[`${words.unconfirmedLabel} ${words.unconfirmedUnverified}`]];
+  const written = finding.written?.unconfirmed ?? null;
+  if (written !== null) return [[`${words.unconfirmedLabel} ${sentenceText(say.prose(written))}`]];
+  const given = finding.unconfirmed;
+  if (given === null) return [[`${words.unconfirmedLabel} ${words.unconfirmedBefore}`]];
+  return [[`${words.unconfirmedLabel} ${factsLine([[words.whyPlausibleLabel, words.unconfirmedKinds[given.kind]]])} ${recordedWords(view, 'verifier', sentenceText(say.words(given.text)))}`]];
+}
+
+/** The steps that settled the choices a decision makes, as a facts line; none for a decision that settles none. */
+function settledFacts(view: FormView, finding: FindingView): string[][] {
+  const settled = finding.decision?.settled ?? [];
+  if (settled.length === 0) return [];
+  return [[factsLine([[view.words.settledByLabel, valueList([...new Set(settled.map((entry) => view.words.settleSteps[entry.by]))])]])]];
+}
+
+/** A fix against a written rule (R8): the writer's text of it, or the decider's rule, source and fact as its recorded words; then its status and how it is answered. */
+function departureBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { words } = view;
+  const { departure } = finding;
+  if (departure === null) return [];
+  const written = finding.written?.fix?.departure ?? null;
+  const text = written !== null ? [[`${words.departureLabel} ${sentenceText(say.prose(written))}`]] : [[words.departureLabel], departureRecord(view, finding, say)];
+  const commands = factsLine([[words.acceptLabel, codeSpan(departure.accept)], [words.rejectLabel, codeSpan(departure.reject)]]);
+  return [...text, [factsLine(departureFacts(view, finding))], [`${words.departureNotices[view.fixPass]} ${commands}`]];
+}
+
+/** The decider's rule, source and fact of a departure, each its recorded words under its label. */
+function departureRecord(view: FormView, finding: FindingView, say: Speaker): string[] {
+  const { words } = view;
+  const { departure } = finding;
+  if (departure === null) return [];
+  const sentence = (text: string): string => sentenceText(say.words(text));
+  return [`- ${words.ruleLabel}: ${sentence(departure.rule)}`, `- ${words.sourceLabel}: ${sentence(departure.source)}`, `- ${words.factLabel}: ${say.sentence(departure.fact)}`];
 }
 
 /**
- * The choices beside a finding's decision, a paragraph each (R4, R5, PD8,
- * PD9 of the settled choice): each choice its decision settles, with the
- * step in the review's words and the source, after the choices of the
- * candidates' verifiers it answers; then each choice a verifier left to
- * the author that no settlement answers, with that deep-review did not
- * settle it; none when there is neither. Each is a block of its own, so
- * a blank line parts two choices.
+ * A question (R8): the writer's question, or the decider's as its
+ * recorded words; its options as a table, with the writer's words for
+ * each, or the decider's, and whether each edits the code; the facts of
+ * the option recommended and the one that stands or the answer; the
+ * writer's reason for the recommendation; and how it is answered.
  */
-function choiceBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => [view.words.choice({
-    verifiers: shown.verifiers.map((choice) => say.sentence(choice)),
-    settled: shown.settled === null ? null : { choice: say.sentence(shown.settled.choice), step: view.words.settleSteps[shown.settled.by], source: say.sentence(shown.settled.source) },
-  })]);
+function questionBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { words } = view;
+  const { question } = finding;
+  if (question === null) return [];
+  const ask = finding.written?.ask ?? null;
+  const asked = ask === null ? recordedWords(view, 'decider', say.sentence(question.question)) : sentenceText(say.prose(ask.question));
+  const columns = words.optionColumns;
+  const rows = question.options.map((option) => {
+    const given = ask?.options.find((entry) => entry.number === option.number);
+    const text = (writer: string | undefined, recorded: string): string => (writer === undefined ? say.sentence(recorded) : sentenceText(say.prose(writer)));
+    return [String(option.number), text(given?.means, option.option), text(given?.cost, option.cost), text(given?.rule, option.rule), option.edits ? words.yesNo.yes : words.yesNo.no];
+  });
+  const labels = [columns.number, ...(ask === null ? [words.recorded.decider] : [columns.means]), columns.cost, columns.rule, columns.edits];
+  const recommendation = ask === null ? [] : [[`${words.recommendationLabel} ${sentenceText(say.prose(ask.recommendation))}`]];
+  const command = factsLine([[words.commandLabel, codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>'))]]);
+  const answered = question.answer !== null && question.answer.option !== null;
+  return [[`${words.questionLabel} ${asked}`], factsTable(labels, rows), [factsLine(questionFacts(view, finding))], ...recommendation, ...(answered ? [] : [[`${words.answerNotices[view.fixPass]} ${command}`]])];
 }
 
-/** The engine's words on why a finding is left as is, with the finding that supersedes it. */
-function leftBecauseOf(view: FormView, leave: Extract<RecordedDecision, { decision: 'leave' }>): string {
-  const by = leave.leave.supersededBy;
-  return view.words.leftBecause(view.words.leaveReasons[leave.leave.reason], by === null ? null : view.words.findingList([view.brief.numbers.get(by)!]));
-}
-
-/** What deep-review would do about a finding of R5's order, each a block: the sentence, the choice it makes and the folded fix, with a departure between; or the question. */
-function decisionBlocks(view: FormView, finding: FindingView, say: Speaker, minor: boolean): string[][] {
-  const { decision, departure, question } = finding;
-  if (decision?.decision === 'fix') {
-    const would = minor ? [] : [[`${view.words.wouldDoLabel} ${actionSentence(finding, say)}`]];
-    return [...would, ...choiceBlocks(view, finding, say), ...(departure === null ? [] : [departureLines(view, departure, say)]), decidedFixLines(view, decision, say)];
+/**
+ * The decision as deep-review recorded it (R4 of the review in the
+ * writer's words): the writer's text of the fix first, under its label,
+ * then the recorded words an answer and the fix pass apply, each under
+ * its label: the approach and each option rejected, or each option of a
+ * question with its cost and its rule, the departure's rule, source and
+ * fact where the writer restated it, the grounds of the decision, and
+ * each choice a verifier left to the author beside the choice that
+ * settles it and its source, or that deep-review did not settle it.
+ * Folded where it stands beside the writer's text, and given in full
+ * where it stands in for it.
+ */
+function recordBlocks(view: FormView, finding: FindingView, say: Speaker): string[] {
+  const { words } = view;
+  const { decision, question } = finding;
+  if (decision === null) return [];
+  const fixText = finding.written?.fix?.text ?? null;
+  const writerText = fixText === null ? [] : [[`${words.fixTextLabel} ${sentenceText(say.prose(fixText))}`]];
+  const recorded: string[] = [];
+  if (decision.decision === 'fix') {
+    recorded.push(`- ${words.approachLabel}: ${say.sentence(decision.fix.approach)}`);
+    for (const option of decision.fix.rejected) recorded.push(`- ${words.rejectedLabel}: ${say.sentence(option.option)} ${words.rejectedWhyLabel}: ${say.sentence(option.reason)}`);
+    if (finding.written?.fix?.departure !== null && finding.written?.fix?.departure !== undefined) recorded.push(...departureRecord(view, finding, say));
   }
-  if (decision?.decision === 'ask' && question !== null) return questionBlocks(view, finding, question, decision.grounds, say);
+  if (decision.decision === 'ask' && question !== null) {
+    for (const option of question.options) recorded.push(`- ${words.optionLabel} ${String(option.number)}: ${say.sentence(option.option)} ${words.costLabel}: ${say.sentence(option.cost)} ${words.ruleLabel}: ${say.sentence(option.rule)}`);
+  }
+  recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`);
+  for (const shown of choicesShown(finding.choices, decision.settled)) {
+    const settled = shown.settled === null
+      ? labeledValue(words.settledChoiceLabel, words.notSettled)
+      : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
+    recorded.push(`- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled].join(' ')}`);
+  }
+  const parts = [...writerText, [`${words.recorded.decider}:`, ...recorded]];
+  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], [words.recordNotice], ...parts) : details(words.recordSummary, [words.recordNotice], ...parts);
+}
+
+/** What deep-review would do about a finding of R5's order, each a block: its action, the steps that settled its choices and its departure for a fix, or its question, then the decision as recorded. */
+function decisionBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
+  const { words } = view;
+  const { decision } = finding;
+  const action = actionText(view, finding, say);
+  if (decision?.decision === 'fix') {
+    return [...(action === null ? [] : [[`${words.actionLabel} ${action}`]]), ...settledFacts(view, finding), ...departureBlocks(view, finding, say), recordBlocks(view, finding, say)];
+  }
+  if (decision?.decision === 'ask') return [...(action === null ? [] : [[`${words.askLabel} ${action}`]]), ...questionBlocks(view, finding, say), recordBlocks(view, finding, say)];
   return [];
 }
 
-/** How the verifier checked a finding, folded (R10): the writer's line, or the words of the verdict's basis. */
+/** How the verifier checked a finding, folded (R10): the writer's line, or the notice of the verdict's basis. */
 function checkedLines(view: FormView, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
   const { resolution } = finding.entry;
-  const fallback = resolution.unverified ? words.notVerified : resolution.basis === null ? words.noBasis : words.basisSentences[resolution.basis];
-  return details(words.howChecked, [finding.checked === null ? fallback : paragraphText(sentenceText(say.prose(finding.checked)))]);
+  const fallback = resolution.unverified ? words.notVerified : resolution.basis === null ? words.noBasis : words.basisNotices[resolution.basis];
+  const written = finding.written?.checked ?? null;
+  return details(words.checkedSummary, [written === null || written === '' ? fallback : paragraphText(sentenceText(say.prose(written)))]);
 }
 
-/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed (R14); its text is on one line whatever line break the path holds. */
-function caseLink(view: FormView, cited: ExplainedFinding['cases'][number]['lines']): string {
+/** The lines a case cites, as a link at the commit of its side: the head, or the merge base for lines the change removed, under its label (R14); its text is on one line whatever line break the path holds. */
+function caseLink(view: FormView, cited: CitedLines): string {
   const range = cited.from === cited.to ? String(cited.from) : `${String(cited.from)}-${String(cited.to)}`;
   const link = `[${codeSpan(inlineText(`${cited.path}:${range}`))}](${blobUrl(view.pullRequest, cited.side === 'head' ? view.scope.head : view.scope.base, cited.path, cited.from, cited.to)})`;
-  return cited.side === 'head' ? link : view.words.atBase(link);
+  return cited.side === 'head' ? link : labeledValue(view.words.atBaseLabel, link);
 }
 
 /** The code a finding rests on (R5): each case the writer cites with its sentence, or, for a minor finding and one with no cases, its own line at the head; none for a finding with no place. */
 function codeLines(view: FormView, finding: FindingView, say: Speaker, minor: boolean): string[] {
   const { words } = view;
-  const cases = !minor && finding.explained.kind === 'explained' ? finding.explained.value.cases : [];
-  if (cases.length > 0) return [words.codeHeading, ...cases.map((cited) => `- ${caseLink(view, cited.lines)} ${sentenceText(say.prose(cited.sentence))}`)];
+  const cases = !minor && finding.written !== null ? finding.written.cases : [];
+  if (cases.length > 0) return [`${words.codeLabel}:`, ...cases.map((cited) => `- ${caseLink(view, cited.lines)} ${sentenceText(say.prose(cited.sentence))}`)];
   const { location } = finding.placement;
-  return location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`];
+  return location === null ? [] : [factsLine([[words.codeLabel, locationLink(view, location)]])];
 }
 
 /** The parts of a finding's block, which a comment and the body share, and whose sizes a refusal names. */
@@ -420,12 +513,13 @@ interface FindingParts {
   readonly code: string[];
 }
 
-/** The parts of the block of a finding in R5's order: a major one with its problem, diagram, decision and folded check; a minor one with its problem and action in one paragraph, a paragraph for each choice its verifiers named or its decision settles, its departure and its folded fix. */
+/** The parts of the block of a finding in R5's order: its facts, the mark of one not explained, what goes wrong, its diagram for a major one, why it is not CONFIRMED, then its decision, how it was checked for a major one, and its code. */
 function findingParts(view: FormView, finding: FindingView, say: Speaker): FindingParts {
   const minor = isMinor(finding);
+  const diagram = !minor && finding.written?.diagram !== null && finding.written?.diagram !== undefined ? [[say.diagram(finding.written.diagram)]] : [];
   return {
-    explanation: blocks([gradeLine(view, finding)], ...(minor ? minorBlocks(view, finding, say) : explanationBlocks(view, finding, say))),
-    decision: blocks(...decisionBlocks(view, finding, say, minor)),
+    explanation: blocks([findingFacts(view, finding)], ...unexplainedBlocks(view, finding, say), ...problemBlocks(view, finding, say), ...diagram, ...unconfirmedBlocks(view, finding, say)),
+    decision: blocks(...decisionBlocks(view, finding, say)),
     checked: minor ? [] : checkedLines(view, finding, say),
     code: codeLines(view, finding, say, minor),
   };
@@ -433,13 +527,15 @@ function findingParts(view: FormView, finding: FindingView, say: Speaker): Findi
 
 const joinedParts = (parts: FindingParts): string[] => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
 
+/** The line that traces a finding to the run, as labeled values. */
+const traceLine = (view: FormView, finding: FindingView): string => `<sub>${factsLine([[view.words.findingLabel, codeSpan(inlineText(finding.finding.id))], [view.words.runLabel, codeSpan(shortRunId(view.state.id))]])}</sub>`;
+
 /** The comment of a finding on its line, with the id of the finding and its marker as its last lines, or the refusal of one over the limit. */
 function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
   const say = speakerOf(view.input.machine, view.words, view.names);
-  const heading = `**${String(finding.finding.number)}. ${titleOf(finding, say)}**`;
+  const heading = findingHeading(view, finding, say);
   const parts = findingParts(view, finding, say);
-  const trace = view.words.trace(codeSpan(inlineText(finding.finding.id)), codeSpan(shortRunId(view.state.id)));
-  const body = blocks([heading], joinedParts(parts), [trace], [markerLine(findingMarker(view.state.id, finding.finding.id))]).join('\n');
+  const body = blocks(heading, joinedParts(parts), [traceLine(view, finding)], [markerLine(findingMarker(view.state.id, finding.finding.id))]).join('\n');
   const { location } = finding.placement;
   if (body.length > maxPostedLength) {
     const size = (lines: readonly string[]): number => lines.join('\n').length;
@@ -448,7 +544,7 @@ function commentOf(view: FormView, finding: FindingView & { readonly placement: 
       text: { kind: 'comment', finding: finding.finding.id, path: location.path, line: location.line },
       size: body.length,
       limit: maxPostedLength,
-      parts: [{ part: 'explanation', size: size([heading, ...parts.explanation]) }, { part: 'decision', size: size(parts.decision) }, { part: 'checked', size: size(parts.checked) }, { part: 'code', size: size(parts.code) }],
+      parts: [{ part: 'explanation', size: size([...heading, ...parts.explanation]) }, { part: 'decision', size: size(parts.decision) }, { part: 'checked', size: size(parts.checked) }, { part: 'code', size: size(parts.code) }],
     };
   }
   return { comment: { finding: finding.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
@@ -460,50 +556,56 @@ interface Section {
   readonly lines: readonly string[];
 }
 
-/** The heading and the line on what the run reviewed and that it changed no file, or what it went on to do (R1; R6 of the review of a fix run). */
+/** The command that continues the run into its fix pass. */
+const fixCommand = (view: FormView): string => codeSpan(`deep-review review --pr ${String(view.pullRequest.number)} --fix`);
+
+/** The heading and the facts of what the run reviewed and what followed it (R1; R6 of the review of a fix run), with the notice of a run that went on into its fix pass. */
 function headingSection(view: FormView): Section {
   const { words, scope } = view;
-  return { part: 'heading', lines: [words.heading, '', view.following.reviewed(codeSpan(shortCommit(scope.head)), scope.files.length, codeSpan(shortCommit(scope.base)))] };
+  const facts = factsLine([[words.headLabel, codeSpan(shortCommit(scope.head))], [words.baseLabel, codeSpan(shortCommit(scope.base))], [words.filesLabel, String(scope.files.length)], [words.afterLabel, words.afterValues[view.fixPass]]]);
+  return { part: 'heading', lines: blocks([words.heading], [facts], view.fixPass === 'continued' ? [words.continuedNotice] : []) };
 }
 
 /**
  * The core of the change (R1 to R4, R10, R11 of the core of the change on
  * the pull request), never cut: the writer's title, what the change does,
- * why with a link to each source or that the change states no reason, its
- * diagram, and whose reading it is; or the triage's title, account and
- * reason with its sources, each a link where it is one of the change and
- * code otherwise, and that it is the triage's; or that the run has no
- * account, and why. Each text of a worker goes through the Speaker.
+ * why, the sources of the reason as links, its diagram, and whose reading
+ * it is; or the triage's title, account and reason as its recorded words,
+ * with the sources, and that it is the triage's; or that the run has no
+ * account, and why.
  */
 function coreSection(view: FormView, say: Speaker): Section {
   const { words, core } = view;
-  if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone(core.state)] };
-  const links = (sources: readonly string[]): string[] => sources.map((source) => sourceLink(view, source, say));
+  if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone[core.state]] };
+  const sources = (given: readonly string[]): string[][] => (given.length === 0 ? [] : [[factsLine([[words.sourcesLabel, valueList(given.map((source) => sourceLink(view, source, say)))]])]]);
+  const noReason = [[factsLine([[words.reasonLabel, words.noReason]])]];
   if (core.kind === 'writer') {
     const { title, what, why, whyFrom, diagram } = core.core;
-    const reason = why === null ? words.coreNoReason : words.coreWhy(sentenceText(say.prose(why)), links(whyFrom));
-    return { part: 'core', lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), [reason], diagram === null ? [] : [say.diagram(diagram)], [words.coreWhoseWriter]) };
+    const reason = why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.prose(why))}`], ...sources(whyFrom)];
+    return { part: 'core', lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, diagram === null ? [] : [say.diagram(diagram)], [words.coreWhoseWriter]) };
   }
   const { title, change } = core;
-  const reason = change.why === null ? words.coreNoReason : words.coreWhyTriage(sentenceText(say.words(change.why)), links(change.whyFrom));
-  return { part: 'core', lines: blocks([words.coreHeading], [`**${say.words(title)}**`], [paragraphText(say.words(change.what))], [reason], [words.coreWhoseTriage]) };
+  // The triage's title, account and reason are its recorded words, under its label once, as the notice after them says.
+  const reason = change.why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.words(change.why))}`], ...sources(change.whyFrom)];
+  return { part: 'core', lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
 
-/** The writer's sentence on the areas that the summary posts: none when the answer kept no conclusion, or when the checks dropped the writer's areas, which the body then does not show. */
-const postedWhy = (view: FormView): string | null => (view.conclusion === null || (view.recorded?.dropped.some((part) => part.part === 'areas') ?? false) ? null : view.conclusion.why);
+/** The counts of the findings by decision, as decided, which no answer changes. */
+function decidedCounts(view: FormView): { readonly fix: number; readonly ask: number; readonly leave: number } {
+  const decided = (decision: RecordedDecision['decision']): number => view.findings.filter((finding) => finding.decision?.decision === decision).length;
+  return { fix: decided('fix'), ask: decided('ask'), leave: view.findings.filter((finding) => !acts(finding)).length };
+}
 
-/** The summary (R1): the counts of the findings with the writer's sentence on the areas (`postedWhy`), then what deep-review decided and what happens next. */
+/** The summary (R1): the writer's summary, the table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes. */
 function summarySection(view: FormView, say: Speaker): Section {
-  const { words, findings } = view;
-  const given = postedWhy(view);
-  const why = given === null ? [] : say.paragraphs(given);
-  const decided = {
-    fixes: findings.filter((finding) => finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule').length,
-    questions: findings.filter((finding) => finding.finding.status === 'question').length,
-    left: findings.filter((finding) => finding.finding.status === 'left').length,
-  };
-  const next = findings.length === 0 ? [] : [[view.following.summaryNext(decided)]];
-  return { part: 'summary', lines: blocks([words.summaryHeading], [[words.summaryCounts(view.counts), ...why.slice(0, 1)].join(' ')], ...why.slice(1).map((paragraph) => [paragraph]), ...next) };
+  const { words, counts } = view;
+  const decided = decidedCounts(view);
+  const labels = words.counts;
+  const table = factsTable([labels.findings, labels.critical, labels.major, labels.minor, labels.fix, labels.ask, labels.leave], [[counts.findings, counts.critical, counts.major - counts.critical, counts.minor, decided.fix, decided.ask, decided.leave].map(String)]);
+  const acting = decided.fix + decided.ask > 0;
+  const next = !acting ? [words.nextNotices.nothing] : view.fixPass === 'continued' ? [words.nextNotices.continued] : [`${words.nextNotices['to-come']} ${factsLine([[words.fixCommandLabel, fixCommand(view)]])}`];
+  const written = view.summary === null ? [] : say.paragraphs(view.summary).map((paragraph) => [paragraph]);
+  return { part: 'summary', lines: blocks([words.summaryHeading], ...written, table, ...(view.findings.length === 0 ? [] : [next])) };
 }
 
 /** A path as the repository names a file: relative, with forward slashes and no empty, `.` or `..` name, and no drive. */
@@ -519,102 +621,182 @@ function fileLink(view: FormView, path: string, say: Speaker): string {
 /** The writer's sentences on a condition, or null when its answer kept none for it. */
 const writerConditionOf = (view: FormView, condition: ChangeConditionName): ConditionSentence | null => view.conditions?.find((entry) => entry.condition === condition) ?? null;
 
-/** For each condition, the judgment of the triage's account that holds it and the word that labels it among the reasons to look, so a condition added to the list has both or fails to type-check. */
-const conditionReading: Record<ChangeConditionName, { readonly judgment: 'publicInterface' | 'wideEffect'; readonly label: 'lookInterface' | 'lookWide' }> = {
-  'public-interface': { judgment: 'publicInterface', label: 'lookInterface' },
-  'wide-effect': { judgment: 'wideEffect', label: 'lookWide' },
-};
+/** For each condition, the judgment of the triage's account that holds it, so a condition added to the list has one or fails to type-check. */
+const conditionJudgment: Record<ChangeConditionName, 'publicInterface' | 'wideEffect'> = { 'public-interface': 'publicInterface', 'wide-effect': 'wideEffect' };
 
-/** The conditions the triage judged to hold, in the order of `changeConditions`, each with its label; none for a run with no account. */
-function heldConditionsOf(view: FormView): { readonly condition: ChangeConditionName; readonly label: string; readonly what: string | null; readonly files: readonly string[] }[] {
+/** The conditions the triage judged to hold, in the order of `changeConditions`; none for a run with no account. */
+function heldConditionsOf(view: FormView): { readonly condition: ChangeConditionName; readonly what: string | null; readonly files: readonly string[] }[] {
   const { change } = view.brief;
   if (change.state !== 'given') return [];
   return changeConditions.flatMap((condition) => {
-    const { judgment, label } = conditionReading[condition];
-    const { holds, what, files } = change[judgment];
-    return holds ? [{ condition, label: view.words[label], what, files }] : [];
+    const { holds, what, files } = change[conditionJudgment[condition]];
+    return holds ? [{ condition, what, files }] : [];
   });
 }
 
 /**
  * The reasons to look (R6, R8 of the core of the change on the pull
  * request), each a list item that nothing waits on: each condition the
- * triage judged to hold, with the writer's sentence on it; or, when the
- * writer could not explain it from the code, its sentence and the
- * triage's, marked; or, with no sentence of the writer's, the triage's,
- * marked, or the label alone when the triage gave none; then the files
- * that show it, each linked. Then the fixes whose verdict is PLAUSIBLE,
- * with a departure or without, as one item that links each by its number.
+ * triage judged to hold, under its label, with the writer's sentence on
+ * it; or, when the writer could not explain it from the code, the
+ * writer's sentence under its label and the triage's recorded words; or
+ * the triage's recorded words alone; then the files that show it. Then
+ * the fixes whose verdict is PLAUSIBLE, as one labeled value.
  */
 function reasonsToLook(view: FormView, say: Speaker): string[] {
   const { words } = view;
-  const conditions = heldConditionsOf(view).map(({ condition, label, what, files }) => {
-    const triage = what === null ? null : sentenceText(say.words(what));
+  const conditions = heldConditionsOf(view).map(({ condition, what, files }) => {
+    const triage = what === null ? [] : [recordedWords(view, 'triage', sentenceText(say.words(what)))];
     const given = writerConditionOf(view, condition);
     const text = given?.explanation !== null && given?.explanation !== undefined
-      ? `${label} ${sentenceText(say.prose(given.explanation))}`
+      ? [sentenceText(say.prose(given.explanation))]
       : given?.unexplained !== null && given?.unexplained !== undefined
-        ? words.lookUnexplained(label, sentenceText(say.prose(given.unexplained)), triage)
-        : triage === null ? label : words.lookInTriageWords(label, triage);
-    return [text, ...(files.length === 0 ? [] : [words.lookFiles(files.map((file) => fileLink(view, file, say)))])].join(' ');
+        ? [`${words.writerUnexplainedLabel}: ${sentenceText(say.prose(given.unexplained))}`, ...triage]
+        : triage;
+    return [words.conditionLabels[condition], ...text, ...(files.length === 0 ? [] : [factsLine([[words.filesShowLabel, valueList(files.map((file) => fileLink(view, file, say)))]])])].join(' ');
   });
-  const plausible = view.findings.filter((finding) => (finding.finding.status === 'planned' || finding.finding.status === 'planned-against-rule') && finding.finding.verdict === 'PLAUSIBLE');
-  const fixes = plausible.length === 0 ? [] : [words.lookPlausible(plausible.map((finding) => `[${String(finding.finding.number)}](${hrefOf(view, finding)})`))];
+  const plausible = view.findings.filter((finding) => finding.decision?.decision === 'fix' && finding.finding.verdict === 'PLAUSIBLE');
+  const fixes = plausible.length === 0 ? [] : [factsLine([[words.plausibleFixesLabel, valueList(plausible.map((finding) => findingRef(view, finding)))]])];
   return [...conditions, ...fixes].map((item) => `- ${item}`);
 }
 
 /**
- * What needs a person (R2, R8; R4 of the settled choice; R6, R7 of the
- * core of the change on the pull request): each question and each fix
- * against a written rule, with a link to where it is read, then the one
- * command that answers, then the reasons to look, which nothing waits on;
- * or the reasons to look alone, with no command; or that nothing does,
- * with deep-review's judgment of the two conditions or that the run has
- * none.
+ * What needs a person (R2, R8; R6, R7 of the core of the change on the
+ * pull request): each question and each fix against a written rule, with
+ * a link to where it is read, the writer's text and its facts, then the
+ * notice of how a person answers with the command; then the reasons to
+ * look, which nothing waits on; or, when nothing is listed, the facts
+ * that say so.
  */
 function needsSection(view: FormView, say: Speaker): Section {
   const { words } = view;
-  const sentence = (text: string): string => sentenceText(say.words(text));
+  const item = (label: string, finding: FindingView, text: readonly string[], facts: readonly (readonly [string, string])[]): string => `- ${[`**${label}: ${findingRef(view, finding)}.**`, ...text, factsLine(facts)].join(' ')}`;
   const questions = view.findings.flatMap((finding) => {
     const { question } = finding;
     if (finding.decision?.decision !== 'ask' || question === null) return [];
-    const given = question.answer;
-    const tail = given !== null && given.option !== null
-      ? words.answeredOption(given.option, given.at)
-      : view.following.standing(question.choice, question.default, question.options[question.default - 1]!.edits, say.sentence(question.options[question.choice - 1]!.option));
-    return [`- ${words.needsQuestion(finding.finding.number, hrefOf(view, finding), say.sentence(question.question), tail)}`];
+    const action = finding.written?.action ?? null;
+    const text = action === null ? [recordedWords(view, 'decider', say.sentence(question.question))] : [sentenceText(say.prose(action))];
+    return [item(words.questionItem, finding, text, questionFacts(view, finding))];
   });
   const departures = view.findings.flatMap((finding) => {
     const { departure } = finding;
     if (departure === null) return [];
-    const given = departure.review;
-    const tail = given === null ? view.following.departureStands : given.kind === 'reject' ? words.answeredReject(given.at) : words.answeredAccept(given.at);
-    return [`- ${words.needsDeparture(finding.finding.number, hrefOf(view, finding), sentence(departure.rule), tail)}`];
+    const written = finding.written?.fix?.departure ?? null;
+    const text = written === null ? [`${words.ruleLabel}: ${recordedWords(view, 'decider', sentenceText(say.words(departure.rule)))}`] : [sentenceText(say.prose(written))];
+    return [item(words.departureItem, finding, text, departureFacts(view, finding))];
   });
   const items = [...questions, ...departures];
   const looks = reasonsToLook(view, say);
-  if (items.length === 0 && looks.length > 0) return { part: 'needs', lines: blocks([words.needsHeading], [words.needsLookOnly], looks) };
-  if (items.length === 0) return { part: 'needs', lines: [words.needsHeading, '', view.brief.change.state === 'given' ? words.needsNothing : words.needsNothingUnjudged] };
+  const open = view.findings.some((finding) => (finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)) || (finding.departure !== null && finding.departure.review === null));
   const flags = [...(questions.length === 0 ? [] : ['--option <k>']), ...(departures.length === 0 ? [] : ['--accept', '--reject'])].map(codeSpan);
-  const answer = flags.length === 0 ? [] : [[words.needsAnswer(codeSpan(`deep-review ${answerArguments(view.state.id, '<n>', '').trimEnd()}`), flags)]];
-  return { part: 'needs', lines: blocks([words.needsHeading], items, ...answer, ...(looks.length === 0 ? [] : [[words.needsLookAlso], looks])) };
+  const answer = items.length === 0 || !open ? [] : [[`${words.answerNotices[view.fixPass]} ${factsLine([[words.commandLabel, codeSpan(`deep-review ${answerArguments(view.state.id, '<n>', '').trimEnd()}`)], [words.flagsLabel, valueList(flags)]])}`]];
+  const none = items.length === 0 ? [[factsLine([[words.questionsLabel, words.none], [words.departuresLabel, words.none], ...(looks.length > 0 ? [] : [[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged] as const])])]] : [];
+  return { part: 'needs', lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
 }
 
-/** How the review worked (R3): the roles and the counts of the run, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
+/** A gap of what the review did not examine as facts under the label of its kind (R5, R8 of the review in the writer's words). */
+function gapFacts(view: FormView, gap: GapFacts, say: Speaker): string {
+  const { words } = view;
+  const labels = words.gapLabels;
+  switch (gap.kind) {
+    case 'angle':
+      return factsLine([[labels.angle, codeSpan(gap.pass)]]);
+    case 'unverified':
+      return factsLine([
+        ...(gap.findings.length === 0 ? [] : [[labels.unverified, findingRefs(view, gap.findings)] as const]),
+        ...(gap.merged.length === 0 ? [] : [[words.mergedUnverifiedLabel, findingRefs(view, gap.merged)] as const]),
+        ...(gap.others === 0 ? [] : [[words.otherCandidatesLabel, String(gap.others)] as const]),
+      ]);
+    case 'excluded': {
+      const layer = view.review.configuration.settings?.layers['scope.exclude'] ?? null;
+      return factsLine([[labels.excluded, String(gap.count)], [words.pathsLabel, valueList(gap.patterns.map((pattern) => say.code(pattern)))], ...(layer === null ? [] : [[words.setByLabel, words.layers[layer]] as const])]);
+    }
+    case 'oversized':
+      return factsLine([[labels.oversized, valueList(gap.paths.map((path) => say.code(path)))]]);
+    case 'check':
+      return factsLine([[labels.check, codeSpan(gap.check)]]);
+    case 'budget':
+      return factsLine([[labels.budget, valueList(gap.steps.map((step) => codeSpan(step)))]]);
+    case 'series':
+      return factsLine([[labels.series, words.yesNo.yes]]);
+    case 'documentation':
+      return factsLine([[labels.documentation, codeSpan(gap.cause)]]);
+    case 'workers':
+      return factsLine([[labels.workers, String(gap.count)]]);
+  }
+}
+
+/**
+ * What the review did not examine (R11; R5 of the review in the writer's
+ * words): the writer's text; that no check ran; each gap of the brief as
+ * facts under the label of its kind, or that it has none; the count of
+ * the refuted candidates; then the refuted candidates, folded, each with
+ * its place, the writer's claim and reason or the finder's summary as its
+ * recorded words, or, cut, the notice in their place.
+ */
+function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+  const { words } = view;
+  const gaps = view.brief.notExamined.map((gap) => gap.facts);
+  const checks = view.fixPass === 'continued' ? words.noCheckContinued : factsLine([[words.checksRunLabel, words.none]]);
+  const cut = cuts.has('refuted');
+  const count = view.refuted.length;
+  const refutedLine = count === 0 ? [] : [cut ? `${factsLine([[words.refutedLabel, String(count)], [words.notListedLabel, String(count)]])} ${words.refutedCut}` : factsLine([[words.refutedLabel, String(count)]])];
+  const items = [checks, ...(gaps.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : gaps.map((gap) => gapFacts(view, gap, say))), ...refutedLine].map((line) => `- ${line}`);
+  const written = view.notExamined === null ? [] : say.paragraphs(view.notExamined).map((paragraph) => [paragraph]);
+  if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items) };
+  const entries = view.refuted.map(({ candidate, claim, why }) => {
+    const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
+    const place = location === null ? words.noPlace : locationLink(view, location);
+    const said = claim === null ? recordedWords(view, 'finder', sentenceText(say.words(candidate.summary))) : sentenceText(say.prose(claim));
+    const refutedBecause = why === null ? factsLine([[words.evidenceLabel, words.inReport]]) : `${words.refutedWhyLabel} ${sentenceText(say.prose(why))}`;
+    return `- ${place}: ${said} ${refutedBecause}`;
+  });
+  return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items, details(words.refutedSummary, entries)) };
+}
+
+/** How the review worked (R3): what each role does, the counts of the run as a table, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
 function howSection(view: FormView): Section {
   const { words, counts } = view;
+  const labels = words.counts;
+  const table = factsTable([labels.candidates, labels.groups, labels.refuted, labels.kept, labels.merged, labels.findings], [[counts.candidates, counts.groups, counts.refuted, counts.kept, counts.merged, counts.findings].map(String)]);
   const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings, words.severityValues].join(' ');
-  return { part: 'how', lines: blocks([words.howHeading], [words.howWorked(counts)], [fenced(view.following.howDiagram(view.pullRequest.number))], [meanings]) };
+  return { part: 'how', lines: blocks([words.howHeading], [words.rolesNotice], table, [fenced(howDiagram(view))], [meanings]) };
+}
+
+/** The fixed diagram of how the review worked, its node texts from the table of words, with the pull request's number in the command that names the review. */
+function howDiagram(view: FormView): string {
+  const nodes = view.words.diagram;
+  const review = `review --pr ${String(view.pullRequest.number)}`;
+  const following = view.fixPass === 'continued'
+    ? [`  W --> X["${nodes.continued}"]`, `  W --> P["${nodes.publish}"]`, `  P --> A["${nodes.answer}"]`]
+    : [`  W --> P["${nodes.publish}"]`, `  P --> A["${nodes.answer}"]`, `  A --> X["${review} --fix: ${nodes.fixers}"]`];
+  return [
+    'flowchart TD',
+    `  subgraph RV["${review}, ${nodes.done}"]`,
+    `    F["${nodes.finders}"] --> V["${nodes.verifier}"]`,
+    `    V --> D["${nodes.decider}"]`,
+    `    D --> W["${nodes.writer}"]`,
+    '  end',
+    ...following,
+  ].join('\n');
 }
 
 /** The major findings that ask a person to act, in rank order. */
 const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
 
-/** The areas the body gives: the writer's, or, for an older run, one named by the engine with no diagram, since an older conclusion's diagram names findings by their ids (R16). */
+/** The areas the body gives: the writer's, or one under the label of the table with no diagram, for an answer that has none (R16). */
 function areasOf(view: FormView, say: Speaker): { readonly title: string; readonly intro: string | null; readonly diagram: string | null; readonly findings: readonly FindingView[] }[] {
   const major = majorActing(view);
   if (view.areas === null) return [{ title: view.words.findingsArea, intro: null, diagram: null, findings: major }];
   return view.areas.map((area) => ({ title: say.prose(area.title), intro: say.prose(area.intro), diagram: area.diagram, findings: major.filter((finding) => area.findings.includes(finding.finding.id)) }));
+}
+
+/** A finding's line in an area or a row's text: its title, its facts, and what deep-review would do or asks. */
+function findingLine(view: FormView, finding: FindingView, say: Speaker): string {
+  const { words } = view;
+  const action = actionText(view, finding, say);
+  const facts = factsLine([[words.verdictLabel, verdictText(view, finding)], [words.decisionLabel, words.decisionValues[decisionValue(finding)]], ...(finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)] as const])]);
+  return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...(action === null ? [] : [action])].join(' ');
 }
 
 /** The major findings by area (R4): each area's title, intro and diagram, less what a cut takes, and one line for each of its findings. */
@@ -625,7 +807,7 @@ function areasSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   // Once, since each call cleans the writer's titles and intros, and counts their secrets, again.
   const given = areasOf(view, say);
   const areas = given.flatMap((area) => {
-    const lines = area.findings.map((finding) => `- **[${String(finding.finding.number)}. ${titleOf(finding, say)}](${hrefOf(view, finding)}).** ${verdictText(view, finding)}. ${actionTail(view, finding, say)}`);
+    const lines = area.findings.map((finding) => `- ${findingLine(view, finding, say)}`);
     const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;
     return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
   });
@@ -642,7 +824,9 @@ function inFullSection(view: FormView, say: Speaker): Section {
       ...(index === 0 ? [] : ['']),
       `<a id="${findingAnchor(finding.finding.number)}"></a>`,
       '',
-      view.words.inFullHeading(finding.finding.number, titleOf(finding, say)),
+      `### ${view.words.findingLabel} ${String(finding.finding.number)}`,
+      '',
+      titleLine(view, finding, say),
       '',
       ...joinedParts(findingParts(view, finding, say)),
     ]),
@@ -661,154 +845,158 @@ const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((findin
 /** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4 of the settled choice). */
 const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
 
-/** The minor findings (R13): how many, what they reach and which need a person, then their table folded, or, cut, the note in its place. */
+/** The minor findings (R13): their counts as facts, those that need a person, then their table folded, or, cut, the notice in its place. */
 function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
   const minor = minorActing(view);
   if (minor.length === 0) return { part: 'minor', lines: [] };
   const user = minor.filter((finding) => finding.kind === 'user').length;
-  const lead = words.minorLead({ total: minor.length, user, code: minor.length - user, onLine: minor.filter((finding) => finding.placement.place === 'line').length });
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
-  const intro = [lead, ...(needing.length === 0 ? [] : [words.minorNeeds(words.findingList(needing), needing.length)])].join(' ');
-  if (cuts.has('minor-table')) return { part: 'minor', lines: blocks([words.minorHeading], [intro], [words.minorCut]) };
-  const rows = minor.map((finding) => `| ${[String(finding.finding.number), `[${titleOf(finding, say)}](${hrefOf(view, finding)})`, verdictText(view, finding), actionTail(view, finding, say)].map(tableCell).join(' | ')} |`);
-  const order = user > 0 && user < minor.length ? [[words.minorOrder(user)]] : [];
-  const table = [`| ${words.minorColumns.join(' | ')} |`, `|${words.minorColumns.map(() => '---').join('|')}|`, ...rows];
-  return { part: 'minor', lines: blocks([words.minorHeading], [intro], details(words.minorSummary(minor.length), ...order, table)) };
+  const labels = words.minorLabels;
+  const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(minor.length - user)], [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
+  if (cuts.has('minor-table')) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
+  const columns = words.minorColumns;
+  const rows = minor.map((finding) => {
+    const action = actionText(view, finding, say);
+    const asked = finding.question === null ? [] : [factsLine([[words.recommendedLabel, String(finding.question.choice)]])];
+    return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? 'none'], verdictText(view, finding), [...(action === null ? [] : [action]), ...asked].join(' ')];
+  });
+  return { part: 'minor', lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
 
 /**
- * The findings left as is, folded, each with why, the choice beside its
- * decision and its line (R4 of the settled choice); or, cut, those whose
- * verifier named a choice and the note in place of the others, or the
- * note in place of them all when none named one.
+ * The findings left as is, folded (R2 of the review in the writer's
+ * words; R4 of the settled choice): each with the writer's title and
+ * reason, or the ranking's summary and the decider's grounds as recorded
+ * words; its facts with the reason of the closed list and the finding
+ * that supersedes it; the steps that settled its choices; its line; and
+ * the decision as recorded. Cut, those whose verifier named a choice and
+ * the notice in place of the others.
  */
 function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: 'left as is', lines: [] };
   const shown = cuts.has('left') ? left.filter(keptByCut) : left;
-  if (shown.length === 0) return { part: 'left as is', lines: [words.leftHeading, '', words.leftCut(left.length)] };
+  const others = left.length - shown.length;
+  const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
+  if (shown.length === 0) return { part: 'left as is', lines: blocks([words.leftHeading], cutNotice) };
   const block = (finding: FindingView): string[] => {
     const leave = finding.decision?.decision === 'leave' ? finding.decision : null;
+    const by = leave?.leave.supersededBy ?? null;
+    const byFinding = by === null ? null : view.findings.find((candidate) => candidate.finding.id === by || candidate.finding.merged.includes(by)) ?? null;
+    const reason = leave === null ? [] : [[words.reasonLabel, words.leaveReasons[leave.leave.reason]] as const, ...(byFinding === null ? [] : [[words.supersededByLabel, findingRef(view, byFinding)] as const])];
+    const why = finding.left !== null ? [[`${words.leftWhyLabel} ${sentenceText(say.prose(finding.left.why))}`]] : leave === null ? [] : [[`${words.leftWhyLabel} ${recordedWords(view, 'decider', say.sentence(leave.grounds))}`]];
     const { location } = finding.placement;
     return blocks(
       [`<a id="${findingAnchor(finding.finding.number)}"></a>`],
-      [`**${String(finding.finding.number)}. ${titleOf(finding, say)}**`],
-      [gradeLine(view, finding, leave === null ? null : leftBecauseOf(view, leave))],
-      leave === null ? [] : [`${words.groundsLabel} ${say.sentence(leave.grounds)}`],
-      ...choiceBlocks(view, finding, say),
-      location === null ? [] : [`${words.codeHeading} ${locationLink(view, location)}.`],
+      [`**${words.findingLabel} ${String(finding.finding.number)}**`],
+      [titleLine(view, finding, say)],
+      [findingFacts(view, finding, reason)],
+      ...why,
+      ...settledFacts(view, finding),
+      location === null ? [] : [factsLine([[words.codeLabel, locationLink(view, location)]])],
+      finding.left === null ? choiceRecord(view, finding, say) : recordBlocks(view, finding, say),
     );
   };
-  const others = left.length - shown.length;
-  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary(shown.length), ...shown.map(block)), others === 0 ? [] : [words.leftOthersCut(others)]) };
+  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map(block)), cutNotice) };
 }
 
-/**
- * What the review did not examine (R11): that no check ran; the patterns
- * of `scope.exclude` that left paths out, cleaned as code, with the count
- * and the layer that set them; each other gap of the brief, cleaned as a
- * worker's words are, since it quotes the paths of the change as they
- * are; or that the run examined everything; then the refuted candidates,
- * folded, each with its line, its claim and why it was refuted, or, cut,
- * the note in their place.
- */
-function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
-  const { words, scope } = view;
-  const gaps = view.brief.notExamined.filter((gap) => gap.kind !== 'excluded');
-  const layer = view.review.configuration.settings?.layers['scope.exclude'] ?? null;
-  const excluded = scope.excluded.count === 0 ? [] : [words.excluded(scope.request.exclude.map((pattern) => say.code(pattern)), scope.excluded.count, layer === null ? null : words.layers[layer])];
-  const cut = cuts.has('refuted');
-  const count = view.refuted.length;
-  const refutedLine = count === 0 ? [] : [cut ? words.refutedCut(count) : words.refutedLine(count)];
-  const items = [view.following.noCheck, ...excluded, ...(gaps.length === 0 ? [words.allExamined] : gaps.map((gap) => words.gap(say.words(gap.text)))), ...refutedLine].map((item) => `- ${item}`);
-  if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], items) };
-  const entries = view.refuted.map(({ candidate, claim, why }) => {
-    const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
-    const place = location === null ? words.noPlace : locationLink(view, location);
-    return `- ${place}: ${words.refutedItem(sentenceText(claim === null ? say.words(candidate.summary) : say.prose(claim)), why === null ? words.refutedInReport : sentenceText(say.prose(why)))}`;
+/** The choices beside a decision with no writer's text, as recorded words under their labels; none when its verifiers named none and it settles none. */
+function choiceRecord(view: FormView, finding: FindingView, say: Speaker): string[] {
+  const { words } = view;
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => {
+    const settled = shown.settled === null
+      ? labeledValue(words.settledChoiceLabel, words.notSettled)
+      : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
+    return `- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled].join(' ')}`;
   });
-  return { part: 'not examined', lines: blocks([words.notExaminedHeading], items, details(words.refutedSummary(count), entries)) };
 }
 
-/**
- * Whether a finding's block posts text of the writer: the title and the
- * explanation of one it explained, wherever the finding is shown; and, in
- * the comment or the block in full of one that acts, the reason the writer
- * gave for not explaining it, or its sentence of what deep-review would do
- * about a fix. The writer's line of how it was checked and its kind come
- * only with an explanation, and its sentence for a question is not posted.
- */
-function postsWriterFinding(finding: FindingView, cuts: ReadonlySet<BodyCut>): boolean {
-  const { explained } = finding;
-  if (!acts(finding)) return explained.kind === 'explained' && (!cuts.has('left') || keptByCut(finding));
-  return explained.kind === 'explained'
-    || (explained.kind === 'unexplained' && explained.reason !== null)
-    || (finding.decision?.decision === 'fix' && finding.action !== null);
+/** The parts of the writer's answer that this review lacks, by the names of the table and each finding as a link: dropped by the checks, or absent from an older answer, and only where the review would show one. */
+function missingParts(view: FormView): string[] {
+  const { words } = view;
+  const recorded = view.recorded;
+  if (recorded === null) return [];
+  const parts: WriterPart[] = [];
+  if (view.core.kind !== 'writer') parts.push('core');
+  if (heldConditionsOf(view).length > 0 && view.conditions === null) parts.push('conditions');
+  if (view.summary === null) parts.push('summary');
+  if (view.areas === null && majorActing(view).length > 0) parts.push('areas');
+  if (leftAsIs(view).some((finding) => finding.left === null)) parts.push('left');
+  if (view.refuted.some((line) => line.claim === null && line.why === null)) parts.push('refuted');
+  if (view.notExamined === null) parts.push('not-examined');
+  const findings = view.findings.filter((finding) => acts(finding) && finding.explained.kind !== 'explained');
+  return [...parts.map((part) => words.writerParts[part]), ...findings.map((finding) => findingRef(view, finding))];
 }
 
 /**
  * Whether the body with the cuts given, or a comment, posts any text of
- * the writer (R12): the writer's core of the change, its sentence on a
- * condition the triage judged to hold, the summary's sentence on the areas, the writer's areas when a major finding acts, a
- * refuted line the cuts keep, or a finding's text (`postsWriterFinding`). A frozen answer can post none: a
- * writer that completed its unit has its answer frozen even when the
- * checks dropped every part, an answer of version 1 may keep only its
- * account, which the form does not post, and the parts it kept may be
- * ones the body leaves out.
+ * the writer (R7 of the review in the writer's words): the core, a
+ * sentence on a condition, the summary, the areas when a major finding
+ * acts, what the review did not examine, a refuted line or a finding left
+ * as is the cuts keep, or a finding's text. A frozen answer can post
+ * none: a writer that completed its unit has its answer frozen even when
+ * the checks dropped every part.
  */
 function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
   return view.core.kind === 'writer'
     || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null)
-    || postedWhy(view) !== null
+    || view.summary !== null
+    || view.notExamined !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!cuts.has('refuted') && view.refuted.some((line) => line.claim !== null || line.why !== null))
-    || view.findings.some((finding) => postsWriterFinding(finding, cuts));
+    || leftAsIs(view).some((finding) => finding.left !== null && (!cuts.has('left') || keptByCut(finding)))
+    || view.findings.some((finding) => acts(finding) && (finding.written !== null || (finding.explained.kind === 'unexplained' && finding.explained.reason !== null)));
 }
 
-/** How far to trust the review (R12): the counts of the verdicts and of how each finding was checked, what a model wrote when the review posts any text of its writer (`postsWriterText`), then the notes of the explanation: a run with no explanation; why the review does not open with the writer's core, its checks having dropped it or its writer having answered before the core (R10, R12 of the core of the change on the pull request); each other part the checks dropped, the writer's sentences on the conditions when the triage judged one to hold; and the findings whose answers the explanation predates. */
+/**
+ * How far to trust the review (R12; R7 of the review in the writer's
+ * words): the verdicts and how the findings were checked, as tables; the
+ * candidates and the refuted ones; the notice that a model wrote the
+ * sentences and the data is the ledger's, when the review posts any text
+ * of the writer; the notice of a run with no explanation; the parts of
+ * the writer's answer the review lacks; and the findings answered after
+ * the writer wrote.
+ */
 function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
-  const { words, brief, recorded } = view;
-  const numberOf = (id: string): number => brief.numbers.get(id)!;
-  const notes: string[] = [];
-  if (recorded === null) notes.push(words.noExplanation);
-  else {
-    const triage = view.core.kind === 'triage';
-    if (recorded.dropped.some((part) => part.part === 'core')) notes.push(words.coreDropped(triage));
-    else if (recorded.version < 3) notes.push(words.coreBeforeWriter(triage));
-    if (recorded.dropped.some((part) => part.part === 'conclusion')) notes.push(words.conclusionDropped);
-    // Only when a condition holds, since with none the review gives no condition in other words.
-    if (recorded.dropped.some((part) => part.part === 'conditions') && heldConditionsOf(view).length > 0) notes.push(words.conditionsDropped);
-    if (recorded.dropped.some((part) => part.part === 'areas')) notes.push(words.areasDropped);
-    if (recorded.dropped.some((part) => part.part === 'refuted')) notes.push(words.refutedDropped);
-    const findings = recorded.dropped.flatMap((part) => (part.part === 'finding' ? [numberOf(part.finding)] : []));
-    if (findings.length > 0) notes.push(words.findingsDropped(words.findingList(findings), findings.length));
-    // An answer is recorded on a complete run, and the explanation before the report, so every standing answer of an explained run came after it.
-    const answered = [...standingAnswers(view.review).keys()].map(numberOf);
-    if (answered.length > 0) notes.push(words.predates(words.findingList(answered)));
+  const { words, counts } = view;
+  const columns = words.verdictColumns;
+  const unverified = counts.unverified === 0 ? [] : [columns.unverified];
+  const verdicts = factsTable([columns.verdict, columns.findings, columns.major, ...unverified], [
+    ['CONFIRMED', String(counts.confirmed), String(counts.majorConfirmed), ...(counts.unverified === 0 ? [] : ['0'])],
+    ['PLAUSIBLE', String(counts.plausible), String(counts.major - counts.majorConfirmed), ...(counts.unverified === 0 ? [] : [String(counts.unverified)])],
+  ]);
+  const bases = (['ran', 'traced', 'read'] as const).filter((basis) => counts.bases[basis] > 0).map((basis) => [words.basisValues[basis], String(counts.bases[basis])]);
+  const basisTable = counts.findings === 0 ? [] : factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...(counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]])]);
+  const candidates = factsLine([[words.counts.candidates, String(counts.candidates)], [words.counts.refuted, String(counts.refuted)]]);
+  const notes: string[][] = [];
+  if (postsWriterText(view, cuts)) notes.push([words.modelNotice]);
+  if (view.recorded === null) notes.push([words.noExplanation]);
+  const missing = missingParts(view);
+  if (missing.length > 0) notes.push([factsLine([[words.missingLabel, valueList(missing)]])]);
+  // An answer is recorded on a complete run, and the explanation before the report, so every standing answer of an explained run came after it.
+  if (view.recorded !== null) {
+    const answered = [...standingAnswers(view.review).keys()].map((id) => view.brief.numbers.get(id)!);
+    if (answered.length > 0) notes.push([factsLine([[words.answeredAfterLabel, findingRefs(view, [...new Set(answered)].sort((a, b) => a - b))]])]);
   }
-  // With no text of the writer posted, the review is in the engine's words alone, and the notes say so.
-  const wrote = postsWriterText(view, cuts) ? [words.modelLine] : [];
-  return { part: 'trust', lines: blocks([words.trustHeading], [[words.trust(view.counts), ...wrote].join(' ')], ...notes.map((note) => [note])) };
+  return { part: 'trust', lines: blocks([words.trustHeading], counts.findings === 0 ? [] : verdicts, basisTable, [candidates], ...notes) };
 }
 
-/** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, then the marker of the publication (R9, R13). The version the runtime gave and the models the settings name are no text of the engine's, so they are cleaned. */
+/** The last visible line, the engine, the runtime and its models, the run and the commits it reviewed, as facts, then the marker of the publication (R9, R13). The version the runtime gave and the models the settings name are no text of the engine's, so they are cleaned. */
 function lastSection(view: FormView, say: Speaker): Section {
   const { configuration } = view.review;
+  const labels = view.words.lastLabels;
   return {
     part: 'last line',
     lines: [
-      view.words.lastLine({
-        engine: inlineText(view.input.engine),
-        runtime: configuration.runtime,
-        version: say.words(configuration.version),
-        strong: say.words(configuration.models.strong),
-        fast: say.words(configuration.models.fast),
-        run: codeSpan(shortRunId(view.state.id)),
-        base: shortCommit(view.scope.base),
-        head: shortCommit(view.scope.head),
-      }),
+      factsLine([
+        [labels.engine, `deep-review ${inlineText(view.input.engine)}`],
+        [labels.runtime, `${configuration.runtime} ${say.words(configuration.version)}`],
+        [labels.models, valueList([say.words(configuration.models.strong), say.words(configuration.models.fast)])],
+        [labels.run, codeSpan(shortRunId(view.state.id))],
+        [labels.commits, `${shortCommit(view.scope.base)}..${shortCommit(view.scope.head)}`],
+      ]),
       '',
       markerLine(publicationMarker(view.state.id, view.input.serial)),
     ],
@@ -817,12 +1005,10 @@ function lastSection(view: FormView, say: Speaker): Section {
 
 /**
  * The body with the cuts given, and the secrets its cleaning replaced: the
- * first part of principle 5 in its order, the core of the change right
- * after the heading (R1 of the core of the change on the pull request),
- * the summary, what needs a person and then
- * what the review did not examine (R9, PD9 of the core of the change on
- * the pull request), then how the review worked and the evidence, in the
- * order of R1 of the review that reads as a report.
+ * heading, the core of the change, the summary, what needs a person, what
+ * the review did not examine, how the review worked, the major findings by
+ * area, the findings in full, the minor findings, the findings left as is,
+ * how far to trust the review and the last line.
  */
 function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
   const say = speakerOf(view.input.machine, view.words, view.names);
