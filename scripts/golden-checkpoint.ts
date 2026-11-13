@@ -2798,6 +2798,170 @@ try {
       patches: [],
     }, 8);
   });
+  // A read-only run of the same pull request whose writer writes every
+  // sentence of the review (TD1, TD2 of the review in the writer's words):
+  // configured at version 13, it ranks a major finding to fix, a minor
+  // one whose PLAUSIBLE verdict leaves a choice that deep-review asks the
+  // author, and a minor one it leaves as is; its writer answers once in
+  // the fourth form, with the fix in full, the question with its two
+  // options, and the finding left as is; the explanation, at version 4,
+  // keeps them and drops what the review did not examine.
+  const writtenRun = checkpoint.createRun({ worktree: '/fixture/written-form' });
+  const written = new ReviewHistory(checkpoint, writtenRun.id, checkpoint.append(writtenRun.id, writtenRun.lastSequence, [{ kind: 'scope.captured', version: 3, payload: { ...pullRequestScope, pullRequest: { ...pullRequestScope.pullRequest, body: null } } }]).lastSequence);
+  written.add('review.configured', reportFormConfiguration, 13);
+  written.phaseV6('survey', () => {
+    written.launch('1d01', 'surveyor survey:survey');
+    written.finishWorker('1d01');
+    written.add('survey.recorded', { workerId: written.id('1d01'), conventions: [], userRules: [], checks: null, note: '' });
+  });
+  written.phaseV6('triage', () => {
+    written.launch('1d02', 'triage triage:SCAN');
+    written.finishWorker('1d02');
+    written.add('candidates.recorded', {
+      phase: 'triage',
+      key: 'SCAN',
+      workerId: written.id('1d02'),
+      candidates: [written.candidate('SCAN-1', 'SCAN', 1), written.candidate('SCAN-2', 'SCAN', 2), written.candidate('SCAN-3', 'SCAN', 3)],
+      leads: finderAngles.map((angle) => ({ angle, lead: null })),
+      change: {
+        title: 'Accept an empty input in changed()',
+        what: 'changed() returns no value for an empty input, where it threw before.',
+        why: 'An empty file is a valid input, the commit message says.',
+        whyFrom: [fixScope.head],
+        restsOn: ['src/changed.ts'],
+        publicInterface: { holds: true, what: 'changed() can now return null, which its callers read.', files: ['src/changed.ts'] },
+        wideEffect: { holds: false, what: null, files: [] },
+      },
+    }, 2);
+  });
+  written.phaseV6('finders', () => {
+    for (const angle of finderAngles) {
+      const tag = `1d${String(10 + finderAngles.indexOf(angle))}`;
+      written.launch(tag, `finder-${angle} finders:${angle}`);
+      written.finishWorker(tag);
+      written.add('candidates.recorded', { phase: 'finders', key: angle, workerId: written.id(tag), candidates: [], leads: null, change: null }, 2);
+    }
+  });
+  written.phaseV6('deduplication', () => {
+    written.launch('1d20', 'deduplication deduplication:deduplication');
+    written.finishWorker('1d20');
+    written.add('deduplication.recorded', { phase: 'deduplication', workerId: written.id('1d20'), groups: [] });
+  });
+  written.phaseV6('verification', () => {
+    written.add('verification.planned', { phase: 'verification', groups: [{ id: 'g1', candidateIds: ['SCAN-1', 'SCAN-2', 'SCAN-3'] }] });
+    written.launch('1d21', 'verifier verification:g1');
+    written.finishWorker('1d21');
+    written.add('verdicts.recorded', { phase: 'verification', groupId: 'g1', workerId: written.id('1d21'), verdicts: [
+      { id: 'SCAN-1', verdict: 'CONFIRMED', evidence: 'line 1 dereferences the null an empty input gives', basis: 'traced', runs: [], unconfirmed: null, authorChoice: null },
+      { id: 'SCAN-2', verdict: 'CONFIRMED', evidence: 'the caller reads the result without a check', basis: 'traced', runs: [], unconfirmed: null, authorChoice: null },
+      { id: 'SCAN-3', verdict: 'PLAUSIBLE', evidence: 'the same parse appears in two places', basis: 'read', runs: [], unconfirmed: { kind: 'choice', text: 'whether the helper is part of the public interface remains' }, authorChoice: 'export the helper for callers, or keep it private to the module' },
+    ] }, 3);
+  });
+  written.phaseV6('sweep', () => {
+    written.launch('1d30', 'sweep sweep:sweep');
+    written.finishWorker('1d30');
+    written.add('candidates.recorded', { phase: 'sweep', key: 'sweep', workerId: written.id('1d30'), candidates: [], leads: null, change: null }, 2);
+  });
+  written.phaseV6('sweep-deduplication', () => {});
+  written.phaseV6('sweep-verification', () => written.add('verification.planned', { phase: 'sweep-verification', groups: [] }));
+  written.phaseV6('merge-rank', () => {
+    written.launch('1d31', 'merge-rank merge-rank:merge-rank');
+    written.finishWorker('1d31');
+    written.add('ranking.recorded', { workerId: written.id('1d31'), findings: [
+      { id: 'SCAN-1', members: [], severity: 'major', summary: 'changed() dereferences a null', reason: 'a crash on reachable input' },
+      { id: 'SCAN-3', members: [], severity: 'minor', summary: 'extract the helper', reason: 'one helper reads better' },
+      { id: 'SCAN-2', members: [], severity: 'minor', summary: 'changed() never checks its guard', reason: 'the guard is part of the fix' },
+    ] });
+  });
+  written.phaseV6('decision', () => {
+    written.launch('1d32', 'decider decision:decision');
+    written.finishWorker('1d32');
+    written.add('decisions.recorded', { workerId: written.id('1d32'), decisions: [
+      { id: 'SCAN-1', decision: 'fix', grounds: 'an empty input reaches the dereference', fix: { approach: 'guard the null in changed() before it is read', rejected: [] }, leave: null, ask: null, departure: null, settled: [] },
+      {
+        id: 'SCAN-3', decision: 'ask', grounds: 'nothing in the repository says whether the helper is public', fix: null, leave: null, departure: null, settled: [],
+        ask: {
+          question: 'Should the extracted helper be exported?',
+          options: [
+            { option: 'keep the code as it is', cost: 'the two copies stay', rule: 'helpers stay inline until a third caller needs one', edits: false },
+            { option: 'extract a private helper', cost: 'one more function to read', rule: 'shared code moves to a private helper', edits: true },
+          ],
+          recommended: 1,
+          applied: 0,
+          searched: ['CONTRIBUTING.md'],
+        },
+      },
+      { id: 'SCAN-2', decision: 'leave', grounds: 'the guard SCAN-1 adds is the check SCAN-2 asks for', fix: null, leave: { reason: 'superseded', supersededBy: 'SCAN-1' }, ask: null, departure: null, settled: [] },
+    ] }, 2);
+  });
+  written.add('phase.started', { phase: 'explanation', attempt: 1 }, 8);
+  written.add('worktree.checked', { phase: 'explanation', attempt: 1, moment: 'start', drifted: false, head: null, files: [], strays: [] }, 9);
+  written.launch('1d40', 'writer explanation:explanation');
+  written.finishWorker('1d40');
+  const writtenAnswer = {
+    core: {
+      title: 'changed() accepts an empty input',
+      what: 'changed(), which reports the lines a change touches, now returns null for an empty input instead of throwing.',
+      why: 'The commit says that an empty file is a valid input, so reading one must not fail.',
+      whyFrom: [fixScope.head.slice(0, 12)],
+      diagram: null,
+    },
+    conditions: [{ condition: 'public-interface', explanation: 'changed() is exported, and every caller now reads a null it never met before.', unexplained: null }],
+    summary: 'The review found a crash on an empty input, which deep-review would fix, a question on the shape of a helper, and a check it leaves as is because the fix covers it.',
+    areas: [{ title: 'An empty input crashes the caller of changed()', intro: 'A caller that passes an empty input meets a crash instead of an empty result.', diagram: null, findings: ['SCAN-1'] }],
+    findings: [
+      {
+        id: 'SCAN-1', unexplained: false,
+        title: 'An empty input crashes the caller of changed()',
+        problem: 'A caller that passes an empty input meets a crash.',
+        cases: [{ sentence: 'An empty input reaches the read on line 1.', lines: { side: 'head', path: 'src/changed.ts', from: 1, to: 1 } }],
+        diagram: null,
+        checked: 'The verifier traced an empty input from the caller to the read on line 1.',
+        kind: null,
+        action: 'deep-review would guard the null once, before changed() reads it.',
+        unconfirmed: null,
+        fix: { text: 'The fix returns early from changed() on a null, before the read on line 1, so an empty input gives an empty result.', departure: null },
+        ask: null,
+      },
+      {
+        id: 'SCAN-3', unexplained: false,
+        title: 'The same parsing is written twice',
+        problem: 'A reader who changes how the input is parsed must change it in two places.',
+        cases: [],
+        diagram: null,
+        checked: 'The verifier read both copies.',
+        kind: 'code',
+        action: 'deep-review asks whether to keep the two copies or move them to one private helper, and recommends keeping them.',
+        unconfirmed: 'Whether the helper belongs to what the module offers its callers is a choice the code does not make.',
+        fix: null,
+        ask: {
+          question: 'Should the two copies of the parsing become one helper? Nothing in the repository says when shared code moves to a helper.',
+          options: [
+            { number: 1, means: 'The two copies stay as they are.', cost: 'A change to the parsing is made twice.', rule: 'Code stays inline until a third place needs it.' },
+            { number: 2, means: 'The parsing moves to one private helper.', cost: 'One more function to read.', rule: 'Code used in two places moves to a private helper.' },
+          ],
+          recommendation: 'Keeping the copies is the smaller change, and a third caller would settle the question.',
+        },
+      },
+    ],
+    left: [{ id: 'SCAN-2', title: 'The result of changed() is read without a check', why: 'The guard that the fix of SCAN-1 adds is the check this finding asks for.' }],
+    refuted: [],
+    notExamined: null,
+  };
+  written.add('explanation.recorded', {
+    workerId: written.id('1d40'),
+    answer: checkpoint.evidence.put(`${JSON.stringify(writtenAnswer)}\n`),
+    dropped: [{ part: 'not-examined', failures: ['what the review did not examine is empty'] }],
+    unexplained: [],
+  }, 4);
+  written.add('phase.finished', { phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null }, 9);
+  written.phaseV6('report', () => {
+    written.add('report.written', {
+      report: checkpoint.evidence.put('# Deep review report\n\nfixture report of a run whose writer writes the review\n'),
+      statistics: { phases: [...reviewVocabularyV11.phases.slice(0, reviewVocabularyV11.phases.indexOf('explanation') + 1), 'report' as const].map((phase) => ({ phase, ...documentedSpend(pulledWorkers[phase] ?? 0) })), total: documentedSpend(16), budgetApplied: true },
+      patches: [],
+    }, 8);
+  });
   const evidence = checkpoint.evidence.put('fixture evidence\r\nwith two lines\n');
   const expected = { runs: checkpoint.listRuns(), evidence: [evidence, scope.patch, finish.stdout, finish.stderr] };
   writeFileSync(join(output, 'expected.json'), `${JSON.stringify(expected, null, 2)}\n`);

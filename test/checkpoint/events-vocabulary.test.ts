@@ -37,6 +37,7 @@ import {
   explanationRecordedV1,
   explanationRecordedV2,
   explanationRecordedV3,
+  explanationRecordedV4,
   filesClaimedV1,
   fixPinnedV1,
   fixRecordedV1,
@@ -85,6 +86,7 @@ import {
   reviewConfiguredV10,
   reviewConfiguredV11,
   reviewConfiguredV12,
+  reviewConfiguredV13,
   reviewIdentifiersV1,
   reviewIdentifiersV2,
   reviewVocabularyV1,
@@ -101,6 +103,7 @@ import {
   reviewVocabularyV12,
   reviewVocabularyV13,
   reviewVocabularyV14,
+  reviewVocabularyV15,
   scopeCapturedV2,
   scopeCapturedV3,
   surveyFailedV1,
@@ -1214,7 +1217,7 @@ describe('the review vocabulary frozen by the v14 events', () => {
   const parts = (...names: string[]) => names.map((part) => (part === 'finding' ? { part, finding: 'RIPPLE-1', failures: ['f'] } : { part, failures: ['f'] }));
 
   it('is today\'s vocabulary, word for word and in order', () => {
-    assert.deepEqual(reviewVocabularyV14, { explanationParts, changeConditions });
+    assert.deepEqual(reviewVocabularyV14, { explanationParts: ['conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions'], changeConditions });
   });
 
   it('records a review.configured@12 exactly as version 11 records it: the version alone says the review opens with the core of the change', () => {
@@ -1222,11 +1225,37 @@ describe('the review vocabulary frozen by the v14 events', () => {
   });
 
   it('names the dropped parts of explanation.recorded@3 by those of version 2, the core and the conditions, and holds it to the rules of version 2', () => {
-    assert.equal(accepts({ dropped: parts(...explanationParts) }), true);
+    assert.equal(accepts({ dropped: parts('conclusion', 'areas', 'refuted', 'finding', 'core', 'conditions') }), true);
     assert.equal(accepts({ dropped: parts('account') }), false, 'version 3 has no account');
+    assert.equal(accepts({ dropped: parts('left') }), false, 'nor the findings left as is');
     assert.equal(explanationRecordedV2.safeParse({ workerId, answer: blob, dropped: parts('core'), unexplained: [] }).success, false, 'version 2 has no core');
     assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted', 'core', 'conditions') }), true, 'a phase that degraded with no answer that passed');
     assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted') }), false, 'with no answer, every part but the findings is dropped');
     assert.equal(accepts({ dropped: parts('core', 'core') }), false, 'each part once');
+  });
+});
+
+// Version 15 of the review events records the words the review in the
+// writer's words added; the same rule holds them to today's.
+describe('the review vocabulary frozen by the v15 events', () => {
+  const workerId = '00000000-0000-4000-8000-000000000001';
+  const blob = { sha256: 'a'.repeat(64), bytes: 120 };
+  const accepts = (change: Record<string, unknown>): boolean => explanationRecordedV4.safeParse({ workerId, answer: blob, dropped: [], unexplained: [], ...change }).success;
+  const parts = (...names: string[]) => names.map((part) => (part === 'finding' ? { part, finding: 'RIPPLE-1', failures: ['f'] } : { part, failures: ['f'] }));
+
+  it('is today\'s vocabulary, word for word and in order', () => {
+    assert.deepEqual(reviewVocabularyV15, { explanationParts, changeConditions });
+  });
+
+  it('records a review.configured@13 exactly as version 12 records it: the version alone says the writer writes the review', () => {
+    assert.equal(reviewConfiguredV13, reviewConfiguredV12);
+  });
+
+  it('names the dropped parts of explanation.recorded@4 by those of version 3, the findings left as is and what the review did not examine, and holds it to the rules of version 3', () => {
+    assert.equal(accepts({ dropped: parts(...explanationParts) }), true);
+    assert.equal(accepts({ dropped: parts('account') }), false, 'version 4 has no account');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted', 'core', 'conditions', 'left', 'not-examined') }), true, 'a phase that degraded with no answer that passed');
+    assert.equal(accepts({ workerId: null, answer: null, dropped: parts('conclusion', 'areas', 'refuted', 'core', 'conditions') }), false, 'with no answer, every part but the findings is dropped');
+    assert.equal(accepts({ dropped: parts('left', 'left') }), false, 'each part once');
   });
 });

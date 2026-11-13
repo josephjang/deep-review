@@ -5,8 +5,10 @@
  * merge of an answer, checked part by part in `explanation-checks.ts`,
  * with the earlier one of its unit, and what `explanation.recorded`
  * records of them; `writer-task.ts` gives the writer's task. A run
- * configured at `review.configured@12` has its writer answer in the
- * third form, which
+ * configured at `review.configured@13` has its writer answer in the
+ * fourth form, in which it writes every sentence of the review (TD1, TD2
+ * of the review in the writer's words), recorded at version 4; a run
+ * configured at version 12 keeps the third form, which
  * adds the core of the change and the sentences of the conditions (R2,
  * R3, R5, R8, TD2 of the core of the change on the pull request),
  * recorded at version 3; a run configured at version 11 keeps the second
@@ -19,7 +21,7 @@
  */
 import { z } from 'zod';
 import type { NewEvent } from '../checkpoint/checkpoint.ts';
-import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type DroppedPartV3, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type ExplanationRecordedV3, type ScopeState } from '../checkpoint/events.ts';
+import { recordedTextLengthV1, type DroppedPart, type DroppedPartV1, type DroppedPartV2, type DroppedPartV3, type DroppedPartV4, type ExplanationRecorded, type ExplanationRecordedV1, type ExplanationRecordedV2, type ExplanationRecordedV3, type ExplanationRecordedV4, type ScopeState } from '../checkpoint/events.ts';
 import type { RunState } from '../checkpoint/fold.ts';
 import { explanationVersionOf, type ExplanationVersion, type ReviewState, type UnitFailure, type UnitState } from '../checkpoint/review-fold.ts';
 import { defaultLanguage } from '../config/settings.ts';
@@ -27,7 +29,7 @@ import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { commitIdsOrNull } from '../scope/git.ts';
 import { StructuralCheckError } from './errors.ts';
 import { checkAnswer, checkAnswerV4, gitLineCounts, heldConditions, type CheckedAnswer, type CheckedAnswerV4, type CheckedPart, type CoreCheckInput, type DecisionFacts, type ReportCheckInput } from './explanation-checks.ts';
-import { writerOutputSchema, writerOutputSchemaFor, writerOutputSchemaV2, writerOutputSchemaV3, writerOutputSchemaV4, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
+import { writerOutputSchema, writerOutputSchemaOf, writerOutputSchemaV2, writerOutputSchemaV3, writerOutputSchemaV4, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
 import { asksToAct, singleUnitKey, type FindingKind } from './vocabulary.ts';
@@ -35,8 +37,10 @@ import { asksToAct, singleUnitKey, type FindingKind } from './vocabulary.ts';
 const writerOutputShape = writerOutputSchema.shape;
 const writerOutputShapeV2 = writerOutputSchemaV2.shape;
 const writerOutputShapeV3 = writerOutputSchemaV3.shape;
+const writerOutputShapeV4 = writerOutputSchemaV4.shape;
 const explanationShape = writerOutputShape.findings.element.shape.explanation.unwrap().shape;
 const explanationShapeV2 = writerOutputShapeV2.findings.element.shape.explanation.unwrap().shape;
+const explanationShapeV4 = writerOutputShapeV4.findings.element.shape.explanation.unwrap().shape;
 
 /** The writer's answer as it gave it, of any version. */
 export type AnyWriterOutput = WriterOutput | WriterOutputV2 | WriterOutputV3;
@@ -151,6 +155,25 @@ export const recordedAnswerSchemaV3 = z.strictObject({
   conditions: writerOutputShapeV3.conditions.nullable(),
 });
 
+/** The writer's answer as the evidence store freezes it at version 4, the reference `explanation.recorded@4` holds: `AnswerV4`, each part null when dropped, and a dropped finding with no entry. */
+export const recordedAnswerSchemaV4 = z.strictObject({
+  core: writerOutputShapeV4.core.nullable(),
+  conditions: writerOutputShapeV4.conditions.nullable(),
+  summary: writerOutputShapeV4.summary.nullable(),
+  areas: writerOutputShapeV4.areas.nullable(),
+  findings: z.array(z.discriminatedUnion('unexplained', [z.strictObject({ id: z.string(), unexplained: z.literal(false), ...explanationShapeV4 }), unexplainedFindingSchema])),
+  left: writerOutputShapeV4.left.nullable(),
+  refuted: writerOutputShapeV4.refuted.nullable(),
+  notExamined: writerOutputShapeV4.notExamined.nullable(),
+}) satisfies z.ZodType<AnswerV4>;
+
+/** The answer `explanation.recorded@4` froze, or null when no answer passed any part. */
+export function frozenAnswerV4Of(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>): AnswerV4 | null {
+  if (recorded.version !== 4) throw new Error(`An explanation recorded at version ${String(recorded.version)} froze no answer of version 4`);
+  if (recorded.answer === null) return null;
+  return recordedAnswerSchemaV4.parse(JSON.parse(evidence.read(recorded.answer).toString('utf8')));
+}
+
 /**
  * The writer's answer as the form reads it, whatever version froze it:
  * each part an answer passed, and null for a part dropped or one its
@@ -173,6 +196,8 @@ export interface RecordedAnswer {
 /** The recorded answer of an explanation, read by the version of its event, as the form reads it, or null when no answer passed any part. */
 export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>): RecordedAnswer | null {
   if (recorded.answer === null) return null;
+  // The form reads an answer of the fourth form when it is built on it; until then, no run is configured to give one.
+  if (recorded.version === 4) throw new Error('An explanation recorded at version 4 is read by `frozenAnswerV4Of`');
   const frozen: unknown = JSON.parse(evidence.read(recorded.answer).toString('utf8'));
   if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
   if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
@@ -250,7 +275,7 @@ export interface MergedAnswer {
  * answer's failures; with no areas kept, the conclusion is taken as any
  * other part, since the body then posts no summary.
  */
-export function mergeAnswers(version: ExplanationVersion, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
+export function mergeAnswers(version: Exclude<ExplanationVersion, 4>, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
   const dropped: DroppedPart[] = [];
   const passes = <T>(part: CheckedPart<T> | null): part is CheckedPart<T> => part !== null && part.value !== null && part.failures.length === 0;
   const pick = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart): T | null => {
@@ -279,7 +304,7 @@ export function mergeAnswers(version: ExplanationVersion, answers: readonly Chec
 /** What the merge of a unit's answers of version 4 keeps, and each part none of them passed. */
 export interface MergedAnswerV4 {
   readonly answer: AnswerV4;
-  readonly dropped: readonly WriterDroppedPart[];
+  readonly dropped: readonly DroppedPart[];
 }
 
 /**
@@ -294,9 +319,9 @@ export interface MergedAnswerV4 {
  * answer, since it names them.
  */
 export function mergeAnswersV4(answers: readonly CheckedAnswerV4[], ids: readonly string[], extra: readonly string[] = []): MergedAnswerV4 {
-  const dropped: WriterDroppedPart[] = [];
+  const dropped: DroppedPart[] = [];
   const passes = <T>(part: CheckedPart<T>): boolean => part.value !== null && part.failures.length === 0;
-  const pick = <T>(parts: readonly CheckedPart<T>[], drop: (failures: string[]) => WriterDroppedPart): T | null => {
+  const pick = <T>(parts: readonly CheckedPart<T>[], drop: (failures: string[]) => DroppedPart): T | null => {
     const passed = parts.find(passes);
     if (passed !== undefined) return passed.value;
     dropped.push(drop(recordedFailures(parts.at(-1)?.failures ?? [], extra)));
@@ -322,22 +347,15 @@ export function mergeAnswersV4(answers: readonly CheckedAnswerV4[], ids: readonl
 /** Whether the merge kept any part. */
 const keptAny = ({ answer }: MergedAnswer): boolean => answer.conclusion !== null || answer.account !== null || answer.areas !== null || answer.refuted !== null || answer.core !== null || answer.conditions !== null || answer.findings.length > 0;
 
-/**
- * A part of an answer that no answer passed, as a merge drops it: a part
- * `explanation.recorded` names, or one of the two parts that only an
- * answer of version 4 has, the findings left as is and what the review
- * did not examine, which no version of the event names yet.
- */
-export type WriterDroppedPart = DroppedPart | { readonly part: 'left' | 'not-examined'; readonly failures: string[] };
-
 /** A dropped part by its name, as the reason of a refused answer and the next writer's task give it: `conclusion`, `account`, `areas`, `refuted`, `core`, `conditions`, `left`, `not-examined` or `finding <id>`. */
-export const partNameOf = (part: WriterDroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
+export const partNameOf = (part: DroppedPart): PartName => (part.part === 'finding' ? `finding ${part.finding}` : part.part);
 
 /** The event that records a writer's explanation, at the version of its answer, typed as a pair. */
 export type ExplanationEvent =
   | { readonly kind: 'explanation.recorded'; readonly version: 1; readonly payload: ExplanationRecordedV1 }
   | { readonly kind: 'explanation.recorded'; readonly version: 2; readonly payload: ExplanationRecordedV2 }
-  | { readonly kind: 'explanation.recorded'; readonly version: 3; readonly payload: ExplanationRecordedV3 };
+  | { readonly kind: 'explanation.recorded'; readonly version: 3; readonly payload: ExplanationRecordedV3 }
+  | { readonly kind: 'explanation.recorded'; readonly version: 4; readonly payload: ExplanationRecordedV4 };
 
 /** Whether a dropped part is one version 1 names. */
 const isPartV1 = (part: DroppedPart): part is DroppedPartV1 => part.part === 'conclusion' || part.part === 'account' || part.part === 'finding';
@@ -345,6 +363,8 @@ const isPartV1 = (part: DroppedPart): part is DroppedPartV1 => part.part === 'co
 const isPartV2 = (part: DroppedPart): part is DroppedPartV2 => part.part === 'conclusion' || part.part === 'areas' || part.part === 'refuted' || part.part === 'finding';
 /** Whether a dropped part is one version 3 names. */
 const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part === 'conclusion' || part.part === 'areas' || part.part === 'refuted' || part.part === 'finding' || part.part === 'core' || part.part === 'conditions';
+/** Whether a dropped part is one version 4 names: any but the account. */
+const isPartV4 = (part: DroppedPart): part is DroppedPartV4 => part.part !== 'account';
 
 /**
  * What `explanation.recorded` records of a merge, at `version`: the writer
@@ -354,12 +374,29 @@ const isPartV3 = (part: DroppedPart): part is DroppedPartV3 => part.part === 'co
  * otherwise when it keeps any part; each part dropped with its failures;
  * and the findings marked unexplained.
  */
-export function explanationRecord(version: ExplanationVersion, workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
+export function explanationRecord(version: Exclude<ExplanationVersion, 4>, workerId: string | null, merged: MergedAnswer, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
   const answer: ArtifactReference | null = workerId !== null || keptAny(merged) ? evidence.put(`${JSON.stringify(frozenAnswer(version, merged.answer))}\n`) : null;
   const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
   if (version === 3) return { kind: 'explanation.recorded', version: 3, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV3), unexplained } };
   if (version === 2) return { kind: 'explanation.recorded', version: 2, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV2), unexplained } };
   return { kind: 'explanation.recorded', version: 1, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV1), unexplained } };
+}
+
+/** Whether the merge of answers of version 4 kept any part. */
+const keptAnyV4 = ({ answer }: MergedAnswerV4): boolean => answer.core !== null || answer.conditions !== null || answer.summary !== null || answer.areas !== null || answer.findings.length > 0 || answer.left !== null || answer.refuted !== null || answer.notExamined !== null;
+
+/**
+ * What `explanation.recorded@4` records of a merge of answers of version
+ * 4 (TD2 of the review in the writer's words), as `explanationRecord`
+ * records an older one: the writer whose answer completed the unit, or
+ * null; the kept answer frozen as `AnswerV4`, each part null that no
+ * answer passed; each part dropped with its failures; and the findings
+ * marked unexplained.
+ */
+export function explanationRecordV4(workerId: string | null, merged: MergedAnswerV4, evidence: Pick<EvidenceStore, 'put'>): ExplanationEvent {
+  const answer: ArtifactReference | null = workerId !== null || keptAnyV4(merged) ? evidence.put(`${JSON.stringify(merged.answer)}\n`) : null;
+  const unexplained = merged.answer.findings.filter((finding) => finding.unexplained).map((finding) => finding.id);
+  return { kind: 'explanation.recorded', version: 4, payload: { workerId, answer, dropped: merged.dropped.filter(isPartV4), unexplained } };
 }
 
 /** What recording or retrying the writer's answer needs beyond the fold: the worktree git reads the commits in, and the evidence store the earlier answers are read from and the kept answer is frozen in. */
@@ -386,7 +423,9 @@ const writerFailures = (review: ReviewState): readonly UnitFailure[] => writerUn
  * re-entered phase cleared, gives none.
  */
 function earlierAnswers(state: RunState, review: ReviewState, evidence: Pick<EvidenceStore, 'read'>): AnyWriterOutput[] {
-  const schema = writerOutputSchemaFor(review);
+  const version = explanationVersionOf(review);
+  if (version === 4) throw new Error(`Run ${state.id} has its writer answer in the fourth form, whose answers \`checkedAnswersV4\` reads`);
+  const schema = writerOutputSchemaOf(version);
   return writerFailures(review).flatMap((failure) => {
     const worker = Object.hasOwn(state.workers, failure.workerId) ? state.workers[failure.workerId] : undefined;
     if (worker?.status !== 'finished' || worker.finish.output === null) return [];
@@ -499,14 +538,28 @@ function droppedWords(dropped: readonly DroppedPart[]): string {
 export function writerContribution(state: RunState, receipt: { readonly workerId: string; readonly output: unknown }, context: ExplanationContext & { readonly log: (line: string) => void }): ExplanationEvent {
   const review = requireReview(state);
   const ids = findingsToExplain(review);
-  // The launcher held the answer to the schema of the run's version (`writerOutputSchemaFor`).
-  const answers = checkedAnswers(state, review, context, ids, receipt.output as AnyWriterOutput);
-  const strays = answers.at(-1)!.strays;
-  if (strays.length > 0) context.log(`the answer explains ${strays.join(', ')}, which ${strays.length === 1 ? 'is no finding' : 'are no findings'} of the run that asks a person to act; not kept`);
   const version = explanationVersionOf(review);
+  const logStrays = (strays: readonly string[]): void => {
+    if (strays.length > 0) context.log(`the answer explains ${strays.join(', ')}, which ${strays.length === 1 ? 'is no finding' : 'are no findings'} of the run that asks a person to act; not kept`);
+  };
+  // The launcher held the answer to the schema of the run's version (`writerOutputSchemaFor`).
+  if (version === 4) {
+    const answers = checkedAnswersV4(state, review, context, ids, [receipt.output as WriterOutputV4]);
+    logStrays(answers.at(-1)!.strays);
+    const merged = mergeAnswersV4(answers, ids);
+    refuseOnFailure(review, merged.dropped);
+    return explanationRecordV4(receipt.workerId, merged, context.evidence);
+  }
+  const answers = checkedAnswers(state, review, context, ids, receipt.output as AnyWriterOutput);
+  logStrays(answers.at(-1)!.strays);
   const merged = mergeAnswers(version, answers, ids);
-  if (merged.dropped.length > 0 && !degradesOnNextFailure(writerUnit(review))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(merged.dropped)}`);
+  refuseOnFailure(review, merged.dropped);
   return explanationRecord(version, receipt.workerId, merged, context.evidence);
+}
+
+/** Refuse an answer a part of which no answer passed, while the writer's unit has an attempt left; on its last attempt, the part is dropped instead. */
+function refuseOnFailure(review: ReviewState, dropped: readonly DroppedPart[]): void {
+  if (dropped.length > 0 && !degradesOnNextFailure(writerUnit(review))) throw new StructuralCheckError(`the answer fails the engine's checks: ${droppedWords(dropped)}`);
 }
 
 /**
@@ -520,8 +573,9 @@ export function writerContribution(state: RunState, receipt: { readonly workerId
 export function droppedExplanation(state: RunState, context: ExplanationContext, reason: string): NewEvent {
   const review = requireReview(state);
   const ids = findingsToExplain(review);
-  const merged = mergeAnswers(explanationVersionOf(review), checkedAnswers(state, review, context, ids, null), ids, [reason]);
-  return explanationRecord(explanationVersionOf(review), null, merged, context.evidence);
+  const version = explanationVersionOf(review);
+  if (version === 4) return explanationRecordV4(null, mergeAnswersV4(checkedAnswersV4(state, review, context, ids, []), ids, [reason]), context.evidence);
+  return explanationRecord(version, null, mergeAnswers(version, checkedAnswers(state, review, context, ids, null), ids, [reason]), context.evidence);
 }
 
 /** The language the run recorded for its review (R20): `review.language` of its settings, or the default language for a run that recorded none. */

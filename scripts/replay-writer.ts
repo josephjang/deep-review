@@ -23,10 +23,10 @@
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { languageTagSchemaV1 } from '../src/checkpoint/events.ts';
+import type { ExplanationVersion } from '../src/checkpoint/review-fold.ts';
 import { engineVersion } from '../src/engine.ts';
 import { replayWriter, writerFactsFileName } from '../src/replay/writer.ts';
 import { resolveExecutable } from '../src/review/executable.ts';
-import type { WriterVersion } from '../src/review/schemas.ts';
 import { repositoryRolesRoot } from '../src/roles/assemble.ts';
 
 const { values } = parseArgs({
@@ -54,9 +54,9 @@ function required(name: 'checkpoint' | 'run' | 'tree' | 'output' | 'runtime'): s
 }
 
 /** The version `--version` names, 4 when it is not given. */
-function versionOf(given: string | undefined): WriterVersion {
+function versionOf(given: string | undefined): ExplanationVersion {
   if (given === undefined) return 4;
-  if (given === '1' || given === '2' || given === '3' || given === '4') return Number(given) as WriterVersion;
+  if (given === '1' || given === '2' || given === '3' || given === '4') return Number(given) as ExplanationVersion;
   throw new Error(`--version takes 1, 2, 3 or 4, not ${given}`);
 }
 
