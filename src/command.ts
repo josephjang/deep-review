@@ -25,7 +25,6 @@ import { Checkpoint } from './checkpoint/checkpoint.ts';
 import { sessionStartOutput, storePowerShellWarning } from './runtime/claude-powershell.ts';
 import { checkpointScratchKey, defaultScratchRoot } from './runtime/scratch.ts';
 import { UnknownRunError } from './checkpoint/errors.ts';
-import { answerWords } from './checkpoint/answer-state.ts';
 import { answerNoteLengthV1, type Answer } from './checkpoint/events.ts';
 import type { RunState } from './checkpoint/fold.ts';
 import { ledgerFileName } from './checkpoint/ledger.ts';
@@ -39,7 +38,7 @@ import { flagLayerOf, parseSetFlag, requireBase, resolvedValue, withChangedPaths
 import { checkSettingNames, fileLayers, type FileLayer } from './config/settings.ts';
 import { configurationSource, type ConfigurationSource } from './config/source.ts';
 import { EngineError } from './errors.ts';
-import { answeredName, answerRun } from './review/answer.ts';
+import { answeredName, answerRun, recordedAnswerWords } from './review/answer.ts';
 import { findActiveRun, resolvePullRequestScope, runReview, type RequestedScope, type ReviewOutcome, type ScopeSource } from './review/controller.ts';
 import { gitContent } from './review/content.ts';
 import { ReviewRefusedError } from './review/errors.ts';
@@ -658,7 +657,7 @@ async function answer(values: Values, io: CommandIo, root: string, worktree: str
     });
     // A number names its finding by both, so the line says which finding the ledger recorded it on.
     const named = answeredName(finding, outcome.standing.id);
-    io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${named} ${answerWords(given)}\n`);
+    io.stdout(`answer ${outcome.recorded ? 'recorded' : 'already recorded'}: run ${outcome.runId}, ${named} ${recordedAnswerWords(outcome.state, outcome.standing)}\n`);
     switch (outcome.next) {
       case 'read-only':
         io.stdout('the run only reviewed; run review --fix to apply the answer with the fixes\n');
