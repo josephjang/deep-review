@@ -36,7 +36,7 @@ export interface WriterTaskInput {
   readonly evidence: Pick<EvidenceStore, 'read'>;
   readonly machine: MachineContext;
   readonly commitMessages?: ChangeMessages | null;
-  /** The version of the answer to ask for: the one the run was configured with when absent; the replay of the writer gives 4, which no run is configured for yet (PD9, OQ1 of the review in the writer's words). */
+  /** The version of the answer to ask for: the one the run was configured with when absent; the replay of the writer may give 4 for a run configured before it (PD9, OQ1 of the review in the writer's words). */
   readonly version?: ExplanationVersion;
   /** The language the writer writes in: the run's when absent; the replay of the writer may give another, to measure the answer in that language (OQ1 of the review in the writer's words). */
   readonly language?: string;
