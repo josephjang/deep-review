@@ -192,7 +192,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.deepEqual(box.run().review!.answers.map((answer) => answer.id), [merged!.finding.id]);
     const given = await run(box, '--finding', merged!.members[1]!.id, '--option', '2');
     assert.equal(given.status, 0, given.stderr);
-    assert.match(given.stdout, new RegExp(`^answer recorded: run ${finished.id}, finding ${merged!.members[1]!.id} \\(${merged!.finding.id}\\) option 2\n`));
+    assert.match(given.stdout, new RegExp(`^answer recorded: run ${finished.id}, finding ${merged!.members[1]!.id} \\(${merged!.finding.id}\\) option 2, "fake other way"\n`));
 
     // A refusal names a finding given by number, or by a merged id, by what the person gave and the id, as the line of a recorded answer does (PD2 of the report for the person).
     await assert.rejects(answerRun(optionsOf(box, '1', { kind: 'accept' })), refused(new RegExp(`^finding 1 \\(${merged!.finding.id}\\) was decided ask, which admits an --option from 1 to 2, not --accept$`)));
@@ -218,7 +218,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const first = await run(box, '--finding', question, '--option', '2', '--note', 'b needs the import');
     assert.equal(first.status, 0, first.stderr);
     const lines = first.stdout.trimEnd().split('\n');
-    assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2`);
+    assert.equal(lines[0], `answer recorded: run ${finished.id}, ${question} option 2, "fake other way"`);
     // The pass ends as review does: the chat form of the brief, then the path of the copy of the new report (R12 of the report for the person).
     assert.equal(lines.at(-1), reportCopyPath(box.checkpoint.root, finished), 'the copy\'s path is the last line');
     assert.match(lines[1]!, /\(run [0-9a-f]{8}\)$/);
@@ -398,7 +398,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     const { departing, question } = findingsOf(finished);
     const held = await run(box, '--finding', question, '--option', '1');
     assert.equal(held.status, 0, held.stderr);
-    assert.equal(held.stdout, `answer recorded: run ${finished.id}, ${question} option 1\nthe tree already holds this answer; nothing to apply\n`);
+    assert.equal(held.stdout, `answer recorded: run ${finished.id}, ${question} option 1, "fake default"\nthe tree already holds this answer; nothing to apply\n`);
     const accepted = await run(box, '--finding', departing, '--accept');
     assert.equal(accepted.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe tree already holds this answer; nothing to apply\n`);
     assert.equal(box.run().review!.answerPasses.length, 0);
@@ -415,7 +415,7 @@ describe('deep-review answer', { timeout: 900_000, concurrency: sandboxConcurren
     assert.equal(accepted.status, 0, accepted.stderr);
     assert.equal(accepted.stdout, `answer recorded: run ${finished.id}, ${departing} accepted\nthe tree already holds this answer; nothing to apply\n`);
     const held = await run(box, '--finding', question, '--option', '1', '--record-only');
-    assert.equal(held.stdout, `answer recorded: run ${finished.id}, ${question} option 1\nthe tree already holds this answer; nothing to apply\n`);
+    assert.equal(held.stdout, `answer recorded: run ${finished.id}, ${question} option 1, "fake default"\nthe tree already holds this answer; nothing to apply\n`);
     assert.equal(box.run().review!.answerPasses.length, 0);
     assert.equal(box.run().lastSequence, finished.lastSequence + 2);
   });

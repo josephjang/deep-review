@@ -131,6 +131,13 @@ export function chooseAnswerRun(checkpoint: Checkpoint, runId: string | undefine
   return found;
 }
 
+/** An answer as `deep-review answer` prints what it recorded: `option 2` with the text the decider recorded for the option, as `saying` gives an owed one, so the person who answered from the review on the pull request sees the option the ledger holds; `accepted` or `rejected` as it is. */
+export function recordedAnswerWords(run: RunState, answer: RecordedAnswer): string {
+  if (answer.answer.kind !== 'option') return answerWords(answer.answer);
+  const option = run.review?.decisions?.find((candidate) => candidate.id === answer.id)?.ask?.options[answer.answer.option]?.option;
+  return option === undefined ? answerWords(answer.answer) : `${answerWords(answer.answer)}, "${option}"`;
+}
+
 /** What an owed answer says, as a refusal of the pass names it for the person to apply by hand: the option's text, or the departure's rule and its source. */
 function saying(run: RunState, answer: RecordedAnswer): string {
   const decision = run.review!.decisions!.find((candidate) => candidate.id === answer.id)!;
