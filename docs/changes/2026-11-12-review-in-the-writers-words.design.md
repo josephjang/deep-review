@@ -233,7 +233,25 @@ The gate runs as R13 of the requirements says, and the Verification section reco
 
 ## Verification
 
-The work is in progress. This section records each unit as it lands, and is complete when the series is.
+The series implements every element of the design, in the order "Where the code goes" gives but for the changes below. The gate of R13 has not run: it runs real reviews of pull requests, each a cost the author approves first, and its record is added here when it runs.
+
+### What was implemented
+
+The checks of an answer, the writer's task and the view of the form left their files with no change of behavior (commits "refactor(review): Move the checks of the writer's answer to their file", "refactor(review): Move the writer's task to its own file" and "refactor(review): Move the view of the pull request form to its own file"), and the brief gives each gap as its facts before its words ("refactor(review): Give each gap of the brief as its facts before its words").
+
+The answer of version 4 has its schema ("feat(review): Add the writer's answer of version 4 to the schemas"), its checks part by part ("feat(review): Check an answer of version 4 part by part"), its merge, with the summary kept only with its areas ("feat(review): Merge the answers of version 4 and hold them to the run"), its task, with the counts of the run, the gaps as facts, the findings left as is and the findings whose verdict says why it is not confirmed ("feat(review): Give the writer the task of an answer of version 4", "fix(review): Name the findings whose verdict says why it is unconfirmed"), and its prompt, which puts being understood first ("feat(roles): Ask the writer for the answer of version 4, understood first", "feat(roles): Give the writer the size of each text as a guide"). The replay of the writer measures a recorded run's writer at a version and a language given ("feat(replay): Replay the writer of a recorded run at the version given", "feat(replay): Ask the replayed writer for a language other than the run's").
+
+The ledger has `review.configured@13`, `reviewVocabularyV15` and `explanation.recorded@4`, the fold's `writtenForm`, and the golden fixture `schema-1-22` ("feat(checkpoint): Record review.configured@13 and explanation.recorded@4"). The form reads an answer of any version into one shape, shows each fact as data with the data forms of `markdown.ts`, gives the other workers' recorded words under a label where the writer's text is missing, folds the decision as recorded beside it, and takes its words from a table of strings ("feat(review): Add the data forms of the review on the pull request", "feat(publish): Post the writer's sentences beside the ledger's facts"). A read-only run of a pull request is configured at version 13 ("feat(explanation): Have the writer answer in the fourth form"), `deep-review answer` prints the text of the option it recorded ("feat(answer): Print the text of the option an answer took"), and the README says what the writer writes and what the engine shows ("docs(readme): Say the writer writes the review and code shows the facts").
+
+### The checks that ran
+
+`npm run check` passes at every commit of the series, and at the head it ran 3835 tests: 3822 passed, 0 failed, 13 skipped. Each commit was type-checked and linted on its own with `git rebase --exec "npm run typecheck && npm run lint"`. `npm run test:contract` ran before the commit that adds the events and before the commit that configures version 13, 109 tests passed each time. The golden test opens and folds every fixture, `schema-1-22` among them, 118 tests passed. `npm run verify` passes at each pushed head.
+
+The new tests hold the checks, the merge and the task of version 4 (`test/review/explanation-v4.test.ts`, 18 tests), the recording of an answer of version 4 by the explanation phase (`test/review/explanation.test.ts`, 4 tests), the fold of version 13 and of the explanation at version 4 (`test/checkpoint/pull-request-fold.test.ts`, 3 tests; `test/checkpoint/events-vocabulary.test.ts`, 3 tests), the replay of the writer (`test/replay/writer.test.ts`, 5 tests), the data forms (`test/review/markdown.test.ts`, 3 tests), and a table of words of strings alone (`test/review/pull-request-words.test.ts`). The tests of the form were rewritten for the new body and comments, in both languages.
+
+### What was not verified
+
+No real review of a pull request ran with this engine, so nothing measures yet what M1 to M6 of the requirements ask: whether a reader understands the review, how long it grew, and how often a part drops. The replay of OQ1 measured one writer on one recorded run. No review was posted on GitHub.
 
 ### The measure of OQ1
 
@@ -260,6 +278,10 @@ No text of version 4 is held to a length. TD7 first moved the bound of each new 
 
 Two types stood in for the ledger's until the ledger had version 4: `WriterVersion` in `src/review/schemas.ts` and `WriterDroppedPart` in `src/review/explanation.ts`, since the version of an explanation and the dropped part are shapes of recorded events, which change only by a new version of the event.
 
-Each unit that is pushed ends with a commit that rebuilds `dist/`, so `npm run verify` passes at each pushed head, as AGENTS.md asks; the design rebuilds it once, at the end of the series.
+The series was pushed in two parts, each ending with a commit that rebuilds `dist/`, so `npm run verify` passes at each pushed head, as AGENTS.md asks: the moves first, then the rest at once. A head between them would hold a prompt that asks for version 4 while the engine configured version 12, or a run configured at version 13 that the form could not read, so no unit between them was pushed.
+
+The engine configures version 13 after the form reads the one shape, not before it. "Where the code goes" puts the controller right after the ledger; there it would record answers of version 4 that `publish` could not read, and the tests that review a pull request and then publish it would fail at that commit.
+
+The trust section names the parts of the writer's answer that the review lacks in one fact, in place of a note for each part the checks dropped. A part an older answer lacks and a part the checks dropped read the same (TD5), and a note that said why each is missing would be a sentence of the run that code built.
 
 The replay of the writer takes a language. The design's replay asks the writer in the run's language; it also takes `--language`, for the measure above, and records the language in its facts.
