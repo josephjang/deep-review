@@ -175,15 +175,14 @@ export function frozenAnswerV4Of(recorded: Pick<ExplanationRecorded, 'answer' | 
 }
 
 /**
- * The writer's answer as the form reads it, whatever version froze it:
- * each part an answer passed, and null for a part dropped or one its
- * version does not have. The account is an answer of version 1's alone;
- * the areas, the refuted lines and each finding's `checked` and `kind`
- * are an answer of version 2's or 3's; the core and the conditions are an
- * answer of version 3's alone. `recordedAnswerOf` gives every part for an
- * answer of any version.
+ * The answer a merge of answers of version 1 to 3 keeps, in the shape of
+ * its version's parts: each part an answer passed, and null for a part
+ * dropped or one its version does not have. The account is an answer of
+ * version 1's alone; the areas, the refuted lines and each finding's
+ * `checked` and `kind` are an answer of version 2's or 3's; the core and
+ * the conditions are an answer of version 3's alone.
  */
-export interface RecordedAnswer {
+export interface OlderAnswer {
   readonly conclusion: Conclusion | null;
   readonly account: Account | null;
   readonly areas: Area[] | null;
@@ -193,20 +192,97 @@ export interface RecordedAnswer {
   readonly findings: FindingExplanation[];
 }
 
-/** The recorded answer of an explanation, read by the version of its event, as the form reads it, or null when no answer passed any part. */
-export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>): RecordedAnswer | null {
+/**
+ * A finding the writer explained, as the form reads it from an answer of
+ * any version (TD5 of the review in the writer's words): the parts of
+ * version 4, each null that the answer's version does not have, so the
+ * form treats a part an older answer lacks as one the checks dropped.
+ */
+export interface RecordedFinding {
+  readonly id: string;
+  readonly unexplained: false;
+  readonly title: string;
+  readonly problem: string;
+  readonly cases: readonly CitedCase[];
+  readonly diagram: string | null;
+  readonly checked: string | null;
+  readonly kind: FindingKind | null;
+  readonly action: string | null;
+  readonly unconfirmed: string | null;
+  readonly fix: WriterFix | null;
+  readonly ask: WriterAsk | null;
+}
+
+/**
+ * The writer's answer as the form reads it, whatever version froze it
+ * (R10, TD5 of the review in the writer's words): the parts of version 4,
+ * each null when the answer has none, because the checks dropped it or
+ * its version does not have it. `recordedAnswerOf` reads an answer of
+ * any version into it, so the form has no branch by version.
+ */
+export interface RecordedAnswer {
+  readonly core: Core | null;
+  readonly conditions: readonly ConditionSentence[] | null;
+  readonly summary: string | null;
+  readonly areas: readonly Area[] | null;
+  readonly findings: readonly (RecordedFinding | UnexplainedFinding)[];
+  readonly left: readonly LeftLine[] | null;
+  readonly refuted: readonly RefutedLine[] | null;
+  readonly notExamined: string | null;
+}
+
+/**
+ * The recorded answer of an explanation, read by the version of its event
+ * into the one shape the form reads (TD5 of the review in the writer's
+ * words), or null when no answer passed any part. An answer of version 4
+ * is that shape. From an older one it takes what the older version
+ * holds: from version 3 the core and the conditions; from versions 2 and
+ * 3 the areas, the refuted lines and each finding's `checked` and `kind`;
+ * from every version the summary, as `conclusion.why`, and each finding's
+ * title, problem, cases and diagram, with its sentence of what
+ * deep-review would do from `conclusion.actions` when `review` decided
+ * the finding `fix`. The sentence of a question, which the checks of
+ * versions 1 to 3 did not hold, and the account of version 1 are not
+ * taken.
+ */
+export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>, review: Pick<ReviewState, 'decisions'>): RecordedAnswer | null {
   if (recorded.answer === null) return null;
-  // The form reads an answer of the fourth form when it is built on it; until then, no run is configured to give one.
-  if (recorded.version === 4) throw new Error('An explanation recorded at version 4 is read by `frozenAnswerV4Of`');
+  if (recorded.version === 4) return frozenAnswerV4Of(recorded, evidence);
   const frozen: unknown = JSON.parse(evidence.read(recorded.answer).toString('utf8'));
-  if (recorded.version === 3) return { ...recordedAnswerSchemaV3.parse(frozen), account: null };
-  if (recorded.version === 2) return { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null };
-  const answer = recordedAnswerSchema.parse(frozen);
-  return { ...answer, areas: null, refuted: null, core: null, conditions: null, findings: answer.findings.map((finding) => (finding.unexplained ? finding : { ...finding, checked: null, kind: null })) };
+  const older: OlderAnswer = recorded.version === 3
+    ? { ...recordedAnswerSchemaV3.parse(frozen), account: null }
+    : recorded.version === 2
+      ? { ...recordedAnswerSchemaV2.parse(frozen), account: null, core: null, conditions: null }
+      : (({ findings, ...answer }) => ({ ...answer, areas: null, refuted: null, core: null, conditions: null, findings: findings.map((finding) => (finding.unexplained ? finding : { ...finding, checked: null, kind: null })) }))(recordedAnswerSchema.parse(frozen));
+  const fixes = new Set((review.decisions ?? []).filter((decision) => decision.decision === 'fix').map((decision) => decision.id));
+  const actionOf = (id: string): string | null => (fixes.has(id) ? older.conclusion?.actions.find((action) => action.id === id)?.sentence ?? null : null);
+  return {
+    core: older.core,
+    conditions: older.conditions,
+    summary: older.conclusion?.why ?? null,
+    areas: older.areas,
+    findings: older.findings.map((finding): RecordedFinding | UnexplainedFinding => (finding.unexplained ? finding : {
+      id: finding.id,
+      unexplained: false,
+      title: finding.title,
+      problem: finding.problem,
+      cases: finding.cases,
+      diagram: finding.diagram,
+      checked: finding.checked,
+      kind: finding.kind,
+      action: actionOf(finding.id),
+      unconfirmed: null,
+      fix: null,
+      ask: null,
+    })),
+    left: null,
+    refuted: older.refuted,
+    notExamined: null,
+  };
 }
 
 /** The answer as the evidence store freezes it at `version`: the parts that version has, each finding in its shape. */
-function frozenAnswer(version: ExplanationVersion, { conclusion, account, areas, refuted: lines, core, conditions, findings }: RecordedAnswer): object {
+function frozenAnswer(version: ExplanationVersion, { conclusion, account, areas, refuted: lines, core, conditions, findings }: OlderAnswer): object {
   if (version === 3) return { conclusion, areas, refuted: lines, core, conditions, findings };
   if (version === 2) return { conclusion, areas, refuted: lines, findings };
   return { conclusion, account, findings: findings.map((finding) => (finding.unexplained ? finding : (({ checked: _checked, kind: _kind, ...rest }) => rest)(finding))) };
@@ -250,7 +326,7 @@ function recordedFailures(failures: readonly string[], extra: readonly string[])
 
 /** What the merge of a unit's answers keeps, and each part none of them passed. */
 export interface MergedAnswer {
-  readonly answer: RecordedAnswer;
+  readonly answer: OlderAnswer;
   readonly dropped: readonly DroppedPart[];
 }
 

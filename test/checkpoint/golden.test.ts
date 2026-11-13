@@ -457,8 +457,8 @@ describe('golden checkpoints', () => {
       assert.deepEqual([design?.verdict, design?.unconfirmed?.kind, design?.authorChoice], ['PLAUSIBLE', 'choice', 'export the helper for callers, or keep it private to the module']);
       assert.deepEqual(['SCAN-1', 'SCAN-2'].map((id) => [review.candidates[id]?.verdict?.verdict, review.candidates[id]?.verdict?.unconfirmed, review.candidates[id]?.verdict?.authorChoice]), [['CONFIRMED', null, null], ['REFUTED', null, null]]);
       assert.deepEqual([run.explanation?.version, run.explanation?.dropped.map((part) => part.part)], [2, ['refuted']]);
-      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence);
-      assert.deepEqual([answer?.account, answer?.refuted, answer?.areas?.map((area) => area.findings)], [null, null, [['SCAN-1']]], 'the frozen answer reads as version 2');
+      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence, review);
+      assert.deepEqual([answer?.core, answer?.left, answer?.refuted, answer?.areas?.map((area) => area.findings)], [null, null, null, [['SCAN-1']]], 'the frozen answer of version 2 reads into the one shape');
       assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.id, finding.kind])), [['SCAN-1', null], ['DESIGN-1', 'code']]);
       assert.deepEqual(review.phases.explanation, { status: 'degraded', attempt: 1 });
       const older = runs.find((candidate) => candidate.worktree === '/fixture/pull-request');
@@ -508,8 +508,10 @@ describe('golden checkpoints', () => {
       const reading = review.change.kind === 'given' ? review.change.reading : null;
       assert.deepEqual([reading?.publicInterface.holds, reading?.wideEffect.holds], [true, true]);
       assert.deepEqual([run.explanation?.version, run.explanation?.dropped.map((part) => part.part)], [3, ['conditions']]);
-      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence);
-      assert.deepEqual([answer?.core?.title, answer?.core?.whyFrom, answer?.conditions, answer?.account], ['changed() accepts an empty input', ['222222222222', 'src/changed.ts'], null, null], 'the frozen answer reads as version 3');
+      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence, review);
+      assert.deepEqual([answer?.core?.title, answer?.core?.whyFrom, answer?.conditions, answer?.notExamined], ['changed() accepts an empty input', ['222222222222', 'src/changed.ts'], null, null], 'the frozen answer of version 3 reads into the one shape');
+      const fix = answer?.findings.find((finding) => finding.id === 'SCAN-1');
+      assert.deepEqual(fix?.unexplained === false ? [fix.action, fix.fix, fix.ask] : null, ['deep-review would guard the null before changed() reads it.', null, null], 'a fix takes its action from the conclusion');
       assert.deepEqual(review.phases.explanation, { status: 'degraded', attempt: 1 });
       for (const worktree of ['/fixture/report-form', '/fixture/pull-request']) assert.equal(runs.find((candidate) => candidate.worktree === worktree)?.review?.coreForm, false, `${worktree}, configured before version 12, keeps its answers`);
     });
@@ -528,7 +530,8 @@ describe('golden checkpoints', () => {
       const { review } = run;
       assert.deepEqual([review.writtenForm, review.coreForm, review.reportForm, review.explanationStep], [true, true, true, true]);
       assert.deepEqual([run.explanation?.version, run.explanation?.dropped.map((part) => part.part)], [4, ['not-examined']]);
-      const answer = frozenAnswerV4Of(run.explanation!, checkpoint.evidence);
+      const answer = recordedAnswerOf(run.explanation!, checkpoint.evidence, review);
+      assert.deepEqual(answer, frozenAnswerV4Of(run.explanation!, checkpoint.evidence), 'an answer of version 4 is the one shape');
       assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.id, finding.fix === null ? null : 'fix', finding.ask?.options.length ?? null])), [['SCAN-1', 'fix', null], ['SCAN-3', null, 2]], 'the frozen answer reads as version 4');
       assert.deepEqual([answer?.left?.map((line) => line.id), answer?.notExamined, answer?.summary?.startsWith('The review found')], [['SCAN-2'], null, true]);
       assert.deepEqual(review.phases.explanation, { status: 'degraded', attempt: 1 });

@@ -450,7 +450,7 @@ describe('the explanation phase of a run whose writer writes the review', () => 
     const frozen = frozenAnswerV4Of(explanation, fixture.evidence);
     assert.deepEqual([frozen?.summary, frozen?.left, frozen?.notExamined], [answer.summary, answer.left, answer.notExamined]);
     assert.deepEqual(frozen?.findings, [{ id: 'RIPPLE-1', unexplained: false, ...answer.findings[0]!.explanation! }]);
-    assert.throws(() => recordedAnswerOf(explanation, fixture.evidence), /is read by `frozenAnswerV4Of`/);
+    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence, writing().review()), frozen, 'an answer of version 4 is the one shape the form reads');
   });
 
   it('refuses an answer a part of which fails while the unit has an attempt left, and drops that part alone on the last', () => {
@@ -548,8 +548,9 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     assert.equal(explanation.workerId, worker(62));
     assert.deepEqual(explanation.dropped, []);
     assert.deepEqual(explanation.unexplained, []);
-    const answer = recordedAnswerOf(explanation, fixture.evidence);
-    assert.deepEqual(answer?.conclusion, goodAnswer().conclusion);
+    const answer = recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review());
+    const ripple = answer?.findings.find((finding) => finding.id === 'RIPPLE-1');
+    assert.deepEqual([answer?.summary, ripple?.unexplained === false ? ripple.action : null], [goodAnswer().conclusion.why, goodAnswer().conclusion.actions.find((action) => action.id === 'RIPPLE-1')!.sentence], 'the summary and the action of a fix, read into the one shape');
     assert.deepEqual(answer?.findings.map((finding) => [finding.id, finding.unexplained]), [['RIPPLE-1', false]]);
     const after = decided(fixture).start('explanation').worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodAnswer())) }).add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'completed', blocker: null }, 'an explanation no part of which was dropped does not degrade the phase');
@@ -560,7 +561,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     answer.findings[0] = { id: 'RIPPLE-1', explanation: null, unexplained: 'Its evidence names no line it reads.' };
     const explanation = recorded(contribution(decided(fixture).start('explanation'), fixture, receipt(answer))[0]);
     assert.deepEqual(explanation.unexplained, ['RIPPLE-1']);
-    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence)?.findings, [{ id: 'RIPPLE-1', unexplained: true, reason: 'Its evidence names no line it reads.' }]);
+    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review())?.findings, [{ id: 'RIPPLE-1', unexplained: true, reason: 'Its evidence names no line it reads.' }]);
   });
 
   it('refuses an answer that fails a check on the unit\'s first attempt, naming each part, and gives the next writer the failures', () => {
@@ -591,8 +592,8 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const explanation = recorded(contribution(history, fixture, receipt(second))[0]);
     assert.equal(explanation.workerId, worker(62), 'the writer whose answer completed the unit');
     assert.deepEqual(explanation.dropped, [{ part: 'finding', finding: 'RIPPLE-1', failures: ['case 1 of RIPPLE-1 cites src/also-missing.ts at the head, which holds no such file'] }]);
-    const answer = recordedAnswerOf(explanation, fixture.evidence);
-    assert.equal(answer?.conclusion?.why, first.conclusion.why, 'the conclusion the first answer passed is kept over the second one\'s');
+    const answer = recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review());
+    assert.equal(answer?.summary, first.conclusion.why, 'the conclusion the first answer passed is kept over the second one\'s');
     assert.deepEqual(answer?.findings, []);
     // A case on removed code cites the merge base, which holds it.
     const removed = goodAnswer();
@@ -624,7 +625,7 @@ describe('the explanation phase (R18, R19, TD8)', () => {
     const explanation = recorded(event);
     assert.equal(explanation.workerId, null, 'the phase degraded without an answer that completed it');
     assert.deepEqual(explanation.dropped, [{ part: 'account', failures: ['the account says no problem before the change', reason] }]);
-    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence)?.findings.map((finding) => finding.id), ['RIPPLE-1']);
+    assert.deepEqual(recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review())?.findings.map((finding) => finding.id), ['RIPPLE-1']);
     const after = history.add('explanation.recorded', payloadOf(explanation), explanation.version);
     assert.deepEqual(nextStep(after.review(), idle), { kind: 'finish-phase', phase: 'explanation', attempt: 1, outcome: 'degraded', blocker: null });
     assert.deepEqual(nextStep(after.finish('explanation', 'degraded').review(), idle), { kind: 'start-phase', phase: 'report', attempt: 1 }, 'the run writes its report');
@@ -982,8 +983,8 @@ describe('the explanation phase of a run whose review reads as a report (R4, R10
     assert.deepEqual([event?.kind, event?.version], ['explanation.recorded', 2]);
     const explanation = recorded(event);
     assert.deepEqual(explanation.dropped, []);
-    const answer = recordedAnswerOf(explanation, fixture.evidence);
-    assert.deepEqual([answer?.account, answer?.areas, answer?.refuted], [null, goodReport().areas, goodReport().refuted]);
+    const answer = recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review());
+    assert.deepEqual([answer?.left, answer?.areas, answer?.refuted], [null, goodReport().areas, goodReport().refuted]);
     const checked = 'The verifier traced an empty file from the caller to the read on line 4.';
     assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.id, finding.checked, finding.kind])), [['RIPPLE-1', checked, null], ['SWEEP-1', checked, 'code']]);
     const after = history.worker(62, 'writer explanation:explanation', { output: fixture.evidence.put(JSON.stringify(goodReport())) }).add('explanation.recorded', payloadOf(explanation), explanation.version);
@@ -1004,14 +1005,14 @@ describe('the explanation phase of a run whose review reads as a report (R4, R10
     const explanation = recorded(contribution(retried, fixture, receipt(bad))[0]);
     assert.equal(explanation.version, 2);
     assert.deepEqual(explanation.dropped, [{ part: 'areas', failures: ['the areas leave out RIPPLE-1, a major finding that asks a person to act'] }]);
-    assert.equal(recordedAnswerOf(explanation, fixture.evidence)?.areas, null);
+    assert.equal(recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review())?.areas, null);
   });
 
-  it('reads an answer of version 1 with no areas, no refuted lines, and no note on a finding', () => {
+  it('reads an answer of version 1 with no areas, no refuted lines and no note on a finding, its summary from its conclusion, and not its account', () => {
     const v1 = recorded(contribution(decided(fixture).start('explanation'), fixture, receipt(goodAnswer()))[0]);
     assert.equal(v1.version, 1);
-    const answer = recordedAnswerOf(v1, fixture.evidence);
-    assert.deepEqual([answer?.areas, answer?.refuted, answer?.account], [null, null, goodAnswer().account]);
+    const answer = recordedAnswerOf(v1, fixture.evidence, decided(fixture).review());
+    assert.deepEqual([answer?.areas, answer?.refuted, answer?.summary], [null, null, goodAnswer().conclusion.why]);
     assert.deepEqual(answer?.findings.map((finding) => (finding.unexplained ? null : [finding.checked, finding.kind])), [[null, null]]);
   });
 });
@@ -1191,8 +1192,8 @@ describe('the explanation phase of a run whose review opens with the core of the
     const [event] = contributionAt(state, receipt(sourced));
     const explanation = recorded(event);
     assert.deepEqual([explanation.version, explanation.dropped], [3, []]);
-    const answer = recordedAnswerOf(explanation, fixture.evidence);
-    assert.deepEqual([answer?.core, answer?.conditions, answer?.account], [sourced.core, sourced.conditions, null]);
+    const answer = recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review());
+    assert.deepEqual([answer?.core, answer?.conditions, answer?.notExamined], [sourced.core, sourced.conditions, null]);
     const [failure] = contributionAt(state, receipt(answered(goodCore({ whyFrom: [fixture.base.slice(0, 12)] }))));
     assert.equal(failure?.kind, 'attempt.failed');
     assert.match((failure?.payload as { reason: string }).reason, new RegExp(`core: the core's reason names "${fixture.base.slice(0, 12)}", which begins no commit of the change`), 'the base is no commit of the change');
@@ -1209,7 +1210,7 @@ describe('the explanation phase of a run whose review opens with the core of the
     assert.match(task, /^- conditions: the conditions give no entry for public-interface, which the triage judged to hold$/m);
     const explanation = recorded(contributionAt(retriedState, receipt(bad))[0]);
     assert.deepEqual(explanation.dropped.map((part) => part.part), ['core', 'conditions']);
-    const answer = recordedAnswerOf(explanation, fixture.evidence);
+    const answer = recordedAnswerOf(explanation, fixture.evidence, decided(fixture).review());
     assert.deepEqual([answer?.core, answer?.conditions, answer?.areas?.length], [null, null, 1]);
   });
 });

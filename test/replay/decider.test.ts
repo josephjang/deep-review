@@ -207,9 +207,9 @@ describe('replayDecider', { timeout: 600_000 }, () => {
     const review = read(output, reviewFileName);
     assert.ok(review.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42`), review);
     const body = review.slice(review.indexOf('--- The body of the review'), review.indexOf('--- The end of the body ---'));
-    assert.match(body, /### What needs a person\n\n- \*\*\[Question on finding 1\]\(.*\)\.\*\* Fake question for \[0\]\?/, 'what needs a person asks the question');
-    assert.ok(body.includes(`Its verifier left this choice to the author: ${sweepChoice} deep-review did not settle it.`), 'the verifier\'s choice of the finding left as is is shown');
-    assert.ok(body.includes('deep-review recorded no explanation by its writer for this run'), 'the review is in deep-review\'s own words');
+    assert.match(body, /### What needs a person\n\n- \*\*Question: \[Finding 1\]\(.*\)\.\*\* In the words of deep-review's decider: Fake question for \[0\]\?/, 'what needs a person asks the question in the decider\'s recorded words');
+    assert.ok(body.includes(`Choice its verifier left to the author: ${sweepChoice} Settled as: not settled by deep-review`), 'the verifier\'s choice of the finding left as is is shown');
+    assert.ok(body.includes('deep-review recorded no explanation by its writer for this run, so the review gives the record and the other workers\' own words.'), 'the review gives the record and the workers\' recorded words');
     assert.match(review, /^--- The comment of finding 2 \(SCAN-2\) on src\/b\.ts:1, /m);
     const facts = JSON.parse(read(output, factsFileName)) as { needsAPerson: unknown; fixes: unknown; choices: { id: string; decision: string; settled: unknown[]; unanswered: unknown[] }[] };
     assert.deepEqual(facts.needsAPerson, { questions: [{ finding: 1, id: 'SCAN-1', question: 'fake question for [0]?' }], departures: [] });

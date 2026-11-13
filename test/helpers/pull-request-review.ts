@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
-import type { ExplainedFinding, RecordedAnswer } from '../../src/review/explanation.ts';
+import type { RecordedAnswer, RecordedFinding } from '../../src/review/explanation.ts';
 import { pullRequestForm, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { placeFindings, type PullRequestFormInput } from '../../src/review/pull-request-view.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
@@ -64,25 +64,27 @@ export function pullRequestRunBeforeExplanation(): History {
 /** The run's state with the triage's account of the change, which the histories here record none of. */
 export const withAccount = (state: RunState): RunState => ({ ...state, review: { ...state.review!, change: { kind: 'given', reading: changeReading as never } } });
 
-/** A recorded answer that kept its conclusion and its account. */
-export type WholeAnswer = Omit<RecordedAnswer, 'conclusion' | 'account'> & { conclusion: NonNullable<RecordedAnswer['conclusion']>; account: NonNullable<RecordedAnswer['account']> };
+/** A finding the writer explained, as a test edits it. */
+export type WrittenFinding = { -readonly [K in keyof RecordedFinding]: RecordedFinding[K] };
 
-/** The writer's answer for a run whose fix is RIPPLE-1 and whose question is SWEEP-1: every part passed, and SWEEP-1 marked unexplained. */
+/** A recorded answer as a test edits it: every part of the one shape, each list a mutable array. */
+export interface WholeAnswer {
+  core: RecordedAnswer['core'];
+  conditions: RecordedAnswer['conditions'];
+  summary: string | null;
+  areas: RecordedAnswer['areas'];
+  findings: (WrittenFinding | { id: string; unexplained: true; reason: string })[];
+  left: RecordedAnswer['left'];
+  refuted: RecordedAnswer['refuted'];
+  notExamined: string | null;
+}
+
+/** The writer's answer for a run whose fix against a written rule is RIPPLE-1 and whose question is SWEEP-1: every part passed, and SWEEP-1 marked unexplained. */
 export const writerAnswer = (): WholeAnswer => ({
-  conclusion: {
-    why: 'An empty input still crashes parse(), and the author must choose how parse treats one.',
-    actions: [{ id: 'SWEEP-1', sentence: 'Choose whether parse accepts an empty input.' }, { id: 'RIPPLE-1', sentence: 'Guard the null before parse reads it.' }],
-    diagram: 'flowchart LR\n  A["empty input"] --> B["parse()"]',
-  },
-  account: {
-    terms: [{ term: '`parse()`', meaning: 'reads a file into a value.' }],
-    problem: { text: 'An empty file made parse() throw.', diagram: 'flowchart LR\n  E["empty file"] --> T["throw"]' },
-    change: { text: 'parse() returns null for an empty file.', diagram: null },
-  },
-  areas: null,
-  refuted: null,
   core: null,
   conditions: null,
+  summary: 'An empty input still crashes parse(), and the author must choose how parse treats one.',
+  areas: null,
   findings: [
     {
       id: 'RIPPLE-1',
@@ -91,12 +93,18 @@ export const writerAnswer = (): WholeAnswer => ({
       problem: 'A caller that passes an empty file meets a crash.',
       cases: [{ sentence: 'An empty file reaches the read on line 4', lines: { side: 'head', path: 'src/a.ts', from: 3, to: 4 } }, { sentence: 'The removed guard stood here', lines: { side: 'base', path: 'src/gone.ts', from: 2, to: 2 } }],
       diagram: 'sequenceDiagram\n  Caller->>parse: an empty file\n  parse-->>Caller: crash',
-      decision: 'deep-review would guard the null once, so every caller is safe.',
       checked: null,
       kind: null,
+      action: 'Guard the null before parse reads it.',
+      unconfirmed: null,
+      fix: { text: 'The fix guards the null once, so every caller is safe.', departure: 'The rule says each caller guards its own input; the fix guards it once in parse() instead, since every caller passes the same file.' },
+      ask: null,
     },
     { id: 'SWEEP-1', unexplained: true, reason: 'Its evidence names no line of the head.' },
   ],
+  left: null,
+  refuted: null,
+  notExamined: null,
 });
 
 /** The writer's answer with one area for RIPPLE-1, the major fix, drawn by `diagram`. */
@@ -117,7 +125,7 @@ export const longFindingHistory = (): History => rewritten(pullRequestRun([decis
 /** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
 export const paddedAnswer = (pad: number, diagram = true): RecordedAnswer => {
   const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
-  const fix = said.findings[0] as ExplainedFinding;
+  const fix = said.findings[0] as WrittenFinding;
   return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
 };
 
