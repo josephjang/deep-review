@@ -23865,8 +23865,8 @@ function heldByAnother(holders, path, own2) {
   return [...holders.get(path) ?? []].some((cluster) => cluster !== own2);
 }
 function lastAnswerOf(fix, id) {
-  const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(b) - passNumber(a));
-  for (const key of passes) {
+  const passes2 = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(b) - passNumber(a));
+  for (const key of passes2) {
     const finding = fix.answers.answer[key].findings.find((candidate) => candidate.id === id);
     if (finding !== void 0) return { phase: "answer", key, finding };
   }
@@ -29240,7 +29240,7 @@ function findingWords(numbers) {
   }
   return `${sorted.length === 1 ? "finding" : "findings"} ${listed(runs)}`;
 }
-var tableCell, inlineText, counted, listed, capitalized, labeledValue, valueList, factsLine, findingAnchor, checkAnchor, sentenceText, windowsPath, scratchPatterns, findingNamed;
+var tableCell, inlineText, counted, listed, capitalized, labeledValue, valueList, sentenceEnd, factsLine, findingAnchor, checkAnchor, sentenceText, windowsPath, scratchPatterns, findingNamed;
 var init_markdown = __esm({
   "src/review/markdown.ts"() {
     "use strict";
@@ -29251,12 +29251,13 @@ var init_markdown = __esm({
     capitalized = (text3) => `${text3.charAt(0).toUpperCase()}${text3.slice(1)}`;
     labeledValue = (label, value) => `${label}: ${value}`;
     valueList = (values) => values.join(", ");
-    factsLine = (facts) => facts.map(([label, value]) => `${labeledValue(label, value)}${/[.?!]$/.test(value) ? "" : "."}`).join(" ");
+    sentenceEnd = /[.!?。！？．…][)\]"'”’」』）]*$/u;
+    factsLine = (facts) => facts.map(([label, value]) => `${labeledValue(label, value)}${sentenceEnd.test(value) ? "" : "."}`).join(" ");
     findingAnchor = (number5) => `finding-${String(number5)}`;
     checkAnchor = (kind) => `check-${kind}`;
     sentenceText = (text3) => {
       const inline = inlineText(text3).trimEnd();
-      if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+      if (sentenceEnd.test(inline)) return inline;
       return `${inline.replace(/[:,;]$/, "")}.`;
     };
     windowsPath = (path) => /^[A-Za-z]:|\\/.test(path);
@@ -35124,17 +35125,23 @@ function checkAccount(account) {
     ...diagramFailuresOf("the diagram of the change", account.change.diagram)
   ];
 }
-function checkFinding(id, entries, lineCount, major) {
-  const refused = (failure2) => ({ value: null, failures: [failure2] });
+function singleEntry(id, entries) {
+  const refused = (failure2) => ({ settled: { value: null, failures: [failure2] } });
   if (entries.length === 0) return refused(`the answer does not explain ${id}`);
   if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
   const { explanation, unexplained } = entries[0];
   if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
   if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
   if (unexplained !== null) {
-    const failures2 = [...blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : [], ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
-    return { value: { id, unexplained: true, reason: unexplained }, failures: failures2 };
+    const failures = [...blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : [], ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
+    return { settled: { value: { id, unexplained: true, reason: unexplained }, failures } };
   }
+  return { explanation };
+}
+function checkFinding(id, entries, lineCount, major) {
+  const entry = singleEntry(id, entries);
+  if ("settled" in entry) return entry.settled;
+  const { explanation } = entry;
   const { title, problem, cases, diagram, decision } = explanation;
   const checked = "checked" in explanation ? explanation.checked : null;
   const kind = "kind" in explanation ? explanation.kind : null;
@@ -35320,7 +35327,8 @@ function decisionTextFailures(id, fix, ask, facts) {
       ...ask === null ? [] : [`${id} is decided fix and gives a question, which only a finding decided ask has`],
       ...blank(fix.text) ? [`the fix of ${id} says not what it changes`] : [],
       ...facts.departs && (fix.departure === null || blank(fix.departure)) ? [`${id} departs from a written rule, and its fix does not say the rule, the fact against it and what the fix does instead`] : [],
-      ...!facts.departs && fix.departure !== null ? [`${id} departs from no written rule, and its fix gives the text of a departure`] : []
+      ...!facts.departs && fix.departure !== null && blank(fix.departure) ? [`${id} gives an empty departure; give null, since it departs from no written rule`] : [],
+      ...!facts.departs && fix.departure !== null && !blank(fix.departure) ? [`${id} departs from no written rule, and its fix gives the text of a departure`] : []
     ];
   }
   if (ask === null) return [`${id} is decided ask and gives no question`, ...fix === null ? [] : [`${id} is decided ask and gives a fix, which only a finding decided fix has`]];
@@ -35332,17 +35340,9 @@ function decisionTextFailures(id, fix, ask, facts) {
   ];
 }
 function checkFindingV4(id, entries, lineCount, major, facts) {
-  const refused = (failure2) => ({ value: null, failures: [failure2] });
-  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
-  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
-  const { explanation, unexplained } = entries[0];
-  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
-  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
-  if (unexplained !== null) {
-    const failures2 = [...blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : [], ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
-    return { value: { id, unexplained: true, reason: unexplained }, failures: failures2 };
-  }
-  const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = explanation;
+  const entry = singleEntry(id, entries);
+  if ("settled" in entry) return entry.settled;
+  const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = entry.explanation;
   const posted = major;
   const postedCases = posted ? cases : [];
   const postedChecked = posted ? checked : null;
@@ -35362,7 +35362,8 @@ function checkFindingV4(id, entries, lineCount, major, facts) {
     ...blank(action) ? [`${id} says not what deep-review would do`] : [],
     ...decisionTextFailures(id, fix, ask, facts),
     ...facts.unconfirmed && (unconfirmed === null || blank(unconfirmed)) ? [`${id} has a PLAUSIBLE verdict whose verifier says why it is not confirmed, and the explanation does not say why`] : [],
-    ...!facts.unconfirmed && unconfirmed !== null ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : [],
+    ...!facts.unconfirmed && unconfirmed !== null && blank(unconfirmed) ? [`${id} gives an empty unconfirmed; give null, since its verdict records no reason it is not confirmed`] : [],
+    ...!facts.unconfirmed && unconfirmed !== null && !blank(unconfirmed) ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : [],
     ...verdictFailures(`the explanation of ${id}`, [title, problem, action, postedDiagram ?? "", postedChecked ?? "", ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
     ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram)
   ];
@@ -35486,9 +35487,8 @@ function recordedFailures(failures, extra) {
   const all = [...failures, ...extra];
   return (all.length === 0 ? ["no answer of the writer gave it"] : all).slice(0, maxPartFailures).map((failure2) => truncated(failure2, recordedTextLengthV1));
 }
-function mergeAnswers(version2, answers, ids2, extra = []) {
+function merger(extra) {
   const dropped = [];
-  const passes = (part) => part !== null && part.value !== null && part.failures.length === 0;
   const pick2 = (parts, drop) => {
     const given = parts.filter((part) => part !== null);
     const passed = given.find(passes);
@@ -35496,9 +35496,15 @@ function mergeAnswers(version2, answers, ids2, extra = []) {
     dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
     return null;
   };
-  const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
-  const areasFrom = version2 === 1 ? void 0 : paired ?? answers.find((answer3) => passes(answer3.areas));
-  const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
+  return { pick: pick2, dropped };
+}
+function summarySource(answers) {
+  const from = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas)) ?? answers.find((answer3) => passes(answer3.areas));
+  return from === void 0 ? answers : [from];
+}
+function mergeAnswers(version2, answers, ids2, extra = []) {
+  const { pick: pick2, dropped } = merger(extra);
+  const pairedSource = version2 === 1 ? answers : summarySource(answers);
   const conclusion = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
   const account = version2 === 1 ? pick2(answers.map((answer3) => answer3.account), (failures) => ({ part: "account", failures })) : null;
   const areas = version2 === 1 ? null : pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures }));
@@ -35512,17 +35518,8 @@ function mergeAnswers(version2, answers, ids2, extra = []) {
   return { answer: { conclusion, account, areas, refuted: lines, core, conditions, findings }, dropped };
 }
 function mergeAnswersV4(answers, ids2, extra = []) {
-  const dropped = [];
-  const passes = (part) => part.value !== null && part.failures.length === 0;
-  const pick2 = (parts, drop) => {
-    const passed = parts.find(passes);
-    if (passed !== void 0) return passed.value;
-    dropped.push(drop(recordedFailures(parts.at(-1)?.failures ?? [], extra)));
-    return null;
-  };
-  const paired = answers.find((answer3) => passes(answer3.conclusion) && passes(answer3.areas));
-  const areasFrom = paired ?? answers.find((answer3) => passes(answer3.areas));
-  const pairedSource = areasFrom === void 0 ? answers : [areasFrom];
+  const { pick: pick2, dropped } = merger(extra);
+  const pairedSource = summarySource(answers);
   const summary = pick2(pairedSource.map((answer3) => answer3.conclusion), (failures) => ({ part: "conclusion", failures }));
   const areas = pick2(pairedSource.map((answer3) => answer3.areas), (failures) => ({ part: "areas", failures }));
   const core = pick2(answers.map((answer3) => answer3.core), (failures) => ({ part: "core", failures }));
@@ -35554,10 +35551,7 @@ function requireReview2(state) {
   if (state.review === null || !state.review.explanationStep) throw new Error(`Run ${state.id} does not explain its review`);
   return state.review;
 }
-function earlierAnswers(state, review2, evidence) {
-  const version2 = explanationVersionOf(review2);
-  if (version2 === 4) throw new Error(`Run ${state.id} has its writer answer in the fourth form, whose answers \`checkedAnswersV4\` reads`);
-  const schema = writerOutputSchemaOf(version2);
+function earlierAnswers(state, review2, evidence, schema) {
   return writerFailures(review2).flatMap((failure2) => {
     const worker = Object.hasOwn(state.workers, failure2.workerId) ? state.workers[failure2.workerId] : void 0;
     if (worker?.status !== "finished" || worker.finish.output === null) return [];
@@ -35565,13 +35559,17 @@ function earlierAnswers(state, review2, evidence) {
     return parsed2.success ? [parsed2.data] : [];
   });
 }
-function checkedAnswers(state, review2, context, ids2, latest) {
-  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const answers = [...earlierAnswers(state, review2, context.evidence), ...latest === null ? [] : [latest]];
+function citedLineCounts(worktree, scope, answers) {
   const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
   const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
-  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
+  return gitLineCounts(worktree, scope, { head: citedAt("head"), base: citedAt("base") });
+}
+function checkedAnswers(state, review2, context, ids2, latest) {
+  if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
   const version2 = explanationVersionOf(review2);
+  if (version2 === 4) throw new Error(`Run ${state.id} has its writer answer in the fourth form, whose answers \`checkedAnswersV4\` reads`);
+  const answers = [...earlierAnswers(state, review2, context.evidence, writerOutputSchemaOf(version2)), ...latest === null ? [] : [latest]];
+  const lineCount = citedLineCounts(context.worktree, state.scope, answers);
   const report2 = version2 === 1 ? {} : { report: reportCheckInputOf(review2) };
   const core = version2 === 3 && answers.length > 0 ? { core: coreCheckInputOf(review2, state.scope, context.worktree) } : {};
   return answers.map((answer3) => checkAnswer(answer3, { ids: ids2, lineCount, ...report2, ...core }));
@@ -35597,18 +35595,9 @@ function decisionFactsOf(review2) {
 }
 function checkedAnswersV4(state, review2, context, ids2, latest) {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const earlier = writerFailures(review2).flatMap((failure2) => {
-    const worker = Object.hasOwn(state.workers, failure2.workerId) ? state.workers[failure2.workerId] : void 0;
-    if (worker?.status !== "finished" || worker.finish.output === null) return [];
-    const parsed2 = writerOutputSchemaV4.safeParse(JSON.parse(context.evidence.read(worker.finish.output).toString("utf8")));
-    return parsed2.success ? [parsed2.data] : [];
-  });
-  const answers = [...earlier, ...latest];
+  const answers = [...earlierAnswers(state, review2, context.evidence, writerOutputSchemaV4), ...latest];
   if (answers.length === 0) return [];
-  const cited = answers.flatMap((answer3) => answer3.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited2) => cited2.lines));
-  const citedAt = (side) => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
-  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt("head"), base: citedAt("base") });
-  const input2 = { ids: ids2, lineCount, report: reportCheckInputOf(review2), core: coreCheckInputOf(review2, state.scope, context.worktree), decided: decisionFactsOf(review2), left: findingsLeftAsIs(review2) };
+  const input2 = { ids: ids2, lineCount: citedLineCounts(context.worktree, state.scope, answers), report: reportCheckInputOf(review2), core: coreCheckInputOf(review2, state.scope, context.worktree), decided: decisionFactsOf(review2), left: findingsLeftAsIs(review2) };
   return answers.map((answer3) => checkAnswerV4(answer3, input2));
 }
 function coreCheckInputOf(review2, scope, worktree) {
@@ -35652,7 +35641,7 @@ function reviewLanguage(review2) {
   const values = review2.configuration.settings?.values;
   return values !== void 0 && "review.language" in values ? values["review.language"] : defaultLanguage;
 }
-var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, writerOutputShapeV4, explanationShape, explanationShapeV2, explanationShapeV4, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, recordedAnswerSchemaV4, isMajor, maxPartFailures, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, isPartV4, keptAnyV4, writerUnit, writerFailures;
+var writerOutputShape, writerOutputShapeV2, writerOutputShapeV3, writerOutputShapeV4, explanationShape, explanationShapeV2, explanationShapeV4, explainedFindingSchema, explainedFindingSchemaV2, unexplainedFindingSchema, recordedAnswerSchema, recordedAnswerSchemaV2, recordedAnswerSchemaV3, recordedAnswerSchemaV4, isMajor, maxPartFailures, passes, keptAny, partNameOf, isPartV1, isPartV2, isPartV3, isPartV4, keptAnyV4, writerUnit, writerFailures;
 var init_explanation = __esm({
   "src/review/explanation.ts"() {
     "use strict";
@@ -35705,6 +35694,7 @@ var init_explanation = __esm({
     });
     isMajor = (entry) => entry.finding.severity !== "minor";
     maxPartFailures = 100;
+    passes = (part) => part !== null && part.value !== null && part.failures.length === 0;
     keptAny = ({ answer: answer3 }) => answer3.conclusion !== null || answer3.account !== null || answer3.areas !== null || answer3.refuted !== null || answer3.core !== null || answer3.conditions !== null || answer3.findings.length > 0;
     partNameOf = (part) => part.part === "finding" ? `finding ${part.finding}` : part.part;
     isPartV1 = (part) => part.part === "conclusion" || part.part === "account" || part.part === "finding";
@@ -37154,9 +37144,9 @@ function heldOutcome(decision) {
   if (decision.decision === "ask") return "asked, kept as is";
   throw new Error(`Finding ${decision.id} is decided fix but held from every fixer`);
 }
-function fateOf(review2, fix, id, passes = "read") {
-  const fixes = passes === "skipped" ? lastFixesAnswerOf(fix, id) : null;
-  const last = passes === "read" ? lastAnswerOf(fix, id) : fixes === null ? null : { phase: "fixes", ...fixes };
+function fateOf(review2, fix, id, passes2 = "read") {
+  const fixes = passes2 === "skipped" ? lastFixesAnswerOf(fix, id) : null;
+  const last = passes2 === "read" ? lastAnswerOf(fix, id) : fixes === null ? null : { phase: "fixes", ...fixes };
   if (last?.phase === "answer") {
     const pass = passOf(review2, last.key);
     if (pass === null) throw new Error(`Finding ${id} is answered by ${last.key}, which no answer pass has`);
@@ -37197,8 +37187,8 @@ function answersFor(fix, id) {
     const finding = batch.findingIds.includes(id) ? fix.answers.fixes[batch.key]?.findings.find((candidate) => candidate.id === id) : void 0;
     return finding === void 0 ? [] : [{ phase: "fixes", key: batch.key, batch, finding }];
   });
-  const passes = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(a) - passNumber(b));
-  const answered2 = passes.flatMap((key) => {
+  const passes2 = Object.keys(fix.answers.answer).filter((key) => passNumber(key) !== null).sort((a, b) => passNumber(a) - passNumber(b));
+  const answered2 = passes2.flatMap((key) => {
     const finding = fix.answers.answer[key].findings.find((candidate) => candidate.id === id);
     return finding === void 0 ? [] : [{ phase: "answer", key, batch: null, finding }];
   });
@@ -37337,8 +37327,8 @@ function committedWords(fix) {
   const head2 = `${done.subject} ${done.verb} committed`;
   if (committed >= total) return head2;
   const rest2 = patchSpan(committed + 1, total);
-  const passes = [...new Set(fix.revisions.slice(committed).map(laterPass))].sort().reverse().map((pass) => `${pass}'s`).join(" and ");
-  return `${head2}; ${rest2.subject}, ${passes}, ${rest2.verb} in the working tree, uncommitted`;
+  const passes2 = [...new Set(fix.revisions.slice(committed).map(laterPass))].sort().reverse().map((pass) => `${pass}'s`).join(" and ");
+  return `${head2}; ${rest2.subject}, ${passes2}, ${rest2.verb} in the working tree, uncommitted`;
 }
 function checkCell(run2, evidencePath, note) {
   if (run2 === null) return "-";
@@ -38618,10 +38608,10 @@ var init_pull_request_words = __esm({
       leftWhyLabel: "**Why deep-review leaves it.**",
       leftCut: "To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.",
       trustHeading: "### How far to trust this review",
-      verdictColumns: { verdict: "Verdict", findings: "Findings", major: "Of them major", unverified: "Of them unverified" },
+      verdictColumns: { verdict: "Verdict", findings: "Findings", major: "Of them major", majorRan: "Of the major, reproduced by running", unverified: "Of them unverified" },
       basisColumns: { basis: "Checked by", findings: "Findings" },
       noBasisValue: "no basis on record",
-      modelNotice: "A model wrote the sentences of this review from the verifiers' evidence, which the report of the run holds, and from deep-review's decisions; only that evidence was verified. Every count, verdict, severity, status, link and command is deep-review's own record.",
+      modelNotice: "A model wrote the sentences of this review from the verifiers' evidence, which the report of the run holds, and from deep-review's decisions; only that evidence was verified. The tables and the labeled values are deep-review's own record, and where a sentence differs from them, the tables and values stand.",
       noExplanation: "deep-review recorded no explanation by its writer for this run, so the review gives the record and the other workers' own words.",
       missingLabel: "Parts of the writer's answer this review lacks",
       writerParts: { core: "the core of the change", conditions: "the reasons to look", summary: "the summary", areas: "the areas", findings: "findings", left: "the findings left as is", refuted: "the refuted candidates", "not-examined": "what the review did not examine" },
@@ -38865,10 +38855,10 @@ var init_pull_request_words = __esm({
       leftWhyLabel: "**deep-review\uAC00 \uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720.**",
       leftCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C, \uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uC5D0\uAC8C \uB0A8\uAE34 \uC120\uD0DD\uC774 \uC5C6\uB294 \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
       trustHeading: "### \uC774 \uB9AC\uBDF0\uB97C \uC5BC\uB9C8\uB098 \uBBFF\uC744 \uC218 \uC788\uB098",
-      verdictColumns: { verdict: "\uD310\uC815", findings: "\uC9C0\uC801 \uC0AC\uD56D", major: "\uADF8\uC911 major", unverified: "\uADF8\uC911 \uAC80\uC99D \uC548 \uB428" },
+      verdictColumns: { verdict: "\uD310\uC815", findings: "\uC9C0\uC801 \uC0AC\uD56D", major: "\uADF8\uC911 major", majorRan: "major \uC911 \uC2E4\uD589\uD574 \uC7AC\uD604\uD568", unverified: "\uADF8\uC911 \uAC80\uC99D \uC548 \uB428" },
       basisColumns: { basis: "\uD655\uC778 \uBC29\uBC95", findings: "\uC9C0\uC801 \uC0AC\uD56D" },
       noBasisValue: "\uAE30\uB85D\uB41C \uD655\uC778 \uBC29\uBC95 \uC5C6\uC74C",
-      modelNotice: "\uC774 \uB9AC\uBDF0\uC758 \uBB38\uC7A5\uC740 \uBAA8\uB378\uC774 \uAC80\uC99D\uC790\uC758 \uADFC\uAC70\uC640 deep-review\uC758 \uACB0\uC815\uC744 \uBC14\uD0D5\uC73C\uB85C \uC37C\uC73C\uBA70, \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uB41C \uAC83\uC740 \uADF8 \uADFC\uAC70\uBFD0\uC785\uB2C8\uB2E4. \uBAA8\uB4E0 \uC218, \uD310\uC815, \uC2EC\uAC01\uB3C4, \uC0C1\uD0DC, \uB9C1\uD06C\uC640 \uBA85\uB839\uC740 deep-review \uC790\uC2E0\uC758 \uAE30\uB85D\uC785\uB2C8\uB2E4.",
+      modelNotice: "\uC774 \uB9AC\uBDF0\uC758 \uBB38\uC7A5\uC740 \uBAA8\uB378\uC774 \uAC80\uC99D\uC790\uC758 \uADFC\uAC70\uC640 deep-review\uC758 \uACB0\uC815\uC744 \uBC14\uD0D5\uC73C\uB85C \uC37C\uC73C\uBA70, \uADF8 \uADFC\uAC70\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uC788\uC2B5\uB2C8\uB2E4. \uAC80\uC99D\uB41C \uAC83\uC740 \uADF8 \uADFC\uAC70\uBFD0\uC785\uB2C8\uB2E4. \uD45C\uC640 \uC774\uB984 \uBD99\uC740 \uAC12\uC740 deep-review \uC790\uC2E0\uC758 \uAE30\uB85D\uC774\uBA70, \uBB38\uC7A5\uC774 \uADF8\uC640 \uB2E4\uB97C \uB54C\uB294 \uD45C\uC640 \uAC12\uC774 \uAE30\uC900\uC785\uB2C8\uB2E4.",
       noExplanation: "\uC774 \uC2E4\uD589\uC5D0\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uC124\uBA85\uC774 \uAE30\uB85D\uB418\uC9C0 \uC54A\uC544, \uB9AC\uBDF0\uB294 \uAE30\uB85D\uACFC \uB2E4\uB978 \uC791\uC5C5\uC790\uC758 \uC6D0\uBB38\uC73C\uB85C \uC801\uC5C8\uC2B5\uB2C8\uB2E4.",
       missingLabel: "\uC774 \uB9AC\uBDF0\uC5D0 \uC5C6\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uB2F5",
       writerParts: { core: "\uBCC0\uACBD\uC758 \uD575\uC2EC", conditions: "\uC0B4\uD3B4\uBCFC \uC774\uC720", summary: "\uC694\uC57D", areas: "\uC601\uC5ED", findings: "\uC9C0\uC801 \uC0AC\uD56D", left: "\uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D", refuted: "\uBC18\uBC15\uB41C \uD6C4\uBCF4", "not-examined": "\uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83" },
@@ -38932,6 +38922,17 @@ function reviewCountsOf(review2) {
     noBasis: ranked2.filter((entry) => entry.resolution.basis === null).length
   };
 }
+function decisionCountsOf(review2) {
+  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
+  const decisions = rankedFindings(review2).map((entry) => decided.get(entry.finding.id));
+  const fixes = decisions.filter((decision) => decision?.decision === "fix");
+  return {
+    fix: fixes.length,
+    fixAgainstRule: fixes.filter((decision) => decision.departure !== null).length,
+    ask: decisions.filter((decision) => decision?.decision === "ask").length,
+    leave: decisions.filter((decision) => !asksToAct(decision?.decision)).length
+  };
+}
 function formViewOf(input2) {
   const { state } = input2;
   const review2 = state.review;
@@ -38983,7 +38984,8 @@ function formViewOf(input2) {
       return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
     }),
     counts: reviewCountsOf(review2),
-    // The summary names the areas, so it is not shown when the checks dropped them: the merge of an answer of version 4 keeps the two from one answer, and an older one could keep the summary and drop its areas.
+    decided: decisionCountsOf(review2),
+    // The summary names the areas, so it is not shown when the checks dropped them: a merge of any version takes the summary from the first answer that passed it when no answer passed the areas, and so can keep the summary and drop its areas.
     summary: recorded?.dropped.some((part) => part.part === "areas") ?? false ? null : answer3?.summary ?? null,
     notExamined: answer3?.notExamined ?? null,
     recorded,
@@ -39086,9 +39088,7 @@ function findingLines(entry, number5, explained, decision, clean, fence) {
 }
 function countLines2(review2) {
   const counts = reviewCountsOf(review2);
-  const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
-  const ranked2 = rankedFindings(review2).map((entry) => decided.get(entry.finding.id));
-  const fixes = ranked2.filter((decision) => decision?.decision === "fix");
+  const decided = decisionCountsOf(review2);
   return [
     `- candidates the review passes raised: ${String(counts.candidates)}`,
     `- candidates after the duplicates were set aside: ${String(counts.groups)}`,
@@ -39102,10 +39102,10 @@ function countLines2(review2) {
     `- findings whose verdict is PLAUSIBLE: ${String(counts.plausible)}`,
     `- findings no verifier examined: ${String(counts.unverified)}`,
     ...verdictBases.map((basis) => `- findings whose verifier established the verdict as "${verdictBasisWords[basis]}": ${String(counts.bases[basis])}`),
-    `- findings deep-review decided to fix: ${String(fixes.length)}`,
-    `- of them, fixes against a written rule: ${String(fixes.filter((decision) => decision?.decision === "fix" && decision.departure !== null).length)}`,
-    `- findings deep-review asks the author about: ${String(ranked2.filter((decision) => decision?.decision === "ask").length)}`,
-    `- findings deep-review decided to leave as is: ${String(ranked2.filter((decision) => decision === void 0 || decision.decision === "leave").length)}`
+    `- findings deep-review decided to fix: ${String(decided.fix)}`,
+    `- of them, fixes against a written rule: ${String(decided.fixAgainstRule)}`,
+    `- findings deep-review asks the author about: ${String(decided.ask)}`,
+    `- findings deep-review decided to leave as is: ${String(decided.leave)}`
   ];
 }
 function gapLine(gap, clean) {
@@ -39186,22 +39186,25 @@ function writerTask(state, input2) {
   const decided = new Map((review2.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked2 = rankedFindings(review2);
   let dropped;
+  let unconfirmed = [];
   if (version2 === 4) {
     const answers = checkedAnswersV4(state, review2, input2, ids2, []);
     dropped = answers.length === 0 ? [] : mergeAnswersV4(answers, ids2).dropped;
+    const facts = decisionFactsOf(review2);
+    unconfirmed = ids2.filter((id) => facts.get(id)?.unconfirmed === true);
   } else {
     const answers = checkedAnswers(state, review2, input2, ids2, null);
     dropped = answers.length === 0 ? [] : mergeAnswers(version2, answers, ids2).dropped;
   }
   const report2 = version2 === 1 ? null : reportCheckInputOf(review2);
-  const cored = version2 === 3 || version2 === 4;
+  const cored = hasCore(version2);
   if (cored && (input2.commitMessages === void 0 || input2.commitMessages === null)) throw new Error("The writer's task of an answer with the core of the change lists the commit messages of the change and needs them");
   const core = cored ? coreAsks(review2, input2.commitMessages, clean) : [];
   const refutedCandidates = refuted(review2);
   return [
     `Write every text of your answer in the language ${languageWords(input2.language ?? reviewLanguage(review2))}.`,
     "",
-    ...version2 === 4 ? writtenAsks(ids2, left, ids2.filter((id) => decisionFactsOf(review2).get(id)?.unconfirmed === true)) : [
+    ...version2 === 4 ? writtenAsks(ids2, left, unconfirmed) : [
       ids2.length === 0 ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version2 === 1 ? "the account" : "no area"}, and no entry in \`findings\`.` : `Explain these ${counted(ids2.length, "finding", "findings")}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids2.join(", ")}. Every other finding below is context, which you explain nowhere.`
     ],
     ...report2 === null ? [] : ["", ...reportAsks(ids2, report2).flatMap((line, index2) => index2 === 0 ? [line] : ["", line])],
@@ -39249,7 +39252,7 @@ function writerTask(state, input2) {
     version2 === 1 ? "Return `conclusion`, `account` and `findings`. Your role prompt defines the conclusion and the findings; `account` gives, for a reader who does not know the change, the `terms` a newcomer needs, each with its meaning, the `problem` before the change and the `change` the pull request makes, each with a diagram or null." : version2 === 2 ? "Return `conclusion`, `areas`, `findings` and `refuted` as your role prompt defines them." : version2 === 3 ? "Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them." : "Return `core`, `conditions`, `summary`, `areas`, `findings`, `left`, `refuted` and `notExamined` as your role prompt defines them."
   ].join("\n");
 }
-var leftWords, idList2, conditionWords2;
+var leftWords, idList2, conditionWords2, hasCore;
 var init_writer_task = __esm({
   "src/review/writer-task.ts"() {
     "use strict";
@@ -39267,6 +39270,7 @@ var init_writer_task = __esm({
     leftWords = "left as is: give it a title and a reason in `left`, and explain it nowhere else";
     idList2 = (ids2) => ids2.join(", ");
     conditionWords2 = { "public-interface": "a change to a public interface", "wide-effect": "an effect on many files beyond the ones the change changes" };
+    hasCore = (version2) => version2 === 3 || version2 === 4;
   }
 });
 
@@ -41474,13 +41478,13 @@ function chooseAnswerRun(checkpoint, runId, worktree, log) {
 function recordedAnswerWords(run2, answer3) {
   if (answer3.answer.kind !== "option") return answerWords(answer3.answer);
   const option = run2.review?.decisions?.find((candidate) => candidate.id === answer3.id)?.ask?.options[answer3.answer.option]?.option;
-  return option === void 0 ? answerWords(answer3.answer) : `${answerWords(answer3.answer)}, "${option}"`;
+  return option === void 0 ? answerWords(answer3.answer) : `${answerWords(answer3.answer)}, "${terminalLine(option)}"`;
 }
 function saying(run2, answer3) {
   const decision = run2.review.decisions.find((candidate) => candidate.id === answer3.id);
   switch (answer3.answer.kind) {
     case "option":
-      return `${answer3.id} option ${String(answer3.answer.option + 1)}, "${decision.ask.options[answer3.answer.option].option}"`;
+      return `${answer3.id} ${recordedAnswerWords(run2, answer3)}`;
     case "reject":
       return `${answer3.id} rejected: follow the rule "${decision.departure.rule}" as ${decision.departure.source} states it`;
     case "accept":
@@ -41562,7 +41566,7 @@ async function answerRun(options2) {
     releaseStart();
   }
 }
-var flagOf;
+var flagOf, terminalLine;
 var init_answer = __esm({
   "src/review/answer.ts"() {
     "use strict";
@@ -41574,10 +41578,12 @@ var init_answer = __esm({
     init_drift();
     init_errors7();
     init_lock();
+    init_markdown();
     init_runs();
     init_steps();
     init_state();
     flagOf = (answer3) => answer3.kind === "option" ? `--option ${String(answer3.option + 1)}` : `--${answer3.kind}`;
+    terminalLine = (text3) => inlineText(text3).replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, " ");
   }
 });
 
@@ -41739,17 +41745,20 @@ function findingFacts(view, finding, extra = []) {
   ]);
 }
 function titleLine(view, finding, say) {
-  const written = finding.left?.title ?? finding.written?.title;
-  return written === void 0 ? recordedWords(view, "ranking", say.words(firstSentence(finding.entry.finding.summary))) : `**${say.prose(written)}**`;
+  const text3 = titleText(view, finding, say);
+  return writtenTitle(finding) === void 0 ? text3 : `**${text3}**`;
 }
 function titleText(view, finding, say) {
-  const written = finding.left?.title ?? finding.written?.title;
+  const written = writtenTitle(finding);
   return written === void 0 ? recordedWords(view, "ranking", say.words(firstSentence(finding.entry.finding.summary))) : say.prose(written);
 }
 function actionText(view, finding, say) {
   const action = finding.written?.action ?? null;
   if (action !== null) return sentenceText(say.prose(action));
-  return finding.decision?.decision === "fix" ? recordedWords(view, "decider", say.sentence(firstSentence(finding.decision.fix.approach))) : null;
+  if (finding.decision?.decision === "fix") return recordedWords(view, "decider", say.sentence(firstSentence(finding.decision.fix.approach)));
+  const { question } = finding;
+  const recommended = question?.options.find((option) => option.number === question.choice);
+  return recommended === void 0 ? null : recordedWords(view, "decider", say.sentence(firstSentence(recommended.option)));
 }
 function questionFacts(view, finding) {
   const { words } = view;
@@ -41781,10 +41790,11 @@ function unconfirmedBlocks(view, finding, say) {
   if (finding.finding.verdict !== "PLAUSIBLE") return [];
   if (finding.entry.resolution.unverified) return [[`${words.unconfirmedLabel} ${words.unconfirmedUnverified}`]];
   const written = finding.written?.unconfirmed ?? null;
-  if (written !== null) return [[`${words.unconfirmedLabel} ${sentenceText(say.prose(written))}`]];
   const given = finding.unconfirmed;
+  const kind = given === null ? [] : [factsLine([[words.whyPlausibleLabel, words.unconfirmedKinds[given.kind]]])];
+  if (written !== null) return [[[words.unconfirmedLabel, sentenceText(say.prose(written)), ...kind].join(" ")]];
   if (given === null) return [[`${words.unconfirmedLabel} ${words.unconfirmedBefore}`]];
-  return [[`${words.unconfirmedLabel} ${factsLine([[words.whyPlausibleLabel, words.unconfirmedKinds[given.kind]]])} ${recordedWords(view, "verifier", sentenceText(say.words(given.text)))}`]];
+  return [[[words.unconfirmedLabel, ...kind, recordedWords(view, "verifier", sentenceText(say.words(given.text)))].join(" ")]];
 }
 function settledFacts(view, finding) {
   const settled4 = finding.decision?.settled ?? [];
@@ -41830,7 +41840,7 @@ function recordBlocks(view, finding, say) {
   const { decision, question } = finding;
   if (decision === null) return [];
   const fixText = finding.written?.fix?.text ?? null;
-  const writerText2 = fixText === null ? [] : [[`${words.fixTextLabel} ${sentenceText(say.prose(fixText))}`]];
+  const writerText2 = fixText === null ? [] : say.paragraphs(fixText).map((paragraph, index2) => [index2 === 0 ? `${words.fixTextLabel} ${paragraph}` : paragraph]);
   const recorded = [];
   if (decision.decision === "fix") {
     recorded.push(`- ${words.approachLabel}: ${say.sentence(decision.fix.approach)}`);
@@ -41840,13 +41850,10 @@ function recordBlocks(view, finding, say) {
   if (decision.decision === "ask" && question !== null) {
     for (const option of question.options) recorded.push(`- ${words.optionLabel} ${String(option.number)}: ${say.sentence(option.option)} ${words.costLabel}: ${say.sentence(option.cost)} ${words.ruleLabel}: ${say.sentence(option.rule)}`);
   }
-  recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`);
-  for (const shown of choicesShown(finding.choices, decision.settled)) {
-    const settled4 = shown.settled === null ? labeledValue(words.settledChoiceLabel, words.notSettled) : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
-    recorded.push(`- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled4].join(" ")}`);
-  }
+  recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`, ...choiceRecord(view, finding, say));
+  const notice = decision.decision === "leave" ? [] : [words.recordNotice];
   const parts = [...writerText2, [`${words.recorded.decider}:`, ...recorded]];
-  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], [words.recordNotice], ...parts) : details(words.recordSummary, [words.recordNotice], ...parts);
+  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], notice, ...parts) : details(words.recordSummary, notice, ...parts);
 }
 function decisionBlocks(view, finding, say) {
   const { words } = view;
@@ -41924,13 +41931,8 @@ function coreSection(view, say) {
   const reason = change.why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.words(change.why))}`], ...sources(change.whyFrom)];
   return { part: "core", lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
-function decidedCounts(view) {
-  const decided = (decision) => view.findings.filter((finding) => finding.decision?.decision === decision).length;
-  return { fix: decided("fix"), ask: decided("ask"), leave: view.findings.filter((finding) => !acts(finding)).length };
-}
 function summarySection(view, say) {
-  const { words, counts } = view;
-  const decided = decidedCounts(view);
+  const { words, counts, decided } = view;
   const labels = words.counts;
   const table = factsTable([labels.findings, labels.critical, labels.major, labels.minor, labels.fix, labels.ask, labels.leave], [[counts.findings, counts.critical, counts.major - counts.critical, counts.minor, decided.fix, decided.ask, decided.leave].map(String)]);
   const acting = decided.fix + decided.ask > 0;
@@ -42110,8 +42112,10 @@ function minorSection(view, say, cuts) {
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
-    const asked = finding.question === null ? [] : [factsLine([[words.recommendedLabel, String(finding.question.choice)]])];
-    return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? "none"], verdictText(view, finding), [...action === null ? [] : [action], ...asked].join(" ")];
+    const decided = decisionValue(finding) === "fix-against-rule" ? [[words.decisionLabel, words.decisionValues["fix-against-rule"]]] : [];
+    const asked = finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)]];
+    const facts = decided.length + asked.length === 0 ? [] : [factsLine([...decided, ...asked])];
+    return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? "none"], verdictText(view, finding), [...action === null ? [] : [action], ...facts].join(" ")];
   });
   return { part: "minor", lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
@@ -42172,9 +42176,9 @@ function trustSection(view, cuts) {
   const { words, counts } = view;
   const columns = words.verdictColumns;
   const unverified = counts.unverified === 0 ? [] : [columns.unverified];
-  const verdicts2 = factsTable([columns.verdict, columns.findings, columns.major, ...unverified], [
-    ["CONFIRMED", String(counts.confirmed), String(counts.majorConfirmed), ...counts.unverified === 0 ? [] : ["0"]],
-    ["PLAUSIBLE", String(counts.plausible), String(counts.major - counts.majorConfirmed), ...counts.unverified === 0 ? [] : [String(counts.unverified)]]
+  const verdicts2 = factsTable([columns.verdict, columns.findings, columns.major, columns.majorRan, ...unverified], [
+    ["CONFIRMED", String(counts.confirmed), String(counts.majorConfirmed), String(counts.majorConfirmedRan), ...counts.unverified === 0 ? [] : ["0"]],
+    ["PLAUSIBLE", String(counts.plausible), String(counts.major - counts.majorConfirmed), "", ...counts.unverified === 0 ? [] : [String(counts.unverified)]]
   ]);
   const bases = ["ran", "traced", "read"].filter((basis) => counts.bases[basis] > 0).map((basis) => [words.basisValues[basis], String(counts.bases[basis])]);
   const basisTable = counts.findings === 0 ? [] : factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]]]);
@@ -42268,7 +42272,7 @@ function pullRequestForm(input2) {
     cuts: applicable.slice(0, made)
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, headUrl, locationLink, hrefOf, verdictMarks, verdictText, recordedWords, findingRef, findingHeading, joinedParts, traceLine, fixCommand, repositoryPathLike, writerConditionOf, conditionJudgment, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, headUrl, locationLink, hrefOf, verdictMarks, verdictText, recordedWords, findingRef, writtenTitle, findingHeading, joinedParts, traceLine, fixCommand, repositoryPathLike, writerConditionOf, conditionJudgment, majorActing, minorActing, leftAsIs, keptByCut;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -42305,6 +42309,7 @@ var init_pull_request_form = __esm({
     verdictText = (view, finding) => [finding.finding.verdict, ...verdictMarks(view, finding)].join(", ");
     recordedWords = (view, speaker, text3) => `${view.words.recorded[speaker]}: ${text3}`;
     findingRef = (view, finding) => `[${view.words.findingLabel} ${String(finding.finding.number)}](${hrefOf(view, finding)})`;
+    writtenTitle = (finding) => finding.left?.title ?? finding.written?.title;
     findingHeading = (view, finding, say) => [`**${view.words.findingLabel} ${String(finding.finding.number)}**`, "", titleLine(view, finding, say)];
     joinedParts = (parts) => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
     traceLine = (view, finding) => `<sub>${factsLine([[view.words.findingLabel, codeSpan(inlineText(finding.finding.id))], [view.words.runLabel, codeSpan(shortRunId(view.state.id))]])}</sub>`;
@@ -43070,8 +43075,8 @@ function answersLine(review2) {
   if (standing.length === 0) return [];
   const applied = standing.filter((answer3) => answer3.appliedBy !== null).length;
   const last = review2.answerPasses.at(-1);
-  const passes = last === void 0 ? "no pass" : `passes: ${String(review2.answerPasses.length)}, the last on ${last.at}`;
-  return [`Answers: ${String(standing.length)} recorded (${standing.map((answer3) => `${answer3.id} ${answerWords(answer3.answer)}`).join(", ")}), ${String(applied)} applied; ${passes}`];
+  const passes2 = last === void 0 ? "no pass" : `passes: ${String(review2.answerPasses.length)}, the last on ${last.at}`;
+  return [`Answers: ${String(standing.length)} recorded (${standing.map((answer3) => `${answer3.id} ${answerWords(answer3.answer)}`).join(", ")}), ${String(applied)} applied; ${passes2}`];
 }
 function fixStatus(state, review2) {
   const fix = review2.fix;
