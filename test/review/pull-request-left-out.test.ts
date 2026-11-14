@@ -20,6 +20,13 @@ const withVerdict = (state: RunState, id: string, change: Record<string, unknown
   return { ...state, review: { ...state.review!, candidates: { ...state.review!.candidates, [id]: { ...candidate, verdict: { ...candidate.verdict!, ...change } } } } };
 };
 
+/** The writer's answer with the problem of finding 1, a fix against a written rule, padded with `pad` characters, and finding 2's text as it is. */
+const answerPadded = (pad: number): WriterAnswer => {
+  const said = writerAnswer();
+  const fix = said.findings[0] as WrittenFinding;
+  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
+};
+
 /** The form whose body has left out exactly `steps`, among those sampled. */
 const at = (forms: readonly PullRequestForm[], steps: readonly string[]): string => {
   const found = forms.find((form) => JSON.stringify(stepsOf(form)) === JSON.stringify(steps));
@@ -98,16 +105,11 @@ describe('the record of a finding that waits on a person', () => {
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
   // Grounds of the question longer than a decider gives, so that its record alone makes the body fit where the notice under the heading did not.
   const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' ? { ...decision, grounds: `${decision.grounds} ${'g'.repeat(3000)}` } : decision)) } };
-  const answerOf = (pad: number): WriterAnswer => {
-    const said = writerAnswer();
-    const fix = said.findings[0] as WrittenFinding;
-    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
-  };
   const expected = [[], ['minor-table', 'refuted', 'record:SWEEP-1'], ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1']];
   let sampled: PullRequestForm[] | undefined;
   /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
   const samples = (): PullRequestForm[] => {
-    sampled ??= sampleBoundaries((pad) => renderedOf(state, answerOf(pad), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+    sampled ??= sampleBoundaries((pad) => renderedOf(state, answerPadded(pad), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
     return sampled;
   };
 
@@ -134,14 +136,9 @@ describe('the record of a finding that waits on a person', () => {
 describe('the floor', () => {
   const choice = 'Whether parse should throw or return null on an empty file.';
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
-  /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded with `pad` characters. */
-  const answerOf = (pad: number): WriterAnswer => {
-    const said = writerAnswer();
-    const fix = said.findings[0] as WrittenFinding;
-    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
-  };
+  /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded so that only the floor fits. */
   const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => {
-    const form = renderedOf(named, answerOf(70_000), files);
+    const form = renderedOf(named, answerPadded(70_000), files);
     assert.equal(form.kind, 'rendered');
     return form as PullRequestForm;
   };
@@ -219,17 +216,12 @@ describe('what is left out, in the language the run recorded (R6, R10 of the rev
   const korean = (history: ReturnType<typeof run>): RunState => withSettings(history, { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold();
 
   it('takes the notice under the heading, the record\'s place, the floor and the facts form of a comment from the Korean table', () => {
-    const answer = (pad: number): WriterAnswer => {
-      const said = writerAnswer();
-      const fix = said.findings[0] as WrittenFinding;
-      return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
-    };
     const ko = pullRequestWordTables.ko;
-    const floor = renderedOf(korean(run()), answer(70_000), noLine);
+    const floor = renderedOf(korean(run()), answerPadded(70_000), noLine);
     assert.equal(stepsOf(floor).at(-1), 'floor');
     includes(floor.body, ko.floorNotice);
     includes(floor.body, `${ko.waitingLabels.questions}: 1.`);
-    const comment = renderedOf(korean(run()), answer(70_000), filesWith());
+    const comment = renderedOf(korean(run()), answerPadded(70_000), filesWith());
     includes(comment.comments[0]!.body, ko.commentFactsNotice);
     includes(comment.body, `${ko.leftOutLabels.commentTexts}: 1.`);
     includes(comment.body, ko.leftOutNotice);
