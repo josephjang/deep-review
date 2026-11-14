@@ -659,7 +659,8 @@ const reportCommandOf = (view: FormView): string => `deep-review report --run ${
  * notice of what happens next; how many questions, fixes against a
  * written rule and choices that no one settled wait on a person, with the
  * command that answers a question or a fix; each condition that holds, as
- * its label, and the number of fixes on a PLAUSIBLE verdict; each kind of
+ * its label, or, when none is listed, the fixed label that none holds or
+ * that none was judged, and the number of fixes on a PLAUSIBLE verdict; each kind of
  * gap the run has, as its label; the tables of the verdicts and of how
  * the findings were checked, with the notice that a model wrote the
  * sentences when a comment posted with the floor holds a text of the
@@ -676,7 +677,10 @@ function floorBody(view: Page): string {
   const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
   const waiting = factsLine([[words.waitingLabels.questions, String(questions)], [words.waitingLabels.departures, String(departures)], [words.waitingLabels.choices, String(choices)]]);
   const plausible = view.findings.filter((finding) => finding.decision?.decision === 'fix' && finding.finding.verdict === 'PLAUSIBLE').length;
-  const looks = [...heldConditionsOf(view).map(({ condition }) => words.conditionLabels[condition]), ...(plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])])].map((item) => `- ${item}`);
+  const held = heldConditionsOf(view);
+  // With no condition listed, the fixed label says that none holds or that none was judged, as the full body says it, so a run whose conditions were never judged does not read as one where none hold.
+  const conditions = held.length > 0 ? [] : [factsLine([[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged]])];
+  const looks = [...held.map(({ condition }) => words.conditionLabels[condition]), ...(plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])])].map((item) => `- ${item}`);
   const kinds = [...new Set(view.brief.notExamined.map((gap) => gap.facts.kind))];
   const gaps = kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => `- ${words.gapLabels[kind]}`);
   const labels = words.lastLabels;
@@ -690,6 +694,7 @@ function floorBody(view: Page): string {
     [words.needsHeading],
     [waiting],
     questions + departures === 0 ? [] : answerLine(view, questions > 0, departures > 0),
+    conditions,
     looks,
     [words.notExaminedHeading],
     gaps,
