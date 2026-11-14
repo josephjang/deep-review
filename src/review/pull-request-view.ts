@@ -353,6 +353,12 @@ export function formViewOf(input: PullRequestFormInput): FormView {
 /** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
 export const acts = (view: FindingView): boolean => asksToAct(view.decision?.decision);
 
+/** Whether a finding's question waits on a person: it has no answer, or an answer with no option. */
+export const openQuestion = (view: FindingView): boolean => view.question !== null && (view.question.answer === null || view.question.answer.option === null);
+
+/** Whether a finding's fix against a written rule waits on a person: no one has accepted or rejected it. */
+export const openDeparture = (view: FindingView): boolean => view.departure !== null && view.departure.review === null;
+
 /** Whether a finding is minor; critical findings count with the major ones. */
 export const isMinor = (view: FindingView): boolean => view.finding.severity === 'minor';
 
