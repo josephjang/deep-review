@@ -844,15 +844,18 @@ const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((findin
 /** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4 of the settled choice). */
 const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
 
-/** The minor findings (R13): their counts as facts, those that need a person, then their table folded, or, cut, the notice in its place. */
+/** The minor findings (R13): their counts as facts, those whose reach is not given only when there are any, those that need a person, then their table folded, or, cut, the notice in its place. */
 function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
   const { words } = view;
   const minor = minorActing(view);
   if (minor.length === 0) return { part: 'minor', lines: [] };
   const user = minor.filter((finding) => finding.kind === 'user').length;
+  const code = minor.filter((finding) => finding.kind === 'code').length;
+  // A finding whose kind the writer did not give is counted apart, as its row says, not with the code.
+  const none = minor.length - user - code;
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
-  const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(minor.length - user)], [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
+  const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...(none === 0 ? [] : [[labels.none, String(none)] as const]), [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
   if (cuts.has('minor-table')) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {

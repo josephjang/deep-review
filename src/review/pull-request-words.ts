@@ -208,7 +208,7 @@ export interface PullRequestWords {
   readonly naming: FindingNaming;
 
   readonly minorHeading: string;
-  readonly minorLabels: Readonly<Record<'total' | 'user' | 'code' | 'onLine' | 'needs', string>>;
+  readonly minorLabels: Readonly<Record<'total' | 'user' | 'code' | 'none' | 'onLine' | 'needs', string>>;
   readonly minorSummary: string;
   readonly minorColumns: Readonly<Record<'number' | 'finding' | 'kind' | 'verdict' | 'action', string>>;
   readonly kindValues: Readonly<Record<FindingKind | 'none', string>>;
@@ -514,7 +514,7 @@ const english: PullRequestWords = {
   },
 
   minorHeading: '### The minor findings',
-  minorLabels: { total: 'Minor findings', user: 'Reach what a user sees', code: 'About the code alone', onLine: 'In a comment on their line', needs: 'Need a person' },
+  minorLabels: { total: 'Minor findings', user: 'Reach what a user sees', code: 'About the code alone', none: 'Reach not given', onLine: 'In a comment on their line', needs: 'Need a person' },
   minorSummary: 'The minor findings',
   minorColumns: { number: '#', finding: 'Finding', kind: 'Reaches', verdict: 'Verdict', action: 'What deep-review would do' },
   kindValues: { user: 'what a user sees', code: 'the code', none: 'not given' },
@@ -786,7 +786,7 @@ const korean: PullRequestWords = {
   },
 
   minorHeading: '### minor 지적 사항',
-  minorLabels: { total: 'minor 지적 사항', user: '사용자가 보는 것에 닿음', code: '코드에만 관한 것', onLine: '해당 줄의 댓글에 있음', needs: '사람이 봐야 함' },
+  minorLabels: { total: 'minor 지적 사항', user: '사용자가 보는 것에 닿음', code: '코드에만 관한 것', none: '닿는 곳을 정하지 않음', onLine: '해당 줄의 댓글에 있음', needs: '사람이 봐야 함' },
   minorSummary: 'minor 지적 사항',
   minorColumns: { number: '#', finding: '지적 사항', kind: '닿는 곳', verdict: '판정', action: 'deep-review가 할 일' },
   kindValues: { user: '사용자가 보는 것', code: '코드', none: '정하지 않음' },

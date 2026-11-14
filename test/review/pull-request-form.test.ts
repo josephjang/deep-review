@@ -219,7 +219,7 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     assert.equal(section(body, '### The minor findings'), [
       '### The minor findings',
       '',
-      'Minor findings: 1. Reach what a user sees: 0. About the code alone: 1. In a comment on their line: 0. Need a person: [Finding 2](#finding-2).',
+      'Minor findings: 1. Reach what a user sees: 0. About the code alone: 0. Reach not given: 1. In a comment on their line: 0. Need a person: [Finding 2](#finding-2).',
       '',
       '<details><summary>The minor findings</summary>',
       '',
@@ -230,6 +230,22 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
       '</details>',
       '',
     ].join('\n'));
+  });
+
+  it('counts a minor finding as about the code only when the writer gave it that reach, and those with no reach given apart, as their rows say, in each language', () => {
+    // SWEEP-1 explained with the reach `kind` gives, or none.
+    const minorOf = (language: 'en' | 'ko', kind: 'code' | null): string => {
+      const said = writerAnswer();
+      const sweep = { ...(said.findings[0] as WrittenFinding), id: 'SWEEP-1', kind, fix: null, ask: null };
+      const history = withSettings(run([decisions[0], askDecision('SWEEP-1', false)]), { 'review.language': language }, { 'review.language': 'repository' });
+      return section(formOf(history.fold(), { ...said, findings: [said.findings[0]!, sweep] }).body, pullRequestWordTables[language].minorHeading);
+    };
+    includes(minorOf('en', 'code'), '\nMinor findings: 1. Reach what a user sees: 0. About the code alone: 1. In a comment on their line: 0.');
+    includes(minorOf('en', null), '\nMinor findings: 1. Reach what a user sees: 0. About the code alone: 0. Reach not given: 1. In a comment on their line: 0.');
+    includes(minorOf('en', null), '| [Finding 2](#finding-2) | parse() reads the null before any guard. | not given |');
+    includes(minorOf('ko', 'code'), '\nminor 지적 사항: 1. 사용자가 보는 것에 닿음: 0. 코드에만 관한 것: 1. 해당 줄의 댓글에 있음: 0.');
+    includes(minorOf('ko', null), '\nminor 지적 사항: 1. 사용자가 보는 것에 닿음: 0. 코드에만 관한 것: 0. 닿는 곳을 정하지 않음: 1. 해당 줄의 댓글에 있음: 0.');
+    includes(minorOf('ko', null), ' | 정하지 않음 | ');
   });
 
   it('marks a minor row of a fix against a written rule with that decision as data, as the area lines do, and no other fix\'s row (R5 of the review in the writer\'s words)', () => {
