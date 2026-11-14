@@ -277,6 +277,18 @@ describe('the merge of the answers of version 4 (TD2 of the review in the writer
     assert.deepEqual(merged.dropped, []);
   });
 
+  it('takes the areas from a later answer that passed the summary too, over an earlier one whose summary failed', () => {
+    const noSummary = goodAnswer();
+    noSummary.summary = '';
+    noSummary.areas[0]!.intro = 'The first areas.';
+    const both = goodAnswer();
+    both.summary = 'The second summary.';
+    const merged = mergeAnswersV4([checkAnswerV4(noSummary, input()), checkAnswerV4(both, input())], ids);
+    assert.equal(merged.answer.summary, 'The second summary.');
+    assert.deepEqual(merged.answer.areas, both.areas, 'from the answer that passed both, not the first that passed the areas');
+    assert.deepEqual(merged.dropped, []);
+  });
+
   it('drops a finding alone when its text of the decision fails in every answer, with the failures of the latest', () => {
     const bad = withExplanation('SWEEP-1', (explained) => {
       explained.ask = null;
