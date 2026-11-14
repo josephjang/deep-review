@@ -36,7 +36,7 @@ import { pinnedRole, readPolicy, resolvePolicy, type ResolvedPolicy } from '../r
 import { composeWorkerPrompt, scopeBlock } from '../review/prompts.ts';
 import { machineContextOf } from '../review/public-text.ts';
 import { dryRunLines } from '../review/publish.ts';
-import { formRefusalWords, pullRequestForm } from '../review/pull-request-form.ts';
+import { pullRequestForm } from '../review/pull-request-form.ts';
 import { placeFindings } from '../review/pull-request-view.ts';
 import { checkDecisions, deciderOutputSchema, type DeciderOutput } from '../review/schemas.ts';
 import { settledWorkers, spendOf } from '../review/spend.ts';
@@ -345,7 +345,7 @@ function capturedFiles(scope: ScopeState, evidence: EvidenceStore): PullRequestF
   return patchFiles(scope.files, evidence.read(scope.patch).toString('utf8'));
 }
 
-/** The lines `publish --dry-run` prints for a decided run of a pull request, with no writer's answer, or the refusal of a form that does not fit. */
+/** The lines `publish --dry-run` prints for a decided run of a pull request, with no writer's answer. */
 function renderedReview(state: RunState, scope: ScopeState, context: { readonly root: string; readonly tree: string; readonly evidence: EvidenceStore; readonly engine: string; readonly environment: NodeJS.ProcessEnv; readonly platform: NodeJS.Platform }): string[] {
   const places = placeFindings(state.review!, capturedFiles(scope, context.evidence));
   const form = pullRequestForm({
@@ -358,7 +358,6 @@ function renderedReview(state: RunState, scope: ScopeState, context: { readonly 
     engine: context.engine,
     serial: state.publications.length + 1,
   });
-  if (form.kind === 'refused') return [`The review cannot be posted: ${formRefusalWords(form)}`];
   return dryRunLines(state, places, form, []);
 }
 

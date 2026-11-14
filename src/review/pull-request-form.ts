@@ -18,9 +18,11 @@
  * the writer's. Each text of a worker, the writer among them, passes the
  * Speaker, which cleans it (R11 of the review on the pull request). Every
  * link to code is a permalink at the reviewed head, or at the merge base
- * for removed lines. A body over the limit is cut in the order of
- * `bodyCuts`, and a body that still does not fit, or a comment that does
- * not, is a refusal with its size and parts, before anything is recorded.
+ * for removed lines. A body over the limit leaves out its pieces in the
+ * order of `fitOrder` (`pull-request-fit.ts`) until it fits, the floor
+ * last, and a comment over the limit leaves out its record, then all but
+ * its facts, so every review is posted (R1 of the review that always
+ * posts).
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
 import type { PullRequestFacts } from '../checkpoint/events.ts';
@@ -82,28 +84,6 @@ export interface PullRequestForm {
   readonly places: readonly RecordedPlace[];
   readonly secrets: number;
   readonly leftOut: FormLeftOut;
-}
-
-/** One part of a text that does not fit, with its size in characters. */
-export interface PartSize {
-  readonly part: string;
-  readonly size: number;
-}
-
-/** A body that does not fit after every cut, or a comment over the limit (R12): what it is, its size and the size of each part. */
-export interface FormRefusal {
-  readonly kind: 'refused';
-  readonly text: { readonly kind: 'body' } | { readonly kind: 'comment'; readonly finding: string; readonly path: string; readonly line: number };
-  readonly size: number;
-  readonly limit: number;
-  readonly parts: readonly PartSize[];
-}
-
-/** A refusal of the form as one sentence, for the command that refuses it. */
-export function formRefusalWords(refusal: FormRefusal): string {
-  const what = refusal.text.kind === 'body' ? 'the body of the review, after every cut,' : `the comment of ${refusal.text.finding} on ${refusal.text.path}:${String(refusal.text.line)}`;
-  const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(', ');
-  return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
 }
 
 /** A text as the cleaning gives it, with the secrets it replaced. */
@@ -549,7 +529,7 @@ function codeLines(view: FormView, finding: FindingView, say: Speaker, minor: bo
   return location === null ? [] : [factsLine([[words.codeLabel, locationLink(view, location)]])];
 }
 
-/** The parts of a finding's block, which a comment and the body share, and whose sizes a refusal names. */
+/** The parts of a finding's block, which a comment and the body share. */
 interface FindingParts {
   readonly explanation: string[];
   readonly decision: string[];
@@ -574,24 +554,32 @@ const joinedParts = (parts: FindingParts): string[] => blocks(parts.explanation,
 /** The line that traces a finding to the run, as labeled values. */
 const traceLine = (view: FormView, finding: FindingView): string => `<sub>${factsLine([[view.words.findingLabel, codeSpan(inlineText(finding.finding.id))], [view.words.runLabel, codeSpan(shortRunId(view.state.id))]])}</sub>`;
 
-/** The comment of a finding on its line, with the id of the finding and its marker as its last lines, or the refusal of one over the limit. */
-function commentOf(view: Page, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }): { readonly comment: FormComment; readonly secrets: number } | FormRefusal {
-  const say = speakerOf(view.input.machine, view.words, view.names);
-  const heading = findingHeading(view, finding, say);
-  const parts = findingParts(view, finding, say);
-  const body = blocks(heading, joinedParts(parts), [traceLine(view, finding)], [markerLine(findingMarker(view.state.id, finding.finding.id))]).join('\n');
+/**
+ * The comment of a finding on its line, with the id of the finding and its
+ * marker as its last lines, and what it left out to fit (R7 of the review
+ * that always posts): the comment in full; over the limit, without the
+ * record of its decision; still over, its facts form, which holds the
+ * label and the number of the finding, its facts, the notice that its
+ * text did not fit and the command that prints it, and no text of a
+ * worker, so it always fits. A comment is fitted alone, so what it loses
+ * changes no other comment.
+ */
+function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }, cache: Map<string, Cleaned>): { readonly comment: FormComment; readonly secrets: number; readonly leftOut: CommentLeftOut['piece'] | null } {
   const { location } = finding.placement;
-  if (body.length > maxPostedLength) {
-    const size = (lines: readonly string[]): number => lines.join('\n').length;
-    return {
-      kind: 'refused',
-      text: { kind: 'comment', finding: finding.finding.id, path: location.path, line: location.line },
-      size: body.length,
-      limit: maxPostedLength,
-      parts: [{ part: 'explanation', size: size([...heading, ...parts.explanation]) }, { part: 'decision', size: size(parts.decision) }, { part: 'checked', size: size(parts.checked) }, { part: 'code', size: size(parts.code) }],
-    };
-  }
-  return { comment: { finding: finding.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
+  const trace = [[traceLine(view, finding)], [markerLine(findingMarker(view.state.id, finding.finding.id))]];
+  const render = (leftOut: LeftOut): { readonly body: string; readonly secrets: number } => {
+    const page: Page = { ...view, leftOut, commentsLeftOut: [] };
+    const say = speakerOf(view.input.machine, view.words, view.names, cache);
+    return { body: blocks(findingHeading(page, finding, say), joinedParts(findingParts(page, finding, say)), ...trace).join('\n'), secrets: say.secrets() };
+  };
+  const placed = (body: string): FormComment => ({ finding: finding.finding.id, path: location.path, line: location.line, body });
+  const whole = render(nothingLeftOut);
+  if (whole.body.length <= maxPostedLength) return { comment: placed(whole.body), secrets: whole.secrets, leftOut: null };
+  const unrecorded = render(leftOutOf([{ piece: 'record', finding: finding.finding.id }]));
+  if (unrecorded.body.length <= maxPostedLength) return { comment: placed(unrecorded.body), secrets: unrecorded.secrets, leftOut: 'record' };
+  const { words } = view;
+  const facts = blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], ...trace);
+  return { comment: placed(facts.join('\n')), secrets: 0, leftOut: 'text' };
 }
 
 /** The view as the body renders it with a prefix of the order left out (`leftOutOf`). */
@@ -601,7 +589,7 @@ interface Page extends FormView {
   readonly commentsLeftOut: readonly CommentLeftOut[];
 }
 
-/** One section of the body, by the name a refusal gives its size with. */
+/** One section of the body, by its name. */
 interface Section {
   readonly part: string;
   readonly lines: readonly string[];
@@ -1253,28 +1241,29 @@ const stepElsewhere = 4_000;
 
 /**
  * The review of a read-only run of a pull request, as `publish` posts it
- * (R9, R10, R12): the body, cut as `bodyCuts` orders when it does not fit,
- * with the marker of the publication as its last line; a comment on its
- * line for each fix and each question that has one, with the marker of its
- * finding as its last line; the place of each finding as the ledger
- * records it; the count of the secrets the cleaning replaced in what is
- * posted; and the cuts made. A comment over the limit, or a body over it
- * after every cut, is refused with its size and parts.
+ * (R9, R10, R12; R1, R2, R7 of the review that always posts): the body,
+ * with the first prefix of `fitOrder` after which it fits left out, the
+ * floor at the last, and the marker of the publication as its last line;
+ * a comment on its line for each fix and each question that has one,
+ * fitted alone, with the marker of its finding as its last line; the place
+ * of each finding as the ledger records it; the count of the secrets the
+ * cleaning replaced in what is posted; and what was left out to fit.
  */
-export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | FormRefusal {
+export function pullRequestForm(input: PullRequestFormInput): PullRequestForm {
   const view = formViewOf(input);
+  // The cleaned texts are kept between renders, which changes no result (OQ1 of the review that always posts).
+  const cache = new Map<string, Cleaned>();
   const comments: FormComment[] = [];
   const commentsLeftOut: CommentLeftOut[] = [];
   let secrets = 0;
+  // Each comment is fitted alone and before the body, whose notice counts the comments that lost a piece (R7, TD5 of the review that always posts).
   for (const finding of view.findings) {
     if (finding.placement.place !== 'line') continue;
-    const rendered = commentOf({ ...view, leftOut: nothingLeftOut, commentsLeftOut: [] }, { ...finding, placement: finding.placement });
-    if ('kind' in rendered) return rendered;
+    const rendered = commentOf(view, { ...finding, placement: finding.placement }, cache);
     comments.push(rendered.comment);
+    if (rendered.leftOut !== null) commentsLeftOut.push({ finding: finding.finding.id, piece: rendered.leftOut });
     secrets += rendered.secrets;
   }
-  // The cleaned texts are kept between renders, which changes no result (OQ1 of the review that always posts).
-  const cache = new Map<string, Cleaned>();
   // The order, the floor last, whose first prefix after which the body fits the form posts (R2, TD3 of the review that always posts).
   const order = fitOrder(view);
   const whole = renderBody(view, nothingLeftOut, commentsLeftOut, cache);

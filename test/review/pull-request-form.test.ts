@@ -6,7 +6,7 @@ import { diagramFailures } from '../../src/review/explanation-checks.ts';
 import { findingsToExplain, type WriterAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
 import { dryRunLines } from '../../src/review/publish.ts';
-import { formRefusalWords, maxPostedLength, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { maxPostedLength, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { placeFindings } from '../../src/review/pull-request-view.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
@@ -932,21 +932,50 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
     assert.deepEqual(samples(false).states, withoutDiagrams);
   });
 
-  it('refuses a comment over the limit, with its size and parts', () => {
-    const seed = formOf(state, paddedAnswer(1), filesOf(false));
-    const atPad = 1 + limit - seed.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length;
+  /** The state with the grounds of finding 1's decision padded with `pad` characters, so that its record grows and its text does not. */
+  const withGrounds = (pad: number) => ({ ...state, review: { ...state.review!, decisions: state.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, grounds: `${decision.grounds} ${'g'.repeat(pad)}` } : decision)) } });
+  const rippleOf = (form: PullRequestForm): string => form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body;
+
+  it('posts a comment over the limit without the record of its decision, with the command that prints it, and counts it under the heading (R7)', () => {
+    const seed = formOf(withGrounds(1), paddedAnswer(1), filesOf(false));
+    const atPad = 1 + limit - rippleOf(seed).length;
     assert.ok(atPad > 1 && atPad <= limit, 'the comment boundary has positive, bounded padding');
     for (const [offset, size] of [[-1, limit - 1], [0, limit]] as const) {
-      const form = formOf(state, paddedAnswer(atPad + offset), filesOf(false));
-      assert.equal(form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length, size);
+      const form = formOf(withGrounds(atPad + offset), paddedAnswer(1), filesOf(false));
+      assert.equal(rippleOf(form).length, size);
+      assert.deepEqual(form.leftOut.comments, []);
       markedLast(form);
     }
-    const refused = renderedOf(state, paddedAnswer(atPad + 1), filesOf(false)) as FormRefusal;
-    assert.equal(refused.kind, 'refused');
-    assert.equal(refused.size, limit + 1);
-    assert.equal(refused.limit, limit);
-    assert.deepEqual(refused.text, { kind: 'comment', finding: 'RIPPLE-1', path: 'src/a.ts', line: 4 });
-    assert.deepEqual(refused.parts.map((part) => part.part), ['explanation', 'decision', 'checked', 'code']);
-    assert.match(formRefusalWords(refused), /^the comment of RIPPLE-1 on src\/a\.ts:4 is \d+ characters, over the 60000 a review posts: explanation \d+, decision \d+, checked \d+, code \d+$/);
+    const over = formOf(withGrounds(atPad + 1), paddedAnswer(1), filesOf(false));
+    const comment = rippleOf(over);
+    assert.ok(comment.length <= limit, String(comment.length));
+    assert.deepEqual(over.leftOut.comments, [{ finding: 'RIPPLE-1', piece: 'record' }]);
+    excludes(comment, 'g'.repeat(100));
+    includes(comment, 'The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: `deep-review report --run run-1 --finding 1`.');
+    includes(comment, '**What goes wrong.** A caller that passes an empty file meets a crash.');
+    markedLast(over);
+    includes(over.body, 'Comments without their recorded decision: 1.');
+    assert.equal(dryRunLines(state, [], over, []).filter((line) => line.startsWith('Left out of the comment')).join('\n'), 'Left out of the comment of finding 1 (RIPPLE-1) to fit: its recorded decision.');
+  });
+
+  it('posts a comment whose text alone is over the limit as its facts, the notice and the command, holding no text of a worker, and changes no other comment (R7)', () => {
+    const plain = formOf(state, paddedAnswer(1), filesOf(false));
+    const over = formOf(state, paddedAnswer(limit), filesOf(false));
+    const comment = rippleOf(over);
+    assert.deepEqual(over.leftOut.comments, [{ finding: 'RIPPLE-1', piece: 'text' }]);
+    assert.equal(comment, [
+      '**Finding 1**',
+      '',
+      'Severity: major. Verdict: CONFIRMED. Checked by: tracing the code. Decision: fix.',
+      '',
+      'The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review\'s writer\'s text of it is kept in its answer on the machine of the person who ran the review. Command that prints it: `deep-review report --run run-1 --finding 1`.',
+      '',
+      `<sub>Finding: \`RIPPLE-1\`. Run: \`run-1\`.</sub>`,
+      '',
+      `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`,
+    ].join('\n'));
+    for (const other of over.comments.filter((posted) => posted.finding !== 'RIPPLE-1')) assert.equal(other.body, plain.comments.find((posted) => posted.finding === other.finding)!.body);
+    includes(over.body, 'Comments with their facts alone: 1.');
+    assert.equal(over.body.replace(/This review does not hold all of the run[^\n]*\n\n/, ''), plain.body);
   });
 });

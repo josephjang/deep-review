@@ -28,7 +28,7 @@ import { acquireRunLock, acquireStartLock, type ReleaseLock } from './lock.ts';
 import { counted } from './markdown.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
-import { formRefusalWords, pullRequestForm, type PullRequestForm } from './pull-request-form.ts';
+import { pullRequestForm, type PullRequestForm } from './pull-request-form.ts';
 import type { FitStep } from './pull-request-fit.ts';
 import { placeFindings, type FindingPlacement } from './pull-request-view.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
@@ -422,7 +422,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const unrecorded = unrecordedWords(settled);
   const changedFiles = requireUnmoved(ghOf(), reviewed, unrecorded);
 
-  // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded. The publication is the whole run's, whose events come after the fix pass.
+  // 4. Place, render, clean and fit (R9 to R12; R1 of the review that always posts): a review that does not fit leaves out what the order of what it is worth takes, and is posted. The publication is the whole run's, whose events come after the fix pass.
   const scope = reviewed.scope!;
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
   const placements = placeFindings(reviewed.review!, files);
@@ -441,7 +441,6 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
     serial,
     commits,
   });
-  if (form.kind === 'refused') throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded}, and the report of the run holds all of it`);
 
   // 5. A dry run ends with what it would post (R14).
   if (dryRun) return { kind: 'dry-run', runId: run.id, lines: dryRunLines(reviewed, placements, form, notes) };
