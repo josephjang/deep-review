@@ -436,8 +436,8 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
 
 /**
  * The decision as deep-review recorded it (R4 of the review in the
- * writer's words): the writer's text of the fix first, under its label,
- * then the recorded words an answer and the fix pass apply, each under
+ * writer's words): the writer's text of the fix first, paragraph by
+ * paragraph, its first under its label, then the recorded words an answer and the fix pass apply, each under
  * its label: the approach and each option rejected, or each option of a
  * question with its cost and its rule, the departure's rule, source and
  * fact where the writer restated it, the grounds of the decision, and
@@ -451,7 +451,8 @@ function recordBlocks(view: FormView, finding: FindingView, say: Speaker): strin
   const { decision, question } = finding;
   if (decision === null) return [];
   const fixText = finding.written?.fix?.text ?? null;
-  const writerText = fixText === null ? [] : [[`${words.fixTextLabel} ${sentenceText(say.prose(fixText))}`]];
+  // Paragraph by paragraph, as the writer's problem is, since a text of a fix that covers several choices is long.
+  const writerText = fixText === null ? [] : say.paragraphs(fixText).map((paragraph, index) => [index === 0 ? `${words.fixTextLabel} ${paragraph}` : paragraph]);
   const recorded: string[] = [];
   if (decision.decision === 'fix') {
     recorded.push(`- ${words.approachLabel}: ${say.sentence(decision.fix.approach)}`);

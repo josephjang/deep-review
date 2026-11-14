@@ -571,6 +571,15 @@ describe('the parts of the writer\'s answer and of the verifiers\' notes (R2 to 
 describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
   const comment = formOf(run().fold()).comments[0]!.body;
 
+  it('gives the writer\'s text of the fix paragraph by paragraph, its first under its label, as the writer\'s problem is', () => {
+    const said = writerAnswer();
+    const fix = said.findings[0] as WrittenFinding;
+    said.findings[0] = { ...fix, fix: { ...fix.fix!, text: 'The fix guards the null once.\n\nIt settles where the guard goes by the intent of the change.\n\n- It settles the error by AGENTS.md' } };
+    const written = formOf(run().fold(), said).comments[0]!.body;
+    includes(written, '**The fix.** The fix guards the null once.\n\nIt settles where the guard goes by the intent of the change.\n\n\\- It settles the error by AGENTS.md\n\n');
+    excludes(written, 'The fix guards the null once. It settles');
+  });
+
   it('gives each part of a major fix against a written rule once, in order, and ends with the trace and the marker', () => {
     inOrder(comment, [
       '**Finding 1**\n\n**parse() reads the null before any guard.**\n\nSeverity: major. Verdict: CONFIRMED. Checked by: tracing the code. Decision: fix against a written rule.',
