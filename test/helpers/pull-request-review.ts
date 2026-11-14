@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { WriterAnswer, RecordedFinding } from '../../src/review/explanation.ts';
-import { pullRequestForm, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { pullRequestForm, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { placeFindings, type PullRequestFormInput } from '../../src/review/pull-request-view.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
 import { answerableDecisions, candidate, decisions, changeReading, explanation, History, pullRequestScope, readOnlyReported, settingsBlockV2, withBaseChecks, withCitedRuns, withDocumentationStep, withPullRequest, worker } from './review-history.ts';
@@ -132,12 +132,12 @@ export const paddedAnswer = (pad: number, diagram = true): WriterAnswer => {
 /** The machine of the histories here, whose worktree is `/w`. */
 export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };
 
-/** The form of a state against the files given, refused or not. */
-export function renderedOf(state: RunState, answer: WriterAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm | FormRefusal {
+/** The form of a state against the files given. */
+export function renderedOf(state: RunState, answer: WriterAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm {
   return pullRequestForm({ state, fixPass: 'to-come', answer, places: placeFindings(state.review!, files), machine, engine: '0.0.0+dev', serial: 1, ...change });
 }
 
-/** The same, which must be rendered. */
+/** The same, checked to be rendered. */
 export function formOf(...args: Parameters<typeof renderedOf>): PullRequestForm {
   const form = renderedOf(...args);
   assert.equal(form.kind, 'rendered', JSON.stringify(form));
@@ -156,7 +156,7 @@ export interface Boundary { below: PullRequestForm; at: PullRequestForm; above: 
  * under the limit, at it, and one over, where the form leaves out more
  * and reaches the next state.
  */
-export function sampleBoundaries(render: (pad: number) => PullRequestForm | FormRefusal, limit: number, expected: readonly (readonly string[])[]): Boundary[] {
+export function sampleBoundaries(render: (pad: number) => PullRequestForm, limit: number, expected: readonly (readonly string[])[]): Boundary[] {
   let pad = 1;
   let seed = render(pad);
   return expected.slice(0, -1).map((steps, index) => {

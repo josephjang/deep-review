@@ -251,6 +251,7 @@ export interface PullRequestWords {
   readonly linesLeftNotice: string;
   readonly coreDiagramCut: string;
   readonly floorNotice: string;
+  readonly commentFactsNotice: string;
   readonly waitingLabels: Readonly<Record<'questions' | 'departures' | 'choices', string>>;
 }
 
@@ -580,6 +581,7 @@ const english: PullRequestWords = {
   coreDiagramCut: 'To fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.',
   floorNotice: 'The text of this review does not fit the length GitHub takes, so it gives only the counts of the run, what waits on a person, and where to read the rest. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below; the texts of deep-review\'s writer are kept in its answer on that machine, and no command prints them.',
   waitingLabels: { questions: 'Questions not answered', departures: 'Fixes against a written rule not accepted or rejected', choices: 'Choices its verifiers left to the author that deep-review did not settle' },
+  commentFactsNotice: 'The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review\'s writer\'s text of it is kept in its answer on the machine of the person who ran the review.',
 };
 
 /** The end of a text before an id that already says finding: 지적 사항, or a list of numbers after it that goes on, joined by 과, 와 or a comma, as `지적 사항 1과 `, so each number of the list is said alone. */
@@ -879,6 +881,7 @@ const korean: PullRequestWords = {
   coreDiagramCut: 'To fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.',
   floorNotice: 'The text of this review does not fit the length GitHub takes, so it gives only the counts of the run, what waits on a person, and where to read the rest. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below; the texts of deep-review\'s writer are kept in its answer on that machine, and no command prints them.',
   waitingLabels: { questions: 'Questions not answered', departures: 'Fixes against a written rule not accepted or rejected', choices: 'Choices its verifiers left to the author that deep-review did not settle' },
+  commentFactsNotice: 'The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review\'s writer\'s text of it is kept in its answer on the machine of the person who ran the review.',
 };
 
 /** The languages that have a table of the engine's words. */
