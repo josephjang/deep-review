@@ -442,7 +442,8 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
  * writer's words): the writer's text of the fix first, paragraph by
  * paragraph, its first under its label, then the recorded words, each under
  * its label, beside the notice that an answer and the fix pass apply them
- * for a fix or a question, none for a finding left as is:the approach and each option rejected, or each option of a
+ * for a fix or a question, and no notice for a finding left as is: the
+ * approach and each option rejected, or each option of a
  * question with its cost and its rule, the departure's rule, source and
  * fact where the writer restated it, the grounds of the decision, and
  * each choice a verifier left to the author beside the choice that
