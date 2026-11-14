@@ -448,8 +448,8 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
  * fact where the writer restated it, the grounds of the decision, and
  * each choice a verifier left to the author beside the choice that
  * settles it and its source, or that deep-review did not settle it.
- * Folded where it stands beside the writer's text, and given in full
- * where it stands in for it.
+ * Folded, whether it stands beside the writer's text or in for it, since
+ * a block with no writer's text shows the decider's words in view.
  */
 function recordBlocks(view: FormView, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
@@ -471,7 +471,7 @@ function recordBlocks(view: FormView, finding: FindingView, say: Speaker): strin
   // A finding left as is takes no answer and the fix pass applies nothing to it, so its record carries no notice that they apply these words.
   const notice = decision.decision === 'leave' ? [] : [words.recordNotice];
   const parts = [...writerText, [`${words.recorded.decider}:`, ...recorded]];
-  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], notice, ...parts) : details(words.recordSummary, notice, ...parts);
+  return details(words.recordSummary, notice, ...parts);
 }
 
 /** What deep-review would do about a finding of R5's order, each a block: its action, the steps that settled its choices and its departure for a fix, or its question, then the decision as recorded. */

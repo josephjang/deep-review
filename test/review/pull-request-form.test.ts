@@ -652,7 +652,7 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
     for (const gone of ['Evidence that', 'same root cause at lines 4 and 7', 'line 4 dereferences null', 'How the verifier established it', 'deep-review would fix this', 'The person who ran this review accepts the departure with']) excludes(comment, gone);
   });
 
-  it('gives a question with no writer\'s text in the decider\'s recorded words: the question, a table of its options as recorded, its facts, the command, and the record in full', () => {
+  it('gives a question with no writer\'s text in the decider\'s recorded words: the question, a table of its options as recorded, its facts, the command, and the record folded', () => {
     const asked = formOf(run([askDecision('RIPPLE-1', false), decisions[1]]).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[1]!] }).comments[0]!.body;
     inOrder(asked, [
       'Severity: major. Verdict: CONFIRMED. Checked by: tracing the code. Decision: ask the author.',
@@ -663,8 +663,9 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
       '| 1 | Keep accepting it. | Callers that pass one now see the change. | Parse rejects an empty input. | no |',
       'Recommended option: 2. Option that stands until an answer: 1. Edits the code: no. Status: not answered.',
       'Command: `deep-review answer --run run-1 --finding 1 --option <k>`.',
-      '**The decision as deep-review recorded it**',
+      '<details><summary>The decision as deep-review recorded it</summary>',
       '- Grounds: Nothing in the repository states which behavior is meant.',
+      '</details>',
       '<details><summary>How the verifier checked it</summary>',
       'Code at the reviewed head',
     ]);
@@ -708,9 +709,10 @@ describe('the comment of a finding (R5, R7, R8, R10, R14)', () => {
       'In the words of the finder: Finding 1 detail',
       '**What deep-review would do.** In the words of deep-review\'s decider: Guard the null once, before parse reads it.',
       '**Against a written rule.**\n\n- Rule: parse throws on a null input.',
-      '**The decision as deep-review recorded it**',
+      '<details><summary>The decision as deep-review recorded it</summary>',
       `Code at the reviewed head: [\`src/a.ts:4\`](${blob(head, 'src/a.ts', '4')}).`,
     ]);
+    excludes(fallback, '**The decision as deep-review recorded it**');
   });
 
   it('keeps on one line the text of a link to a path that holds a line break, a cited case\'s and a refuted candidate\'s, so neither opens a block of its own', () => {
