@@ -349,3 +349,24 @@ export function formViewOf(input: PullRequestFormInput): FormView {
     input,
   };
 }
+
+/** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
+export const acts = (view: FindingView): boolean => asksToAct(view.decision?.decision);
+
+/** Whether a finding is minor; critical findings count with the major ones. */
+export const isMinor = (view: FindingView): boolean => view.finding.severity === 'minor';
+
+/** Whether a finding is in full in the body: one that acts, with no comment on a line. */
+export const inFull = (view: FindingView): boolean => acts(view) && view.placement.place === 'body';
+
+/** The major findings that ask a person to act, in rank order. */
+export const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
+
+/** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
+export const minorActing = (view: FormView): FindingView[] => {
+  const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
+  return [...minor.filter((finding) => finding.kind === 'user'), ...minor.filter((finding) => finding.kind !== 'user')];
+};
+
+/** The findings left as is, in rank order, whatever their verifiers named (R4 of the settled choice). */
+export const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding));

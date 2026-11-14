@@ -35,10 +35,10 @@ import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import type { DecisionValue, LineNote, PullRequestWords, RecordedSpeaker, WriterPart } from './pull-request-words.ts';
-import { formViewOf, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
-import { asksToAct, changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
+import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
 
 /** The most characters of a body or a comment, a margin under the 65,536 people report GitHub takes (R12). */
 export const maxPostedLength = 60_000;
@@ -104,15 +104,6 @@ export function formRefusalWords(refusal: FormRefusal): string {
   const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(', ');
   return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
 }
-
-/** Whether a finding asks a person to act: a decided fix or a question, which goes on its line or in full in the body. */
-const acts = (view: FindingView): boolean => asksToAct(view.decision?.decision);
-
-/** Whether a finding is minor; critical findings count with the major ones. */
-const isMinor = (view: FindingView): boolean => view.finding.severity === 'minor';
-
-/** Whether a finding is in full in the body: one that acts, with no comment on a line. */
-const inFull = (view: FindingView): boolean => acts(view) && view.placement.place === 'body';
 
 /**
  * The cleaning of each text the engine did not write, counting the
@@ -780,9 +771,6 @@ function howDiagram(view: FormView): string {
   ].join('\n');
 }
 
-/** The major findings that ask a person to act, in rank order. */
-const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
-
 /** The areas the body gives: the writer's, or one under the label of the table with no diagram, for an answer that has none (R16). */
 function areasOf(view: FormView, say: Speaker): { readonly title: string; readonly intro: string | null; readonly diagram: string | null; readonly findings: readonly FindingView[] }[] {
   const major = majorActing(view);
@@ -832,14 +820,6 @@ function inFullSection(view: FormView, say: Speaker): Section {
   };
 }
 
-/** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
-const minorActing = (view: FormView): FindingView[] => {
-  const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
-  return [...minor.filter((finding) => finding.kind === 'user'), ...minor.filter((finding) => finding.kind !== 'user')];
-};
-
-/** The findings left as is, in rank order, whatever their verifiers named (R4 of the settled choice). */
-const leftAsIs = (view: FormView): FindingView[] => view.findings.filter((finding) => !acts(finding));
 
 /** Whether a cut of the findings left as is keeps a finding's lines: one whose verifier named a choice, so no such choice is missing from the review (R4 of the settled choice). */
 const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
