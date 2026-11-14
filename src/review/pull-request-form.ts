@@ -78,7 +78,6 @@ export interface FormLeftOut {
 
 /** The review as the form renders it: the body with its marker last, a comment for each finding on its line, each place, the count of secrets the cleaning replaced, and what was left out to fit. */
 export interface PullRequestForm {
-  readonly kind: 'rendered';
   readonly body: string;
   readonly comments: readonly FormComment[];
   readonly places: readonly RecordedPlace[];
@@ -1334,7 +1333,6 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm {
   // The floor holds no text whose length a run decides, so a floor over the limit is a defect of the form (TD7 of the review that always posts).
   if (body.text.length > maxPostedLength) throw new Error(`The floor of the review of run ${view.state.id} is ${String(body.text.length)} characters, over the ${String(maxPostedLength)} a review posts`);
   return {
-    kind: 'rendered',
     body: body.text,
     comments,
     places: input.places.map(({ finding, place, reason }) => ({ finding, place, reason })),

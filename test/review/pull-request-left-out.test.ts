@@ -145,11 +145,7 @@ describe('the floor', () => {
   const choice = 'Whether parse should throw or return null on an empty file.';
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
   /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded so that only the floor fits. */
-  const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => {
-    const form = renderedOf(named, answerPadded(70_000), files);
-    assert.equal(form.kind, 'rendered');
-    return form as PullRequestForm;
-  };
+  const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => renderedOf(named, answerPadded(70_000), files);
 
   it('is posted when nothing less fits, as the last step of the order, under the limit and with the marker of the publication last', () => {
     const form = floorOf();
@@ -185,7 +181,7 @@ describe('the floor', () => {
   it('gives the notice that a model wrote the sentences only when a comment posted with it holds a text of the writer', () => {
     // Finding 1 on its line, with the writer's text in its comment; finding 2's question, in the body, padded so that only the floor fits.
     const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' && decision.decision === 'ask' ? { ...decision, ask: { ...decision.ask, question: `Should parse accept an empty input? ${'w'.repeat(70_000)}` } } : decision)) } };
-    const form = renderedOf(state, writerAnswer(), filesWith()) as PullRequestForm;
+    const form = renderedOf(state, writerAnswer(), filesWith());
     assert.equal(stepsOf(form).at(-1), 'floor');
     includes(form.body, 'A model wrote the sentences');
     includes(form.comments[0]!.body, 'parse() reads the null before any guard.');
@@ -194,8 +190,7 @@ describe('the floor', () => {
   it('fits for a run far larger than any on record: 2,000 findings with long texts in the body, the most a publication records, each comment beside it', () => {
     const state = largeRun(1997, 2000);
     const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: `@@ -100,0 +100,100 @@\n${Array.from({ length: 100 }, (_, index) => `+added ${String(100 + index)}`).join('\n')}` }];
-    const form = renderedOf(state, writerAnswer(), files) as PullRequestForm;
-    assert.equal(form.kind, 'rendered');
+    const form = renderedOf(state, writerAnswer(), files);
     assert.equal(form.places.length, 2000);
     assert.equal(stepsOf(form).at(-1), 'floor');
     assert.ok(form.body.length < 60_000, String(form.body.length));
