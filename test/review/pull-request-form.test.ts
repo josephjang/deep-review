@@ -11,7 +11,7 @@ import { placeFindings } from '../../src/review/pull-request-view.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
 import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea, sampleBoundaries, type Boundary, longFindingHistory, paddedAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
-import { answer, answerableDecisions, askDecision, decisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
+import { answer, answerableDecisions, askDecision, candidate, decisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
 const base = '1'.repeat(40);
@@ -271,6 +271,17 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
       '</details>',
       '',
     ].join('\n'));
+  });
+
+  it('links each finding of an unverified gap once and in ascending order, however many of its candidates were merged into it', () => {
+    // SWEEP-3 joins SWEEP-2 in RIPPLE-1 (finding 1) and SWEEP-4 joins SWEEP-1 (finding 2), all four in the group no verifier examined.
+    const history = rewritten(run(), (kind, payload) => {
+      if (kind === 'candidates.recorded' && payload.key === 'sweep') return { ...payload, candidates: [...(payload.candidates as unknown[]), candidate('SWEEP-3', 'SCAN', { line: 7, rawLine: 7 }), candidate('SWEEP-4', 'SCAN', { line: 7, rawLine: 7 })] };
+      if (kind === 'verification.planned' && payload.phase === 'sweep-verification') return { ...payload, groups: [{ id: 'g1', candidateIds: ['SWEEP-4', 'SWEEP-2', 'SWEEP-1', 'SWEEP-3'] }] };
+      if (kind === 'ranking.recorded') return { ...payload, findings: (payload.findings as { id: string }[]).map((finding) => ({ ...finding, members: finding.id === 'RIPPLE-1' ? ['SWEEP-2', 'SWEEP-3'] : ['SWEEP-4'] })) };
+      return undefined;
+    });
+    includes(section(formOf(history.fold()).body, '### What this review did not examine'), `- Findings no verifier examined: [Finding 2](#finding-2). Findings with a merged candidate no verifier examined: [Finding 1](${blob(head, 'src/a.ts', '4')}), [Finding 2](#finding-2).\n`);
   });
 
   it('gives the patterns that left paths out, with their count and the layer that set them, as facts', () => {
