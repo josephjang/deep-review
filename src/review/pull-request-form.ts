@@ -365,16 +365,17 @@ function problemBlocks(view: FormView, finding: FindingView, say: Speaker): stri
   return paragraphs.map((paragraph, index) => [index === 0 ? `${view.words.problemLabel} ${paragraph}` : paragraph]);
 }
 
-/** Why a PLAUSIBLE verdict is not CONFIRMED (R7 of the review that reads as a report): the writer's text, or the verifier's reason with its kind as recorded words, or that no verifier examined it, or that the verdict predates the reason; none for a CONFIRMED one. */
+/** Why a PLAUSIBLE verdict is not CONFIRMED (R7 of the review that reads as a report; R5 of the review in the writer's words): the writer's text with the verifier's kind of it as a fact, or the kind with the verifier's reason as recorded words, or that no verifier examined it, or that the verdict predates the reason; none for a CONFIRMED one. */
 function unconfirmedBlocks(view: FormView, finding: FindingView, say: Speaker): string[][] {
   const { words } = view;
   if (finding.finding.verdict !== 'PLAUSIBLE') return [];
   if (finding.entry.resolution.unverified) return [[`${words.unconfirmedLabel} ${words.unconfirmedUnverified}`]];
   const written = finding.written?.unconfirmed ?? null;
-  if (written !== null) return [[`${words.unconfirmedLabel} ${sentenceText(say.prose(written))}`]];
   const given = finding.unconfirmed;
+  const kind = given === null ? [] : [factsLine([[words.whyPlausibleLabel, words.unconfirmedKinds[given.kind]]])];
+  if (written !== null) return [[[words.unconfirmedLabel, sentenceText(say.prose(written)), ...kind].join(' ')]];
   if (given === null) return [[`${words.unconfirmedLabel} ${words.unconfirmedBefore}`]];
-  return [[`${words.unconfirmedLabel} ${factsLine([[words.whyPlausibleLabel, words.unconfirmedKinds[given.kind]]])} ${recordedWords(view, 'verifier', sentenceText(say.words(given.text)))}`]];
+  return [[[words.unconfirmedLabel, ...kind, recordedWords(view, 'verifier', sentenceText(say.words(given.text)))].join(' ')]];
 }
 
 /** The steps that settled the choices a decision makes, as a facts line; none for a decision that settles none. */
