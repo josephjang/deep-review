@@ -6,11 +6,11 @@ import { diagramFailures } from '../../src/review/explanation-checks.ts';
 import { findingsToExplain, type WriterAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
 import { dryRunLines } from '../../src/review/publish.ts';
-import { bodyCuts, formRefusalWords, maxPostedLength, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
+import { maxPostedLength, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { placeFindings } from '../../src/review/pull-request-view.ts';
 import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
 import type { History } from '../helpers/review-history.ts';
-import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea, sampleBoundaries, type Boundary, longFindingHistory, paddedAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
+import { filesWith, formOf, pullRequestRun as run, pullRequestRunBeforeExplanation as runBeforeExplanation, renderedOf, rewritten, withSettings, writerAnswer, answerWithArea, sampleBoundaries, stepsOf, type Boundary, longFindingHistory, paddedAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
 import { answer, answerableDecisions, askDecision, candidate, decisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
 
 const head = '2'.repeat(40);
@@ -608,28 +608,39 @@ describe('the parts of the writer\'s answer and of the verifiers\' notes (R2 to 
     excludes(left, `${choice} Choice its verifier left to the author`);
   });
 
-  it('keeps, when it cuts the findings left as is, those whose verifier named a choice, a merged member\'s among them, and gives the others their count (R4, PD9 of the settled choice)', () => {
-    // Grounds longer than a decider gives, so that the body overflows by the finding a cut takes.
+  it('keeps, when it leaves out the findings left as is, one whose verifier named a choice that no one settled, a merged member\'s among them, and gives the others their count (R4 of the review that always posts)', () => {
+    // Grounds longer than a decider gives, so that the body overflows by the finding the order takes.
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) });
     const form = formOf(state);
-    assert.ok(form.cuts.includes('left'), JSON.stringify(form.cuts));
+    assert.ok(stepsOf(form).includes('left:SWEEP-1'), stepsOf(form).join());
+    assert.ok(!stepsOf(form).includes('left:RIPPLE-1'), stepsOf(form).join());
     const left = leftOf(form.body);
     includes(left, `Choice its verifier left to the author: ${choice} Settled as: not settled by deep-review`);
-    includes(left, 'Not listed here: 1. To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.');
+    includes(left, 'Not listed here: 1. To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.');
     excludes(form.body, 'g'.repeat(100));
     const folded = run([leftIntended, decisions[1]]).fold();
     const primary = folded.review!.candidates['RIPPLE-1']!.verdict!;
     const memberNamed = withVerdict({ ...folded, review: { ...folded.review!, candidates: { ...folded.review!.candidates, 'SWEEP-2': { ...folded.review!.candidates['SWEEP-2']!, unverified: false, verdict: primary } } } }, 'SWEEP-2', { authorChoice: otherChoice });
     const member = formOf(withDecision(memberNamed, 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) }));
-    assert.ok(member.cuts.includes('left'), JSON.stringify(member.cuts));
+    assert.ok(stepsOf(member).includes('left:SWEEP-1'), stepsOf(member).join());
     includes(leftOf(member.body), `Choice its verifier left to the author: ${otherChoice} Settled as: not settled by deep-review`);
   });
 
-  it('names, in a dry run, the cut of the findings left as is as of those whose verifiers named no choice, since it keeps the others (R4 of the settled choice)', () => {
+  it('leaves out a finding left as is whose verifier named a choice the decision settled as any other, since it waits on no one (R4, PD8 of the review that always posts)', () => {
+    // A settlement longer than a decider gives, so that the body fits only once the finding it settles leaves.
+    const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'RIPPLE-1', { settled: [{ ...settled, choice: 'g'.repeat(maxPostedLength) }] });
+    const form = formOf(state);
+    assert.deepEqual(stepsOf(form), ['refuted', 'left:SWEEP-1', 'left:RIPPLE-1']);
+    excludes(form.body, choice);
+  });
+
+  it('names, in a dry run, what it left out of the body in order, with the number of each finding it took a piece from (R9 of the review that always posts)', () => {
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) });
     const form = formOf(state);
-    assert.deepEqual(form.cuts, ['refuted', 'left']);
-    assert.ok(dryRunLines(state, [], form, []).includes('Cut from the body to fit: the refuted candidates, then the findings left as is whose verifiers named no choice.'), form.cuts.join());
+    assert.deepEqual(stepsOf(form), ['refuted', 'left:SWEEP-1']);
+    const lines = dryRunLines(state, [], form, []);
+    assert.ok(lines.includes('Left out of the body to fit: the refuted candidates, then finding 2, left as is.'), lines.join('\n'));
+    assert.ok(dryRunLines(run().fold(), [], formOf(run().fold()), []).includes('Left out of the body to fit: nothing.'));
   });
 });
 
@@ -848,91 +859,123 @@ describe('the cleaning of what the review posts (R11)', () => {
 });
 
 
-describe('the fit of the review (TD5)', () => {
+describe('the fit of the review (R2, R6 of the review that always posts)', () => {
   const state = longFindingHistory().fold();
   /** The files of the pull request with lines 4 and 7 of `src/a.ts` added, or, `outside`, line 7 alone, so the fix on line 4 is in full in the body and does not grow its comment. */
   const filesOf = (outside: boolean): PullRequestFile[] => [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: outside ? '@@ -7,1 +7,1 @@\n-old 7\n+new 7' : '@@ -4,4 +4,4 @@\n-old 4\n+new 4\n line 5\n line 6\n-old 7\n+new 7' }];
   const limit = 60_000;
-  const expectedCuts = [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']];
+  /** Each state the padded text of finding 1 reaches: one step of the order more at a time, up to its text. */
+  const expected = [[], ['minor-table'], ['minor-table', 'record:RIPPLE-1'], ['minor-table', 'record:RIPPLE-1', 'refuted'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams', 'text:RIPPLE-1']];
+  const withoutDiagrams = expected.filter((steps) => !steps.includes('diagrams'));
   const markedLast = (form: PullRequestForm): void => {
     assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
     for (const comment of form.comments) assert.equal(lastLine(comment.body), `<!-- ${findingMarker('run-1', comment.finding)} -->`);
   };
-  interface Samples { cuts: string[][]; forms: PullRequestForm[]; last: PullRequestForm | FormRefusal; boundaries: Boundary[] }
+  interface Samples { states: string[][]; forms: PullRequestForm[]; boundaries: Boundary[] }
   const sampled = new Map<boolean, Samples>();
-  /** Calibrate only padding length; the fixed cap and literal expected cut states remain independent oracles. */
+  /** Calibrate only padding length; the fixed cap and literal expected states remain independent oracles. */
   const samples = (diagram: boolean): Samples => {
     const known = sampled.get(diagram);
     if (known !== undefined) return known;
-    const boundaries = sampleBoundaries((pad) => renderedOf(state, paddedAnswer(pad, diagram), filesOf(true)), limit, diagram ? expectedCuts : expectedCuts.slice(0, 4));
-    const forms = boundaries.flatMap(({ below, at, above }) => [below, at, ...(above.kind === 'rendered' ? [above] : [])]);
-    const cuts = forms.filter((form, index) => index === 0 || JSON.stringify(forms[index - 1]!.cuts) !== JSON.stringify(form.cuts)).map((form) => [...form.cuts]);
-    const result = { cuts, forms, last: boundaries.at(-1)!.above, boundaries };
+    const boundaries = sampleBoundaries((pad) => renderedOf(state, paddedAnswer(pad, diagram), filesOf(true)), limit, diagram ? expected : withoutDiagrams);
+    const forms = boundaries.flatMap(({ below, at, above }) => [below, at, above]);
+    const states = forms.map(stepsOf).filter((steps, index, all) => index === 0 || JSON.stringify(all[index - 1]) !== JSON.stringify(steps));
+    const result = { states, forms, boundaries };
     sampled.set(diagram, result);
     return result;
   };
+  const at = (forms: readonly PullRequestForm[], step: string): string => forms.find((form) => stepsOf(form).at(-1) === step)!.body;
 
-  it('cuts a body that does not fit in the order of TD5, one cut more at a time, and posts each under the limit', () => {
-    const { cuts, forms } = samples(true);
-    assert.deepEqual([...bodyCuts], ['refuted', 'left', 'minor-table', 'area-diagrams']);
-    assert.deepEqual(cuts, expectedCuts);
+  it('leaves out the pieces of a body that does not fit in the order of R2, one step more at a time, and posts each under the limit', () => {
+    const { states, forms } = samples(true);
+    assert.deepEqual(states, expected);
     assert.equal(maxPostedLength, limit, 'the public posting cap is 60000 characters');
     for (const form of forms) assert.ok(form.body.length <= maxPostedLength, String(form.body.length));
     for (const form of forms) markedLast(form);
   });
 
-  it('names each cut where it is made, and never cuts the core of the change, what needs a person, the areas or the findings in full', () => {
+  it('puts in each piece\'s place what R2 names, and keeps the core of the change, what needs a person and the areas', () => {
     const { forms } = samples(true);
-    const cutTo = (count: number): string => forms.find((form) => form.cuts.length === count)!.body;
     for (const form of forms) includes(form.body, '### What this change does\n\ndeep-review has no account of this change, because an engine before the account reviewed it.\n\n### Summary');
-    includes(cutTo(1), '- Candidates the verifiers refuted: 1. Not listed here: 1. To fit the length GitHub takes, the refuted candidates are not listed here; the report of the run holds each with its evidence.');
-    excludes(cutTo(1), '<details><summary>The refuted candidates</summary>');
-    includes(cutTo(2), '### The findings left as is\n\nNot listed here: 1. To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.');
-    includes(cutTo(3), 'To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.');
-    includes(cutTo(4), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
-    excludes(cutTo(4), `A["${'d'.repeat(1000)}"]`);
+    includes(at(forms, 'minor-table'), 'Minor findings: 1. Reach what a user sees: 0. About the code alone: 0. Reach not given: 1. In a comment on their line: 1.\n\nTo fit the length GitHub takes, the table of the minor findings is left out; the report of the run holds them all.');
+    const record = at(forms, 'record:RIPPLE-1');
+    includes(record, '<details><summary>The fix in full, in the writer\'s words</summary>\n\n**The fix.** The fix guards the null once, so every caller is safe.\n\n</details>\n\nThe decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: `deep-review report --run run-1 --finding 1`.');
+    excludes(record, 'Approach: Guard the null once');
+    excludes(record, '<summary>The decision as deep-review recorded it</summary>');
+    includes(at(forms, 'refuted'), '- Candidates the verifiers refuted: 1. Not listed here: 1. To fit the length GitHub takes, the refuted candidates are not listed here; the report of the run holds each with its evidence.');
+    excludes(at(forms, 'refuted'), '<details><summary>The refuted candidates</summary>');
+    includes(at(forms, 'left:SWEEP-1'), '### The findings left as is\n\nNot listed here: 1. To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.');
+    includes(at(forms, 'diagrams'), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
+    excludes(at(forms, 'diagrams'), `A["${'d'.repeat(1000)}"]`);
+    const text = at(forms, 'text:RIPPLE-1');
+    excludes(text, '### Finding 1');
+    excludes(text, '(#finding-1)');
+    includes(text, '- **Finding 1.** parse() reads the null before any guard. Verdict: CONFIRMED. Decision: fix. Guard the null before parse reads it. Command that prints it: `deep-review report --run run-1 --finding 1`.');
     for (const form of [...forms, ...samples(false).forms]) {
       includes(form.body, '### What needs a person');
       includes(form.body, '### The major findings');
       includes(form.body, '**Parsing an empty input.** What parse() does with an empty file.');
-      includes(form.body, '- **[Finding 1](#finding-1).** parse() reads the null before any guard.');
-      includes(form.body, '### Finding 1\n\n**parse() reads the null before any guard.**');
       markedLast(form);
     }
   });
 
-  it('makes and names no cut that takes nothing from the body', () => {
-    const { cuts } = samples(false);
-    assert.deepEqual(cuts, expectedCuts.slice(0, 4));
+  it('says under its heading what it left out, with the count of each kind and the command that prints a finding, and says nothing of it when nothing was left out (R6, PD10)', () => {
+    const { forms } = samples(true);
+    const notice = 'This review does not hold all of the run: to fit the length GitHub takes, the parts counted here are left out.';
+    excludes(forms[0]!.body, notice);
+    inOrder(at(forms, 'minor-table'), ['## deep-review\'s review', 'Merge base:', notice, 'Left out whole: the table of the minor findings. Command that prints a finding: `deep-review report --run run-1 --finding <n>`.', '### What this change does']);
+    includes(at(forms, 'record:RIPPLE-1'), 'Left out whole: the table of the minor findings. Findings whose recorded decision is left out: 1. Command');
+    includes(at(forms, 'text:RIPPLE-1'), 'Left out whole: the table of the minor findings, the refuted candidates, the diagrams. Findings left as is that are not listed: 1. Findings whose text is left out: 1. Command');
   });
 
-  it('refuses a body that does not fit after every cut, with its size and parts', () => {
-    const { last } = samples(true);
-    assert.equal(last.kind, 'refused');
-    const { text, size, limit, parts } = last as FormRefusal;
-    assert.deepEqual(text, { kind: 'body' });
-    assert.ok(size > maxPostedLength);
-    assert.equal(limit, maxPostedLength);
-    assert.deepEqual(parts.map((part) => part.part), ['heading', 'core', 'summary', 'needs', 'not examined', 'how', 'areas', 'findings in full', 'minor', 'left as is', 'trust', 'last line']);
-    assert.equal(parts.reduce((sum, part) => sum + part.size, 0) + 2 * (parts.length - 1), size, 'the parts and the blank lines between them make the body');
-    assert.match(formRefusalWords(last as FormRefusal), /^the body of the review, after every cut, is \d+ characters, over the 60000 a review posts: heading \d+, core \d+, summary \d+, needs \d+/);
+  it('makes and names no step that takes nothing from the body', () => {
+    assert.deepEqual(samples(false).states, withoutDiagrams);
   });
 
-  it('refuses a comment over the limit, with its size and parts', () => {
-    const seed = formOf(state, paddedAnswer(1), filesOf(false));
-    const atPad = 1 + limit - seed.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length;
+  /** The state with the grounds of finding 1's decision padded with `pad` characters, so that its record grows and its text does not. */
+  const withGrounds = (pad: number) => ({ ...state, review: { ...state.review!, decisions: state.review!.decisions!.map((decision) => (decision.id === 'RIPPLE-1' ? { ...decision, grounds: `${decision.grounds} ${'g'.repeat(pad)}` } : decision)) } });
+  const rippleOf = (form: PullRequestForm): string => form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body;
+
+  it('posts a comment over the limit without the record of its decision, with the command that prints it, and counts it under the heading (R7)', () => {
+    const seed = formOf(withGrounds(1), paddedAnswer(1), filesOf(false));
+    const atPad = 1 + limit - rippleOf(seed).length;
     assert.ok(atPad > 1 && atPad <= limit, 'the comment boundary has positive, bounded padding');
     for (const [offset, size] of [[-1, limit - 1], [0, limit]] as const) {
-      const form = formOf(state, paddedAnswer(atPad + offset), filesOf(false));
-      assert.equal(form.comments.find((comment) => comment.finding === 'RIPPLE-1')!.body.length, size);
+      const form = formOf(withGrounds(atPad + offset), paddedAnswer(1), filesOf(false));
+      assert.equal(rippleOf(form).length, size);
+      assert.deepEqual(form.leftOut.comments, []);
       markedLast(form);
     }
-    const refused = renderedOf(state, paddedAnswer(atPad + 1), filesOf(false)) as FormRefusal;
-    assert.equal(refused.kind, 'refused');
-    assert.equal(refused.size, limit + 1);
-    assert.equal(refused.limit, limit);
-    assert.deepEqual(refused.text, { kind: 'comment', finding: 'RIPPLE-1', path: 'src/a.ts', line: 4 });
-    assert.deepEqual(refused.parts.map((part) => part.part), ['explanation', 'decision', 'checked', 'code']);
-    assert.match(formRefusalWords(refused), /^the comment of RIPPLE-1 on src\/a\.ts:4 is \d+ characters, over the 60000 a review posts: explanation \d+, decision \d+, checked \d+, code \d+$/);
+    const over = formOf(withGrounds(atPad + 1), paddedAnswer(1), filesOf(false));
+    const comment = rippleOf(over);
+    assert.ok(comment.length <= limit, String(comment.length));
+    assert.deepEqual(over.leftOut.comments, [{ finding: 'RIPPLE-1', piece: 'record' }]);
+    excludes(comment, 'g'.repeat(100));
+    includes(comment, 'The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: `deep-review report --run run-1 --finding 1`.');
+    includes(comment, '**What goes wrong.** A caller that passes an empty file meets a crash.');
+    markedLast(over);
+    includes(over.body, 'Comments without their recorded decision: 1.');
+    assert.equal(dryRunLines(state, [], over, []).filter((line) => line.startsWith('Left out of the comment')).join('\n'), 'Left out of the comment of finding 1 (RIPPLE-1) to fit: its recorded decision.');
+  });
+
+  it('posts a comment whose text alone is over the limit as its facts, the notice and the command, holding no text of a worker, and changes no other comment (R7)', () => {
+    const plain = formOf(state, paddedAnswer(1), filesOf(false));
+    const over = formOf(state, paddedAnswer(limit), filesOf(false));
+    const comment = rippleOf(over);
+    assert.deepEqual(over.leftOut.comments, [{ finding: 'RIPPLE-1', piece: 'text' }]);
+    assert.equal(comment, [
+      '**Finding 1**',
+      '',
+      'Severity: major. Verdict: CONFIRMED. Checked by: tracing the code. Decision: fix.',
+      '',
+      'The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review\'s writer\'s text of it is kept in its answer on the machine of the person who ran the review. Command that prints it: `deep-review report --run run-1 --finding 1`.',
+      '',
+      `<sub>Finding: \`RIPPLE-1\`. Run: \`run-1\`.</sub>`,
+      '',
+      `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`,
+    ].join('\n'));
+    for (const other of over.comments.filter((posted) => posted.finding !== 'RIPPLE-1')) assert.equal(other.body, plain.comments.find((posted) => posted.finding === other.finding)!.body);
+    includes(over.body, 'Comments with their facts alone: 1.');
+    assert.equal(over.body.replace(/This review does not hold all of the run[^\n]*\n\n/, ''), plain.body);
   });
 });

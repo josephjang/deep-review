@@ -28,7 +28,8 @@ import { acquireRunLock, acquireStartLock, type ReleaseLock } from './lock.ts';
 import { counted } from './markdown.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
-import { formRefusalWords, pullRequestForm, type BodyCut, type PullRequestForm } from './pull-request-form.ts';
+import { pullRequestForm, type PullRequestForm } from './pull-request-form.ts';
+import type { FitStep } from './pull-request-fit.ts';
 import { placeFindings, type FindingPlacement } from './pull-request-view.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
 import { runIdOf } from './runs.ts';
@@ -239,13 +240,60 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
   return facts.changedFiles;
 }
 
-/** A cut of the body as a dry run names it (R12); the cut of the findings left as is keeps those whose verifier named a choice (R4 of the settled choice). */
-const cutWords: Readonly<Record<BodyCut, string>> = {
-  refuted: 'the refuted candidates',
-  left: 'the findings left as is whose verifiers named no choice',
+/** A piece of the body that leaves whole, as a dry run and the log name it (R9 of the review that always posts). */
+const wholeWords: Readonly<Record<Exclude<FitStep, { readonly finding: string }>['piece'], string>> = {
   'minor-table': 'the table of the minor findings',
-  'area-diagrams': 'the diagrams of the areas',
+  refuted: 'the refuted candidates',
+  diagrams: 'the diagrams of the areas and of the core of the change',
+  floor: 'everything but the floor',
 };
+
+/** A piece taken from findings, named with their numbers, as a dry run and the log name it. */
+function findingPieceWords(piece: Extract<FitStep, { readonly finding: string }>['piece'], numbers: readonly number[]): string {
+  const findings = `${numbers.length === 1 ? 'finding' : 'findings'} ${numbers.join(', ')}`;
+  switch (piece) {
+    case 'record':
+      return `the recorded decision of ${findings}`;
+    case 'left':
+      return `${findings}, left as is`;
+    case 'text':
+      return `the text of ${findings}`;
+    case 'line':
+      return `the line of ${findings}`;
+  }
+}
+
+/**
+ * What the form left out of the body, in the order it left (R9 of the
+ * review that always posts): each run of steps of one piece as one item,
+ * with the numbers of the findings it took that piece from, in the order
+ * taken; `nothing` for a body with nothing left out.
+ */
+function bodyLeftOutWords(run: RunState, steps: readonly FitStep[]): string {
+  const numbers = briefOf(run).numbers;
+  const items: ({ readonly whole: Exclude<FitStep, { readonly finding: string }>['piece'] } | { readonly piece: Extract<FitStep, { readonly finding: string }>['piece']; readonly findings: number[] })[] = [];
+  for (const step of steps) {
+    if (!('finding' in step)) {
+      items.push({ whole: step.piece });
+      continue;
+    }
+    const last = items.at(-1);
+    const number = numbers.get(step.finding) ?? 0;
+    if (last !== undefined && 'piece' in last && last.piece === step.piece) last.findings.push(number);
+    else items.push({ piece: step.piece, findings: [number] });
+  }
+  if (items.length === 0) return 'nothing';
+  return items.map((item) => ('whole' in item ? wholeWords[item.whole] : findingPieceWords(item.piece, item.findings))).join(', then ');
+}
+
+/** What the form left out to fit, as lines of a dry run and of the log: the body's, then each comment that lost a piece (R9 of the review that always posts). */
+function leftOutLines(run: RunState, form: PullRequestForm): string[] {
+  const numbers = briefOf(run).numbers;
+  return [
+    `Left out of the body to fit: ${bodyLeftOutWords(run, form.leftOut.body)}.`,
+    ...form.leftOut.comments.map((comment) => `Left out of the comment of finding ${String(numbers.get(comment.finding) ?? '?')} (${comment.finding}) to fit: ${comment.piece === 'record' ? 'its recorded decision' : 'its text, so it posts its facts alone'}.`),
+  ];
+}
 
 /** Where a finding goes, as a dry run names it. */
 function placeWords(placement: FindingPlacement): string {
@@ -264,7 +312,7 @@ function placeWords(placement: FindingPlacement): string {
   }
 }
 
-/** What a dry run prints (R14): what it would post, where each finding goes and why, each cut, and the body and each comment in full. */
+/** What a dry run prints (R14): what it would post, where each finding goes and why, what was left out to fit, and the body and each comment in full. */
 export function dryRunLines(run: RunState, placements: readonly FindingPlacement[], form: PullRequestForm, notes: readonly string[]): string[] {
   const scope = run.scope!;
   const numbers = briefOf(run).numbers;
@@ -274,7 +322,7 @@ export function dryRunLines(run: RunState, placements: readonly FindingPlacement
     ...notes,
     'Where each finding goes:',
     ...(placements.length === 0 ? ['- no finding'] : placements.map((placement) => `- ${numbered(placement.finding)}: ${placeWords(placement)}`)),
-    `Cut from the body to fit: ${form.cuts.length === 0 ? 'nothing' : form.cuts.map((cut) => cutWords[cut]).join(', then ')}.`,
+    ...leftOutLines(run, form),
     `Secrets replaced by the cleaning: ${String(form.secrets)}.`,
     '',
     `--- The body of the review, ${counted(form.body.length, 'character', 'characters')} ---`,
@@ -374,7 +422,7 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
   const unrecorded = unrecordedWords(settled);
   const changedFiles = requireUnmoved(ghOf(), reviewed, unrecorded);
 
-  // 4. Place, render, clean and fit (R9 to R12); a review that does not fit is refused before anything is recorded. The publication is the whole run's, whose events come after the fix pass.
+  // 4. Place, render, clean and fit (R9 to R12; R1 of the review that always posts): a review that does not fit leaves out what the order of what it is worth takes, and is posted. The publication is the whole run's, whose events come after the fix pass.
   const scope = reviewed.scope!;
   const files = refusingGitHub(() => listPullRequestFiles(ghOf(), { ...target, changedFiles }), readRefusal(target, unrecorded));
   const placements = placeFindings(reviewed.review!, files);
@@ -393,11 +441,10 @@ function publishLocked(options: PublishOptions, runId: string, log: (line: strin
     serial,
     commits,
   });
-  if (form.kind === 'refused') throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded}, and the report of the run holds all of it`);
 
   // 5. A dry run ends with what it would post (R14).
   if (dryRun) return { kind: 'dry-run', runId: run.id, lines: dryRunLines(reviewed, placements, form, notes) };
-  if (form.cuts.length > 0) log(`run ${run.id}: the body of the review is cut to fit: ${form.cuts.map((cut) => cutWords[cut]).join(', then ')}; the report of the run holds all of it`);
+  if (form.leftOut.body.length > 0 || form.leftOut.comments.length > 0) log(`run ${run.id}: the review leaves out pieces to fit the length GitHub takes, as the notice under its heading says. ${leftOutLines(reviewed, form).join(' ')}`);
 
   // 6. The publication is on the ledger, with what is posted frozen, before the post (R13, principle 2).
   const review: NewReview = { commit: scope.head, body: form.body, comments: form.comments.map(({ path, line, body }) => ({ path, line, body })) };
