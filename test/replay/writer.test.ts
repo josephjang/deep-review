@@ -121,4 +121,10 @@ describe('replayWriter', { timeout: 600_000 }, () => {
   it('counts the characters of every text of an answer, and no key', () => {
     assert.equal(textCharacters({ a: 'xy', b: [{ c: 'z' }, null, 3], d: null }), 3);
   });
+
+  it('counts an emoji or a math symbol as one character, as a Korean syllable is', () => {
+    assert.equal(textCharacters({ a: ['ok 🚀 𝑥'] }), 6);
+    assert.equal(textCharacters('리뷰를 작성합니다'), 9);
+    assert.equal(textCharacters(''), 0);
+  });
 });
