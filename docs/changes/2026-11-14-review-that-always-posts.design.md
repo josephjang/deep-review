@@ -74,7 +74,7 @@ export function fitOrder(view: FormView): FitStep[];
 | 6 | `text` for each finding in full that waits on no one |
 | 7 | `line` for each of the same findings |
 | 8 | `record` for each finding of the body that waits on a person |
-| 9 | `text` for each finding in full that waits on a person, and `left` for each finding left as is that does |
+| 9 | `left` for each finding left as is that waits on a person |
 | 10 | `floor` |
 
 Within a row that names each finding, the steps go from the highest number of a finding down, which is the last-ranked first (TD2). A finding waits on a person when one of three holds, each read from what the view already has: its question has no answer with an option; its departure has no review; or `choicesShown` of its choices and its settled choices gives one with no settlement, which is a choice a verifier named and the decision did not settle. `keptByCut` goes away.
