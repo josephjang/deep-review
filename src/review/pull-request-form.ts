@@ -38,7 +38,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { firstFit, fitOrder, leftOutOf, nothingLeftOut, takes, unsettledChoices, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LeftOutKind, LineNote, PullRequestWords, RecordedSpeaker, WholePiece, WriterPart } from './pull-request-words.ts';
-import { acts, areaDiagramsShown, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, areaDiagramsShown, findingDiagramShown, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
 import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
@@ -547,10 +547,17 @@ interface FindingParts {
   readonly code: string[];
 }
 
-/** The parts of the block of a finding in R5's order: its facts, the mark of one not explained, what goes wrong, its diagram for a major one, why it is not CONFIRMED, then its decision, how it was checked for a major one, and its code. */
+/**
+ * The parts of the block of a finding in R5's order: its facts, the mark
+ * of one not explained, what goes wrong, its diagram for a major one, or
+ * the notice in its place once the diagrams step took it (R2 row 5 of the
+ * review that always posts), why it is not CONFIRMED, then its decision,
+ * how it was checked for a major one, and its code.
+ */
 function findingParts(view: Page, finding: FindingView, say: Speaker): FindingParts {
   const minor = isMinor(finding);
-  const diagram = !minor && finding.written?.diagram !== null && finding.written?.diagram !== undefined ? [[say.diagram(finding.written.diagram)]] : [];
+  const drawn = findingDiagramShown(finding) ? finding.written?.diagram ?? null : null;
+  const diagram = drawn === null ? [] : view.leftOut.diagrams ? [[view.words.findingDiagramCut]] : [[say.diagram(drawn)]];
   return {
     explanation: blocks([findingFacts(view, finding)], ...unexplainedBlocks(view, finding, say), ...problemBlocks(view, finding, say), ...diagram, ...unconfirmedBlocks(view, finding, say)),
     decision: blocks(...decisionBlocks(view, finding, say)),

@@ -866,7 +866,8 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
   const limit = 60_000;
   /** Each state the padded text of finding 1 reaches: one step of the order more at a time, up to its text. */
   const expected = [[], ['minor-table'], ['minor-table', 'record:RIPPLE-1'], ['minor-table', 'record:RIPPLE-1', 'refuted'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams', 'text:RIPPLE-1']];
-  const withoutDiagrams = expected.filter((steps) => !steps.includes('diagrams'));
+  /** The same states for an answer that draws no diagram, which the order gives no diagrams step. */
+  const withoutDiagrams = expected.filter((steps) => !steps.includes('diagrams')).concat([expected.at(-1)!.filter((step) => step !== 'diagrams')]);
   const markedLast = (form: PullRequestForm): void => {
     assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
     for (const comment of form.comments) assert.equal(lastLine(comment.body), `<!-- ${findingMarker('run-1', comment.finding)} -->`);
@@ -907,6 +908,11 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
     includes(at(forms, 'left:SWEEP-1'), '### The findings left as is\n\nNot listed here: 1. To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.');
     includes(at(forms, 'diagrams'), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
     excludes(at(forms, 'diagrams'), `A["${'d'.repeat(1000)}"]`);
+    // The diagram of a finding in full leaves at the same step, with a notice of its own in its block (R2 row 5).
+    includes(at(forms, 'left:SWEEP-1'), 'Caller->>parse: an empty file');
+    excludes(at(forms, 'diagrams'), 'Caller->>parse: an empty file');
+    includes(at(forms, 'diagrams'), '### Finding 1');
+    includes(at(forms, 'diagrams'), 'To fit the length GitHub takes, the diagram of this finding is left out; the writer\'s answer on the machine that holds the run keeps it.');
     const text = at(forms, 'text:RIPPLE-1');
     excludes(text, '### Finding 1');
     excludes(text, '(#finding-1)');
