@@ -660,8 +660,10 @@ const reportCommandOf = (view: FormView): string => `deep-review report --run ${
  * written rule and choices that no one settled wait on a person, with the
  * command that answers a question or a fix; each condition that holds, as
  * its label, or, when none is listed, the fixed label that none holds or
- * that none was judged, and the number of fixes on a PLAUSIBLE verdict; each kind of
- * gap the run has, as its label; the tables of the verdicts and of how
+ * that none was judged, and the number of fixes on a PLAUSIBLE verdict;
+ * the fixed line that no check ran in the review, or that the fix pass
+ * runs the checks, then each kind of gap the run has, as its label, or
+ * that it has none; the tables of the verdicts and of how
  * the findings were checked, with the notice that a model wrote the
  * sentences when a comment posted with the floor holds a text of the
  * writer; the last line, with no version of the runtime and no model,
@@ -682,7 +684,9 @@ function floorBody(view: Page): string {
   const conditions = held.length > 0 ? [] : [factsLine([[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged]])];
   const looks = [...held.map(({ condition }) => words.conditionLabels[condition]), ...(plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])])].map((item) => `- ${item}`);
   const kinds = [...new Set(view.brief.notExamined.map((gap) => gap.facts.kind))];
-  const gaps = kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => `- ${words.gapLabels[kind]}`);
+  // The fixed line that no check ran, or that the fix pass runs them, first, as the full body gives it, so the floor claims no coverage the run did not have.
+  const checks = view.fixPass === 'continued' ? words.noCheckContinued : factsLine([[words.checksRunLabel, words.none]]);
+  const gaps = [checks, ...(kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => words.gapLabels[kind]))].map((item) => `- ${item}`);
   const labels = words.lastLabels;
   const { configuration } = view.review;
   const last = factsLine([[labels.engine, `deep-review ${inlineText(view.input.engine)}`], [labels.runtime, configuration.runtime], [labels.run, codeSpan(shortRunId(view.state.id))], [labels.commits, `${shortCommit(view.scope.base)}..${shortCommit(view.scope.head)}`]]);
