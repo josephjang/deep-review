@@ -233,7 +233,7 @@ The gate runs as R13 of the requirements says, and the Verification section reco
 
 ## Verification
 
-The series implements every element of the design, in the order "Where the code goes" gives but for the changes below. The gate of R13 has not run: it runs real reviews of pull requests, each a cost the author approves first, and its record is added here when it runs.
+The series implements every element of the design, in the order "Where the code goes" gives but for the changes below. The gate of R13 ran on 2026-11-14, and the section "The gate (R13)" below records it.
 
 ### What was implemented
 
@@ -251,7 +251,7 @@ The new tests hold the checks, the merge and the task of version 4 (`test/review
 
 ### What was not verified
 
-No real review of a pull request ran with this engine, so nothing measures yet what M1 to M6 of the requirements ask: whether a reader understands the review, how long it grew, and how often a part drops. The replay of OQ1 measured one writer on one recorded run. No review was posted on GitHub.
+The review of this pull request itself was not posted: its body is over GitHub's limit after every cut, the case RK10 of the requirements names (#136). Its reading below rests on a print with the limit raised. The gate posted the review of one other run, on a private copy of this repository. Each run had one writer and one answer, so the gate measures no spread between runs of the same pull request. The defects the gate found, listed at its end, are not fixed in this series.
 
 ### The measure of OQ1
 
@@ -267,6 +267,55 @@ The run measured is not the one OQ1 names. The Korean run that #115 describes re
 | Cost | 2.00 USD | 3.17 USD, 40% of the budget |
 
 Every part but 13 findings passed the checks: the core, the conditions, the summary with its 4 areas, 16 of the 29 findings, the finding left as is, the 12 refuted lines and what the review did not examine. No explanation was given as unexplained, and every text was within the size its guide gives; the longest against it were the core's `what` (2,100 of 4,000 characters), a condition (547 of 1,000) and the summary (710 of 1,500). The 13 findings that failed each gave an `unconfirmed` text to a PLAUSIBLE verdict that recorded no line of why: the run predates the verdicts that record why, its evidence says "Not CONFIRMED" in free text, and the task named nowhere which findings take the text. The task now names them (commit "fix(review): Name the findings whose verdict says why it is unconfirmed"). A run configured for version 4 records each PLAUSIBLE verdict with why, so this failure is one of older runs; the measure was not run again after the fix.
+
+### The gate (R13)
+
+The engine was the bundle of this pull request's head, the commit "chore(dist): Rebuild for the review in the writer's words" (`deep-review 0.0.0+8655890a5f58`), on Claude Code 2.1.322 with opus and sonnet and on Codex 0.167.1 with gpt-6-astra and gpt-6.1-sol, Node 26 on Linux. Each run had a fresh clone of its repository at the pull request's head and reviewed it read-only with the run's defaults and no `--set`; each was printed with `publish --dry-run`. The author approved each run and its expected cost before it started, and the runs went one at a time, the cheapest first. The author keeps the clones, the checkpoints and the outputs outside the repository.
+
+| | Codex, click | Claude Code, click | Claude Code, this pull request | Claude Code, copy of #114 |
+|---|---|---|---|---|
+| Pull request | deep-review/click#1 | deep-review/click#1 | #135 | deep-review/deep-review-gate#2, private |
+| Run | 23072b51 | 9225f138 | 6344d0d8 | deb3f378 |
+| Language | ko, from the repository's file | ko, from the repository's file | en | ko, from the repository's file |
+| Scope | 1 commit, 4 files | 1 commit, 4 files | 44 commits, 55 files, 116 paths left out | 13 commits, 40 files, 113 paths left out |
+| Time | 22 min 3 s | 14 min 27 s | 37 min 3 s | 43 min 15 s |
+| Spend | not reported | 6.97 USD of 60 | 30.84 USD of 120 | 32.07 USD of 120 |
+| Writer | failed twice (#99), 15 parts dropped | 180.8 s, 0.83 USD, nothing dropped | 300.7 s, 2.19 USD, nothing dropped | 660.5 s, 3.37 USD, nothing dropped |
+| Findings | 19: 1 critical, 3 major, 15 minor | 10: 3 major, 7 minor | 35, all minor | 36, all minor |
+| Decisions | 7 fix, 1 ask, 11 leave | 4 fix, 6 leave | 23 fix, 12 leave | 23 fix (2 against a written rule), 1 ask, 12 leave |
+| Body | 21,340, nothing cut | 22,280, nothing cut | refused at 72,369 after every cut; 96,459 uncut | 49,007, nothing cut |
+| Comments | 6, 1,900 to 3,192 | 3, 3,547 to 6,386 | 12, 2,517 to 5,283 | 23, 1,318 to 4,745 |
+
+The verifiers of the Claude Code run on click had one group refused twice by the structural check (a cited probe that the record of its shell runs did not hold), so finding 10 of that run and candidates merged into its findings 1 and 3 had no verifier; the run on this pull request had one group refused once and passed on the retry. No other worker failed, and no run stopped.
+
+The two runs that R13 names held no question with the writer's text and no fix against a written rule: the Codex run's one question has no writer's text, since its writer failed. So, with the author's approval, a further run reviewed the private copy of #114 in Korean, as R8 of the settled choice did. Across the runs the gate has its four cases: a question (finding 30 of deb3f378), two fixes against a written rule (findings 3 and 14 of deb3f378), findings left as is whose verifier named a choice (findings 1, 2 and 5 of 9225f138, eight of the twelve left in 6344d0d8, and findings of deb3f378), and fixes on a `PLAUSIBLE` verdict with the writer's text of why it is not confirmed (findings 21, 24, 26, 27, 31 and 35 of 6344d0d8; 25, 26 and 34 of deb3f378).
+
+M1: no line of a body or a comment of the four runs is a templated sentence. Each is the writer's text, a labeled value, a facts line, a table, a list of links, a fixed notice, or recorded words under a label.
+
+M2: no number in the writer's text differs from the data. Each summary's counts (the findings, the fixes, the questions, the findings left as is, and how deb3f378's summary groups its 23 fixes as 4, 8, 5 and 6) and each text of what the review did not examine agree with the tables and the labeled values beside them.
+
+M3: the writer's text of question 30 of deb3f378, of each of its two options with its cost and its rule, and of why deep-review recommends option 2, says what the decider recorded; so do its texts of the two departures, each rule with its source, the fact against it and what the fix does instead. The writer's texts of a fix in full and its reasons for findings left as is, read in the three runs whose writer answered, say what the decider's approach and grounds say, and where the verifier's choice was not settled, the writer says so as the record does.
+
+M4: a fresh Claude Code session with no tools, given only the body and the comments of a run as the dry run prints them, said what the change does, what each question asks with each option and its cost, and what the pull request needs before a merge. Its answers match each run, in Korean as in English, and for the Codex run with no writer's text too. The names it could not follow fall in four kinds: the ids of findings and of requirements, which the recorded words and some of the writer's texts quote (R5, PD6, finder prefixes such as `SCAN`); terms of deep-review that no part of the review defines (the gate, the brief, the core, fold, the ranking worker, which the labels of recorded words name and the fixed account of how the review worked does not); identifiers of the code under review that the finders and the decider quote; and, for this pull request, why GitHub shows no diff of a file. The reader also found two of the defects listed below on its own: a finding linked four times in one list, and the escaped line breaks of a summary.
+
+M5: the clearest measure of growth is one run in both forms. Run e71add5e, recorded on click#1 before this change, printed by the engine before it and by this one: the body went from 19,569 to 20,891 characters and its four comments from 4,613, 3,114, 2,853 and 2,023 to 5,291, 3,669, 3,392 and 2,385. Its parts in view stayed within 104 characters of the old form, the most in the trust section, whose templated sentences became two tables, the notice on what a model wrote and the fact of the parts its answer lacks; what grew is the folded record of each decision, 434 characters in its one finding in full and 950 in its findings left as is, which now holds the decider's grounds and each verifier's choice beside its settlement (R4), one of the two kinds of growth R11 accepts. The writers took 0.83 to 3.37 USD and 181 to 661 s, at most 42% of the budget of 8 USD and 37% of the timeout of 30 minutes. The review of this pull request is refused, nothing posted: "the body of the review, after every cut, is 72369 characters, over the 60000 a review posts", of which 38,138 are 11 findings in full, 9 of them in `src/review/pull-request-form.ts`, a file GitHub shows no diff of, and 16,778 the findings left as is that the cut keeps since their verifier named a choice. This is RK10, and #136 holds the cut that RK10 leaves to a later change. OQ4: the part `left` passed in each run whose writer answered.
+
+M6: in the two Korean runs whose writer answered, every text outside a fold is Korean but code, identifiers, commands, verdicts and severities, the question and the departures of deb3f378 among them; the English is the decider's record, folded. In the Codex run, where no writer's part stands, every recorded text is English under the label of its worker, as R8 says.
+
+R10: run e71add5e (`review.configured@12`, `explanation.recorded@3`; click#1's head has not moved since) printed with no error in the new form. The parts its answer holds are posted as its writer wrote them; the parts it lacks, the findings left as is and what the review did not examine, are named in one fact under the trust section, and the findings left as is show the ranking's and the decider's recorded words under their labels. The sentences the old form built, such as "심각도 Major. CONFIRMED, 실행해 재현함. deep-review가 고치려 합니다.", are gone.
+
+The Codex run's writer met #99 on both attempts, so its review is the review with no explanation of R8: the triage's account of the change under its label, the ranking's titles, the finders' accounts of what goes wrong under a fixed notice that the writer could not explain the finding, the decider's approach and question, and a list of every missing part under the trust section.
+
+The review of deb3f378 was posted on its pull request after the author's approval: 49,007 characters and 23 comments, as its dry run printed them, on head 339f66cc. A second `publish` posted nothing ("is posted already, so nothing was posted again"). The repository is private, and the author keeps the review's text outside this one.
+
+The gate found these defects of the change, which the series does not yet fix:
+
+- A list of findings repeats a finding once for each candidate merged into it: "합쳐진 후보를 검증자가 검토하지 않은 지적 사항: 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 1" (the facts of the unverified gap, in `brief.ts` and `pull-request-form.ts`), where the report says "findings 1 and 3".
+- Where the writer's areas are missing, the counts of the minor findings count a finding with no kind as about the code, while its row says the kind is not decided ("코드에만 관한 것: 4" beside four rows of "정하지 않음").
+- The writer of 6344d0d8 escaped the line breaks of its summary, and the body shows `\n\n` in its text; no check refuses it.
+- Where the writer's text of a fix or a question is missing, the record in full stands in view beside the decider's words that replace the writer's sentence, so the approach, or each option, is shown twice.
+- Each verifier's choice that one settlement settles is joined into one list item, its label repeated before each.
+- deep-review's own review of this pull request decided 23 fixes, among them: the record of a finding left as is says that an answer and the fix pass apply its words; the trust notice says that every count is deep-review's own record, where R7 asks it to say that the data stands where a sentence differs; the writer's text of a fix in full is joined into one paragraph; and a sentence that ends with a Chinese or Japanese stop gets a Latin one.
 
 ### Changes of the proposal during the work
 
