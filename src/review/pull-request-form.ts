@@ -38,7 +38,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { firstFit, fitOrder, leftOutOf, nothingLeftOut, takes, unsettledChoices, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LeftOutKind, LineNote, PullRequestWords, RecordedSpeaker, WholePiece, WriterPart } from './pull-request-words.ts';
-import { acts, areaDiagramsShown, findingDiagramShown, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, areaDiagramsShown, coreDiagramShown, findingDiagramShown, formViewOf, hasRecord, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
 import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
@@ -469,12 +469,14 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
  * each choice a verifier left to the author beside the choice that
  * settles it and its source, or that deep-review did not settle it.
  * Folded, whether it stands beside the writer's text or in for it, since
- * a block with no writer's text shows the decider's words in view.
+ * a block with no writer's text shows the decider's words in view. None
+ * for a finding with no record to fold (`hasRecord`), which the order
+ * gives no record step either.
  */
 function recordBlocks(view: Page, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
+  if (!hasRecord(finding)) return [];
   const { decision, question } = finding;
-  if (decision === null) return [];
   const fixText = finding.written?.fix?.text ?? null;
   // Paragraph by paragraph, as the writer's problem is, since a text of a fix that covers several choices is long.
   const writerText = fixText === null ? [] : say.paragraphs(fixText).map((paragraph, index) => [index === 0 ? `${words.fixTextLabel} ${paragraph}` : paragraph]);
@@ -749,7 +751,9 @@ function coreSection(view: Page, say: Speaker): Section {
   if (core.kind === 'writer') {
     const { title, what, why, whyFrom, diagram } = core.core;
     const reason = why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.prose(why))}`], ...sources(whyFrom)];
-    const drawn = diagram === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(diagram)];
+    // Through the predicate the order reads, so the order and the core agree on whether the core shows a diagram.
+    const shown = coreDiagramShown(view) ? diagram : null;
+    const drawn = shown === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(shown)];
     return { lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, drawn, [words.coreWhoseWriter]) };
   }
   const { title, change } = core;

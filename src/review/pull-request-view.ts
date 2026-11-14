@@ -386,9 +386,10 @@ export const diagramsShown = (view: FormView): boolean => areaDiagramsShown(view
  * decision, and, for one left as is, with the writer's text of it. A
  * finding left as is with no writer's text shows its choices in view with
  * no fold, and a finding with no decision shows nothing, so neither has a
- * record to take.
+ * record to take. The order and the block of a finding both read it, so
+ * the order names a record step only where the block folds a record.
  */
-export const hasRecord = (finding: FindingView): boolean => finding.decision !== null && (acts(finding) || finding.left !== null);
+export const hasRecord = (finding: FindingView): finding is FindingView & { readonly decision: RecordedDecision } => finding.decision !== null && (acts(finding) || finding.left !== null);
 
 /** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
 export const minorActing = (view: FormView): FindingView[] => {
