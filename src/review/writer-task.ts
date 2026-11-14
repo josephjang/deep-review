@@ -311,9 +311,13 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
   const ranked = rankedFindings(review);
   let dropped: readonly DroppedPart[];
+  let unconfirmed: readonly string[] = [];
   if (version === 4) {
     const answers = checkedAnswersV4(state, review, input, ids, []);
     dropped = answers.length === 0 ? [] : mergeAnswersV4(answers, ids).dropped;
+    // The facts are built once: each build ranks every finding twice, and they do not depend on the finding asked about.
+    const facts = decisionFactsOf(review);
+    unconfirmed = ids.filter((id) => facts.get(id)?.unconfirmed === true);
   } else {
     const answers = checkedAnswers(state, review, input, ids, null);
     dropped = answers.length === 0 ? [] : mergeAnswers(version, answers, ids).dropped;
@@ -326,7 +330,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
   return [
     `Write every text of your answer in the language ${languageWords(input.language ?? reviewLanguage(review))}.`,
     '',
-    ...(version === 4 ? writtenAsks(ids, left, ids.filter((id) => decisionFactsOf(review).get(id)?.unconfirmed === true)) : [
+    ...(version === 4 ? writtenAsks(ids, left, unconfirmed) : [
       ids.length === 0
         ? `No finding of this review asks a person to act, so you explain none: give the conclusion with no action, ${version === 1 ? 'the account' : 'no area'}, and no entry in \`findings\`.`
         : `Explain these ${counted(ids.length, 'finding', 'findings')}, each by its id, with an action of the conclusion and an entry of \`findings\`: ${ids.join(', ')}. Every other finding below is context, which you explain nowhere.`,
