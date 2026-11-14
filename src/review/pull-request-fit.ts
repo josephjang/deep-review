@@ -7,7 +7,7 @@
  * prefix into what each section of the body reads. Pure: it renders
  * nothing.
  */
-import { acts, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingView, type FormView } from './pull-request-view.ts';
+import { acts, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
 import { choicesShown } from './state.ts';
 
 /**
@@ -47,9 +47,8 @@ const pieceRank: Readonly<Record<FindingPiece, number>> = { record: 1, text: 2, 
  * the decision answers.
  */
 export function waitsOnPerson(finding: FindingView): boolean {
-  const { question, departure, decision } = finding;
-  if (question !== null && (question.answer === null || question.answer.option === null)) return true;
-  if (departure !== null && departure.review === null) return true;
+  if (openQuestion(finding) || openDeparture(finding)) return true;
+  const { decision } = finding;
   if (decision?.decision === 'ask') return false;
   return choicesShown(finding.choices, decision?.settled ?? []).some((shown) => shown.settled === null);
 }
