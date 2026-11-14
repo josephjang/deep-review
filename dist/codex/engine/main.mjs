@@ -34955,6 +34955,9 @@ function verdictFailures(what, texts) {
   const found = new Set(texts.flatMap((text3) => [...text3.matchAll(verdictWord)].map((match) => match[1])));
   return [...found].map((verdict) => `${what} holds the verdict ${verdict}, which the engine writes beside the finding`);
 }
+function escapedBreakFailures(what, texts) {
+  return texts.some((text3) => text3.replaceAll(codeSpans, "").includes("\\n")) ? [`${what} holds the two characters \\n outside a code span, which GitHub shows as they are; write a real line break where a line or paragraph should end, and put the characters in a code span where they are code`] : [];
+}
 function labelFailures(what, text3) {
   const entities = [...text3.matchAll(htmlEntity)].map((match) => match[0]);
   return [
@@ -35284,7 +35287,7 @@ function checkAnswer(output2, input2) {
   };
 }
 function checkText(what, text3) {
-  return [...blank(text3) ? [`${what} is empty`] : [], ...verdictFailures(what, [text3])];
+  return [...blank(text3) ? [`${what} is empty`] : [], ...verdictFailures(what, [text3]), ...escapedBreakFailures(what, [text3])];
 }
 function checkLeft(lines, leftIds, acting) {
   const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), leftIds);
@@ -35295,7 +35298,8 @@ function checkLeft(lines, leftIds, acting) {
     ...lines.filter((line) => leftIds.includes(line.id)).flatMap((line) => [
       ...blank(line.title) ? [`the entry for ${line.id} left as is has no title`] : [],
       ...blank(line.why) ? [`the entry for ${line.id} left as is says not why deep-review leaves it`] : [],
-      ...verdictFailures(`the entry for ${line.id} left as is`, [line.title, line.why])
+      ...verdictFailures(`the entry for ${line.id} left as is`, [line.title, line.why]),
+      ...escapedBreakFailures(`the entry for ${line.id} left as is`, [line.title, line.why])
     ])
   ];
 }
@@ -35341,7 +35345,10 @@ function decisionTextFailures(id, fix, ask, facts) {
 }
 function checkFindingV4(id, entries, lineCount, major, facts) {
   const entry = singleEntry(id, entries);
-  if ("settled" in entry) return entry.settled;
+  if ("settled" in entry) {
+    const { settled: settled4 } = entry;
+    return settled4.value === null ? settled4 : { value: settled4.value, failures: [...settled4.failures, ...escapedBreakFailures(`the reason ${id} is unexplained`, [settled4.value.reason])] };
+  }
   const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = entry.explanation;
   const posted = major;
   const postedCases = posted ? cases : [];
@@ -35365,6 +35372,7 @@ function checkFindingV4(id, entries, lineCount, major, facts) {
     ...!facts.unconfirmed && unconfirmed !== null && blank(unconfirmed) ? [`${id} gives an empty unconfirmed; give null, since its verdict records no reason it is not confirmed`] : [],
     ...!facts.unconfirmed && unconfirmed !== null && !blank(unconfirmed) ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : [],
     ...verdictFailures(`the explanation of ${id}`, [title, problem, action, postedDiagram ?? "", postedChecked ?? "", ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
+    ...escapedBreakFailures(`the explanation of ${id}`, [title, problem, action, postedChecked ?? "", unconfirmed ?? "", ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
     ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram)
   ];
   return { value: { id, unexplained: false, title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask }, failures };
@@ -35383,19 +35391,20 @@ function checkAnswerV4(output2, input2) {
     if (given === void 0) throw new Error(`Finding ${id} to explain has no decision that asks a person to act`);
     return given;
   };
+  const { core, conditions, areas, refuted: refuted2 } = output2;
   return {
-    core: { value: output2.core, failures: checkCore(output2.core, input2.core) },
-    conditions: { value: output2.conditions, failures: checkConditions(output2.conditions, input2.core.held) },
+    core: { value: core, failures: [...checkCore(core, input2.core), ...escapedBreakFailures("the core", [core.title, core.what, core.why ?? ""])] },
+    conditions: { value: conditions, failures: [...checkConditions(conditions, input2.core.held), ...conditions.flatMap((entry) => escapedBreakFailures(`the entry for ${entry.condition}`, [entry.explanation ?? "", entry.unexplained ?? ""]))] },
     conclusion: { value: output2.summary, failures: checkText("the summary", output2.summary) },
-    areas: { value: output2.areas, failures: checkAreas(output2.areas, input2.ids, major) },
+    areas: { value: areas, failures: [...checkAreas(areas, input2.ids, major), ...areas.flatMap((area, index2) => escapedBreakFailures(`area ${String(index2 + 1)}`, [area.title, area.intro]))] },
     findings: new Map(input2.ids.map((id) => [id, checkFindingV4(id, entries.get(id), input2.lineCount, major.includes(id), facts(id))])),
     left: { value: output2.left, failures: checkLeft(output2.left, input2.left, input2.ids) },
-    refuted: { value: output2.refuted, failures: checkRefuted(output2.refuted, refutedIds) },
+    refuted: { value: refuted2, failures: [...checkRefuted(refuted2, refutedIds), ...refuted2.flatMap((line) => escapedBreakFailures(`the refuted line for ${line.id}`, [line.claim, line.why]))] },
     notExamined: { value: output2.notExamined, failures: checkText("what the review did not examine", output2.notExamined) },
     strays
   };
 }
-var repositoryPath2, maxPathCharacters, verdictWord, blank, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix;
+var repositoryPath2, maxPathCharacters, verdictWord, blank, codeSpans, htmlEntity, diagramHeaders, flowchartStyling, shapeOpening, nodeId2, edgeTextOpening2, edgeTextClosing2, shapeLabel2, sequenceLabelled, sequenceTitle, diagramFailuresOf, sideWords, commitPrefix;
 var init_explanation_checks = __esm({
   "src/review/explanation-checks.ts"() {
     "use strict";
@@ -35409,6 +35418,7 @@ var init_explanation_checks = __esm({
     maxPathCharacters = 8e3;
     verdictWord = new RegExp(`\\b(${verdicts.join("|")})\\b`, "g");
     blank = (text3) => text3.trim() === "";
+    codeSpans = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
     htmlEntity = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g;
     diagramHeaders = [
       ["flowchart", /^flowchart(?:\s+(?:TB|TD|BT|RL|LR))?\s*$/],
@@ -38596,7 +38606,7 @@ var init_pull_request_words = __esm({
         particle: (_name, particle) => particle
       },
       minorHeading: "### The minor findings",
-      minorLabels: { total: "Minor findings", user: "Reach what a user sees", code: "About the code alone", onLine: "In a comment on their line", needs: "Need a person" },
+      minorLabels: { total: "Minor findings", user: "Reach what a user sees", code: "About the code alone", none: "Reach not given", onLine: "In a comment on their line", needs: "Need a person" },
       minorSummary: "The minor findings",
       minorColumns: { number: "#", finding: "Finding", kind: "Reaches", verdict: "Verdict", action: "What deep-review would do" },
       kindValues: { user: "what a user sees", code: "the code", none: "not given" },
@@ -38838,7 +38848,7 @@ var init_pull_request_words = __esm({
         particle: koreanParticle
       },
       minorHeading: "### minor \uC9C0\uC801 \uC0AC\uD56D",
-      minorLabels: { total: "minor \uC9C0\uC801 \uC0AC\uD56D", user: "\uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uC74C", code: "\uCF54\uB4DC\uC5D0\uB9CC \uAD00\uD55C \uAC83", onLine: "\uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uC74C", needs: "\uC0AC\uB78C\uC774 \uBD10\uC57C \uD568" },
+      minorLabels: { total: "minor \uC9C0\uC801 \uC0AC\uD56D", user: "\uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83\uC5D0 \uB2FF\uC74C", code: "\uCF54\uB4DC\uC5D0\uB9CC \uAD00\uD55C \uAC83", none: "\uB2FF\uB294 \uACF3\uC744 \uC815\uD558\uC9C0 \uC54A\uC74C", onLine: "\uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC5D0 \uC788\uC74C", needs: "\uC0AC\uB78C\uC774 \uBD10\uC57C \uD568" },
       minorSummary: "minor \uC9C0\uC801 \uC0AC\uD56D",
       minorColumns: { number: "#", finding: "\uC9C0\uC801 \uC0AC\uD56D", kind: "\uB2FF\uB294 \uACF3", verdict: "\uD310\uC815", action: "deep-review\uAC00 \uD560 \uC77C" },
       kindValues: { user: "\uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83", code: "\uCF54\uB4DC", none: "\uC815\uD558\uC9C0 \uC54A\uC74C" },
@@ -41700,7 +41710,7 @@ function sourceLink(view, source, say) {
   return resolved.kind === "one" ? `[${codeSpan(shortCommit(resolved.commit))}](${commitUrl(view.pullRequest, resolved.commit)})` : say.code(source);
 }
 function findingRefs(view, numbers) {
-  return valueList(numbers.map((number5) => {
+  return valueList([...new Set(numbers)].sort((a, b) => a - b).map((number5) => {
     const finding = view.findings.find((candidate) => candidate.finding.number === number5);
     return finding === void 0 ? String(number5) : findingRef(view, finding);
   }));
@@ -41853,7 +41863,7 @@ function recordBlocks(view, finding, say) {
   recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`, ...choiceRecord(view, finding, say));
   const notice = decision.decision === "leave" ? [] : [words.recordNotice];
   const parts = [...writerText2, [`${words.recorded.decider}:`, ...recorded]];
-  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], notice, ...parts) : details(words.recordSummary, notice, ...parts);
+  return details(words.recordSummary, notice, ...parts);
 }
 function decisionBlocks(view, finding, say) {
   const { words } = view;
@@ -42105,9 +42115,11 @@ function minorSection(view, say, cuts) {
   const minor = minorActing(view);
   if (minor.length === 0) return { part: "minor", lines: [] };
   const user = minor.filter((finding) => finding.kind === "user").length;
+  const code = minor.filter((finding) => finding.kind === "code").length;
+  const none = minor.length - user - code;
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
-  const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(minor.length - user)], [labels.onLine, String(minor.filter((finding) => finding.placement.place === "line").length)], ...needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)]]]);
+  const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...none === 0 ? [] : [[labels.none, String(none)]], [labels.onLine, String(minor.filter((finding) => finding.placement.place === "line").length)], ...needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)]]]);
   if (cuts.has("minor-table")) return { part: "minor", lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
@@ -42149,9 +42161,10 @@ function leftSection(view, say, cuts) {
 }
 function choiceRecord(view, finding, say) {
   const { words } = view;
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => {
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).flatMap((shown) => {
     const settled4 = shown.settled === null ? labeledValue(words.settledChoiceLabel, words.notSettled) : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
-    return `- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled4].join(" ")}`;
+    const verifiers = shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`);
+    return verifiers.length > 1 ? [`- ${settled4}`, ...verifiers.map((choice) => `  - ${choice}`)] : [`- ${[...verifiers, settled4].join(" ")}`];
   });
 }
 function missingParts(view) {
