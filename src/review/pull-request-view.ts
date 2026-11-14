@@ -374,8 +374,11 @@ export const areaDiagramsShown = (view: FormView): boolean => majorActing(view).
 /** Whether the core of the change shows a diagram: the writer's core, with one drawn. */
 export const coreDiagramShown = (view: FormView): boolean => view.core.kind === 'writer' && view.core.core.diagram !== null;
 
-/** Whether the body shows a diagram that the diagrams step takes: one of the areas or of the core (R2 row 5 of the review that always posts). */
-export const diagramsShown = (view: FormView): boolean => areaDiagramsShown(view) || coreDiagramShown(view);
+/** Whether a finding's block shows the writer's diagram of it: a major finding, with one drawn. */
+export const findingDiagramShown = (finding: FindingView): boolean => !isMinor(finding) && (finding.written?.diagram ?? null) !== null;
+
+/** Whether the body shows a diagram that the diagrams step takes: one of the areas, of the core, or of a finding in full (R2 row 5 of the review that always posts). */
+export const diagramsShown = (view: FormView): boolean => areaDiagramsShown(view) || coreDiagramShown(view) || view.findings.some((finding) => inFull(finding) && findingDiagramShown(finding));
 
 /**
  * Whether the block of a finding holds the fold of a record ("The order as

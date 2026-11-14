@@ -122,11 +122,11 @@ export const longFindingHistory = (): History => rewritten(pullRequestRun([decis
   return undefined;
 });
 
-/** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
+/** The writer's answer with a long area diagram and the fix's own diagram, or neither, and the fix's problem padded with `pad` characters. */
 export const paddedAnswer = (pad: number, diagram = true): WriterAnswer => {
   const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
   const fix = said.findings[0] as WrittenFinding;
-  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
+  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}`, diagram: diagram ? fix.diagram : null }] };
 };
 
 /** The machine of the histories here, whose worktree is `/w`. */

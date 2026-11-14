@@ -18,6 +18,8 @@ interface Built {
   readonly departure?: boolean;
   /** A verifier's choice, settled by the decision or not. */
   readonly choice?: 'settled' | 'open';
+  /** The writer drew a diagram of the finding. */
+  readonly diagram?: boolean;
 }
 
 /** A finding as the order reads it, built from `built`, its id `F<number>`. */
@@ -34,6 +36,7 @@ function finding(built: Built): FindingView {
     left: built.leftText === true ? { id, title: 't', why: 'w' } : null,
     choices: built.choice === undefined ? [] : [{ id, choice: 'keep it' }],
     kind: null,
+    written: built.diagram === true ? { diagram: 'flowchart LR' } : null,
   } as unknown as FindingView;
 }
 
@@ -92,6 +95,13 @@ describe('the order of what leaves a body that does not fit', () => {
     assert.deepEqual(orderOf([], { refuted: 1 }), ['refuted', 'floor']);
     assert.deepEqual(orderOf([], { areaDiagram: true }), ['floor'], 'the diagram of an area with no major finding that acts is not shown');
     assert.deepEqual(orderOf([], { coreDiagram: true }), ['diagrams', 'floor']);
+  });
+
+  it('takes the diagram of a major finding in full at the diagrams step, as those of the areas and of the core, and names none for a minor finding or one on its line, whose block in the body draws none', () => {
+    assert.deepEqual(orderOf([{ number: 1, diagram: true }]), ['record:1', 'diagrams', 'text:1', 'floor']);
+    assert.deepEqual(orderOf([{ number: 1, diagram: true, decision: 'ask' }]), ['diagrams', 'record:1', 'floor'], 'a finding that waits on a person loses its diagram before its record');
+    assert.deepEqual(orderOf([{ number: 1, severity: 'minor', diagram: true }]), ['minor-table', 'record:1', 'text:1', 'line:1', 'floor']);
+    assert.deepEqual(orderOf([{ number: 1, place: 'line', diagram: true }]), ['floor']);
   });
 
   it('keeps a finding that waits on a person, by a question, a departure or a choice no one settled, out of rows 2, 4, 6 and 7 and takes it in rows 8 and 9 (R4)', () => {

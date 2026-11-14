@@ -55,12 +55,16 @@ describe('the pieces a body leaves out one finding at a time', () => {
     assert.deepEqual([...new Set(forms.map((form) => JSON.stringify(stepsOf(form))))].map((steps) => JSON.parse(steps) as string[]), expected);
   });
 
-  it('leaves the diagram of the core of the change with those of the areas, with a notice of its own in the core (R2 row 5)', () => {
+  it('leaves the diagrams of the core of the change and of a finding in full with those of the areas, each with a notice of its own in its place (R2 row 5)', () => {
     const forms = samples();
     const before = at(forms, order.slice(0, 4));
     includes(before, 'E["empty file"] --> N["null"]');
+    includes(before, 'Caller->>parse: an empty file');
     const after = at(forms, order.slice(0, 5));
     excludes(after, 'E["empty file"] --> N["null"]');
+    excludes(after, 'Caller->>parse: an empty file');
+    includes(after, '### Finding 1');
+    includes(after, 'To fit the length GitHub takes, the diagram of this finding is left out; the writer\'s answer on the machine that holds the run keeps it.');
     includes(after, '**parse() accepts an empty file**\n\nparse() now returns null for an empty file.\n\nReason: none stated in the change\'s commit messages or documents.\n\nTo fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.\n\nThis is deep-review\'s reading of the change');
   });
 
@@ -105,7 +109,8 @@ describe('the record of a finding that waits on a person', () => {
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
   // Grounds of the question longer than a decider gives, so that its record alone makes the body fit where the notice under the heading did not.
   const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' ? { ...decision, grounds: `${decision.grounds} ${'g'.repeat(3000)}` } : decision)) } };
-  const expected = [[], ['minor-table', 'refuted', 'record:SWEEP-1'], ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1']];
+  // Finding 1's diagram leaves at the diagrams step, before the record of any finding that waits, as the author decided.
+  const expected = [[], ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1'], ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1', 'record:RIPPLE-1']];
   let sampled: PullRequestForm[] | undefined;
   /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
   const samples = (): PullRequestForm[] => {
@@ -117,6 +122,9 @@ describe('the record of a finding that waits on a person', () => {
     const forms = samples();
     const question = at(forms, expected[1]!);
     includes(question, '**The question.**');
+    includes(question, '**Against a written rule.**');
+    excludes(question, 'Caller->>parse: an empty file');
+    includes(question, 'To fit the length GitHub takes, the diagram of this finding is left out');
     includes(question, '| Option | In the words of deep-review\'s decider |');
     includes(question, 'The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: `deep-review report --run run-1 --finding 2`.');
     const fix = at(forms, expected[2]!);
@@ -145,7 +153,7 @@ describe('the floor', () => {
 
   it('is posted when nothing less fits, as the last step of the order, under the limit and with the marker of the publication last', () => {
     const form = floorOf();
-    assert.deepEqual(stepsOf(form), ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1', 'floor']);
+    assert.deepEqual(stepsOf(form), ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1', 'record:RIPPLE-1', 'floor']);
     assert.ok(form.body.length < 60_000, String(form.body.length));
     assert.equal(form.body.split('\n').at(-1), `<!-- ${publicationMarker('run-1', 1)} -->`);
   });
