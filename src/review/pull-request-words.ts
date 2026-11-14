@@ -36,6 +36,12 @@ export type LineNote = 'line-not-changed' | 'file-not-changed' | 'no-patch' | 'n
 /** Where the next step of the review is: the fix pass still to come, the fix pass the run went on into, or no step, since deep-review asks for no change. */
 export type NextStep = FixPass | 'nothing';
 
+/** The kinds of piece the notice under the heading counts: the pieces left out whole, then each kind taken one finding at a time, in the body and in the comments (R6 of the review that always posts). */
+export type LeftOutKind = 'whole' | 'records' | 'left' | 'texts' | 'lines' | 'commentRecords' | 'commentTexts';
+
+/** The pieces of the body that leave whole, as the notice under the heading names them. */
+export type WholePiece = 'minor-table' | 'refuted' | 'diagrams';
+
 /** The decision on a finding as its facts name it, a fix against a written rule apart. */
 export type DecisionValue = 'fix' | 'fix-against-rule' | 'ask' | 'leave';
 
@@ -232,6 +238,18 @@ export interface PullRequestWords {
   readonly answeredAfterLabel: string;
 
   readonly lastLabels: Readonly<Record<'engine' | 'runtime' | 'models' | 'run' | 'commits', string>>;
+
+  readonly leftOutNotice: string;
+  readonly leftOutLabels: Readonly<Record<LeftOutKind, string>>;
+  readonly wholePieces: Readonly<Record<WholePiece, string>>;
+  readonly reportCommandLabel: string;
+  readonly recordLeftOut: string;
+  readonly printCommandLabel: string;
+  readonly fixTextSummary: string;
+  readonly textsLeftLabel: string;
+  readonly textsLeftNotice: string;
+  readonly linesLeftNotice: string;
+  readonly coreDiagramCut: string;
 }
 
 /** The end of a text before an id that already says finding: `finding` or `findings`, or a list of numbers after `findings` that goes on, as `findings 1 and `, so each number of the list is said alone. */
@@ -518,14 +536,14 @@ const english: PullRequestWords = {
   minorSummary: 'The minor findings',
   minorColumns: { number: '#', finding: 'Finding', kind: 'Reaches', verdict: 'Verdict', action: 'What deep-review would do' },
   kindValues: { user: 'what a user sees', code: 'the code', none: 'not given' },
-  minorCut: 'To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.',
+  minorCut: 'To fit the length GitHub takes, the table of the minor findings is left out; the report of the run holds them all.',
 
   leftHeading: '### The findings left as is',
   leftSummary: 'The findings left as is',
   leaveReasons: leaveReasonWords,
   supersededByLabel: 'Superseded by',
   leftWhyLabel: '**Why deep-review leaves it.**',
-  leftCut: 'To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.',
+  leftCut: 'To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.',
 
   trustHeading: '### How far to trust this review',
   verdictColumns: { verdict: 'Verdict', findings: 'Findings', major: 'Of them major', majorRan: 'Of the major, reproduced by running', unverified: 'Of them unverified' },
@@ -538,6 +556,26 @@ const english: PullRequestWords = {
   answeredAfterLabel: 'Answered after the writer wrote',
 
   lastLabels: { engine: 'Reviewed by', runtime: 'Runtime', models: 'Models', run: 'Run', commits: 'Commits' },
+
+  leftOutNotice: 'This review does not hold all of the run: to fit the length GitHub takes, the parts counted here are left out. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below. A text of deep-review\'s writer that is left out, such as a diagram, the text of a finding, the line of a refuted candidate or the reason of a finding left as is, is kept in the writer\'s answer on that machine, and no command prints it.',
+  leftOutLabels: {
+    whole: 'Left out whole',
+    records: 'Findings whose recorded decision is left out',
+    left: 'Findings left as is that are not listed',
+    texts: 'Findings whose text is left out',
+    lines: 'Findings that are not listed',
+    commentRecords: 'Comments without their recorded decision',
+    commentTexts: 'Comments with their facts alone',
+  },
+  wholePieces: { 'minor-table': 'the table of the minor findings', refuted: 'the refuted candidates', diagrams: 'the diagrams' },
+  reportCommandLabel: 'Command that prints a finding',
+  recordLeftOut: 'The decision as deep-review recorded it is left out here to fit the length GitHub takes.',
+  printCommandLabel: 'Command that prints it',
+  fixTextSummary: 'The fix in full, in the writer\'s words',
+  textsLeftLabel: '**Findings whose text is left out.**',
+  textsLeftNotice: 'To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.',
+  linesLeftNotice: 'To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.',
+  coreDiagramCut: 'To fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.',
 };
 
 /** The end of a text before an id that already says finding: 지적 사항, or a list of numbers after it that goes on, joined by 과, 와 or a comma, as `지적 사항 1과 `, so each number of the list is said alone. */
@@ -815,6 +853,26 @@ const korean: PullRequestWords = {
   answeredAfterLabel: '설명 모델이 쓴 뒤에 답한 것',
 
   lastLabels: { engine: '리뷰한 엔진', runtime: '런타임', models: '모델', run: '실행', commits: '커밋' },
+
+  leftOutNotice: 'This review does not hold all of the run: to fit the length GitHub takes, the parts counted here are left out. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below. A text of deep-review\'s writer that is left out, such as a diagram, the text of a finding, the line of a refuted candidate or the reason of a finding left as is, is kept in the writer\'s answer on that machine, and no command prints it.',
+  leftOutLabels: {
+    whole: 'Left out whole',
+    records: 'Findings whose recorded decision is left out',
+    left: 'Findings left as is that are not listed',
+    texts: 'Findings whose text is left out',
+    lines: 'Findings that are not listed',
+    commentRecords: 'Comments without their recorded decision',
+    commentTexts: 'Comments with their facts alone',
+  },
+  wholePieces: { 'minor-table': 'the table of the minor findings', refuted: 'the refuted candidates', diagrams: 'the diagrams' },
+  reportCommandLabel: 'Command that prints a finding',
+  recordLeftOut: 'The decision as deep-review recorded it is left out here to fit the length GitHub takes.',
+  printCommandLabel: 'Command that prints it',
+  fixTextSummary: 'The fix in full, in the writer\'s words',
+  textsLeftLabel: '**Findings whose text is left out.**',
+  textsLeftNotice: 'To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.',
+  linesLeftNotice: 'To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.',
+  coreDiagramCut: 'To fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.',
 };
 
 /** The languages that have a table of the engine's words. */

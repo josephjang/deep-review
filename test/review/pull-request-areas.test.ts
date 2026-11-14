@@ -44,7 +44,7 @@ describe('the writer\'s areas in the body', () => {
     assert.equal(form.secrets, 0);
   });
 
-  it('counts a secret of an area\'s title once, whether the body is cut of the diagrams of the areas or not', () => {
+  it('counts a secret of an area\'s title once, whatever the body leaves out to fit, the diagrams of the areas included', () => {
     const state = longFindingHistory().fold();
     const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: '@@ -7,1 +7,1 @@\n-old 7\n+new 7' }];
     const token = `ghp_${'a1B2'.repeat(9)}`;
@@ -54,12 +54,12 @@ describe('the writer\'s areas in the body', () => {
       return { ...said, areas: said.areas!.map((area) => ({ ...area, title: secret ? `Parsing ${token}` : area.title })) };
     };
     const limit = 60_000;
-    const expectedCuts = [[], ['refuted'], ['refuted', 'left'], ['refuted', 'left', 'minor-table'], ['refuted', 'left', 'minor-table', 'area-diagrams']];
-    // Redaction changes the title's length, so calibrate each variant independently at the same literal cut states.
+    const expected = [[], ['minor-table'], ['minor-table', 'record:RIPPLE-1'], ['minor-table', 'record:RIPPLE-1', 'refuted'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams', 'text:RIPPLE-1']];
+    // Redaction changes the title's length, so calibrate each variant independently at the same literal states.
     const variants = [false, true].map((secret) => {
-      const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad, secret), files), limit, expectedCuts);
+      const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad, secret), files), limit, expected);
       for (const { below, at, above } of boundaries) {
-        for (const form of [below, at, ...(above.kind === 'rendered' ? [above] : [])]) {
+        for (const form of [below, at, above]) {
           excludes(form.body, token);
           includes(form.body, '### The major findings');
           includes(form.body, '**Parsing ');
@@ -69,12 +69,12 @@ describe('the writer\'s areas in the body', () => {
       }
       return boundaries;
     });
-    for (const [index, cuts] of expectedCuts.entries()) {
+    for (const [index, steps] of expected.slice(0, -1).entries()) {
       const plain = variants[0]![index]!;
       const secret = variants[1]![index]!;
-      assert.equal(secret.below.secrets - plain.below.secrets, 1, `secret count below the limit with ${cuts.join(', ')}`);
-      assert.equal(secret.at.secrets - plain.at.secrets, 1, `secret count at the limit with ${cuts.join(', ')}`);
-      if (plain.above.kind === 'rendered' && secret.above.kind === 'rendered') assert.equal(secret.above.secrets - plain.above.secrets, 1);
+      assert.equal(secret.below.secrets - plain.below.secrets, 1, `secret count below the limit with ${steps.join(', ')}`);
+      assert.equal(secret.at.secrets - plain.at.secrets, 1, `secret count at the limit with ${steps.join(', ')}`);
+      assert.equal(secret.above.secrets - plain.above.secrets, 1, `secret count over the limit with ${steps.join(', ')}`);
     }
   });
 });
