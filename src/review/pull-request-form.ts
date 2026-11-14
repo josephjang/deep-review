@@ -863,8 +863,11 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
-    const asked = finding.question === null ? [] : [factsLine([[words.recommendedLabel, String(finding.question.choice)]])];
-    return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? 'none'], verdictText(view, finding), [...(action === null ? [] : [action]), ...asked].join(' ')];
+    // The decision as data only where the row would otherwise hide a departure from a written rule, as the area lines show it.
+    const decided = decisionValue(finding) === 'fix-against-rule' ? [[words.decisionLabel, words.decisionValues['fix-against-rule']] as const] : [];
+    const asked = finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)] as const];
+    const facts = decided.length + asked.length === 0 ? [] : [factsLine([...decided, ...asked])];
+    return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? 'none'], verdictText(view, finding), [...(action === null ? [] : [action]), ...facts].join(' ')];
   });
   return { part: 'minor', lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
