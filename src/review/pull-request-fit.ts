@@ -7,7 +7,7 @@
  * prefix into what each section of the body reads. Pure: it renders
  * nothing.
  */
-import { acts, areaDiagramsShown, inFull, isMinor, leftAsIs, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
+import { diagramsShown, hasRecord, inFull, isMinor, leftAsIs, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
 import { choicesShown } from './state.ts';
 
 /**
@@ -56,15 +56,6 @@ export function unsettledChoices(finding: FindingView): number {
   return choicesShown(finding.choices, finding.decision?.settled ?? []).filter((shown) => shown.settled === null).length;
 }
 
-/**
- * Whether the block of a finding holds the fold of a record ("The order as
- * data" of the design): a finding with a decision, and, for one left as is,
- * with the writer's text of it. A finding left as is with no writer's text
- * shows its choices in view with no fold, and a finding with no decision
- * shows nothing, so neither has a record to take.
- */
-const hasRecord = (finding: FindingView): boolean => finding.decision !== null && (acts(finding) || finding.left !== null);
-
 /** The findings in the order a row takes them: the last-ranked first (R3, TD2). */
 const lastRankedFirst = (findings: readonly FindingView[]): FindingView[] => [...findings].sort((a, b) => b.finding.number - a.finding.number);
 
@@ -79,7 +70,6 @@ export function fitOrder(view: FormView): FitStep[] {
   const full = lastRankedFirst(view.findings.filter(inFull));
   const free = (finding: FindingView): boolean => !waitsOnPerson(finding);
   const record = (finding: FindingView): FitStep => ({ piece: 'record', finding: finding.finding.id });
-  const diagrams = areaDiagramsShown(view) || (view.core.kind === 'writer' && view.core.core.diagram !== null);
   const freeFull = full.filter(free);
   return [
     ...(minorActing(view).length > 0 ? [{ piece: 'minor-table' } as const] : []),
@@ -87,7 +77,7 @@ export function fitOrder(view: FormView): FitStep[] {
     ...freeFull.filter(hasRecord).map(record),
     ...(view.refuted.length > 0 ? [{ piece: 'refuted' } as const] : []),
     ...left.filter(free).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
-    ...(diagrams ? [{ piece: 'diagrams' } as const] : []),
+    ...(diagramsShown(view) ? [{ piece: 'diagrams' } as const] : []),
     ...freeFull.map((finding): FitStep => ({ piece: 'text', finding: finding.finding.id })),
     ...freeFull.filter(isMinor).map((finding): FitStep => ({ piece: 'line', finding: finding.finding.id })),
     ...lastRankedFirst([...left, ...full]).filter((finding) => waitsOnPerson(finding) && hasRecord(finding)).map(record),
