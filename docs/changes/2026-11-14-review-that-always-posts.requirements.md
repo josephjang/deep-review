@@ -18,16 +18,17 @@ Today:
   refused: the body of the review, after every cut, is 72369 characters,
   over the 60000 a review posts [...]; nothing was posted or recorded
 
-After this change, the review is posted, just under 60,000 characters, with:
+After this change, the review is posted, about 57,000 characters, with:
 
   Left out to fit the length GitHub takes:
     the table of the minor findings (each row repeats a comment or a text in full)
-    the recorded decision of about 21 of the 23 findings in the body, the
-    lightest first (the writer's text of each decision stays)
-  Kept: the core of the change, what needs a person, what the review did not
-  examine with its refuted candidates, the text of all 11 findings with no line
-  in the diff, the 12 findings left as is with the reason of each, and the
-  12 comments on their lines, whole.
+    the decision of each of the 23 findings in the body as the decider recorded
+    it, which `deep-review report` prints (the writer's text of each stays)
+    the list of the 18 refuted candidates (their count stays)
+  Kept: the core of the change, what needs a person, the gaps in what the
+  review examined, the text of all 11 findings with no line in the diff with
+  the writer's text of each fix in full, the 12 findings left as is with the
+  reason of each, and the 12 comments on their lines, whole.
 ```
 
 ## Terms
@@ -36,7 +37,7 @@ The **body** is the text of the review itself, and a **comment** is the text on 
 
 A **finding in full** is a fix or a question that cannot be a comment on its line, so the body holds its whole text: its line is not on the new side of the diff, or GitHub gives no diff of its file.
 
-The **record of a decision** is the fold "The decision as deep-review recorded it" that stands under a finding: the writer's text of the fix in full, then the decider's recorded words, which are its approach, each option it rejected, its grounds, and each choice a verifier left with how it was settled.
+The **record of a decision** is the decider's recorded words under a finding, inside the fold "The decision as deep-review recorded it": its approach and each option it rejected, or each option of its question, then its grounds, and each choice a verifier left with how it was settled. `deep-review report --run <id> --finding <n>` prints the same decision from the ledger. The fold of a fix opens with the writer's text of the fix in full, which is not part of the record: no command prints it.
 
 The **line of a finding** is one line that names it: its number, its title, its verdict, its decision, and the sentence of what deep-review would do.
 
@@ -90,7 +91,7 @@ The limit stays 60,000 characters. GitHub's exact limit is not known: the form's
 
 ### NG4: The evidence on the reader's side
 
-What is left out stays in the report of the run, on the machine of the person who ran the review. A reader of the pull request who is not that person cannot open it, and in a workflow it goes away with the job. Keeping the checkpoint for the reader is the later change that the README already names.
+What is left out stays on the machine of the person who ran the review: the records in the report of the run, and the writer's texts in the writer's answer in the checkpoint, which no command prints. A reader of the pull request who is not that person can open neither, and in a workflow both go away with the job. Keeping the checkpoint for the reader is the later change that the README already names.
 
 ### NG5: Leaving minor findings out of a review
 
@@ -115,7 +116,7 @@ The order follows what a text is worth to the reader, which is what the reader l
 | Order | What leaves | What stands in its place | Why it leaves here |
 |---|---|---|---|
 | 1 | The table of the minor findings | Their counts and a notice | Each row repeats the comment or the text in full of its finding |
-| 2 | The record of the decision of each finding left as is, then of each fix | The command that prints the finding | The writer's text of the decision stays; the record is what a reader opens to check it, and its approach repeats that text |
+| 2 | The record of the decision of each finding left as is, then of each fix | The command that prints the finding | The writer's text of the decision stays, its sentence in view and the fix in full in its fold; the record says the same decision again in the decider's words, with the grounds that a reader opens to check it |
 | 3 | The refuted candidates | Their count and a notice | Nothing acts on them, and a verifier refuted each |
 | 4 | Each finding left as is | Their count as not listed | The finding is verified, and nothing in the code changes for it |
 | 5 | The diagrams of the areas and of the core of the change | A notice | Each helps to read a text that stays |
@@ -143,7 +144,7 @@ When the body is still over the limit after row 9, the form posts the floor. The
 
 ### R6: The review says what it left out
 
-A review with any piece left out says so in one notice directly under its heading: that it does not hold all of the run, which kinds of piece it left out with the count of each, and that the report of the run holds all of it, with the command that prints it. Where a piece stood, the form puts what the table of R2 names: a notice for a section, the command that prints the finding for a record or a text in full, a count for findings that are not listed. A link to a finding that is no longer in the body is shown as the finding's number with no link. A review with nothing left out has no such notice and no such text.
+A review with any piece left out says so in one notice directly under its heading: that it does not hold all of the run, which kinds of piece it left out with the count of each, and where each is read. The notice says what is true of each kind. A record is printed by `deep-review report --run <id> --finding <n>`, which gives the finding with its evidence and its decision in the words of the workers that recorded them. A text of the writer that was left out, which is a diagram, the text of a finding, a line of a refuted candidate or the reason of a finding left as is, is in the writer's answer in the checkpoint, on the machine that holds the run, and no command prints it; for such a piece the notice names the command that prints the finding in the report's words, and says that the writer's text is not in it. Where a piece stood, the form puts what the table of R2 names: a notice for a section, the command that prints the finding for a record or a text in full, a count for findings that are not listed. A link to a finding that is no longer in the body is shown as the finding's number with no link. A review with nothing left out has no such notice and no such text.
 
 ### R7: A comment that does not fit is posted with less
 
@@ -173,7 +174,7 @@ None, in the gate and in the tests, the test of a run far larger than any on rec
 
 ### M2: What the review of #135 keeps
 
-The size of its body in the new form, each piece left out in its order, and each part kept, against the estimate of the Summary: the table of the minor findings and the records left out, and every other text in place. The gate records the numbers.
+The size of its body in the new form, each piece left out in its order, and each part kept, against the estimate of the Summary: the table of the minor findings, the records and the refuted candidates left out, and every other text in place. The gate records the numbers.
 
 ### M3: Reviews that fit and changed
 
@@ -209,11 +210,11 @@ The review could go on in a second comment, and a third. The proposal rejects it
 
 ### PD6: Rejected: the one cut that #136 first named
 
-#136 first asked for a cut of the folded records, each replaced by the command that prints its finding. That cut is row 2 of the order, and it would have let the review of #135 post. Alone it leaves the refusal in place for the next larger run, and it would stand before the refuted candidates only by habit, with no stated measure of what a text is worth.
+#136 first asked for a cut of the folded records, each replaced by the command that prints its finding. That cut is close to row 2 of the order, and with the whole fold taken it would have let the review of #135 post. Alone it leaves the refusal in place for the next larger run, it takes the writer's text of each fix with the fold though no command prints that text, and it would stand before the refuted candidates only by habit, with no stated measure of what a text is worth.
 
 ### PD7: The record of a decision leaves before the writer's text of it
 
-Where both stand, they say the same decision, and one of them has to go first. The record is the one that an answer and the fix pass apply, and the writer's text is a model's wording of it that no verifier examined. The proposal still takes the record first. The reader of the pull request is the reader with the least context, the writer's text is written for that reader in the language of the review, and the record is the decider's working words, often in another language. The record stays one command away for the person who ran the review, and the fix pass and an answer read it from the ledger, not from the page.
+The fold of a fix says the decision twice: the writer's text of the fix in full, and the decider's recorded approach. One of them has to go first. The record is the one that an answer and the fix pass apply, and the writer's text is a model's wording of it that no verifier examined. The proposal still takes the record first and keeps the writer's text in its fold. The reader of the pull request is the reader with the least context, the writer's text is written for that reader in the language of the review, and the record is the decider's working words, often in another language. And the two are not equally lost: `deep-review report` prints the record for the person who ran the review, while no command prints the writer's text, so what leaves first is what can be read again. The fix pass and an answer read the record from the ledger, not from the page.
 
 ### PD8: A choice that the decision settled waits on no one
 
@@ -231,7 +232,7 @@ The notice that the review is not whole stands directly under the heading, befor
 
 ### Principle 1, evidence, not trust
 
-The record of a decision is evidence, and principle 6 asks that the evidence of a statement be one step away. Under the limit the record of a finding can leave the pull request, and it is then one command away, on the machine of the person who ran the review, and not at all for another reader (NG4). The proposal accepts this for a review that does not fit, since the other outcome is a review with no evidence and no statement.
+The record of a decision is evidence, and principle 6 asks that the evidence of a statement be one step away. Under the limit the record of a finding can leave the pull request, and it is then one command away, on the machine of the person who ran the review, and not at all for another reader (NG4). A text of the writer that leaves is further away, since no command prints it. The proposal accepts this for a review that does not fit, since the other outcome is a review with no evidence and no statement.
 
 ### Principle 2, record before action
 
@@ -269,7 +270,7 @@ A long text of little worth can outlast a short one of more, when the first is o
 
 ### RK2: A reader who cannot open the report
 
-The notice sends the reader to a report that only the person who ran the review holds (NG4). The notice says so in plain words, as each question already says who answers it.
+The notice sends the reader to a report that only the person who ran the review holds (NG4), and for a text of the writer it can name no command at all. The notice says both in plain words, as each question already says who answers it. The rows that a real run has reached take the table of the minor findings, the records and the refuted candidates; of these only the writer's line of each refuted candidate is a text that no command prints.
 
 ### RK3: The writer's text names a piece that is gone
 
