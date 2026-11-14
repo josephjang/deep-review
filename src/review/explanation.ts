@@ -417,8 +417,10 @@ export interface MergedAnswerV4 {
  * failures of the latest answer and `extra`. Each finding, with its
  * sentence of what deep-review would do and the text of its decision,
  * is one part, so a failure in it drops that finding alone. The summary
- * keeps the part name `conclusion` and is taken with the areas from one
- * answer, since it names them.
+ * keeps the part name `conclusion` and, since it names the areas, is taken
+ * with them from one answer when one passed both; when no answer passed the
+ * areas, it is taken from the first answer that passed it, and the view
+ * then withholds it.
  */
 export function mergeAnswersV4(answers: readonly CheckedAnswerV4[], ids: readonly string[], extra: readonly string[] = []): MergedAnswerV4 {
   const { pick, dropped } = merger(extra);
