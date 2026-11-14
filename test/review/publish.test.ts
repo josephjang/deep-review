@@ -22,7 +22,7 @@ import { describeRun } from '../../src/review/status.ts';
 import { claudeAdapter } from '../../src/runtime/claude.ts';
 import { fakeGh, fakeGhCalls, fakeGhHeld, fakeGhWith, type FakeGhStep } from '../helpers/fake-gh.ts';
 import type { Script } from '../helpers/fake-runtime.ts';
-import { fixingReviewScript, reviewScript } from '../helpers/fix-pass-fixture.ts';
+import { fixingReviewScript, found, reviewScript } from '../helpers/fix-pass-fixture.ts';
 import { fakeClaude } from '../helpers/launcher.ts';
 import { git } from '../helpers/repository.ts';
 import { cliEntry, reportText, ReviewSandbox, sandboxConcurrency } from '../helpers/review-sandbox.ts';
@@ -201,6 +201,27 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.equal(writes(script), 0, 'no write call');
     assert.deepEqual(fakeGhCalls(script).map((call) => call.args.at(-1)), ['repos/acme/widgets/pulls/42', 'repos/acme/widgets/git/ref/heads/main', `repos/acme/widgets/compare/${baseHead}...${commitsOf(box).head}`, 'repos/acme/widgets/pulls/42/files?per_page=100']);
     assert.deepEqual(publications(box), []);
+  });
+
+  it('posts a review whose body is longer than GitHub takes, leaving out what the order takes, records it, and logs what it left out in order (R1, R9 of the review that always posts)', async (t) => {
+    // Twelve findings from each of four finders, each with a long account, all fixes in src/a.ts, of which GitHub gives no diff, so each is in full in the body and the writer explains none.
+    const many = (angle: string): Record<string, unknown> => ({ output: { candidates: Array.from({ length: 12 }, (_, index) => found('src/a.ts', 1 + (index % 7), `${angle} defect ${String(index)}`)).map((candidate) => ({ ...candidate, detail: `${String(candidate.detail)} ${'d'.repeat(1900)}` })) } });
+    const script: Script = { triage: reviewScript.triage!, 'finder-RIPPLE': many('RIPPLE'), 'finder-FOOTGUNS': many('FOOTGUNS'), 'finder-REMOVALS': many('REMOVALS'), 'finder-WRAPPERS': many('WRAPPERS') };
+    const box = await reviewed(t, [], script);
+    const steps = publishSteps(box).map((step) => (step.endpoint === 'repos/acme/widgets/pulls/42/files?per_page=100' ? { ...step, pages: [{ body: patchedFiles.map((file) => (file.filename === 'src/a.ts' ? { filename: file.filename, status: file.status } : file)) }] } : step));
+    const dry = publishWith(box, publishGh(t, steps).gh, { dryRun: true });
+    const dryLines = dry.outcome.kind === 'dry-run' ? dry.outcome.lines : [];
+    const leftOut = dryLines.find((line) => line.startsWith('Left out of the body to fit: '))!;
+    assert.match(leftOut, /^Left out of the body to fit: the table of the minor findings, then the recorded decision of findings (\d+, )*\d+(, then the text of findings? (\d+, )*\d+)?\.$/);
+    const { gh, script: ghScript } = publishGh(t, steps);
+    const { outcome, logs } = publishWith(box, gh);
+    assert.equal(outcome.kind, 'posted');
+    const [held] = fakeGhHeld(ghScript);
+    assert.ok(held!.body.length <= 60_000, String(held!.body.length));
+    assert.ok(held!.body.includes('This review does not hold all of the run'), held!.body.slice(0, 2000));
+    assert.equal(lastLineMarker(held!.body), publicationMarker(box.run().id, 1));
+    assert.deepEqual(publications(box).map(([kind]) => kind), ['publish.prepared', 'publish.posted']);
+    assert.deepEqual(logs, [`run ${box.run().id}: the review leaves out pieces to fit the length GitHub takes, as the notice under its heading says. ${leftOut}`]);
   });
 
   it('posts the review all the same when git cannot read the commits of the change, and logs why (TD4 of the core of the change on the pull request)', async (t) => {
