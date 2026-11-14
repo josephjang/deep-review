@@ -140,7 +140,7 @@ This replaces the rule that a cut keeps every finding left as is whose verifier 
 
 ### R5: The floor always fits
 
-When the body is still over the limit after row 9, the form posts the floor. The floor holds, in this order: the heading with what the run reviewed; the notice of R6; the table of the findings by severity and by decision, with the fixed notice of what happens next; how many questions and how many fixes against a written rule wait on a person, with the command that answers one; each condition that holds, as its label; the tables of the verdicts and of how the findings were checked; the last line with the engine, the run and the commits; and the marker of the publication, by which a publication that a stop left open is found again. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
+When the body is still over the limit after row 9, the form posts the floor. The floor holds, in this order: the heading with what the run reviewed; the notice of R6; the table of the findings by severity and by decision, with the fixed notice of what happens next; how many questions and how many fixes against a written rule wait on a person, with the command that answers one; each condition that holds, as its label; each kind of gap in what the review did not examine that the run has, as its label; the number of fixes on a `PLAUSIBLE` verdict; the tables of the verdicts and of how the findings were checked; the last line with the engine, the run and the commits; and the marker of the publication, by which a publication that a stop left open is found again. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
 
 ### R6: The review says what it left out
 
@@ -250,7 +250,7 @@ The core of the change, the questions, the departures and what the review did no
 
 ### Principle 8, say what was not examined, and when a person must look
 
-A review that is the only gate must say where it is not a gate. A review with pieces left out says so first (PD10) and at each place (R6), and what the run did not examine stays until the floor.
+A review that is the only gate must say where it is not a gate. A review with pieces left out says so first (PD10) and at each place (R6), and what the run did not examine stays until the floor. The floor keeps the coverage as labels and counts: each kind of gap that the run has, each condition that holds, and the number of fixes on a `PLAUSIBLE` verdict (R5). It leaves out their detail, such as the paths that were left out and the angles that did not run, since a run decides how long those are. The principle asks that the review name them, so this is a departure, taken for the reason the floor itself is: a floor that says which kinds of gap the run has is more than no review.
 
 ### Principle 11, recovery without a person
 
