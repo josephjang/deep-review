@@ -273,10 +273,10 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     assert.equal(section(body, '### How far to trust this review'), [
       '### How far to trust this review',
       '',
-      '| Verdict | Findings | Of them major | Of them unverified |',
-      '|---|---|---|---|',
-      '| CONFIRMED | 1 | 1 | 0 |',
-      '| PLAUSIBLE | 1 | 0 | 1 |',
+      '| Verdict | Findings | Of them major | Of the major, reproduced by running | Of them unverified |',
+      '|---|---|---|---|---|',
+      '| CONFIRMED | 1 | 1 | 0 | 0 |',
+      '| PLAUSIBLE | 1 | 0 |  | 1 |',
       '',
       '| Checked by | Findings |',
       '|---|---|',
@@ -290,6 +290,22 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
       'Parts of the writer\'s answer this review lacks: the core of the change, the areas, the refuted candidates, what the review did not examine, [Finding 2](#finding-2).',
       '',
     ].join('\n'));
+  });
+
+  it('gives how many of the major CONFIRMED findings were reproduced by running them, in each language (R5 of the review in the writer\'s words)', () => {
+    const ranAs = (change: Record<string, unknown>): History => rewritten(run(), (kind, payload) => (kind === 'verdicts.recorded' && payload.phase === 'verification'
+      ? { ...payload, verdicts: (payload.verdicts as Record<string, unknown>[]).map((verdict) => (verdict.id === 'RIPPLE-1' ? { ...verdict, basis: 'ran', runs: [{ command: 'node /tmp/x/probe.mjs', printed: ['TypeError: null'], probe: null, at: 3, exitCode: 1 }], ...change } : verdict)) }
+      : undefined));
+    const ranHistory = ranAs({});
+    includes(section(formOf(ranHistory.fold()).body, '### How far to trust this review'), '| CONFIRMED | 1 | 1 | 1 | 0 |\n| PLAUSIBLE | 1 | 0 |  | 1 |');
+    // A finding reproduced by running that is not CONFIRMED is no major CONFIRMED one reproduced by running, though the table of how the findings were checked counts it.
+    const plausibleRan = section(formOf(ranAs({ verdict: 'PLAUSIBLE' }).fold()).body, '### How far to trust this review');
+    includes(plausibleRan, '| CONFIRMED | 0 | 0 | 0 | 0 |\n| PLAUSIBLE | 2 | 1 |  | 1 |');
+    includes(plausibleRan, '| running it | 1 |');
+    const words = pullRequestWordTables.ko;
+    const ko = section(formOf(withSettings(ranHistory, { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold()).body, words.trustHeading);
+    includes(ko, `| ${words.verdictColumns.verdict} | ${words.verdictColumns.findings} | ${words.verdictColumns.major} | ${words.verdictColumns.majorRan} | ${words.verdictColumns.unverified} |`);
+    includes(ko, '| CONFIRMED | 1 | 1 | 1 | 0 |');
   });
 
   it('links every piece of code at the reviewed head, or at the merge base for removed lines, and never into the diff', () => {
