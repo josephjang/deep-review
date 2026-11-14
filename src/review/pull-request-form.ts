@@ -607,9 +607,8 @@ interface Page extends FormView {
   readonly commentsLeftOut: readonly CommentLeftOut[];
 }
 
-/** One section of the body, by its name. */
+/** One section of the body, as its lines; a section with none is left out of the body. */
 interface Section {
-  readonly part: string;
   readonly lines: readonly string[];
 }
 
@@ -618,7 +617,7 @@ const fixCommand = (view: FormView): string => codeSpan(`deep-review review --pr
 
 /** The heading and the facts of what the run reviewed and what followed it (R1; R6 of the review of a fix run), with the notice of a run that went on into its fix pass, then the notice of what was left out to fit (R6, PD10 of the review that always posts). */
 function headingSection(view: Page): Section {
-  return { part: 'heading', lines: blocks(...headingFacts(view), leftOutNotice(view)) };
+  return { lines: blocks(...headingFacts(view), leftOutNotice(view)) };
 }
 
 /** The heading, the facts of what the run reviewed and what followed it, and the notice of a run that went on into its fix pass, as the body and the floor open. */
@@ -733,25 +732,25 @@ function floorBody(view: Page): string {
  */
 function coreSection(view: Page, say: Speaker): Section {
   const { words, core } = view;
-  if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone[core.state]] };
+  if (core.kind === 'none') return { lines: [words.coreHeading, '', words.coreNone[core.state]] };
   const sources = (given: readonly string[]): string[][] => (given.length === 0 ? [] : [[factsLine([[words.sourcesLabel, valueList(given.map((source) => sourceLink(view, source, say)))]])]]);
   const noReason = [[factsLine([[words.reasonLabel, words.noReason]])]];
   if (core.kind === 'writer') {
     const { title, what, why, whyFrom, diagram } = core.core;
     const reason = why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.prose(why))}`], ...sources(whyFrom)];
     const drawn = diagram === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(diagram)];
-    return { part: 'core', lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, drawn, [words.coreWhoseWriter]) };
+    return { lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, drawn, [words.coreWhoseWriter]) };
   }
   const { title, change } = core;
   // The triage's title, account and reason are its recorded words, under its label once, as the notice after them says.
   const reason = change.why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.words(change.why))}`], ...sources(change.whyFrom)];
-  return { part: 'core', lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
+  return { lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
 
 /** The summary (R1): the writer's summary, the table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes. */
 function summarySection(view: Page, say: Speaker): Section {
   const written = view.summary === null ? [] : say.paragraphs(view.summary).map((paragraph) => [paragraph]);
-  return { part: 'summary', lines: blocks([view.words.summaryHeading], ...written, ...summaryFacts(view)) };
+  return { lines: blocks([view.words.summaryHeading], ...written, ...summaryFacts(view)) };
 }
 
 /** The table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes, as the summary and the floor give them. */
@@ -846,7 +845,7 @@ function needsSection(view: Page, say: Speaker): Section {
   const open = view.findings.some((finding) => (finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)) || (finding.departure !== null && finding.departure.review === null));
   const answer = items.length === 0 || !open ? [] : [answerLine(view, questions.length > 0, departures.length > 0)];
   const none = items.length === 0 ? [[factsLine([[words.questionsLabel, words.none], [words.departuresLabel, words.none], ...(looks.length > 0 ? [] : [[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged] as const])])]] : [];
-  return { part: 'needs', lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
+  return { lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
 }
 
 /** The notice of who answers a question or a departure and how, with the command and the flags of the kinds the review lists. */
@@ -905,7 +904,7 @@ function notExaminedSection(view: Page, say: Speaker): Section {
   const refutedLine = count === 0 ? [] : [cut ? `${factsLine([[words.refutedLabel, String(count)], [words.notListedLabel, String(count)]])} ${words.refutedCut}` : factsLine([[words.refutedLabel, String(count)]])];
   const items = [checks, ...(gaps.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : gaps.map((gap) => gapFacts(view, gap, say))), ...refutedLine].map((line) => `- ${line}`);
   const written = view.notExamined === null ? [] : say.paragraphs(view.notExamined).map((paragraph) => [paragraph]);
-  if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items) };
+  if (count === 0 || cut) return { lines: blocks([words.notExaminedHeading], ...written, items) };
   const entries = view.refuted.map(({ candidate, claim, why }) => {
     const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
     const place = location === null ? words.noPlace : locationLink(view, location);
@@ -913,7 +912,7 @@ function notExaminedSection(view: Page, say: Speaker): Section {
     const refutedBecause = why === null ? factsLine([[words.evidenceLabel, words.inReport]]) : `${words.refutedWhyLabel} ${sentenceText(say.prose(why))}`;
     return `- ${place}: ${said} ${refutedBecause}`;
   });
-  return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items, details(words.refutedSummary, entries)) };
+  return { lines: blocks([words.notExaminedHeading], ...written, items, details(words.refutedSummary, entries)) };
 }
 
 /** How the review worked (R3): what each role does, the counts of the run as a table, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
@@ -922,7 +921,7 @@ function howSection(view: Page): Section {
   const labels = words.counts;
   const table = factsTable([labels.candidates, labels.groups, labels.refuted, labels.kept, labels.merged, labels.findings], [[counts.candidates, counts.groups, counts.refuted, counts.kept, counts.merged, counts.findings].map(String)]);
   const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings, words.severityValues].join(' ');
-  return { part: 'how', lines: blocks([words.howHeading], [words.rolesNotice], table, [fenced(howDiagram(view))], [meanings]) };
+  return { lines: blocks([words.howHeading], [words.rolesNotice], table, [fenced(howDiagram(view))], [meanings]) };
 }
 
 /** The fixed diagram of how the review worked, its node texts from the table of words, with the pull request's number in the command that names the review. */
@@ -964,7 +963,7 @@ function findingLine(view: Page, finding: FindingView, say: Speaker): string {
 /** The major findings by area (R4): each area's title, intro and diagram, less what a cut takes, and one line for each of its findings. */
 function areasSection(view: Page, say: Speaker): Section {
   const { words } = view;
-  if (majorActing(view).length === 0) return { part: 'areas', lines: [words.areasHeading, '', words.noMajor] };
+  if (majorActing(view).length === 0) return { lines: [words.areasHeading, '', words.noMajor] };
   const diagrams = !view.leftOut.diagrams;
   // Once, since each call cleans the writer's titles and intros, and counts their secrets, again.
   const given = areasOf(view, say);
@@ -974,7 +973,7 @@ function areasSection(view: Page, say: Speaker): Section {
     return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
   });
   const cut = !diagrams && given.some((area) => area.diagram !== null);
-  return { part: 'areas', lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
+  return { lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
 }
 
 /** The block of a finding in full: its anchor, its heading, its title and the parts its comment would give (R1). */
@@ -1000,7 +999,7 @@ function inFullSection(view: Page, say: Speaker): Section {
   const blocksShown = shown.flatMap((finding, index) => [...(index === 0 ? [] : ['']), ...inFullBlock(view, finding, say)]);
   const list = items.length === 0 ? [] : [`${words.textsLeftLabel} ${words.textsLeftNotice}`, '', ...items.map((finding) => `- <a id="${findingAnchor(finding.finding.number)}"></a>${findingLine(view, finding, say)}`)];
   const count = unlisted === 0 ? [] : [`${factsLine([[words.notListedLabel, String(unlisted)]])} ${words.linesLeftNotice}`];
-  return { part: 'findings in full', lines: blocks(blocksShown, list, count) };
+  return { lines: blocks(blocksShown, list, count) };
 }
 
 
@@ -1008,7 +1007,7 @@ function inFullSection(view: Page, say: Speaker): Section {
 function minorSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const minor = minorActing(view);
-  if (minor.length === 0) return { part: 'minor', lines: [] };
+  if (minor.length === 0) return { lines: [] };
   const user = minor.filter((finding) => finding.kind === 'user').length;
   const code = minor.filter((finding) => finding.kind === 'code').length;
   // A finding whose kind the writer did not give is counted apart, as its row says, not with the code.
@@ -1016,7 +1015,7 @@ function minorSection(view: Page, say: Speaker): Section {
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
   const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...(none === 0 ? [] : [[labels.none, String(none)] as const]), [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
-  if (view.leftOut.minorTable) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
+  if (view.leftOut.minorTable) return { lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
@@ -1026,7 +1025,7 @@ function minorSection(view: Page, say: Speaker): Section {
     const facts = decided.length + asked.length === 0 ? [] : [factsLine([...decided, ...asked])];
     return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? 'none'], verdictText(view, finding), [...(action === null ? [] : [action]), ...facts].join(' ')];
   });
-  return { part: 'minor', lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
+  return { lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
 
 /**
@@ -1043,12 +1042,12 @@ function minorSection(view: Page, say: Speaker): Section {
 function leftSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const left = leftAsIs(view);
-  if (left.length === 0) return { part: 'left as is', lines: [] };
+  if (left.length === 0) return { lines: [] };
   const shown = left.filter((finding) => shownAs(view, finding) === 'block');
   const others = left.length - shown.length;
   const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
-  if (shown.length === 0) return { part: 'left as is', lines: blocks([words.leftHeading], cutNotice) };
-  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map((finding) => leftBlock(view, finding, say))), cutNotice) };
+  if (shown.length === 0) return { lines: blocks([words.leftHeading], cutNotice) };
+  return { lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map((finding) => leftBlock(view, finding, say))), cutNotice) };
 }
 
 /** The block of a finding left as is in its section (R2 of the review in the writer's words; R4 of the settled choice). */
@@ -1179,7 +1178,7 @@ function trustSection(view: Page): Section {
     const answered = [...standingAnswers(view.review).keys()].map((id) => view.brief.numbers.get(id)!);
     if (answered.length > 0) notes.push([factsLine([[words.answeredAfterLabel, findingRefs(view, [...new Set(answered)].sort((a, b) => a - b))]])]);
   }
-  return { part: 'trust', lines: blocks([words.trustHeading], ...trustTables(view), [candidates], ...notes) };
+  return { lines: blocks([words.trustHeading], ...trustTables(view), [candidates], ...notes) };
 }
 
 /** The tables of the verdicts, with how many of the major CONFIRMED ones were reproduced by running, and of how the findings were checked, as how far to trust the review and the floor give them; none for a run with no finding. */
@@ -1201,7 +1200,6 @@ function lastSection(view: Page, say: Speaker): Section {
   const { configuration } = view.review;
   const labels = view.words.lastLabels;
   return {
-    part: 'last line',
     lines: [
       factsLine([
         [labels.engine, `deep-review ${inlineText(view.input.engine)}`],
@@ -1223,10 +1221,10 @@ function lastSection(view: Page, say: Speaker): Section {
  * area, the findings in full, the minor findings, the findings left as is,
  * how far to trust the review and the last line.
  */
-function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly CommentLeftOut[], cache: Map<string, Cleaned>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
+function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly CommentLeftOut[], cache: Map<string, Cleaned>): { readonly text: string; readonly secrets: number } {
   const say = speakerOf(view.input.machine, view.words, view.names, cache);
   const page: Page = { ...view, leftOut, commentsLeftOut };
-  if (leftOut.floor) return { sections: [], text: floorBody(page), secrets: 0 };
+  if (leftOut.floor) return { text: floorBody(page), secrets: 0 };
   const sections = [
     headingSection(page),
     coreSection(page, say),
@@ -1241,7 +1239,7 @@ function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly 
     trustSection(page),
     lastSection(page, say),
   ].filter((section) => section.lines.length > 0);
-  return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
+  return { text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
 }
 
 
