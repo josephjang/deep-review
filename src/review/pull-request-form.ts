@@ -228,23 +228,34 @@ const headUrl = (view: FormView, location: FindingLocation): string => blobUrl(v
 /** A location as a link to its line at the head, its text on one line whatever line break its path holds. */
 const locationLink = (view: FormView, location: FindingLocation): string => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
 
+/** The forms a finding takes in a body, as `shownAs` gives them. */
+type ShownAs = 'block' | 'item' | 'line' | 'none';
+
 /**
- * Whether the body holds the anchor of a finding it places in the body
- * (R6 of the review that always posts): a finding left as is that is
- * still listed, and a finding in full whose block or item is still there,
- * which a major finding loses with its text and a minor one with its line.
+ * The form a finding takes under what is left out (R2, R6 of the review
+ * that always posts), which the link to it, the section that lists it, its
+ * line and the notice that a model wrote the sentences all read: `block`,
+ * its block with its anchor, which a finding on its line has in its
+ * comment; `item`, a minor finding in full whose text left, as an item
+ * with its anchor and its line; `line`, a major finding in full whose text
+ * left, as its line in its area with no anchor; `none`, a finding the body
+ * no longer holds, a finding left as is that a `left` step took, a minor
+ * finding whose line left, and every finding at the floor.
  */
-function anchored(view: Page, finding: FindingView): boolean {
-  if (view.leftOut.floor) return false;
+function shownAs(view: Page, finding: FindingView): ShownAs {
+  if (view.leftOut.floor) return 'none';
   const { id } = finding.finding;
-  if (!acts(finding)) return !takes(view.leftOut, id, 'left');
-  return isMinor(finding) ? !takes(view.leftOut, id, 'line') : !takes(view.leftOut, id, 'text');
+  if (!acts(finding)) return takes(view.leftOut, id, 'left') ? 'none' : 'block';
+  if (!takes(view.leftOut, id, 'text')) return 'block';
+  if (!isMinor(finding)) return 'line';
+  return takes(view.leftOut, id, 'line') ? 'none' : 'item';
 }
 
-/** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block in the body; none for a finding the body no longer holds. */
+/** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block or item in the body; none for a finding whose anchor the body no longer holds. */
 const hrefOf = (view: Page, finding: FindingView): string | null => {
   if (finding.placement.place === 'line') return headUrl(view, finding.placement.location);
-  return anchored(view, finding) ? `#${findingAnchor(finding.finding.number)}` : null;
+  const shown = shownAs(view, finding);
+  return shown === 'block' || shown === 'item' ? `#${findingAnchor(finding.finding.number)}` : null;
 };
 
 /** The marks after a finding's verdict: no verifier examined it. */
@@ -945,7 +956,8 @@ function findingLine(view: Page, finding: FindingView, say: Speaker): string {
   const action = actionText(view, finding, say);
   const facts = factsLine([[words.verdictLabel, verdictText(view, finding)], [words.decisionLabel, words.decisionValues[decisionValue(finding)]], ...(finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)] as const])]);
   // A finding whose text is left out gets the command that prints it after its line (R2, R6 of the review that always posts).
-  const command = takes(view.leftOut, finding.finding.id, 'text') ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])] : [];
+  const shown = shownAs(view, finding);
+  const command = shown === 'item' || shown === 'line' ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])] : [];
   return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...(action === null ? [] : [action]), ...command].join(' ');
 }
 
@@ -980,11 +992,11 @@ function inFullBlock(view: Page, finding: FindingView, say: Speaker): string[] {
  * finding whose text was left out keeps its line in its area.
  */
 function inFullSection(view: Page, say: Speaker): Section {
-  const { words, leftOut } = view;
+  const { words } = view;
   const full = view.findings.filter(inFull);
-  const shown = full.filter((finding) => !takes(leftOut, finding.finding.id, 'text'));
-  const items = full.filter((finding) => isMinor(finding) && leftOut.findings.get(finding.finding.id) === 'text');
-  const unlisted = full.filter((finding) => takes(leftOut, finding.finding.id, 'line')).length;
+  const shown = full.filter((finding) => shownAs(view, finding) === 'block');
+  const items = full.filter((finding) => shownAs(view, finding) === 'item');
+  const unlisted = full.filter((finding) => shownAs(view, finding) === 'none').length;
   const blocksShown = shown.flatMap((finding, index) => [...(index === 0 ? [] : ['']), ...inFullBlock(view, finding, say)]);
   const list = items.length === 0 ? [] : [`${words.textsLeftLabel} ${words.textsLeftNotice}`, '', ...items.map((finding) => `- <a id="${findingAnchor(finding.finding.number)}"></a>${findingLine(view, finding, say)}`)];
   const count = unlisted === 0 ? [] : [`${factsLine([[words.notListedLabel, String(unlisted)]])} ${words.linesLeftNotice}`];
@@ -1032,7 +1044,7 @@ function leftSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: 'left as is', lines: [] };
-  const shown = left.filter((finding) => !takes(view.leftOut, finding.finding.id, 'left'));
+  const shown = left.filter((finding) => shownAs(view, finding) === 'block');
   const others = left.length - shown.length;
   const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
   if (shown.length === 0) return { part: 'left as is', lines: blocks([words.leftHeading], cutNotice) };
@@ -1113,7 +1125,7 @@ function postsWriterText(view: Page): boolean {
     || view.notExamined !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!view.leftOut.refuted && view.refuted.some((line) => line.claim !== null || line.why !== null))
-    || leftAsIs(view).some((finding) => finding.left !== null && !takes(view.leftOut, finding.finding.id, 'left'))
+    || leftAsIs(view).some((finding) => finding.left !== null && shownAs(view, finding) === 'block')
     || view.findings.some((finding) => postsNeedsText(finding) || (acts(finding) && postsFindingText(view, finding)));
 }
 
@@ -1139,8 +1151,9 @@ const postsNeedsText = (finding: FindingView): boolean => (finding.decision?.dec
 function postsFindingText(view: Page, finding: FindingView): boolean {
   const { id } = finding.finding;
   if (finding.placement.place === 'line') return !view.commentsLeftOut.some((comment) => comment.finding === id && comment.piece === 'text') && (finding.written !== null || (finding.explained.kind === 'unexplained' && finding.explained.reason !== null));
-  if (finding.written !== null) return !isMinor(finding) || !takes(view.leftOut, id, 'line');
-  return finding.explained.kind === 'unexplained' && finding.explained.reason !== null && !takes(view.leftOut, id, 'text');
+  const shown = shownAs(view, finding);
+  if (finding.written !== null) return shown !== 'none';
+  return finding.explained.kind === 'unexplained' && finding.explained.reason !== null && shown === 'block';
 }
 
 /**
