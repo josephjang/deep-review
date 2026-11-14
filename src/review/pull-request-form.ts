@@ -638,22 +638,27 @@ function leftOutNotice(view: Page): string[] {
   const { words, leftOut } = view;
   const whole = (['minor-table', 'refuted', 'diagrams'] as const satisfies readonly WholePiece[]).filter((piece) => (piece === 'minor-table' ? leftOut.minorTable : piece === 'refuted' ? leftOut.refuted : leftOut.diagrams));
   const states = [...leftOut.findings.values()];
-  const counts: Readonly<Record<Exclude<LeftOutKind, 'whole'>, number>> = {
+  const counts: Readonly<Record<Exclude<LeftOutKind, 'whole' | 'commentRecords' | 'commentTexts'>, number>> = {
     records: states.filter((state) => state === 'record').length,
     left: states.filter((state) => state === 'left').length,
     texts: states.filter((state) => state === 'text').length,
     lines: states.filter((state) => state === 'line').length,
-    commentRecords: view.commentsLeftOut.filter((comment) => comment.piece === 'record').length,
-    commentTexts: view.commentsLeftOut.filter((comment) => comment.piece === 'text').length,
   };
-  const counted = (Object.keys(counts) as (keyof typeof counts)[]).filter((kind) => counts[kind] > 0);
+  const counted = [...(Object.keys(counts) as (keyof typeof counts)[]).filter((kind) => counts[kind] > 0).map((kind) => [words.leftOutLabels[kind], String(counts[kind])] as const), ...commentCounts(view)];
   if (whole.length === 0 && counted.length === 0) return [];
   const facts = factsLine([
     ...(whole.length === 0 ? [] : [[words.leftOutLabels.whole, valueList(whole.map((piece) => words.wholePieces[piece]))] as const]),
-    ...counted.map((kind) => [words.leftOutLabels[kind], String(counts[kind])] as const),
+    ...counted,
     [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))],
   ]);
   return [`${words.leftOutNotice} ${facts}`];
+}
+
+/** The count of the comments that lost their record and of those that lost their text, each under its label and only when above zero, as the notice under the heading and the floor give them (R6, R7 of the review that always posts). */
+function commentCounts(view: Page): (readonly [string, string])[] {
+  const { words } = view;
+  const counts = [[words.leftOutLabels.commentRecords, 'record'], [words.leftOutLabels.commentTexts, 'text']] as const;
+  return counts.map(([label, piece]) => [label, view.commentsLeftOut.filter((comment) => comment.piece === piece).length] as const).filter(([, count]) => count > 0).map(([label, count]) => [label, String(count)] as const);
 }
 
 /**
@@ -679,8 +684,7 @@ function leftOutNotice(view: Page): string[] {
  */
 function floorBody(view: Page): string {
   const { words } = view;
-  const comments = (['record', 'text'] as const).map((piece) => [piece === 'record' ? words.leftOutLabels.commentRecords : words.leftOutLabels.commentTexts, view.commentsLeftOut.filter((comment) => comment.piece === piece).length] as const).filter(([, count]) => count > 0);
-  const notice = `${words.floorNotice} ${factsLine([...comments.map(([label, count]) => [label, String(count)] as const), [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))]])}`;
+  const notice = `${words.floorNotice} ${factsLine([...commentCounts(view), [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))]])}`;
   const questions = view.findings.filter((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)).length;
   const departures = view.findings.filter((finding) => finding.departure !== null && finding.departure.review === null).length;
   const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
