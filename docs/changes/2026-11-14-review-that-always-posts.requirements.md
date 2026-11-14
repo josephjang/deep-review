@@ -123,7 +123,7 @@ The order follows what a text is worth to the reader, which is what the reader l
 | 6 | The text in full of each fix with no line in the diff | The line of the finding and the command that prints it | The line still says what deep-review would do |
 | 7 | The line of each such finding | Their count as not listed | The counts of the summary still hold the finding, and a major one keeps its line in its area |
 | 8 | The record of the decision of each finding that waits on a person | As row 2 | The question, the departure or the choice that no one settled stays in view; the record is the decider's words behind it |
-| 9 | The text in full of each finding that waits on a person, or its place among the findings left as is | As rows 4 and 6 | What a person must decide is the last text of a finding to go |
+| 9 | Each finding left as is that waits on a person | Their count as not listed | Its choice is one that no one settled, on a finding that changes nothing in the code |
 | 10 | Everything but the floor | The floor (R5) | Nothing less fits |
 
 Rows 2, 4, 6, 7, 8 and 9 take one finding at a time (R3). Rows 1, 3 and 5 take their piece whole.
@@ -134,7 +134,7 @@ A row that names "each finding" takes the piece of one finding, checks whether t
 
 ### R4: What waits on a person is the last to go
 
-A finding that waits on a person is skipped by rows 2, 4, 6 and 7. Its record, its text in full and its place among the findings left as is stay until every other finding has lost all that those rows take. Only then do rows 8 and 9 take from it what rows 2, 4 and 6 take from the others: first the record of each such finding, the last-ranked first, then its text. A question and a fix against a written rule keep their line, and their item in what needs a person, until the floor. A choice that a verifier named and the decision did not settle is not part of the record that row 8 takes: it stays in view under its finding, labeled as the verifier's, with the statement that deep-review did not settle it, until the finding itself leaves. So a question, a fix against a written rule and a choice that no one settled are the last texts of findings that the review loses.
+A finding that waits on a person is skipped by rows 2, 4, 6 and 7. Its record, its text in full and its place among the findings left as is stay until every other finding has lost all that those rows take. Only then does row 8 take the record of each such finding, the last-ranked first, and row 9 the findings left as is among them. A question and a fix against a written rule keep their text in full, and their item in what needs a person, until the floor: the text of a question holds its options with the cost of each, and a person cannot answer from its line alone. A choice that a verifier named and the decision did not settle is not part of the record that row 8 takes: it stays in view under its finding, labeled as the verifier's, with the statement that deep-review did not settle it, until the finding itself leaves. So a question, a fix against a written rule and a choice that no one settled are the last texts of findings that the review loses.
 
 This replaces the rule that a cut keeps every finding left as is whose verifier named a choice ([R4 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r4-the-form-places-each-finding-by-its-decision-alone)). A finding left as is whose choices the decision settled waits on no one, so its record leaves in row 2 and the finding in row 4, like any other. One whose verifier named a choice that the decision did not settle waits on a person and is kept as this requirement says.
 
@@ -148,7 +148,7 @@ A review with any piece left out says so in one notice directly under its headin
 
 ### R7: A comment that does not fit is posted with less
 
-A comment over the limit is posted without the record of its decision. When it is still over the limit, it is posted with the finding's number, its facts, the notice that its text did not fit, and the command that prints the finding, which always fits. A comment is fitted alone: its size changes neither the body nor another comment, and the notice of R6 in the body counts each comment that lost a piece.
+A comment over the limit is posted without the record of its decision. When it is still over the limit, it is posted with the finding's number, its facts, the notice that its text did not fit, and the command that prints the finding, which always fits. A comment is fitted alone: its size changes neither the body nor another comment, and the notice of R6 in the body counts each comment that lost a piece. The last form of a comment is the one place outside the floor where the review can hide what a person must decide, the options of a question or the rule of a departure on its line. Such a finding stays listed in what needs a person, with the command that answers it.
 
 ### R8: A review that fits is unchanged
 
@@ -244,7 +244,7 @@ The settled choice shows each verifier's choice beside the decision that settles
 
 ### Principles 5 and 6, the core first, easy to understand with little context
 
-The core of the change, the questions, the departures and what the review did not examine are the last to go, and a review that is too long now reaches the reader with all of them, where today it reaches the reader with none. The proposal departs from principle 5 in one case: the floor leaves the text of the core, of each question and of each departure out of the review, which the note counts against a proposal. The reason is that nothing else of such a run can be posted, and a floor that counts the questions and names the command is more than no review. No run on record comes near the floor (PD9).
+The core of the change, the questions, the departures and what the review did not examine are the last to go, and a review that is too long now reaches the reader with all of them, where today it reaches the reader with none. The proposal departs from principle 5 in two cases, which the note counts against a proposal. The floor leaves the text of the core, of each question and of each departure out of the review. And the last form of a comment (R7) leaves out the options of a question, or the rule of a departure, whose comment alone is over the limit, so that a person can answer it only after reading the report, which principle 6 does not permit. The reason is the same for both: nothing else of such a run, or of such a comment, can be posted, and a count with the command that answers is more than no review. No run on record comes near either: the parts that stay until the floor took about 17,400 characters in the review of #135 (PD9), and the longest comment on record is 6,386 characters.
 
 ### Principle 8, say what was not examined, and when a person must look
 
@@ -260,7 +260,7 @@ R11 is the gate: the run that showed the failure, a real post near the limit, an
 
 ### How to use this document
 
-The proposal does not increase what a person must read. It hides the core, a question or a departure only in the floor, which the section on principles 5 and 6 names. It makes no question block a run.
+The proposal does not increase what a person must read. It hides the core, a question or a departure only in the floor and in the last form of a comment, which the section on principles 5 and 6 names. It makes no question block a run.
 
 ## Risks
 
