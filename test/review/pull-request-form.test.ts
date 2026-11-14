@@ -296,7 +296,7 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
       '',
       'Candidates: 5. Refuted: 1.',
       '',
-      'A model wrote the sentences of this review from the verifiers\' evidence, which the report of the run holds, and from deep-review\'s decisions; only that evidence was verified. Every count, verdict, severity, status, link and command is deep-review\'s own record.',
+      'A model wrote the sentences of this review from the verifiers\' evidence, which the report of the run holds, and from deep-review\'s decisions; only that evidence was verified. The tables and the labeled values are deep-review\'s own record, and where a sentence differs from them, the tables and values stand.',
       '',
       'Parts of the writer\'s answer this review lacks: the core of the change, the areas, the refuted candidates, what the review did not examine, [Finding 2](#finding-2).',
       '',
@@ -350,6 +350,19 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     includes(trustOf(nothingKept, { ...empty, summary: 'A summary.' }), 'A model wrote the sentences');
     includes(trustOf(nothingKept, { ...empty, refuted: [{ id: 'RIPPLE-2', claim: 'A cache entry outlives a logout.', why: 'Logout clears the cache first.' }] }), 'A model wrote the sentences');
     includes(trustOf(nothingKept, { ...empty, notExamined: 'Nothing was left out.' }), 'A model wrote the sentences');
+  });
+
+  it('says in the notice, in each language, that the tables and labeled values are the record and stand where a sentence differs, not that every count is (R7)', () => {
+    const stands = { en: 'where a sentence differs from them, the tables and values stand', ko: '문장이 그와 다를 때는 표와 값이 기준입니다' } as const;
+    for (const language of ['en', 'ko'] as const) {
+      const words = pullRequestWordTables[language];
+      const history = withSettings(run(answerableDecisions(), explanation(worker(60))), { 'review.language': language }, { 'review.language': 'repository' });
+      const trust = section(formOf(withReportForm(history).fold(), writerAnswer()).body, words.trustHeading);
+      includes(trust, words.modelNotice);
+      includes(words.modelNotice, stands[language]);
+    }
+    excludes(pullRequestWordTables.en.modelNotice, 'Every count');
+    excludes(pullRequestWordTables.ko.modelNotice, '모든 수');
   });
 
   it('names each part of the writer\'s answer that the checks dropped, in each language', () => {
