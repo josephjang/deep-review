@@ -1111,6 +1111,14 @@ describe('the checks of the core of the change and of the conditions', () => {
 const goodCored = (core: Core = goodCore(), conditions: ConditionSentence[] = [explained('public-interface')]): WriterOutputV3 => ({ ...goodReport(), core, conditions });
 const checkCored = (output: WriterOutputV3) => checkAnswer(output, { ids: ['RIPPLE-1', 'SWEEP-1'], lineCount: fakeLines, report, core: coreInput });
 
+describe('the checks of an answer of version 3, as recorded runs were checked', () => {
+  it('holds no text to the rule of an escaped line break, which version 4 alone has', () => {
+    const escaped = goodCored(goodCore({ what: 'It lets parse() take an empty input.\\nIt returns null.' }));
+    const checked = checkCored({ ...escaped, conclusion: { ...escaped.conclusion, why: `${escaped.conclusion.why}\\n` }, refuted: escaped.refuted.map((line) => ({ ...line, why: `${line.why}\\n` })) });
+    assert.deepEqual([checked.core?.failures, checked.conclusion.failures, checked.refuted?.failures], [[], [], []]);
+  });
+});
+
 describe('the merge of answers of version 3 (TD2 of the core of the change on the pull request)', () => {
   it('takes the core and the conditions each from the first answer that passed it, and drops each that no answer passed alone', () => {
     const coreFails = goodCored(goodCore({ title: '' }));

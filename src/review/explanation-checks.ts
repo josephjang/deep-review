@@ -165,6 +165,22 @@ function verdictFailures(what: string, texts: readonly string[]): string[] {
 
 const blank = (text: string): boolean => text.trim() === '';
 
+/** A code span of Markdown: a whole run of backticks, then the text to the next run of as many, in which a writer quotes code as it is. */
+const codeSpans = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
+
+/**
+ * The failure of the texts of a part of an answer of version 4 that hold
+ * an escaped line break, the two characters backslash and n, outside a
+ * code span (TD8 of the review in the writer's words): GitHub shows them
+ * as they are. A diagram is never given here, since a diagram, like code,
+ * may hold them as they are.
+ */
+function escapedBreakFailures(what: string, texts: readonly string[]): string[] {
+  return texts.some((text) => text.replaceAll(codeSpans, '').includes('\\n'))
+    ? [`${what} holds the two characters \\n outside a code span, which GitHub shows as they are; write a real line break where a line or paragraph should end, and put the characters in a code span where they are code`]
+    : [];
+}
+
 /** An HTML entity, named or numbered, which GitHub decodes before Mermaid reads a diagram. */
 const htmlEntity = /&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g;
 
@@ -717,16 +733,16 @@ export interface CheckedAnswerV4 {
   readonly strays: readonly string[];
 }
 
-/** One text of the writer that stands alone, the summary or what the review did not examine, checked: said, and with no verdict of the review. */
+/** One text of the writer that stands alone, the summary or what the review did not examine, checked: said, with no verdict of the review and no escaped line break. */
 function checkText(what: string, text: string): string[] {
-  return [...(blank(text) ? [`${what} is empty`] : []), ...verdictFailures(what, [text])];
+  return [...(blank(text) ? [`${what} is empty`] : []), ...verdictFailures(what, [text]), ...escapedBreakFailures(what, [text])];
 }
 
 /**
  * The findings left as is checked (R2, PD10 of the review in the writer's
  * words; OQ4 of its design): one entry for each ranked finding that does
- * not act and for no other id, each with a title and a reason, and no
- * verdict.
+ * not act and for no other id, each with a title and a reason, no
+ * verdict and no escaped line break.
  */
 function checkLeft(lines: readonly LeftLine[], leftIds: readonly string[], acting: readonly string[]): string[] {
   const { missing, repeated, stray } = idCoverage(lines.map((line) => line.id), leftIds);
@@ -738,6 +754,7 @@ function checkLeft(lines: readonly LeftLine[], leftIds: readonly string[], actin
       ...(blank(line.title) ? [`the entry for ${line.id} left as is has no title`] : []),
       ...(blank(line.why) ? [`the entry for ${line.id} left as is says not why deep-review leaves it`] : []),
       ...verdictFailures(`the entry for ${line.id} left as is`, [line.title, line.why]),
+      ...escapedBreakFailures(`the entry for ${line.id} left as is`, [line.title, line.why]),
     ]),
   ];
 }
@@ -803,10 +820,15 @@ type FindingEntryV4 = WriterOutputV4['findings'][number];
  * to no verdict of the review but `unconfirmed`, whose subject is why a
  * PLAUSIBLE verdict is not CONFIRMED, and beside which the review shows
  * the verdict of the ledger (TD8 of the review in the writer's words).
+ * Every text it posts, `unconfirmed` and the reason of an unexplained
+ * finding too, is held to no escaped line break.
  */
 function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCount: AnswerCheckInput['lineCount'], major: boolean, facts: DecisionFacts): CheckedPart<FindingExplanationV4> {
   const entry = singleEntry(id, entries);
-  if ('settled' in entry) return entry.settled;
+  if ('settled' in entry) {
+    const { settled } = entry;
+    return settled.value === null ? settled : { value: settled.value, failures: [...settled.failures, ...escapedBreakFailures(`the reason ${id} is unexplained`, [settled.value.reason])] };
+  }
   const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = entry.explanation;
   // A minor finding's comment posts no case, diagram or check of its own, so those cannot drop it, as in version 2.
   const posted = major;
@@ -831,6 +853,7 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
     ...(!facts.unconfirmed && unconfirmed !== null && blank(unconfirmed) ? [`${id} gives an empty unconfirmed; give null, since its verdict records no reason it is not confirmed`] : []),
     ...(!facts.unconfirmed && unconfirmed !== null && !blank(unconfirmed) ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : []),
     ...verdictFailures(`the explanation of ${id}`, [title, problem, action, postedDiagram ?? '', postedChecked ?? '', ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
+    ...escapedBreakFailures(`the explanation of ${id}`, [title, problem, action, postedChecked ?? '', unconfirmed ?? '', ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
     ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram),
   ];
   return { value: { id, unexplained: false, title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask }, failures };
@@ -841,8 +864,9 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
  * TD8 of the review in the writer's words): each part of version 3 that
  * it keeps as version 3 checks it; the summary and what the review did
  * not examine said, with no verdict; each finding to explain against its
- * decision; and one entry of `left` for each finding left as is. No
- * check holds a text to a length (TD7) or to a form (TD8).
+ * decision; and one entry of `left` for each finding left as is. Every
+ * text but a diagram is held to no escaped line break, which version 3
+ * is not. No check holds a text to a length (TD7) or to a form (TD8).
  */
 export function checkAnswerV4(output: WriterOutputV4, input: AnswerCheckInputV4): CheckedAnswerV4 {
   const entries = new Map(input.ids.map((id): [string, FindingEntryV4[]] => [id, []]));
@@ -858,14 +882,15 @@ export function checkAnswerV4(output: WriterOutputV4, input: AnswerCheckInputV4)
     if (given === undefined) throw new Error(`Finding ${id} to explain has no decision that asks a person to act`);
     return given;
   };
+  const { core, conditions, areas, refuted } = output;
   return {
-    core: { value: output.core, failures: checkCore(output.core, input.core) },
-    conditions: { value: output.conditions, failures: checkConditions(output.conditions, input.core.held) },
+    core: { value: core, failures: [...checkCore(core, input.core), ...escapedBreakFailures('the core', [core.title, core.what, core.why ?? ''])] },
+    conditions: { value: conditions, failures: [...checkConditions(conditions, input.core.held), ...conditions.flatMap((entry) => escapedBreakFailures(`the entry for ${entry.condition}`, [entry.explanation ?? '', entry.unexplained ?? '']))] },
     conclusion: { value: output.summary, failures: checkText('the summary', output.summary) },
-    areas: { value: output.areas, failures: checkAreas(output.areas, input.ids, major) },
+    areas: { value: areas, failures: [...checkAreas(areas, input.ids, major), ...areas.flatMap((area, index) => escapedBreakFailures(`area ${String(index + 1)}`, [area.title, area.intro]))] },
     findings: new Map(input.ids.map((id) => [id, checkFindingV4(id, entries.get(id)!, input.lineCount, major.includes(id), facts(id))])),
     left: { value: output.left, failures: checkLeft(output.left, input.left, input.ids) },
-    refuted: { value: output.refuted, failures: checkRefuted(output.refuted, refutedIds) },
+    refuted: { value: refuted, failures: [...checkRefuted(refuted, refutedIds), ...refuted.flatMap((line) => escapedBreakFailures(`the refuted line for ${line.id}`, [line.claim, line.why]))] },
     notExamined: { value: output.notExamined, failures: checkText('what the review did not examine', output.notExamined) },
     strays,
   };
